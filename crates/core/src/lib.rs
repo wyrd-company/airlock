@@ -8,6 +8,7 @@
 //! Everything in this crate is read-only by construction. Airlock never
 //! mutates a repository it audits.
 
+pub mod auth;
 pub mod checks;
 pub mod error;
 pub mod findings;
