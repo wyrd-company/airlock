@@ -13,7 +13,7 @@ Run `task check` before pushing; it is what CI runs. Everything else is in
 **No writes, ever.** No endpoint that mutates, no credential that could. This
 holds for the tool and for the tooling around it: never shell out to `git` or
 `gh` from the binary, and never add a dependency that does. Airlock speaks the
-GitHub REST and GraphQL APIs directly.
+GitHub REST API directly.
 
 **No ambient credentials.** `GH_TOKEN`, `GITHUB_TOKEN`, the `gh` credential
 store, and git credential helpers are off limits as sources and must not be
@@ -25,7 +25,7 @@ not a warning path. Adding a token prefix means adding the introspection that
 proves it read-only, or refusing it.
 
 **Check identity is compiled in.** Rule ids, statements, and default severities
-live in the registry in `crates/core/src/checks.rs`, not in policy files. A
+live in the registry in `crates/core/src/registry.rs`, not in policy files. A
 policy selects, parameterises, and re-grades; it cannot define a check or
 express a predicate. If a policy needs to say something the checks cannot, the
 answer is a new check.
@@ -52,5 +52,9 @@ The rules airlock checks come from the `repository-standards` conformance
 document, which is the source of truth for their wording and severity — the
 registry mirrors it, and drift is resolved in favour of the document.
 
-Design context lives in memory and in the kanban task, not in this repository;
-there is no `docs/` tree yet.
+`docs/examples/` holds candidate copies of files that belong elsewhere — the
+organisation policy and its topic vocabulary live in `wyrd-company/.github`
+once an operator moves them. An integration test compiles the candidate policy
+against the compiled registry, so it cannot rot in place.
+
+Wider design context lives in memory and in the kanban task, not here.
