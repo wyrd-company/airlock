@@ -1,0 +1,62 @@
+version: "3"
+
+# The same verb means the same thing in every repository.
+#
+#   build    produce the artifact          (applicable: airlock is a binary)
+#   test     run the full test suite       (always)
+#   lint     static analysis, non-mutating (always)
+#   format   apply formatting, mutating    (always)
+#   check    everything CI runs            (always)
+#   dev      run locally with hot reload   (not applicable)
+#
+# dev is deliberately absent. airlock is a batch command line tool with no
+# server and no watch loop; `cargo run` is the whole development loop.
+
+tasks:
+  default:
+    desc: List available tasks
+    cmds:
+      - task --list
+    silent: true
+
+  build:
+    desc: Produce the airlock binary
+    cmds:
+      - cargo build --workspace
+
+  test:
+    desc: Run the full test suite
+    cmds:
+      - cargo test --workspace
+
+  lint:
+    desc: Static analysis and a formatting check, both non-mutating
+    cmds:
+      - cargo fmt --all -- --check
+      - cargo clippy --workspace --all-targets -- -D warnings
+
+  format:
+    desc: Apply formatting
+    cmds:
+      - cargo fmt --all
+
+  msrv:
+    desc: Test against the committed lockfile, for the minimum supported toolchain
+    cmds:
+      - cargo test --workspace --locked
+
+  lint:commit-msg:
+    desc: Validate a conventional commit subject
+    silent: true
+    cmds:
+      # The subject arrives as a shell-quoted argument, so a title containing
+      # quotes or metacharacters is data rather than script.
+      - sh scripts/check-commit-subject.sh {{.CLI_ARGS}}
+
+  check:
+    desc: Everything CI runs — the one command to run before pushing
+    cmds:
+      - task: lint
+      - task: test
+      - task: build
+      - task: msrv

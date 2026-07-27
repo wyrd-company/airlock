@@ -1,0 +1,72 @@
+name: Reconcile settings
+
+# Agents propose, deterministic workflows dispose. The declared state in
+# .github/repo-settings.yml is applied here, by a workflow holding the
+# credential — never by an agent calling the API.
+#
+# Runs only on the default branch, which the ruleset already gates behind an
+# approved pull request. Fork pull requests receive no secrets.
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/repo-settings.yml
+  workflow_dispatch: {}
+
+permissions: {}
+
+concurrency:
+  group: reconcile-settings
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    name: Apply declared settings
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - id: token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ vars.REPO_SETTINGS_APP_ID }}
+          private-key: ${{ secrets.REPO_SETTINGS_APP_PRIVATE_KEY }}
+          repositories: ${{ github.event.repository.name }}
+
+      - name: Apply
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          settings=.github/repo-settings.yml
+          fail() { echo "::error file=$settings::$1"; exit 1; }
+          [ -f "$settings" ] || fail "required file is missing"
+          # There is no visibility field by design. Publishing a repository is
+          # unrecoverable — history, secrets in history, and forks all escape
+          # the moment it flips — so it stays a deliberate manual act.
+          declares_visibility=$(yq -r 'has("visibility")' "$settings")
+          vis_msg="visibility is not reconciled; publish with 'gh repo edit --visibility'"
+          [ "$declares_visibility" = "false" ] || fail "$vis_msg"
+          read_field() { yq -r "$1" "$settings"; }
+          args=()
+          args+=(-f "description=$(read_field '.description')")
+          args+=(-F "allow_squash_merge=$(read_field '.merge.squash')")
+          args+=(-F "allow_rebase_merge=$(read_field '.merge.rebase')")
+          args+=(-F "allow_merge_commit=$(read_field '.merge.merge_commit')")
+          args+=(-F "delete_branch_on_merge=$(read_field '.merge.delete_branch_on_merge')")
+          args+=(-F "has_wiki=$(read_field '.features.wiki')")
+          args+=(-F "has_projects=$(read_field '.features.projects')")
+          args+=(-F "has_discussions=$(read_field '.features.discussions')")
+          # The API rejects an unknown field rather than ignoring it, so a typo
+          # in the declared file fails here instead of silently doing nothing.
+          gh api -X PATCH "repos/$REPO" "${args[@]}" --silent
+          # Topics replace wholesale, so a removed topic is actually removed.
+          topics=$(yq -o=json '{"names": .topics}' "$settings")
+          printf '%s' "$topics" | gh api -X PUT "repos/$REPO/topics" --input - --silent
