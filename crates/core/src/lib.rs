@@ -9,13 +9,13 @@
 //! mutates a repository it audits.
 
 pub mod auth;
-pub mod checks;
 pub mod error;
 pub mod findings;
 pub mod github;
 pub mod limits;
 pub mod policy;
 pub mod registry;
+pub mod snapshot;
 pub mod yaml;
 
 pub use error::{Error, Result};
