@@ -974,3 +974,35 @@ async fn two_scope_headers_are_refused_with_the_unsafe_value_first() {
         .unwrap_err();
     assert_eq!(refusal.code, "duplicate_scope_header");
 }
+
+#[tokio::test]
+async fn a_response_that_never_arrives_is_abandoned_at_the_request_timeout() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/repos/owner/name"))
+        .respond_with(
+            quota_headers(ResponseTemplate::new(200))
+                .set_body_json(json!({ "id": 1 }))
+                // Far longer than the timeout below: without one, this request
+                // would simply wait.
+                .set_delay(Duration::from_secs(30)),
+        )
+        .mount(&server)
+        .await;
+
+    let client = client_with(
+        &server,
+        RestClientConfig {
+            request_timeout: Duration::from_millis(100),
+            connect_timeout: Duration::from_millis(100),
+            ..RestClientConfig::default()
+        },
+    );
+    let started = std::time::Instant::now();
+    let error = client.repository("owner", "name").await.unwrap_err();
+    assert_eq!(error.cause, ErrorCause::Budget);
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "the request should have been abandoned promptly"
+    );
+}

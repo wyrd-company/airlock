@@ -970,4 +970,19 @@ mod tests {
             Status::Pass
         );
     }
+
+    #[test]
+    fn a_budget_failure_after_verification_is_an_error_finding_not_a_pass() {
+        let snapshot = snapshot(&[]);
+        let policy = policy();
+        let mut context = context(&snapshot, &policy, Vec::new());
+        context.rulesets = Err(ApiError::local(
+            ErrorCause::Budget,
+            "GET /repos/owner/name/rulesets",
+            "the 300 second audit budget was exhausted before this request completed",
+        ));
+        let verdict = evaluate(&rule("REPO-GIT-02"), &context);
+        assert_eq!(verdict.status, Status::Error);
+        assert_eq!(verdict.error.unwrap().cause, "budget_exhausted");
+    }
 }

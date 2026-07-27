@@ -65,6 +65,15 @@ policy enables produces exactly one finding, with one of eight statuses:
 three leave the assertion undecided, and at a gating severity they make the
 whole audit incomplete.
 
+Incomplete input can never produce a clean result. A listing that stopped at
+the page budget, a recursive tree GitHub truncated, or a response airlock could
+not decode all make the assertions that depend on them inconclusive — airlock
+does not conclude "no tag carries a `v` prefix" from the tags it happened to
+read, or "no agent harness configuration is committed" from part of a tree.
+Requests carry connect and read timeouts and the whole run carries a wall-clock
+budget; exhausting either is a refusal before verification and an error finding
+after it.
+
 ## Policy
 
 The policy is YAML. It selects sections of the check registry through
@@ -151,12 +160,14 @@ enumeration: airlock accepts a token only when it can list the token's whole
 grant and every entry in that list is a read.
 
 - **`ghu_`**, issued by the Airlock Safe app: every installation the token can
-  reach is listed, across every page, and each must be attested to that app and
-  carry only `read` permissions.
+  reach is listed, across every page, and each must be attested to that app by
+  **both** its numeric app id and its slug — an id survives a rename, a slug
+  does not — and must carry only `read` permissions.
 - **`ghp_` / `gho_`**: the exact scopes from `X-OAuth-Scopes` must all appear on
   a closed, reviewed list of scopes whose full authority is read-only. An
-  unknown scope is refused rather than assumed safe, and a missing header is an
-  unread grant rather than an empty one.
+  unknown scope is refused rather than assumed safe, a missing header is an
+  unread grant rather than an empty one, and a response carrying the header
+  twice has no single answer and is refused too.
 - **`github_pat_`**, **`ghs_`**, and unknown prefixes are refused as
   unverifiable. GitHub offers no way to enumerate a fine-grained token's
   permissions, and probing for write access would break the read-only contract
