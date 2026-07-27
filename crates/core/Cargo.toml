@@ -1,0 +1,21 @@
+[package]
+name = "airlock-core"
+description = "Repository release-readiness checks, policy resolution, and findings for the airlock command line tool."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+
+[dependencies]
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+wiremock.workspace = true
