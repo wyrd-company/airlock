@@ -53,8 +53,15 @@ tasks:
       # quotes or metacharacters is data rather than script.
       - sh scripts/check-commit-subject.sh {{.CLI_ARGS}}
 
+  dogfood:
+    desc: Audit this repository with the binary it builds
+    # Deliberately absent from `check`: it needs AIRLOCK_TOKEN, a credential
+    # `task check` has no business requiring on a contributor's machine.
+    cmds:
+      - cargo run --quiet -p airlock-cli -- audit wyrd-company/airlock --format json
+
   check:
-    desc: Everything CI runs — the one command to run before pushing
+    desc: Everything CI runs that needs no secret — run this before pushing
     cmds:
       - task: lint
       - task: test

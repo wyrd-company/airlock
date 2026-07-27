@@ -620,3 +620,59 @@ async fn text_output_renders_the_same_conclusion_as_json() {
         .stdout(contains("REPO-LIC-01 | A `LICENSE` file exists"))
         .stdout(contains("nonconformant"));
 }
+
+// ---------------------------------------------------------------------------
+// The candidate organisation policy
+// ---------------------------------------------------------------------------
+
+/// The policy in `docs/examples/` is the one the operator will move into
+/// `wyrd-company/.github`. If it stops compiling against this binary's
+/// registry, dogfooding breaks the moment it is moved — so it is compiled
+/// here, against the fixture GitHub that serves its reference data.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_candidate_organisation_policy_compiles_and_resolves_its_reference_data() {
+    let repository_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(std::path::Path::parent)
+        .expect("the workspace root is two levels above the cli crate")
+        .to_path_buf();
+    let policy = repository_root.join("docs/examples/wyrd-policy.yml");
+    let topics = std::fs::read_to_string(repository_root.join("docs/examples/wyrd-topics.yml"))
+        .expect("the candidate topic vocabulary is committed");
+
+    let audited = FakeRepo::new("wyrd-company", "example")
+        .with_file("LICENSE", "Apache License 2.0")
+        .with_file("README.md", "# example");
+    let policy_repo =
+        FakeRepo::new("wyrd-company", ".github").with_file("airlock/topics.yml", &topics);
+    let server = support::start(&[audited, policy_repo]).await;
+    let config = TempDir::new().unwrap();
+
+    let assertion = airlock(&server, &config)
+        .args([
+            "audit",
+            "wyrd-company/example",
+            "--policy",
+            &policy.display().to_string(),
+            "--format",
+            "json",
+        ])
+        .assert();
+
+    let output = assertion.get_output();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("policy error"),
+        "the candidate policy did not compile: {stderr}"
+    );
+
+    let report = json_output(&output.stdout);
+    assert_eq!(report["policy"]["name"], "wyrd-company");
+    // The reference data was pinned into the bundle, not merely mentioned.
+    assert!(report["policy"]["bundle_digest"]
+        .as_str()
+        .unwrap()
+        .starts_with("sha256:"));
+    // Release rules are skipped where nothing declares a release unit.
+    assert_eq!(finding(&report, "REPO-REL-01")["status"], "skipped");
+}
