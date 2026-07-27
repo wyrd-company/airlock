@@ -14,7 +14,7 @@ use std::time::Duration;
 use anyhow::{bail, Context as _, Result};
 
 use crate::config::{self, Config, Profile, RotationLock};
-use crate::device::DeviceFlow;
+use crate::device::{DeviceFlow, DeviceFlowConfig};
 
 /// The environment variable airlock reads, and the only one.
 pub const TOKEN_ENVIRONMENT_VARIABLE: &str = "AIRLOCK_TOKEN";
@@ -191,7 +191,16 @@ async fn from_profile(
         }
     }
 
-    let flow = DeviceFlow::new(client_id, login_base, Duration::from_secs(0))?;
+    // Refreshing happens before the bounded REST client exists, so this is
+    // the client that has to carry the timeouts on that path.
+    let flow = DeviceFlow::new(
+        client_id,
+        DeviceFlowConfig {
+            base_url: login_base.to_owned(),
+            interval_floor: Duration::from_secs(0),
+            ..DeviceFlowConfig::default()
+        },
+    )?;
     let grant = flow.refresh(&refresh_token).await.with_context(|| {
         format!(
             "the `{profile_name}` profile could not be refreshed. Run `airlock auth login` to \

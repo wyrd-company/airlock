@@ -522,20 +522,29 @@ fn decode_tree_entry(endpoint: &str, entry: &Value) -> ApiResult<TreeEntry> {
     })
 }
 
-fn decode_tag(endpoint: &str, item: &Value) -> ApiResult<Option<TagRef>> {
+fn decode_tag(endpoint: &str, item: &Value) -> ApiResult<TagRef> {
     let reference = require_string(endpoint, item, "ref")?;
-    // A non-tag ref is not malformed: the endpoint is allowed to carry one,
-    // and it is simply not a tag.
+    // The endpoint airlock asks is the `refs/tags` matching-ref collection, so
+    // every member of the response is a tag. A `refs/heads/*`, a `refs/pull/*`,
+    // a truncated `refs/tag/*`, or anything else is malformed API data — and
+    // treating it as "simply not a tag" is how a whole tag listing becomes
+    // silently empty and "no tag carries a `v` prefix" passes.
     let Some(name) = reference.strip_prefix("refs/tags/") else {
-        return Ok(None);
+        return Err(malformed(
+            endpoint,
+            format!("`{reference}` is not a tag ref, and this endpoint returns only tag refs"),
+        ));
     };
+    if name.is_empty() {
+        return Err(malformed(endpoint, "a tag ref carries no name"));
+    }
     let object = item
         .get("object")
         .ok_or_else(|| malformed(endpoint, format!("tag `{name}` carries no object")))?;
-    Ok(Some(TagRef {
+    Ok(TagRef {
         name: name.to_owned(),
         sha: require_string(endpoint, object, "sha")?,
-    }))
+    })
 }
 
 fn decode_commit(endpoint: &str, item: &Value) -> ApiResult<CommitSummary> {
@@ -757,10 +766,7 @@ impl GitHub for RestClient {
             items: items
                 .iter()
                 .map(|item| decode_tag(&endpoint, item))
-                .collect::<ApiResult<Vec<Option<TagRef>>>>()?
-                .into_iter()
-                .flatten()
-                .collect(),
+                .collect::<ApiResult<Vec<TagRef>>>()?,
             truncated,
         })
     }
@@ -1037,10 +1043,40 @@ mod tests {
     }
 
     #[test]
-    fn a_non_tag_ref_is_skipped_but_a_broken_tag_is_malformed() {
-        let head = serde_json::json!({ "ref": "refs/heads/main", "object": { "sha": "a" } });
-        assert_eq!(decode_tag("GET /refs", &head).unwrap(), None);
+    fn only_an_exact_tag_ref_decodes_as_a_tag() {
+        let tag = serde_json::json!({ "ref": "refs/tags/1.0.0", "object": { "sha": "a" } });
+        assert_eq!(decode_tag("GET /refs", &tag).unwrap().name, "1.0.0");
+    }
 
+    #[test]
+    fn a_ref_outside_the_tag_namespace_is_malformed_not_skipped() {
+        // Every one of these would previously have been dropped as "not a
+        // tag", which is how an entire tag listing becomes silently empty.
+        for reference in [
+            "refs/heads/main",
+            "refs/pull/1/head",
+            "refs/tag/1.0.0",
+            "refs/tags",
+            "1.0.0",
+            "",
+        ] {
+            let item = serde_json::json!({ "ref": reference, "object": { "sha": "a" } });
+            let error = decode_tag("GET /refs", &item).unwrap_err();
+            assert_eq!(error.cause, ErrorCause::Malformed, "`{reference}`");
+        }
+    }
+
+    #[test]
+    fn an_empty_tag_name_is_malformed() {
+        let item = serde_json::json!({ "ref": "refs/tags/", "object": { "sha": "a" } });
+        assert_eq!(
+            decode_tag("GET /refs", &item).unwrap_err().cause,
+            ErrorCause::Malformed
+        );
+    }
+
+    #[test]
+    fn a_tag_without_an_object_is_malformed() {
         let broken = serde_json::json!({ "ref": "refs/tags/1.0.0" });
         assert_eq!(
             decode_tag("GET /refs", &broken).unwrap_err().cause,

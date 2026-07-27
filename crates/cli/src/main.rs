@@ -12,7 +12,6 @@ mod device;
 use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::process::ExitCode;
-use std::time::Duration;
 
 use airlock_core::audit::{self, AuditOptions};
 use airlock_core::auth::{self, VerifiedGrant, AIRLOCK_SAFE_CLIENT_ID};
@@ -25,7 +24,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 
 use crate::config::DEFAULT_PROFILE;
 use crate::credential::{CredentialInputs, CredentialSource};
-use crate::device::{DeviceFlow, GITHUB_LOGIN_BASE};
+use crate::device::{DeviceFlow, DeviceFlowConfig, GITHUB_LOGIN_BASE};
 
 /// Exit code for an operational failure: authentication, network, policy
 /// resolution, or an invocation that cannot do any work.
@@ -297,10 +296,15 @@ fn split_target(target: &str) -> Result<(&str, &str)> {
 }
 
 async fn login_command(args: &AuthLoginArgs) -> Result<u8> {
+    let limits = Limits::default();
     let flow = DeviceFlow::new(
         AIRLOCK_SAFE_CLIENT_ID,
-        &login_base(),
-        Duration::from_secs(1),
+        DeviceFlowConfig {
+            base_url: login_base(),
+            connect_timeout: limits.connect_timeout,
+            request_timeout: limits.request_timeout,
+            ..DeviceFlowConfig::default()
+        },
     )?;
 
     let codes = flow.request_codes().await?;

@@ -361,19 +361,26 @@ impl AuditContext<'_> {
 /// to have looked.
 #[must_use]
 pub fn evaluate(rule: &RuleInstance, context: &AuditContext) -> Verdict {
-    if !condition_holds(rule.condition, context) {
-        return Verdict {
-            status: Status::Skipped,
-            evidence: Some(Evidence::new(
-                "condition_not_met",
-                format!(
-                    "the capability that enables this rule applies only when `{}`",
-                    rule.condition.code()
-                ),
-            )),
-            remediation: None,
-            error: None,
-        };
+    match condition_holds(rule.condition, context) {
+        ConditionOutcome::Holds => {}
+        ConditionOutcome::DoesNotHold => {
+            return Verdict {
+                status: Status::Skipped,
+                evidence: Some(Evidence::new(
+                    "condition_not_met",
+                    format!(
+                        "the capability that enables this rule applies only when `{}`",
+                        rule.condition.code()
+                    ),
+                )),
+                remediation: None,
+                error: None,
+            }
+        }
+        // A condition airlock could not evaluate is not a condition that
+        // failed. Skipping here would quietly drop every rule the capability
+        // governs, which is the same fail-open shape as passing them.
+        ConditionOutcome::Undecided(verdict) => return *verdict,
     }
 
     match rule.def.evaluation {
@@ -404,10 +411,60 @@ pub fn evaluate(rule: &RuleInstance, context: &AuditContext) -> Verdict {
     }
 }
 
-fn condition_holds(condition: Condition, context: &AuditContext) -> bool {
+/// What airlock could establish about a capability condition.
+///
+/// Three-valued on purpose. "The condition does not hold" and "airlock could
+/// not tell whether the condition holds" lead to opposite conclusions, and
+/// collapsing them lets a truncated tree silently disable a whole capability.
+enum ConditionOutcome {
+    /// The condition holds; the rule runs.
+    Holds,
+    /// The condition conclusively does not hold; the rule is skipped.
+    DoesNotHold,
+    /// Airlock could not evaluate the condition.
+    Undecided(Box<Verdict>),
+}
+
+fn condition_holds(condition: Condition, context: &AuditContext) -> ConditionOutcome {
     match condition {
-        Condition::Always => true,
-        Condition::IntentionalConfigPresent => context.has_file(".intentional/config.yml"),
+        Condition::Always => ConditionOutcome::Holds,
+        Condition::IntentionalConfigPresent => {
+            file_condition(context, ".intentional/config.yml", condition)
+        }
+    }
+}
+
+/// A condition that turns on whether one file exists.
+fn file_condition(context: &AuditContext, path: &str, condition: Condition) -> ConditionOutcome {
+    match context.snapshot.file(path) {
+        FileState::Content { .. } => ConditionOutcome::Holds,
+        FileState::Missing => ConditionOutcome::DoesNotHold,
+        FileState::TreeTruncated => ConditionOutcome::Undecided(Box::new(Verdict::inconclusive(
+            "condition_undecided",
+            format!(
+                "the `{}` condition turns on {path}, and {}",
+                condition.code(),
+                context
+                    .snapshot
+                    .truncation_detail(&format!("whether {path} exists"))
+            ),
+        ))),
+        FileState::OverBudget { size, limit } => {
+            ConditionOutcome::Undecided(Box::new(Verdict::inconclusive(
+                "condition_undecided",
+                format!(
+                    "the `{}` condition turns on {path}, which is {size} bytes, over the {limit} \
+                     byte limit, so it was never read",
+                    condition.code()
+                ),
+            )))
+        }
+        FileState::Unreadable(error) => {
+            ConditionOutcome::Undecided(Box::new(Verdict::from_api_error(error)))
+        }
+        // A symlink or a directory where the condition expects a file is a
+        // conclusive answer: the file the condition asks about is not there.
+        FileState::Symlink { .. } | FileState::NotAFile { .. } => ConditionOutcome::DoesNotHold,
     }
 }
 
@@ -691,6 +748,42 @@ mod tests {
         let mut instance = rule("REPO-REL-01");
         instance.condition = Condition::IntentionalConfigPresent;
         assert_eq!(evaluate(&instance, &context).status, Status::Skipped);
+    }
+
+    #[test]
+    fn a_condition_airlock_cannot_evaluate_is_undecided_rather_than_unmet() {
+        // The truncated tree never established that .intentional/config.yml is
+        // absent, so skipping every release rule would hide both the file and
+        // the checks it enables.
+        let mut snapshot = snapshot(&[]);
+        snapshot.tree.truncated = true;
+        let policy = policy();
+        let context = context(&snapshot, &policy, Vec::new());
+        let mut instance = rule("REPO-REL-01");
+        instance.condition = Condition::IntentionalConfigPresent;
+        let verdict = evaluate(&instance, &context);
+        assert_eq!(verdict.status, Status::Inconclusive);
+        assert_eq!(verdict.evidence.unwrap().code, "condition_undecided");
+    }
+
+    #[test]
+    fn an_unreadable_condition_input_reports_the_api_failure() {
+        let mut snapshot = snapshot(&[]);
+        snapshot.files.insert(
+            ".intentional/config.yml".to_owned(),
+            FileState::Unreadable(crate::github::ApiError::local(
+                crate::github::ErrorCause::Permission,
+                "GET /repos/owner/name/git/blobs/1",
+                "Resource not accessible by integration",
+            )),
+        );
+        let policy = policy();
+        let context = context(&snapshot, &policy, Vec::new());
+        let mut instance = rule("REPO-REL-01");
+        instance.condition = Condition::IntentionalConfigPresent;
+        let verdict = evaluate(&instance, &context);
+        assert_eq!(verdict.status, Status::Error);
+        assert_eq!(verdict.error.unwrap().cause, "permission");
     }
 
     #[test]

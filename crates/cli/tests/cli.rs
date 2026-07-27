@@ -813,3 +813,95 @@ async fn every_policy_reference_is_resolved_and_pinned_into_the_bundle() {
             .starts_with("sha256:"));
     }
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_truncated_tree_cannot_skip_a_conditional_capability() {
+    // The candidate organisation policy applies its release capability only
+    // when .intentional/config.yml is present. A truncated tree never
+    // established that it is absent, so skipping every release rule would
+    // hide both the file and the checks it enables.
+    let repository_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(std::path::Path::parent)
+        .expect("the workspace root is two levels above the cli crate")
+        .to_path_buf();
+    let topics = std::fs::read_to_string(repository_root.join("docs/examples/wyrd-topics.yml"))
+        .expect("the candidate topic vocabulary is committed");
+
+    let audited = FakeRepo::new("wyrd-company", "example")
+        .with_truncated_tree()
+        .with_file("LICENSE", "Apache License 2.0")
+        .with_file("README.md", "# example");
+    let policy_repo =
+        FakeRepo::new("wyrd-company", ".github").with_file("airlock/topics.yml", &topics);
+    let server = support::start(&[audited, policy_repo]).await;
+    let config = TempDir::new().unwrap();
+
+    let assertion = airlock(&server, &config)
+        .args([
+            "audit",
+            "wyrd-company/example",
+            "--policy",
+            &repository_root
+                .join("docs/examples/wyrd-policy.yml")
+                .display()
+                .to_string(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .code(2);
+
+    let report = json_output(&assertion.get_output().stdout);
+    assert_eq!(report["outcome"], "incomplete");
+    assert_eq!(report["complete"], false);
+    assert_eq!(
+        report["summary"]["skipped"], 0,
+        "no rule may be skipped on a condition airlock could not evaluate"
+    );
+    for rule in ["REPO-REL-01", "REPO-REL-04", "REPO-REL-07"] {
+        let finding = finding(&report, rule);
+        assert_eq!(finding["status"], "inconclusive", "{rule}");
+        assert_eq!(finding["evidence"]["code"], "condition_undecided", "{rule}");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_complete_tree_still_skips_a_capability_whose_condition_is_absent() {
+    // The other half of the contract: a condition airlock *can* evaluate and
+    // that does not hold still skips its rules conclusively.
+    let repository_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(std::path::Path::parent)
+        .expect("the workspace root is two levels above the cli crate")
+        .to_path_buf();
+    let topics = std::fs::read_to_string(repository_root.join("docs/examples/wyrd-topics.yml"))
+        .expect("the candidate topic vocabulary is committed");
+
+    let audited = FakeRepo::new("wyrd-company", "example")
+        .with_file("LICENSE", "Apache License 2.0")
+        .with_file("README.md", "# example");
+    let policy_repo =
+        FakeRepo::new("wyrd-company", ".github").with_file("airlock/topics.yml", &topics);
+    let server = support::start(&[audited, policy_repo]).await;
+    let config = TempDir::new().unwrap();
+
+    let assertion = airlock(&server, &config)
+        .args([
+            "audit",
+            "wyrd-company/example",
+            "--policy",
+            &repository_root
+                .join("docs/examples/wyrd-policy.yml")
+                .display()
+                .to_string(),
+            "--format",
+            "json",
+        ])
+        .assert();
+
+    let report = json_output(&assertion.get_output().stdout);
+    let rel01 = finding(&report, "REPO-REL-01");
+    assert_eq!(rel01["status"], "skipped");
+    assert_eq!(rel01["evidence"]["code"], "condition_not_met");
+}

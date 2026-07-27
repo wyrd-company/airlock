@@ -69,12 +69,54 @@ pub enum PollOutcome {
     Failed(String),
 }
 
+/// How the device flow behaves.
+///
+/// The timeouts matter as much here as on the audit path: acquiring a
+/// credential is the first thing a new user does, and a login that hangs
+/// forever is indistinguishable from a broken tool.
+#[derive(Debug, Clone)]
+pub struct DeviceFlowConfig {
+    /// GitHub's OAuth host, without a trailing slash. Overridden in tests.
+    pub base_url: String,
+    /// The shortest airlock will wait between polls, whatever GitHub says.
+    pub interval_floor: Duration,
+    /// How long to wait to open a connection.
+    pub connect_timeout: Duration,
+    /// How long to wait for one request to complete.
+    pub request_timeout: Duration,
+    /// Largest response body airlock will read from this host, in bytes.
+    pub max_response_bytes: usize,
+}
+
+impl Default for DeviceFlowConfig {
+    fn default() -> Self {
+        Self {
+            base_url: GITHUB_LOGIN_BASE.to_owned(),
+            interval_floor: Duration::from_secs(1),
+            connect_timeout: Duration::from_secs(10),
+            request_timeout: Duration::from_secs(30),
+            // These responses are a handful of fields. Anything approaching
+            // this is not a device-flow response.
+            max_response_bytes: 64 * 1024,
+        }
+    }
+}
+
 /// A device flow bound to one app.
 pub struct DeviceFlow {
     http: reqwest::Client,
-    base_url: String,
     client_id: String,
-    interval_floor: Duration,
+    config: DeviceFlowConfig,
+}
+
+impl std::fmt::Debug for DeviceFlow {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // No token ever reaches this type's fields, but the habit is cheap.
+        formatter
+            .debug_struct("DeviceFlow")
+            .field("base_url", &self.config.base_url)
+            .finish_non_exhaustive()
+    }
 }
 
 impl DeviceFlow {
@@ -83,36 +125,62 @@ impl DeviceFlow {
     /// # Errors
     ///
     /// Returns an error when the HTTP stack cannot be built.
-    pub fn new(client_id: &str, base_url: &str, interval_floor: Duration) -> Result<Self> {
+    pub fn new(client_id: &str, config: DeviceFlowConfig) -> Result<Self> {
+        let http = reqwest::Client::builder()
+            .user_agent(concat!("airlock/", env!("CARGO_PKG_VERSION")))
+            // Without these a server that accepts the connection and never
+            // answers hangs `auth login`, and hangs `audit` on the refresh
+            // that happens before the bounded REST client exists.
+            .connect_timeout(config.connect_timeout)
+            .timeout(config.request_timeout)
+            .build()
+            .context("cannot build the http client")?;
         Ok(Self {
-            http: reqwest::Client::builder()
-                .user_agent(concat!("airlock/", env!("CARGO_PKG_VERSION")))
-                .build()
-                .context("cannot build the http client")?,
-            base_url: base_url.trim_end_matches('/').to_owned(),
+            http,
             client_id: client_id.to_owned(),
-            interval_floor,
+            config: DeviceFlowConfig {
+                base_url: config.base_url.trim_end_matches('/').to_owned(),
+                ..config
+            },
         })
     }
 
     async fn post(&self, path: &str, form: &[(&str, &str)]) -> Result<serde_json::Value> {
         let response = self
             .http
-            .post(format!("{}{path}", self.base_url))
+            .post(format!("{}{path}", self.config.base_url))
             .header("Accept", "application/json")
             .form(form)
             .send()
             .await
             .with_context(|| format!("cannot reach {path}"))?;
         let status = response.status();
-        let body = response
-            .text()
-            .await
-            .with_context(|| format!("cannot read the response from {path}"))?;
+        let body = self.read_body(path, response).await?;
         if !status.is_success() {
             bail!("{path} answered {status}");
         }
         serde_json::from_str(&body).with_context(|| format!("{path} did not answer with json"))
+    }
+
+    /// Read a response body under the byte budget.
+    async fn read_body(&self, path: &str, mut response: reqwest::Response) -> Result<String> {
+        let mut bytes: Vec<u8> = Vec::new();
+        loop {
+            let chunk = response
+                .chunk()
+                .await
+                .with_context(|| format!("cannot read the response from {path}"))?;
+            let Some(chunk) = chunk else { break };
+            if bytes.len() + chunk.len() > self.config.max_response_bytes {
+                bail!(
+                    "{path} answered with more than {} bytes, which is not a device flow \
+                     response",
+                    self.config.max_response_bytes
+                );
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        String::from_utf8(bytes).with_context(|| format!("{path} did not answer with text"))
     }
 
     /// Ask GitHub for a device and user code.
@@ -180,27 +248,46 @@ impl DeviceFlow {
     /// Returns an error when the user declines, the codes expire, or GitHub
     /// reports a condition airlock cannot continue through.
     pub async fn poll_until_granted(&self, codes: &DeviceCode) -> Result<TokenGrant> {
-        let mut interval = self.interval_floor.max(Duration::from_secs(codes.interval));
+        let mut interval = self
+            .config
+            .interval_floor
+            .max(Duration::from_secs(codes.interval));
         let deadline = std::time::Instant::now() + Duration::from_secs(codes.expires_in);
 
         loop {
-            if std::time::Instant::now() > deadline {
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            if remaining.is_zero() {
                 bail!(
                     "the device code expired before the authorisation finished. Run \
                      `airlock auth login` again."
                 );
             }
-            tokio::time::sleep(interval).await;
+            tokio::time::sleep(interval.min(remaining)).await;
 
-            match self.poll_once(&codes.device_code).await? {
+            // The per-request timeout bounds one poll; this bounds the whole
+            // wait to the lifetime of the code being polled for, so a slow
+            // server cannot keep airlock polling past the point of any use.
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            let outcome = tokio::time::timeout(remaining, self.poll_once(&codes.device_code))
+                .await
+                .map_err(|_| {
+                    anyhow::anyhow!(
+                        "the device code expired before the authorisation finished. Run \
+                         `airlock auth login` again."
+                    )
+                })??;
+
+            match outcome {
                 PollOutcome::Granted(grant) => return Ok(*grant),
                 PollOutcome::Pending => {}
                 PollOutcome::SlowDown(suggested) => {
                     // The specification says to back off by five seconds;
                     // GitHub also sends a new interval, so honour the larger.
-                    interval = interval
-                        .saturating_add(Duration::from_secs(5))
-                        .max(self.interval_floor.max(Duration::from_secs(suggested)));
+                    interval = interval.saturating_add(Duration::from_secs(5)).max(
+                        self.config
+                            .interval_floor
+                            .max(Duration::from_secs(suggested)),
+                    );
                 }
                 PollOutcome::Expired => bail!(
                     "the device code expired before the authorisation finished. Run \
@@ -300,5 +387,156 @@ mod tests {
     fn an_unknown_error_code_without_a_description_still_names_itself() {
         let described = describe("something_new", &serde_json::json!({}));
         assert!(described.contains("something_new"));
+    }
+
+    use std::time::Instant;
+
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    /// A flow whose requests must finish quickly or not at all.
+    fn impatient(server: &MockServer) -> DeviceFlow {
+        DeviceFlow::new(
+            "Iv23liExample",
+            DeviceFlowConfig {
+                base_url: server.uri(),
+                interval_floor: Duration::from_millis(0),
+                connect_timeout: Duration::from_millis(100),
+                request_timeout: Duration::from_millis(100),
+                ..DeviceFlowConfig::default()
+            },
+        )
+        .expect("the flow builds")
+    }
+
+    /// Mount a route that accepts the request and then says nothing useful for
+    /// far longer than any caller should wait.
+    async fn mount_stalled(server: &MockServer, route: &str) {
+        Mock::given(method("POST"))
+            .and(path(route.to_owned()))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_string("{}")
+                    .set_delay(Duration::from_secs(30)),
+            )
+            .mount(server)
+            .await;
+    }
+
+    fn assert_prompt(started: Instant, what: &str) {
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "{what} should have been abandoned promptly, took {:?}",
+            started.elapsed()
+        );
+    }
+
+    #[tokio::test]
+    async fn a_stalled_device_code_request_is_abandoned_at_the_timeout() {
+        let server = MockServer::start().await;
+        mount_stalled(&server, "/login/device/code").await;
+
+        let started = Instant::now();
+        let error = impatient(&server).request_codes().await.unwrap_err();
+        assert_prompt(started, "the device code request");
+        assert!(
+            error.to_string().contains("cannot reach"),
+            "unexpected error: {error:#}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_stalled_poll_is_abandoned_at_the_timeout() {
+        let server = MockServer::start().await;
+        mount_stalled(&server, "/login/oauth/access_token").await;
+
+        let started = Instant::now();
+        let error = impatient(&server)
+            .poll_once("device-code")
+            .await
+            .unwrap_err();
+        assert_prompt(started, "the poll");
+        assert!(
+            error.to_string().contains("cannot reach"),
+            "unexpected error: {error:#}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_stalled_refresh_is_abandoned_at_the_timeout() {
+        let server = MockServer::start().await;
+        mount_stalled(&server, "/login/oauth/access_token").await;
+
+        let started = Instant::now();
+        let error = impatient(&server).refresh("ghr_example").await.unwrap_err();
+        assert_prompt(started, "the refresh");
+        assert!(
+            error.to_string().contains("cannot reach"),
+            "unexpected error: {error:#}"
+        );
+    }
+
+    #[tokio::test]
+    async fn polling_never_outlives_the_device_code() {
+        // A server that answers `authorization_pending` forever would keep a
+        // caller polling indefinitely without the lifetime bound.
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/login/oauth/access_token"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_string("{\"error\":\"authorization_pending\"}"),
+            )
+            .mount(&server)
+            .await;
+
+        let codes = DeviceCode {
+            device_code: "device-code".to_owned(),
+            user_code: "WDJB-MJHT".to_owned(),
+            verification_uri: "https://github.com/login/device".to_owned(),
+            expires_in: 1,
+            interval: 0,
+        };
+
+        let started = Instant::now();
+        let error = impatient(&server)
+            .poll_until_granted(&codes)
+            .await
+            .unwrap_err();
+        assert_prompt(started, "polling");
+        assert!(
+            error.to_string().contains("expired"),
+            "unexpected error: {error:#}"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_oversized_response_is_refused_rather_than_read() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/login/device/code"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("x".repeat(4096)))
+            .mount(&server)
+            .await;
+
+        let flow = DeviceFlow::new(
+            "Iv23liExample",
+            DeviceFlowConfig {
+                base_url: server.uri(),
+                max_response_bytes: 64,
+                ..DeviceFlowConfig::default()
+            },
+        )
+        .unwrap();
+        let error = flow.request_codes().await.unwrap_err();
+        assert!(
+            error.to_string().contains("64 bytes"),
+            "unexpected error: {error:#}"
+        );
+    }
+
+    #[test]
+    fn a_device_flow_debug_print_carries_no_credential_material() {
+        let flow = DeviceFlow::new("Iv23liExample", DeviceFlowConfig::default()).unwrap();
+        assert!(!format!("{flow:?}").contains("Iv23liExample"));
     }
 }
