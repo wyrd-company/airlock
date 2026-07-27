@@ -60,8 +60,11 @@ impl Severity {
     }
 
     /// Every severity, in order of decreasing weight.
-    pub const ALL: &'static [Severity] =
-        &[Severity::Blocking, Severity::Required, Severity::Observation];
+    pub const ALL: &'static [Severity] = &[
+        Severity::Blocking,
+        Severity::Required,
+        Severity::Observation,
+    ];
 }
 
 impl fmt::Display for Severity {

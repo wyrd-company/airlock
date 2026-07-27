@@ -8,13 +8,16 @@
 //! Everything in this crate is read-only by construction. Airlock never
 //! mutates a repository it audits.
 
+pub mod audit;
 pub mod auth;
+pub mod checks;
 pub mod error;
 pub mod findings;
 pub mod github;
 pub mod limits;
 pub mod policy;
 pub mod registry;
+pub mod render;
 pub mod snapshot;
 pub mod yaml;
 

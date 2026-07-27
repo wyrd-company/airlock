@@ -283,10 +283,7 @@ fn write_permissions(installation: &Installation) -> Vec<String> {
         .collect()
 }
 
-async fn verify_scoped<G: GitHub>(
-    kind: TokenKind,
-    client: &G,
-) -> Result<VerifiedGrant, Refusal> {
+async fn verify_scoped<G: GitHub>(kind: TokenKind, client: &G) -> Result<VerifiedGrant, Refusal> {
     let user = client.authenticated_user().await.map_err(api_refusal)?;
 
     let Some(header) = user.oauth_scopes else {

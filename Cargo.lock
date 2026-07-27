@@ -45,6 +45,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tokio",
+ "toml",
  "wiremock",
 ]
 

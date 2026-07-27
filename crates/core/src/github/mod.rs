@@ -45,7 +45,11 @@ pub struct ApiError {
 impl ApiError {
     /// A failure that never reached GitHub, or whose response was unreadable.
     #[must_use]
-    pub fn local(cause: ErrorCause, endpoint: impl Into<String>, message: impl Into<String>) -> Self {
+    pub fn local(
+        cause: ErrorCause,
+        endpoint: impl Into<String>,
+        message: impl Into<String>,
+    ) -> Self {
         Self {
             cause,
             endpoint: endpoint.into(),
@@ -296,8 +300,12 @@ pub trait GitHub {
     async fn rulesets(&self, owner: &str, repo: &str) -> ApiResult<Vec<Ruleset>>;
 
     /// List the effective rules on a branch.
-    async fn branch_rules(&self, owner: &str, repo: &str, branch: &str)
-        -> ApiResult<Vec<BranchRule>>;
+    async fn branch_rules(
+        &self,
+        owner: &str,
+        repo: &str,
+        branch: &str,
+    ) -> ApiResult<Vec<BranchRule>>;
 
     /// List every installation the credential can see, across every page.
     async fn user_installations(&self) -> ApiResult<Vec<Installation>>;
@@ -316,7 +324,10 @@ mod tests {
         assert_eq!(EntryKind::from_mode("120000"), Some(EntryKind::Symlink));
         assert_eq!(EntryKind::from_mode("040000"), Some(EntryKind::Tree));
         assert_eq!(EntryKind::from_mode("160000"), Some(EntryKind::Submodule));
-        assert_eq!(EntryKind::from_mode("100755"), Some(EntryKind::ExecutableBlob));
+        assert_eq!(
+            EntryKind::from_mode("100755"),
+            Some(EntryKind::ExecutableBlob)
+        );
         assert_eq!(EntryKind::from_mode("777777"), None);
     }
 

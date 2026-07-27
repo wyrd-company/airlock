@@ -270,6 +270,21 @@ pub struct Finding {
     pub error: Option<FindingError>,
 }
 
+/// Something the audit noticed about the policy or the repository's requests
+/// that is not about any one enabled rule.
+///
+/// A suppression request the policy did not authorise lands here: the finding
+/// it targeted keeps its real status, and the attempt is on the record.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PolicyObservation {
+    /// A stable code naming the observation.
+    pub code: String,
+    /// The rule it concerns, when it concerns one.
+    pub rule: Option<String>,
+    /// Human-readable detail.
+    pub detail: String,
+}
+
 /// One rule instance in the effective, normalised policy.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct EffectiveRule {
@@ -387,6 +402,8 @@ pub struct Report {
     pub policy: PolicyIdentity,
     /// Every rule instance the policy compiled to.
     pub effective_policy: Vec<EffectiveRule>,
+    /// Things noticed that are not about one enabled rule.
+    pub policy_observations: Vec<PolicyObservation>,
     /// One finding per enabled rule, ordered by rule id.
     pub findings: Vec<Finding>,
     /// Counts per status.
@@ -410,6 +427,7 @@ impl Report {
         repository: AuditedRepository,
         policy: PolicyIdentity,
         effective_policy: Vec<EffectiveRule>,
+        policy_observations: Vec<PolicyObservation>,
         mut findings: Vec<Finding>,
     ) -> Self {
         findings.sort_by(|left, right| left.rule.cmp(&right.rule));
@@ -447,6 +465,7 @@ impl Report {
             repository,
             policy,
             effective_policy,
+            policy_observations,
             findings,
             summary,
             complete,
@@ -496,6 +515,7 @@ mod tests {
                 bundle_digest: "sha256:0".to_owned(),
                 gate,
             },
+            Vec::new(),
             Vec::new(),
             findings,
         )
@@ -559,7 +579,11 @@ mod tests {
     fn a_manual_blocking_rule_never_gates_and_never_blocks_completeness() {
         let report = report(
             Gate::Blocking,
-            vec![finding("REPO-README-04", Severity::Blocking, Status::Manual)],
+            vec![finding(
+                "REPO-README-04",
+                Severity::Blocking,
+                Status::Manual,
+            )],
         );
         assert!(report.complete);
         assert!(report.conformant);
@@ -570,7 +594,11 @@ mod tests {
     fn a_suppressed_blocking_rule_never_gates() {
         let report = report(
             Gate::Blocking,
-            vec![finding("REPO-CI-02", Severity::Blocking, Status::Suppressed)],
+            vec![finding(
+                "REPO-CI-02",
+                Severity::Blocking,
+                Status::Suppressed,
+            )],
         );
         assert!(report.conformant);
         assert_eq!(report.exit_code(), 0);

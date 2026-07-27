@@ -318,8 +318,7 @@ pub async fn resolve<G: GitHub>(
     let document = yaml::parse_mapping(&text, limits.yaml)
         .map_err(|error| Error::Policy(format!("{}: {error}", source.label())))?;
 
-    let reference_data =
-        resolve_references(client, source, &document, limits, &mut bundle).await?;
+    let reference_data = resolve_references(client, source, &document, limits, &mut bundle).await?;
 
     compile(source, &document, reference_data, bundle)
 }
@@ -386,8 +385,7 @@ async fn load_source<G: GitHub>(
 }
 
 fn to_text(label: &str, bytes: Vec<u8>) -> Result<String> {
-    String::from_utf8(bytes)
-        .map_err(|_| Error::Policy(format!("{label} is not valid UTF-8")))
+    String::from_utf8(bytes).map_err(|_| Error::Policy(format!("{label} is not valid UTF-8")))
 }
 
 fn content_digest(text: &str) -> String {
@@ -590,8 +588,9 @@ fn check_registry_requirement(document: &Yaml) -> Result<()> {
             "`requires-registry: {requirement}` is not a semver requirement: {error}"
         ))
     })?;
-    let version = semver::Version::parse(REGISTRY_VERSION)
-        .map_err(|error| Error::Policy(format!("the compiled registry version is invalid: {error}")))?;
+    let version = semver::Version::parse(REGISTRY_VERSION).map_err(|error| {
+        Error::Policy(format!("the compiled registry version is invalid: {error}"))
+    })?;
     if !requirement.matches(&version) {
         return Err(Error::Policy(format!(
             "this airlock carries check registry {REGISTRY_VERSION}, which does not satisfy the \
@@ -678,7 +677,9 @@ fn read_apply(
         }
         let condition = match value {
             Yaml::String(name) => Condition::parse(name).ok_or_else(|| {
-                Error::Policy(format!("unknown condition `{name}` on capability `{capability}`"))
+                Error::Policy(format!(
+                    "unknown condition `{name}` on capability `{capability}`"
+                ))
             })?,
             Yaml::Map(_) => {
                 let when = value.get("when").and_then(Yaml::as_str).ok_or_else(|| {
@@ -695,7 +696,9 @@ fn read_apply(
                     }
                 }
                 Condition::parse(when).ok_or_else(|| {
-                    Error::Policy(format!("unknown condition `{when}` on capability `{capability}`"))
+                    Error::Policy(format!(
+                        "unknown condition `{when}` on capability `{capability}`"
+                    ))
                 })?
             }
             other => {
@@ -890,7 +893,10 @@ fn read_suppressions(
                     "a direct suppression names `{rule}`, which is not a rule airlock knows"
                 ))
             })?;
-            let reason = item.get("reason").and_then(Yaml::as_str).unwrap_or_default();
+            let reason = item
+                .get("reason")
+                .and_then(Yaml::as_str)
+                .unwrap_or_default();
             if reason.trim().is_empty() {
                 return Err(Error::Policy(format!(
                     "the direct suppression for `{rule}` must state a reason"
@@ -1071,7 +1077,10 @@ capabilities:
         let policy = compile_text(MINIMAL).unwrap();
         assert_eq!(policy.name, "test");
         assert_eq!(policy.gate, Gate::Blocking);
-        assert_eq!(policy.rules.len(), registry::in_section(Section::Licensing).len());
+        assert_eq!(
+            policy.rules.len(),
+            registry::in_section(Section::Licensing).len()
+        );
         assert_eq!(policy.rules[0].provenance, "capability:base/licensing");
     }
 
@@ -1092,7 +1101,10 @@ capabilities:
         ))
         .unwrap();
         assert_ne!(base.bundle_digest, refined.bundle_digest);
-        assert_eq!(refined.rule("REPO-LIC-01").unwrap().severity, Severity::Observation);
+        assert_eq!(
+            refined.rule("REPO-LIC-01").unwrap().severity,
+            Severity::Observation
+        );
     }
 
     #[test]
@@ -1120,17 +1132,19 @@ capabilities:
 
     #[test]
     fn an_unknown_rule_id_is_a_policy_error() {
-        let error =
-            compile_text(&format!("{MINIMAL}checks:\n  REPO-NOPE-01:\n    enabled: false\n"))
-                .unwrap_err();
+        let error = compile_text(&format!(
+            "{MINIMAL}checks:\n  REPO-NOPE-01:\n    enabled: false\n"
+        ))
+        .unwrap_err();
         assert!(error.to_string().contains("REPO-NOPE-01"));
     }
 
     #[test]
     fn refining_a_rule_no_capability_enables_is_a_policy_error() {
-        let error =
-            compile_text(&format!("{MINIMAL}checks:\n  REPO-CI-02:\n    severity: observation\n"))
-                .unwrap_err();
+        let error = compile_text(&format!(
+            "{MINIMAL}checks:\n  REPO-CI-02:\n    severity: observation\n"
+        ))
+        .unwrap_err();
         assert!(error.to_string().contains("no enabled capability"));
     }
 
@@ -1141,7 +1155,9 @@ capabilities:
              checks:\n  REPO-META-06:\n    params: { min-topics: 3, surprise: 1 }\n",
         )
         .unwrap_err();
-        assert!(error.to_string().contains("declares no parameter `surprise`"));
+        assert!(error
+            .to_string()
+            .contains("declares no parameter `surprise`"));
     }
 
     #[test]
@@ -1158,9 +1174,10 @@ capabilities:
 
     #[test]
     fn disabling_a_rule_removes_it_entirely() {
-        let policy =
-            compile_text(&format!("{MINIMAL}checks:\n  REPO-LIC-06:\n    enabled: false\n"))
-                .unwrap();
+        let policy = compile_text(&format!(
+            "{MINIMAL}checks:\n  REPO-LIC-06:\n    enabled: false\n"
+        ))
+        .unwrap();
         assert!(policy.rule("REPO-LIC-06").is_none());
         assert!(policy.rule("REPO-LIC-01").is_some());
     }
@@ -1220,15 +1237,14 @@ capabilities:
 
     #[test]
     fn applying_an_undeclared_capability_is_a_policy_error() {
-        let error =
-            compile_text(&format!("{MINIMAL}apply:\n  registry: always\n")).unwrap_err();
+        let error = compile_text(&format!("{MINIMAL}apply:\n  registry: always\n")).unwrap_err();
         assert!(error.to_string().contains("does not declare"));
     }
 
     #[test]
     fn an_unknown_condition_is_a_policy_error() {
-        let error = compile_text(&format!("{MINIMAL}apply:\n  base:\n    when: some-day\n"))
-            .unwrap_err();
+        let error =
+            compile_text(&format!("{MINIMAL}apply:\n  base:\n    when: some-day\n")).unwrap_err();
         assert!(error.to_string().contains("unknown condition"));
     }
 

@@ -353,10 +353,7 @@ mod tests {
 
     #[test]
     fn an_over_budget_file_is_undecided_rather_than_absent() {
-        let state = FileState::OverBudget {
-            size: 1,
-            limit: 0,
-        };
+        let state = FileState::OverBudget { size: 1, limit: 0 };
         assert!(state.is_undecided());
         assert!(!state.is_conclusively_missing());
     }

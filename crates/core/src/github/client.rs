@@ -1,5 +1,12 @@
 //! The REST implementation of [`GitHub`].
 
+// `ApiError` is deliberately wide: it carries the status, GitHub's message and
+// documentation link, the accepted-permissions header, and the request id,
+// because a failure that cannot be reproduced with GitHub support is a failure
+// that wastes someone's afternoon. Boxing it would trade that clarity for a
+// pointer chase on a path that has just done network I/O.
+#![allow(clippy::result_large_err)]
+
 use std::collections::BTreeMap;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -107,9 +114,7 @@ impl RestClient {
         let http = reqwest::Client::builder()
             .user_agent(config.user_agent.clone())
             .build()
-            .map_err(|error| {
-                ApiError::local(ErrorCause::Transport, "client", error.to_string())
-            })?;
+            .map_err(|error| ApiError::local(ErrorCause::Transport, "client", error.to_string()))?;
         Ok(Self {
             http,
             token: token.into(),
@@ -143,9 +148,10 @@ impl RestClient {
                     .map(|value| (name.as_str().to_lowercase(), value.to_owned()))
             })
             .collect();
-        let body = response.text().await.map_err(|error| {
-            ApiError::local(ErrorCause::Transport, endpoint, error.to_string())
-        })?;
+        let body = response
+            .text()
+            .await
+            .map_err(|error| ApiError::local(ErrorCause::Transport, endpoint, error.to_string()))?;
 
         Ok(RawResponse {
             status,
@@ -187,10 +193,7 @@ impl RestClient {
             status: Some(raw.status),
             message: summary.message,
             documentation_url: summary.documentation_url,
-            accepted_permissions: raw
-                .headers
-                .get("x-accepted-github-permissions")
-                .cloned(),
+            accepted_permissions: raw.headers.get("x-accepted-github-permissions").cloned(),
             request_id: raw.headers.get("x-github-request-id").cloned(),
         }
     }
@@ -287,7 +290,10 @@ fn field_bool(value: &Value, name: &str) -> bool {
 }
 
 fn field_string(value: &Value, name: &str) -> Option<String> {
-    value.get(name).and_then(Value::as_str).map(ToOwned::to_owned)
+    value
+        .get(name)
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned)
 }
 
 fn require_string(endpoint: &str, value: &Value, name: &str) -> ApiResult<String> {
@@ -303,20 +309,13 @@ fn require_string(endpoint: &str, value: &Value, name: &str) -> ApiResult<String
 impl GitHub for RestClient {
     async fn repository(&self, owner: &str, repo: &str) -> ApiResult<Repository> {
         let endpoint = format!("GET /repos/{owner}/{repo}");
-        let path = format!(
-            "/repos/{}/{}",
-            encode_segment(owner),
-            encode_segment(repo)
-        );
+        let path = format!("/repos/{}/{}", encode_segment(owner), encode_segment(repo));
         let (value, raw) = self.get_json(&endpoint, &path).await?;
         Ok(Repository {
             full_name: require_string(&endpoint, &value, "full_name")?,
-            id: value
-                .get("id")
-                .and_then(Value::as_u64)
-                .ok_or_else(|| {
-                    ApiError::local(ErrorCause::Malformed, &endpoint, "response is missing `id`")
-                })?,
+            id: value.get("id").and_then(Value::as_u64).ok_or_else(|| {
+                ApiError::local(ErrorCause::Malformed, &endpoint, "response is missing `id`")
+            })?,
             owner: value
                 .get("owner")
                 .and_then(|owner| owner.get("login"))
@@ -362,7 +361,11 @@ impl GitHub for RestClient {
             .get("names")
             .and_then(Value::as_array)
             .ok_or_else(|| {
-                ApiError::local(ErrorCause::Malformed, &endpoint, "response is missing `names`")
+                ApiError::local(
+                    ErrorCause::Malformed,
+                    &endpoint,
+                    "response is missing `names`",
+                )
             })?
             .iter()
             .filter_map(Value::as_str)
@@ -396,7 +399,11 @@ impl GitHub for RestClient {
             .get("tree")
             .and_then(Value::as_array)
             .ok_or_else(|| {
-                ApiError::local(ErrorCause::Malformed, &endpoint, "response is missing `tree`")
+                ApiError::local(
+                    ErrorCause::Malformed,
+                    &endpoint,
+                    "response is missing `tree`",
+                )
             })?
             .iter()
             .filter_map(|entry| {
@@ -429,8 +436,10 @@ impl GitHub for RestClient {
         let content = require_string(&endpoint, &value, "content")?;
         match encoding.as_str() {
             "base64" => {
-                let stripped: String =
-                    content.chars().filter(|c| !c.is_ascii_whitespace()).collect();
+                let stripped: String = content
+                    .chars()
+                    .filter(|c| !c.is_ascii_whitespace())
+                    .collect();
                 base64::engine::general_purpose::STANDARD
                     .decode(stripped)
                     .map_err(|error| {
@@ -583,7 +592,10 @@ impl GitHub for RestClient {
             for item in items {
                 installations.push(Installation {
                     id: item.get("id").and_then(Value::as_u64).unwrap_or_default(),
-                    app_id: item.get("app_id").and_then(Value::as_u64).unwrap_or_default(),
+                    app_id: item
+                        .get("app_id")
+                        .and_then(Value::as_u64)
+                        .unwrap_or_default(),
                     app_slug: field_string(item, "app_slug").unwrap_or_default(),
                     account: item
                         .get("account")
@@ -596,10 +608,7 @@ impl GitHub for RestClient {
                         .map(|map| {
                             map.iter()
                                 .map(|(name, level)| {
-                                    (
-                                        name.clone(),
-                                        level.as_str().unwrap_or("unknown").to_owned(),
-                                    )
+                                    (name.clone(), level.as_str().unwrap_or("unknown").to_owned())
                                 })
                                 .collect()
                         })

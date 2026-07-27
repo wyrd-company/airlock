@@ -84,9 +84,11 @@ async fn an_unknown_403_is_never_guessed_into_a_known_class() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/repos/owner/name/rulesets"))
-        .respond_with(quota_headers(ResponseTemplate::new(403)).set_body_json(json!({
-            "message": "Your organization has a policy that airlock has never seen"
-        })))
+        .respond_with(
+            quota_headers(ResponseTemplate::new(403)).set_body_json(json!({
+                "message": "Your organization has a policy that airlock has never seen"
+            })),
+        )
         .mount(&server)
         .await;
 
@@ -106,7 +108,10 @@ async fn a_repository_404_is_reported_as_not_found() {
         .mount(&server)
         .await;
 
-    let error = client(&server).repository("owner", "name").await.unwrap_err();
+    let error = client(&server)
+        .repository("owner", "name")
+        .await
+        .unwrap_err();
     assert_eq!(error.cause, ErrorCause::NotFound);
     assert_eq!(error.endpoint, "GET /repos/owner/name");
 }
@@ -118,9 +123,11 @@ async fn a_feature_off_404_is_still_a_not_found_for_the_check_to_interpret() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/repos/owner/name/rules/branches/main"))
-        .respond_with(quota_headers(ResponseTemplate::new(404)).set_body_json(json!({
-            "message": "Repository is public or secret scanning is disabled for the repository"
-        })))
+        .respond_with(
+            quota_headers(ResponseTemplate::new(404)).set_body_json(json!({
+                "message": "Repository is public or secret scanning is disabled for the repository"
+            })),
+        )
         .mount(&server)
         .await;
 
@@ -145,7 +152,10 @@ async fn an_exhausted_rate_limit_is_classified_from_headers() {
         .mount(&server)
         .await;
 
-    let error = client(&server).repository("owner", "name").await.unwrap_err();
+    let error = client(&server)
+        .repository("owner", "name")
+        .await
+        .unwrap_err();
     assert_eq!(error.cause, ErrorCause::RateLimit);
 }
 
@@ -280,7 +290,11 @@ async fn a_repository_without_tags_answers_an_empty_list_rather_than_failing() {
         .mount(&server)
         .await;
 
-    assert!(client(&server).tags("owner", "name").await.unwrap().is_empty());
+    assert!(client(&server)
+        .tags("owner", "name")
+        .await
+        .unwrap()
+        .is_empty());
 }
 
 #[tokio::test]
