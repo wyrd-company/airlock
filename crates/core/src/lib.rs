@@ -12,6 +12,8 @@ pub mod checks;
 pub mod error;
 pub mod findings;
 pub mod github;
+pub mod limits;
 pub mod policy;
+pub mod yaml;
 
 pub use error::{Error, Result};
