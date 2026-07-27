@@ -5,6 +5,8 @@
 //! reported as an inconclusive result naming the limit — never as absence, and
 //! never as a pass.
 
+use std::time::Duration;
+
 /// The budgets applied to one audit run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Limits {
@@ -24,6 +26,17 @@ pub struct Limits {
     pub max_policy_references: usize,
     /// Largest policy reference chain depth.
     pub max_policy_reference_depth: usize,
+    /// Largest response body airlock will read from one request, in bytes.
+    ///
+    /// Enforced while the body is being read, so an endless response is
+    /// abandoned rather than materialised.
+    pub max_response_bytes: usize,
+    /// How long airlock will wait to open a connection.
+    pub connect_timeout: Duration,
+    /// How long airlock will wait for one request to complete.
+    pub request_timeout: Duration,
+    /// The wall-clock budget for one audit, measured from the first request.
+    pub audit_budget: Duration,
     /// YAML parse budget.
     pub yaml: YamlLimits,
 }
@@ -59,6 +72,10 @@ pub const DEFAULT_LIMITS: Limits = Limits {
     max_workflow_files: 100,
     max_policy_references: 16,
     max_policy_reference_depth: 4,
+    max_response_bytes: 32 * 1024 * 1024,
+    connect_timeout: Duration::from_secs(10),
+    request_timeout: Duration::from_secs(30),
+    audit_budget: Duration::from_secs(300),
     yaml: DEFAULT_YAML_LIMITS,
 };
 
@@ -85,5 +102,9 @@ mod tests {
         assert!(limits.yaml.max_bytes <= limits.max_blob_bytes);
         assert!(limits.max_pages > 0);
         assert!(limits.max_history_commits > 0);
+        assert!(limits.max_tree_entries > 0);
+        assert!(limits.max_blob_bytes <= limits.max_response_bytes);
+        assert!(limits.connect_timeout <= limits.request_timeout);
+        assert!(limits.request_timeout <= limits.audit_budget);
     }
 }

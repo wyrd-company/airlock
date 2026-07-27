@@ -59,7 +59,12 @@ impl ErrorCause {
 }
 
 /// The headers a classification decision may read, lower-cased.
-pub type Headers = BTreeMap<String, String>;
+///
+/// Multi-valued: HTTP allows a field to repeat, and a security decision made
+/// from whichever repetition happened to survive a map insert is not a
+/// decision. Callers that need certainty use [`Response::single_header`],
+/// which answers only when there is exactly one value.
+pub type Headers = BTreeMap<String, Vec<String>>;
 
 /// The parts of a failed response classification depends on.
 #[derive(Debug, Clone, Default)]
@@ -75,8 +80,25 @@ pub struct Response {
 }
 
 impl Response {
+    /// The value of a header that appeared exactly once.
+    ///
+    /// A repeated header answers `None`: "which one" has no safe default.
+    #[must_use]
+    pub fn single_header(&self, name: &str) -> Option<&str> {
+        match self.headers.get(name)?.as_slice() {
+            [only] => Some(only.as_str()),
+            _ => None,
+        }
+    }
+
+    /// Whether the header appeared at all, however many times.
+    #[must_use]
+    pub fn has_header(&self, name: &str) -> bool {
+        self.headers.contains_key(name)
+    }
+
     fn header(&self, name: &str) -> Option<&str> {
-        self.headers.get(name).map(String::as_str)
+        self.single_header(name)
     }
 }
 
@@ -150,7 +172,7 @@ pub fn classify(response: &Response) -> ErrorCause {
     if response.status == 403 {
         // The strongest available signal: GitHub naming the permission the
         // endpoint wanted.
-        if response.header("x-accepted-github-permissions").is_some() {
+        if response.has_header("x-accepted-github-permissions") {
             return ErrorCause::Permission;
         }
         return match_hint(response).unwrap_or(ErrorCause::UnknownAccess);
@@ -178,7 +200,7 @@ fn is_rate_limited(response: &Response) -> bool {
     if response.header("x-ratelimit-remaining") == Some("0") {
         return true;
     }
-    if response.header("retry-after").is_some() {
+    if response.has_header("retry-after") {
         return true;
     }
     matches!(match_hint(response), Some(ErrorCause::RateLimit))
@@ -211,8 +233,12 @@ mod tests {
             status,
             headers: headers
                 .iter()
-                .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
-                .collect(),
+                .fold(Headers::new(), |mut map, (name, value)| {
+                    map.entry((*name).to_owned())
+                        .or_default()
+                        .push((*value).to_owned());
+                    map
+                }),
             message: message.map(ToOwned::to_owned),
             documentation_url: None,
         }
@@ -299,6 +325,38 @@ mod tests {
         let response = response(403, &[("x-ratelimit-reset", "1000")], None);
         assert_eq!(retry_delay_seconds(&response, 940), Some(60));
         assert_eq!(retry_delay_seconds(&response, 2000), Some(0));
+    }
+
+    #[test]
+    fn a_repeated_header_is_not_read_as_a_single_value() {
+        // Two rate-limit remainders cannot both be the answer, so neither is.
+        let response = response(
+            403,
+            &[
+                ("x-ratelimit-remaining", "0"),
+                ("x-ratelimit-remaining", "9"),
+            ],
+            Some("Resource not accessible by integration"),
+        );
+        assert_eq!(classify(&response), ErrorCause::Permission);
+        assert_eq!(response.single_header("x-ratelimit-remaining"), None);
+        assert!(response.has_header("x-ratelimit-remaining"));
+    }
+
+    #[test]
+    fn a_repeated_accepted_permissions_header_still_marks_a_permission_failure() {
+        // Presence is what classifies here, not the value, so repetition is
+        // not a reason to fall through to `unknown_access`.
+        let response = response(
+            403,
+            &[
+                ("x-accepted-github-permissions", "administration=read"),
+                ("x-accepted-github-permissions", "contents=read"),
+                ("x-ratelimit-remaining", "4999"),
+            ],
+            None,
+        );
+        assert_eq!(classify(&response), ErrorCause::Permission);
     }
 
     #[test]

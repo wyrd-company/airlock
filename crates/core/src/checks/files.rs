@@ -207,6 +207,13 @@ fn devcontainer(context: &AuditContext) -> Verdict {
             ".devcontainer",
             ".devcontainer/ is present",
         )
+    } else if context.snapshot.tree_is_truncated() {
+        Verdict::inconclusive(
+            "tree_truncated",
+            context
+                .snapshot
+                .truncation_detail("whether .devcontainer/ exists"),
+        )
     } else {
         Verdict::fail_at(
             "directory_missing",
@@ -263,6 +270,10 @@ fn claude_symlink(context: &AuditContext) -> Verdict {
 
 fn presence_fallback(path: &str, state: &FileState) -> Verdict {
     match state {
+        FileState::TreeTruncated => Verdict::inconclusive(
+            "tree_truncated",
+            format!("GitHub truncated the tree, so whether {path} exists was never established"),
+        ),
         FileState::OverBudget { size, limit } => Verdict::inconclusive(
             "file_over_budget",
             format!("{path} is {size} bytes, over the {limit} byte limit, so it was not read"),
@@ -295,6 +306,16 @@ fn no_harness_config(rule: &RuleInstance, context: &AuditContext) -> Verdict {
         .collect();
 
     if found.is_empty() {
+        // This rule asserts nothing is there. A truncated tree cannot support
+        // that: the forbidden path may be in the part airlock never received.
+        if context.snapshot.tree_is_truncated() {
+            return Verdict::inconclusive(
+                "tree_truncated",
+                context
+                    .snapshot
+                    .truncation_detail("the absence of agent harness configuration"),
+            );
+        }
         Verdict::pass(
             "no_harness_config",
             "no agent harness configuration is committed",
@@ -318,6 +339,14 @@ fn no_codeowners(context: &AuditContext) -> Verdict {
         .collect();
 
     if found.is_empty() {
+        if context.snapshot.tree_is_truncated() {
+            return Verdict::inconclusive(
+                "tree_truncated",
+                context
+                    .snapshot
+                    .truncation_detail("the absence of a CODEOWNERS file"),
+            );
+        }
         Verdict::pass("no_codeowners", "no CODEOWNERS file is present")
     } else {
         Verdict::fail(
@@ -564,5 +593,73 @@ mod tests {
             Status::Fail
         );
         assert_eq!(verdict("REPO-FILE-17", &[]), Status::Fail);
+    }
+
+    /// A snapshot whose tree GitHub cut short.
+    fn truncated(files: &[(&str, &str)]) -> crate::snapshot::RepoSnapshot {
+        let mut snapshot = snapshot(files);
+        snapshot.tree.truncated = true;
+        snapshot
+    }
+
+    #[test]
+    fn a_truncated_tree_cannot_prove_no_harness_configuration_is_committed() {
+        let snapshot = truncated(&[("README.md", "x")]);
+        let policy = policy();
+        let context = context(&snapshot, &policy, Vec::new());
+        let verdict = evaluate(&rule("REPO-FILE-13"), &context);
+        assert_eq!(verdict.status, Status::Inconclusive);
+        assert_eq!(verdict.evidence.unwrap().code, "tree_truncated");
+    }
+
+    #[test]
+    fn a_truncated_tree_still_fails_on_harness_configuration_it_did_see() {
+        let snapshot = truncated(&[(".claude/settings.json", "{}")]);
+        let policy = policy();
+        let context = context(&snapshot, &policy, Vec::new());
+        assert_eq!(
+            evaluate(&rule("REPO-FILE-13"), &context).status,
+            Status::Fail
+        );
+    }
+
+    #[test]
+    fn a_truncated_tree_cannot_prove_the_absence_of_codeowners() {
+        let snapshot = truncated(&[("README.md", "x")]);
+        let policy = policy();
+        let context = context(&snapshot, &policy, Vec::new());
+        assert_eq!(
+            evaluate(&rule("REPO-FILE-14"), &context).status,
+            Status::Inconclusive
+        );
+    }
+
+    #[test]
+    fn a_truncated_tree_cannot_prove_a_required_file_is_absent() {
+        let snapshot = truncated(&[("README.md", "x")]);
+        let policy = policy();
+        let context = context(&snapshot, &policy, Vec::new());
+        // CONTRIBUTING.md was not in the part of the tree airlock received, so
+        // "it is absent" is a claim it cannot make.
+        assert_eq!(
+            evaluate(&rule("REPO-FILE-02"), &context).status,
+            Status::Inconclusive
+        );
+        // The file it did see is still conclusively present.
+        assert_eq!(
+            evaluate(&rule("REPO-FILE-01"), &context).status,
+            Status::Pass
+        );
+    }
+
+    #[test]
+    fn a_truncated_tree_cannot_prove_the_devcontainer_is_absent() {
+        let snapshot = truncated(&[("README.md", "x")]);
+        let policy = policy();
+        let context = context(&snapshot, &policy, Vec::new());
+        assert_eq!(
+            evaluate(&rule("REPO-FILE-10"), &context).status,
+            Status::Inconclusive
+        );
     }
 }

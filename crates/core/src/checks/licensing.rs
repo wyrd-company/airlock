@@ -41,6 +41,16 @@ fn not_dual_licensed(context: &AuditContext) -> Verdict {
     }
 
     if evidence.is_empty() {
+        // The assertion is that no dual licence exists anywhere in the
+        // repository, which a partial tree cannot establish.
+        if context.snapshot.tree_is_truncated() {
+            return Verdict::inconclusive(
+                "tree_truncated",
+                context
+                    .snapshot
+                    .truncation_detail("the absence of a dual licence"),
+            );
+        }
         Verdict::pass(
             "not_dual_licensed",
             "no MIT OR Apache-2.0 dual licence is declared",

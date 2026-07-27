@@ -19,7 +19,9 @@ mod licensing;
 mod release;
 
 use crate::findings::{Evidence, FindingError, Remediation, Status};
-use crate::github::{ApiError, BranchRule, CommitSummary, Ruleset, TagRef, MESSAGE_HINTS_VERSION};
+use crate::github::{
+    ApiError, BranchRule, CommitSummary, Paged, Ruleset, TagRef, MESSAGE_HINTS_VERSION,
+};
 use crate::limits::Limits;
 use crate::policy::{Condition, ResolvedPolicy, RuleInstance};
 use crate::registry::Evaluation;
@@ -244,14 +246,14 @@ pub struct AuditContext<'a> {
     pub workflows: Vec<Workflow>,
     /// Whether the workflow listing was cut short by a budget.
     pub workflows_truncated: bool,
-    /// The repository's tags.
-    pub tags: Result<Vec<TagRef>, ApiError>,
-    /// Default-branch history, and whether the walk stopped at the budget.
-    pub history: Result<(Vec<CommitSummary>, bool), ApiError>,
+    /// The repository's tags, and whether the listing was complete.
+    pub tags: Result<Paged<TagRef>, ApiError>,
+    /// Default-branch history, and whether the walk stopped at a budget.
+    pub history: Result<Paged<CommitSummary>, ApiError>,
     /// Rulesets covering the repository, including inherited ones.
-    pub rulesets: Result<Vec<Ruleset>, ApiError>,
+    pub rulesets: Result<Paged<Ruleset>, ApiError>,
     /// The effective rules on the default branch.
-    pub branch_rules: Result<Vec<BranchRule>, ApiError>,
+    pub branch_rules: Result<Paged<BranchRule>, ApiError>,
 }
 
 /// What airlock knows about a YAML file it wanted to read.
@@ -291,6 +293,11 @@ impl AuditContext<'_> {
         let state = self.snapshot.file(path);
         match state {
             FileState::Missing => ParsedFile::Missing,
+            FileState::TreeTruncated => ParsedFile::Undecided(Box::new(Verdict::inconclusive(
+                "tree_truncated",
+                self.snapshot
+                    .truncation_detail(&format!("whether {path} exists")),
+            ))),
             FileState::Content { .. } => {
                 let text = state.text().unwrap_or_default();
                 match yaml::parse_mapping(text, self.limits.yaml) {
@@ -438,6 +445,14 @@ pub(crate) fn presence(context: &AuditContext, path: &str, subject: &str) -> Ver
         FileState::Content { .. } => {
             Verdict::pass_at("file_present", path, format!("{subject} is present"))
         }
+        FileState::TreeTruncated => Verdict::inconclusive(
+            "tree_truncated",
+            format!(
+                "GitHub truncated the tree at {}, so whether {path} exists was never \
+                 established",
+                context.snapshot.commit
+            ),
+        ),
         FileState::Missing => Verdict::fail_at(
             "file_missing",
             path,
@@ -637,10 +652,10 @@ pub(crate) mod fixtures {
             limits: Limits::default(),
             workflows,
             workflows_truncated: false,
-            tags: Ok(Vec::new()),
-            history: Ok((Vec::new(), false)),
-            rulesets: Ok(Vec::new()),
-            branch_rules: Ok(Vec::new()),
+            tags: Ok(Paged::complete(Vec::new())),
+            history: Ok(Paged::complete(Vec::new())),
+            rulesets: Ok(Paged::complete(Vec::new())),
+            branch_rules: Ok(Paged::complete(Vec::new())),
         }
     }
 }

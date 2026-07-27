@@ -25,11 +25,20 @@ pub const AIRLOCK_SAFE_CLIENT_ID: &str = "Iv23liSiShAsRmDUZAsS";
 
 /// The slug of the Airlock Safe GitHub App.
 ///
-/// This is the trust root for `ghu_` tokens. GitHub attests the issuing app on
-/// every installation it returns, and Airlock Safe's registration requests no
-/// account-level permissions, so an installation list that is entirely Airlock
-/// Safe and entirely `read` enumerates the token's whole authority.
+/// Half of the trust root for `ghu_` tokens, and the mutable half: a slug
+/// follows a rename and can later be claimed by a different app. It is checked
+/// because it is what a human recognises, never on its own.
 pub const AIRLOCK_SAFE_APP_SLUG: &str = "airlock-safe";
+
+/// The numeric id of the Airlock Safe GitHub App.
+///
+/// The immutable half of the trust root. GitHub attests both `app_id` and
+/// `app_slug` on every installation it returns, and only the id survives a
+/// rename or a slug being reused, so acceptance is bound to both. Airlock
+/// Safe's registration requests no account-level permissions, which is what
+/// makes an installation list that is entirely this app and entirely `read` an
+/// enumeration of the token's whole authority.
+pub const AIRLOCK_SAFE_APP_ID: u64 = 4_409_712;
 
 /// Classic OAuth scopes whose full authority is read-only.
 ///
@@ -224,15 +233,30 @@ async fn verify_app_user<G: GitHub>(client: &G) -> Result<VerifiedGrant, Refusal
     }
 
     for installation in &installations {
-        if installation.app_slug != AIRLOCK_SAFE_APP_SLUG {
+        // Both halves, every time. A slug alone follows a rename and can be
+        // reclaimed; an id alone tells a human nothing.
+        if installation.app_id == 0 {
+            return Err(Refusal::new(
+                "malformed_issuer",
+                format!(
+                    "Installation {} reports app id 0, which is not an app identity airlock can \
+                     bind to. An issuer it cannot verify is an issuer it refuses.",
+                    installation.id
+                ),
+            ));
+        }
+        if installation.app_slug != AIRLOCK_SAFE_APP_SLUG
+            || installation.app_id != AIRLOCK_SAFE_APP_ID
+        {
             return Err(Refusal::new(
                 "foreign_issuer",
                 format!(
-                    "The token was issued by `{}`, not `{AIRLOCK_SAFE_APP_SLUG}`. Airlock can \
-                     enumerate installation permissions but not account-level ones, so it \
-                     accepts app user tokens only from the app whose reviewed registration \
-                     requests none. Run `airlock auth login`.",
-                    installation.app_slug
+                    "The token was issued by `{}` (app id {}), not `{AIRLOCK_SAFE_APP_SLUG}` \
+                     (app id {AIRLOCK_SAFE_APP_ID}). Airlock can enumerate installation \
+                     permissions but not account-level ones, so it accepts app user tokens only \
+                     from the app whose reviewed registration requests none. Run \
+                     `airlock auth login`.",
+                    installation.app_slug, installation.app_id
                 ),
             ));
         }
@@ -286,14 +310,36 @@ fn write_permissions(installation: &Installation) -> Vec<String> {
 async fn verify_scoped<G: GitHub>(kind: TokenKind, client: &G) -> Result<VerifiedGrant, Refusal> {
     let user = client.authenticated_user().await.map_err(api_refusal)?;
 
-    let Some(header) = user.oauth_scopes else {
-        // A missing header is not an empty grant. It is an unread one.
-        return Err(Refusal::new(
-            "missing_scope_header",
-            "GitHub did not return an `X-OAuth-Scopes` header, so the token's \
-             scopes could not be read. An unreadable grant is unverifiable.",
-        ));
+    let header = match user.oauth_scopes.as_slice() {
+        [only] => only.clone(),
+        [] => {
+            // A missing header is not an empty grant. It is an unread one.
+            return Err(Refusal::new(
+                "missing_scope_header",
+                "GitHub did not return an `X-OAuth-Scopes` header, so the token's \
+                 scopes could not be read. An unreadable grant is unverifiable.",
+            ));
+        }
+        values => {
+            // Two scope headers have no combination rule airlock is willing to
+            // invent. Reading whichever arrived first would let a response
+            // carrying both a read-only value and `repo` be accepted.
+            return Err(Refusal::new(
+                "duplicate_scope_header",
+                format!(
+                    "GitHub returned {} `X-OAuth-Scopes` headers ({}). A grant with more than \
+                     one answer is not enumerated, so the token is refused.",
+                    values.len(),
+                    values
+                        .iter()
+                        .map(|value| format!("`{value}`"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+            ));
+        }
     };
+    let _ = user.oauth_scopes_present;
 
     let scopes = parse_scopes(&header)?;
     let allowed: BTreeSet<&str> = READ_ONLY_SCOPES.iter().copied().collect();
@@ -359,6 +405,13 @@ fn api_refusal(error: ApiError) -> Refusal {
             "rate_limited",
             "GitHub rate-limited the verification request, so the credential \
              could not be verified. Try again after the limit resets.",
+        ),
+        ErrorCause::Budget => Refusal::new(
+            "budget_exhausted",
+            format!(
+                "The credential could not be verified within airlock's time and size budgets, \
+                 so nothing about it was established: {error}"
+            ),
         ),
         _ => Refusal::new(
             "verification_failed",

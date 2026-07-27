@@ -18,8 +18,11 @@ use crate::limits::Limits;
 /// What airlock knows about one path at the audited commit.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FileState {
-    /// No entry at that path.
+    /// No entry at that path, in a tree airlock saw all of.
     Missing,
+    /// The path was not in the tree, but GitHub truncated the tree — so its
+    /// absence was never established.
+    TreeTruncated,
     /// An entry exists but is not a file airlock reads — a directory, a
     /// submodule, or a symlink. The kind is preserved.
     NotAFile {
@@ -78,7 +81,7 @@ impl FileState {
     pub fn is_undecided(&self) -> bool {
         matches!(
             self,
-            FileState::OverBudget { .. } | FileState::Unreadable(_)
+            FileState::OverBudget { .. } | FileState::Unreadable(_) | FileState::TreeTruncated
         )
     }
 }
@@ -162,11 +165,41 @@ impl RepoSnapshot {
             .collect()
     }
 
-    /// What airlock knows about `path`. Unread paths report as missing, so
-    /// callers must load a path before asking about it.
+    /// What airlock knows about `path`.
+    ///
+    /// A path that was never read reports as missing — callers load the paths
+    /// they care about first — unless the tree was truncated, in which case
+    /// nothing about an unseen path was ever established.
     #[must_use]
     pub fn file(&self, path: &str) -> &FileState {
-        self.files.get(path).unwrap_or(&FileState::Missing)
+        const MISSING: FileState = FileState::Missing;
+        const TRUNCATED: FileState = FileState::TreeTruncated;
+        self.files.get(path).unwrap_or({
+            if self.tree.truncated {
+                &TRUNCATED
+            } else {
+                &MISSING
+            }
+        })
+    }
+
+    /// Whether GitHub truncated the recursive tree.
+    ///
+    /// Any check whose answer depends on something *not* being in the tree has
+    /// to consult this: a truncated tree can prove presence but never absence.
+    #[must_use]
+    pub fn tree_is_truncated(&self) -> bool {
+        self.tree.truncated
+    }
+
+    /// The evidence detail explaining a truncated tree, for a check that
+    /// cannot conclude because of it.
+    #[must_use]
+    pub fn truncation_detail(&self, subject: &str) -> String {
+        format!(
+            "GitHub truncated the recursive tree at {}, so {subject} was never established",
+            self.commit
+        )
     }
 
     /// Read the given paths into the snapshot, under budget.
@@ -198,7 +231,13 @@ impl RepoSnapshot {
         path: &str,
     ) -> FileState {
         let Some(entry) = self.entry(path).cloned() else {
-            return FileState::Missing;
+            // A path missing from a truncated tree is a path airlock did not
+            // look for everywhere. That is not absence.
+            return if self.tree.truncated {
+                FileState::TreeTruncated
+            } else {
+                FileState::Missing
+            };
         };
 
         if entry.kind == EntryKind::Tree || entry.kind == EntryKind::Submodule {
@@ -343,6 +382,20 @@ mod tests {
     fn a_submodule_is_not_a_directory() {
         let snapshot = snapshot(vec![entry("vendor", EntryKind::Submodule, "160000")]);
         assert!(!snapshot.has_directory("vendor"));
+    }
+
+    #[test]
+    fn a_path_absent_from_a_truncated_tree_is_undecided_not_missing() {
+        let mut snapshot = snapshot(Vec::new());
+        snapshot.tree.truncated = true;
+        assert!(snapshot.tree_is_truncated());
+        let state = if snapshot.tree.truncated {
+            FileState::TreeTruncated
+        } else {
+            FileState::Missing
+        };
+        assert!(state.is_undecided());
+        assert!(!state.is_conclusively_missing());
     }
 
     #[test]

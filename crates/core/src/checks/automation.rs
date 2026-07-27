@@ -378,8 +378,8 @@ fn jobs_declare_permissions(context: &AuditContext) -> Verdict {
     }
 }
 
-/// Every `uses:` must name a 40-character commit sha and carry a version
-/// comment. Comments do not survive parsing, so this reads the text.
+/// Every `uses:` must name a 40-character commit sha and carry a non-empty
+/// version comment. Comments do not survive parsing, so this reads the text.
 fn actions_pinned(context: &AuditContext) -> Verdict {
     if context.workflows_truncated {
         return Verdict::inconclusive(
@@ -391,34 +391,44 @@ fn actions_pinned(context: &AuditContext) -> Verdict {
     let mut offenders = Vec::new();
     for workflow in &context.workflows {
         for (number, line) in workflow.text.lines().enumerate() {
-            let Some(reference) = uses_reference(line) else {
+            let Some(step) = uses_step(line) else {
                 continue;
             };
-            if reference.starts_with("./") || reference.starts_with("docker://") {
+            let location = format!("{}:{}", workflow.path, number + 1);
+            if step.reference.starts_with("./") || step.reference.starts_with("docker://") {
                 continue;
             }
-            let Some((action, version)) = reference.rsplit_once('@') else {
+            let Some((action, version)) = step.reference.rsplit_once('@') else {
                 offenders.push(format!(
-                    "{}:{} uses `{reference}` with no ref at all",
-                    workflow.path,
-                    number + 1
+                    "{location} uses `{}` with no ref at all",
+                    step.reference
                 ));
                 continue;
             };
             if version.len() != 40 || !version.chars().all(|c| c.is_ascii_hexdigit()) {
                 offenders.push(format!(
-                    "{}:{} pins `{action}` to `{version}` rather than a commit sha",
-                    workflow.path,
-                    number + 1
+                    "{location} pins `{action}` to `{version}` rather than a commit sha"
                 ));
                 continue;
             }
-            if !line.contains('#') {
-                offenders.push(format!(
-                    "{}:{} pins `{action}` to a sha with no version comment",
-                    workflow.path,
-                    number + 1
-                ));
+            match step.comment {
+                // A bare `#`, or a comment of only whitespace, is not a
+                // version comment. Neither is a `#` inside the quoted scalar,
+                // which `uses_step` never treats as a comment at all.
+                None => offenders.push(format!(
+                    "{location} pins `{action}` to a sha with no version comment"
+                )),
+                Some(comment) if comment.trim().is_empty() => offenders.push(format!(
+                    "{location} pins `{action}` to a sha with an empty version comment"
+                )),
+                Some(comment) if !comment.chars().any(|c| c.is_ascii_digit()) => {
+                    offenders.push(format!(
+                        "{location} pins `{action}` with the comment `{}`, which names no \
+                         version",
+                        comment.trim()
+                    ));
+                }
+                Some(_) => {}
             }
         }
     }
@@ -434,24 +444,71 @@ fn actions_pinned(context: &AuditContext) -> Verdict {
             offenders.join("; "),
             Remediation::new(
                 "pin_action",
-                "Pin every action to a full commit sha and note the version in a trailing \
-                 comment.",
+                "Pin every action to a full commit sha and name the version it came from in a \
+                 trailing comment, for example `# v4`.",
             ),
         )
     }
 }
 
-/// The value of a `uses:` key on one line, if the line is one.
-fn uses_reference(line: &str) -> Option<&str> {
+/// One `uses:` line, split into its reference and its trailing comment.
+struct UsesStep<'a> {
+    reference: &'a str,
+    /// The text after the `#`, when the line carries a real YAML comment.
+    comment: Option<&'a str>,
+}
+
+/// Split a `uses:` line into its value and its trailing comment.
+///
+/// YAML starts a comment at a `#` that follows whitespace, so a `#` inside a
+/// scalar is part of the value. A quoted scalar is read to its closing quote
+/// first, which is what stops `uses: "action@sha#not-a-comment"` from
+/// counting as a version comment.
+fn uses_step(line: &str) -> Option<UsesStep<'_>> {
     let trimmed = line.trim().trim_start_matches("- ").trim();
-    let rest = trimmed.strip_prefix("uses:")?;
-    let value = rest.split('#').next().unwrap_or("").trim();
-    let value = value.trim_matches('"').trim_matches('\'');
+    let rest = trimmed.strip_prefix("uses:")?.trim_start();
+
+    let (value, remainder) = match rest.chars().next() {
+        Some(quote @ ('"' | '\'')) => {
+            let body = &rest[quote.len_utf8()..];
+            let close = body.find(quote)?;
+            (&body[..close], &body[close + quote.len_utf8()..])
+        }
+        _ => match find_comment_start(rest) {
+            Some(position) => (rest[..position].trim_end(), &rest[position..]),
+            None => (rest.trim_end(), ""),
+        },
+    };
+
     if value.is_empty() {
-        None
-    } else {
-        Some(value)
+        return None;
     }
+
+    let comment = remainder
+        .find('#')
+        .map(|position| &remainder[position + 1..]);
+
+    Some(UsesStep {
+        reference: value,
+        comment,
+    })
+}
+
+/// The index of the `#` that starts a YAML comment, if the scalar has one.
+fn find_comment_start(value: &str) -> Option<usize> {
+    let bytes = value.as_bytes();
+    value.char_indices().find_map(|(index, character)| {
+        if character != '#' {
+            return None;
+        }
+        // A `#` only opens a comment when it follows whitespace or opens the
+        // scalar; `sha#fragment` is one token.
+        match index.checked_sub(1).map(|previous| bytes[previous]) {
+            None => Some(index),
+            Some(previous) if previous.is_ascii_whitespace() => Some(index),
+            Some(_) => None,
+        }
+    })
 }
 
 fn no_pull_request_target(context: &AuditContext) -> Verdict {
@@ -1567,5 +1624,68 @@ commit-msg:
         let verdict = evaluate(&rule("REPO-CI-02"), &context);
         assert_eq!(verdict.status, Status::Inconclusive);
         assert!(!decided(&verdict));
+    }
+
+    #[test]
+    fn an_action_pin_needs_a_comment_that_names_a_version() {
+        let sha = "11d5960a326750d5838078e36cf38b85af677262";
+        let cases: &[(&str, Status)] = &[
+            ("# v4", Status::Pass),
+            ("# 1.2.3", Status::Pass),
+            ("#v4", Status::Pass),
+            // A bare hash is not a version comment.
+            ("#", Status::Fail),
+            ("#   ", Status::Fail),
+            // Nor is a comment that names no version.
+            ("# see the wiki", Status::Fail),
+        ];
+        for (comment, expected) in cases {
+            let workflow = format!(
+                "jobs:\n  a:\n    steps:\n      - uses: actions/checkout@{sha} {comment}\n"
+            );
+            assert_eq!(
+                verdict("REPO-CI-04", &[(".github/workflows/x.yml", &workflow)]),
+                *expected,
+                "comment `{comment}`"
+            );
+        }
+    }
+
+    #[test]
+    fn a_hash_inside_a_quoted_uses_value_is_not_a_version_comment() {
+        let sha = "11d5960a326750d5838078e36cf38b85af677262";
+        let workflow =
+            format!("jobs:\n  a:\n    steps:\n      - uses: \"actions/checkout@{sha}#v4\"\n");
+        // The `#` is inside the scalar, so the ref is `{sha}#v4` — neither a
+        // bare sha nor a commented pin.
+        assert_eq!(
+            verdict("REPO-CI-04", &[(".github/workflows/x.yml", &workflow)]),
+            Status::Fail
+        );
+    }
+
+    #[test]
+    fn a_quoted_uses_value_with_a_real_trailing_comment_passes() {
+        let sha = "11d5960a326750d5838078e36cf38b85af677262";
+        let workflow =
+            format!("jobs:\n  a:\n    steps:\n      - uses: \"actions/checkout@{sha}\" # v4\n");
+        assert_eq!(
+            verdict("REPO-CI-04", &[(".github/workflows/x.yml", &workflow)]),
+            Status::Pass
+        );
+    }
+
+    #[test]
+    fn the_uses_splitter_keeps_a_scalar_hash_out_of_the_comment() {
+        let step = super::uses_step("      - uses: owner/action@abc#fragment").unwrap();
+        assert_eq!(step.reference, "owner/action@abc#fragment");
+        assert_eq!(step.comment, None);
+
+        let commented = super::uses_step("      - uses: owner/action@abc # v4").unwrap();
+        assert_eq!(commented.reference, "owner/action@abc");
+        assert_eq!(commented.comment, Some(" v4"));
+
+        let empty = super::uses_step("      - uses: owner/action@abc #").unwrap();
+        assert_eq!(empty.comment, Some(""));
     }
 }

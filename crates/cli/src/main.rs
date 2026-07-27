@@ -195,6 +195,17 @@ fn api_base() -> String {
     std::env::var(API_URL_OVERRIDE).unwrap_or_else(|_| RestClientConfig::default().base_url)
 }
 
+/// The client configuration for one run.
+///
+/// Built from the audit's budgets so the page, byte, and time limits the
+/// checks reason about are the ones the client actually enforces.
+fn client_config(limits: Limits) -> RestClientConfig {
+    RestClientConfig {
+        base_url: api_base(),
+        ..RestClientConfig::from_limits(limits)
+    }
+}
+
 fn login_base() -> String {
     std::env::var(LOGIN_URL_OVERRIDE).unwrap_or_else(|_| GITHUB_LOGIN_BASE.to_owned())
 }
@@ -235,14 +246,9 @@ async fn audit_command(args: AuditArgs, interactive: bool) -> Result<u8> {
     let credential =
         credential::resolve(&inputs, &config_path, &login_base(), AIRLOCK_SAFE_CLIENT_ID).await?;
 
-    let client = RestClient::new(
-        credential.token.clone(),
-        RestClientConfig {
-            base_url: api_base(),
-            ..RestClientConfig::default()
-        },
-    )
-    .map_err(|error| anyhow::anyhow!("{error}"))?;
+    let limits = Limits::default();
+    let client = RestClient::new(credential.token.clone(), client_config(limits))
+        .map_err(|error| anyhow::anyhow!("{error}"))?;
 
     let grant = auth::verify(&credential.token, &client)
         .await
@@ -257,7 +263,6 @@ async fn audit_command(args: AuditArgs, interactive: bool) -> Result<u8> {
         Some(value) => PolicySource::parse(value).map_err(|error| anyhow::anyhow!("{error}"))?,
         None => PolicySource::default_for_owner(owner),
     };
-    let limits = Limits::default();
     let policy = policy::resolve(&client, &source, &limits)
         .await
         .map_err(|error| anyhow::anyhow!("{error}"))?;
@@ -309,14 +314,8 @@ async fn login_command(args: &AuthLoginArgs) -> Result<u8> {
 
     // The credential is verified before it is stored: a token airlock would
     // refuse to use is not worth keeping on disk.
-    let client = RestClient::new(
-        grant.access_token.clone(),
-        RestClientConfig {
-            base_url: api_base(),
-            ..RestClientConfig::default()
-        },
-    )
-    .map_err(|error| anyhow::anyhow!("{error}"))?;
+    let client = RestClient::new(grant.access_token.clone(), client_config(Limits::default()))
+        .map_err(|error| anyhow::anyhow!("{error}"))?;
     let verified = auth::verify(&grant.access_token, &client)
         .await
         .map_err(|refusal| {
@@ -362,14 +361,8 @@ async fn status_command(args: &AuthStatusArgs) -> Result<u8> {
     let credential =
         credential::resolve(&inputs, &config_path, &login_base(), AIRLOCK_SAFE_CLIENT_ID).await?;
 
-    let client = RestClient::new(
-        credential.token.clone(),
-        RestClientConfig {
-            base_url: api_base(),
-            ..RestClientConfig::default()
-        },
-    )
-    .map_err(|error| anyhow::anyhow!("{error}"))?;
+    let client = RestClient::new(credential.token.clone(), client_config(Limits::default()))
+        .map_err(|error| anyhow::anyhow!("{error}"))?;
 
     match auth::verify(&credential.token, &client).await {
         Ok(grant) => {

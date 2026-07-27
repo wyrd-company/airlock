@@ -18,6 +18,10 @@ pub struct FakeRepo {
     pub owner: String,
     pub name: String,
     pub files: Vec<(String, String)>,
+    /// Whether GitHub reports the recursive tree as cut short.
+    pub tree_truncated: bool,
+    /// An extra, deliberately malformed tree entry.
+    pub malformed_tree_entry: Option<Value>,
     pub settings: Value,
     pub topics: Vec<String>,
     pub rulesets: Response,
@@ -54,6 +58,8 @@ impl FakeRepo {
             owner: owner.to_owned(),
             name: name.to_owned(),
             files: Vec::new(),
+            tree_truncated: false,
+            malformed_tree_entry: None,
             settings: json!({
                 "id": 4242,
                 "name": name,
@@ -91,6 +97,26 @@ impl FakeRepo {
     #[must_use]
     pub fn with_rulesets(mut self, response: Response) -> Self {
         self.rulesets = response;
+        self
+    }
+
+    /// Report the recursive tree as truncated, as GitHub does for very large
+    /// repositories.
+    #[must_use]
+    pub fn with_truncated_tree(mut self) -> Self {
+        self.tree_truncated = true;
+        self
+    }
+
+    /// Add a tree entry airlock cannot decode.
+    #[must_use]
+    pub fn with_malformed_tree_entry(mut self, path: &str) -> Self {
+        self.malformed_tree_entry = Some(json!({
+            "path": path,
+            "mode": "999999",
+            "type": "blob",
+            "sha": "ffff"
+        }));
         self
     }
 
@@ -155,10 +181,18 @@ impl FakeRepo {
             }));
         }
 
+        if let Some(entry) = &self.malformed_tree_entry {
+            tree.push(entry.clone());
+        }
+
         mount(
             server,
             &format!("{prefix}/git/trees/{COMMIT}"),
-            Response::Ok(json!({ "sha": COMMIT, "truncated": false, "tree": tree })),
+            Response::Ok(json!({
+                "sha": COMMIT,
+                "truncated": self.tree_truncated,
+                "tree": tree
+            })),
         )
         .await;
 
@@ -259,7 +293,7 @@ pub async fn start(repos: &[FakeRepo]) -> MockServer {
                     "total_count": 1,
                     "installations": [{
                         "id": 1,
-                        "app_id": 100,
+                        "app_id": 4_409_712,
                         "app_slug": "airlock-safe",
                         "account": { "login": "wyrd-company" },
                         "permissions": { "metadata": "read", "contents": "read" }

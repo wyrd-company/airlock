@@ -304,7 +304,11 @@ pub async fn resolve<G: GitHub>(
     limits: &Limits,
 ) -> Result<ResolvedPolicy> {
     let mut bundle = Vec::new();
-    let (commit, bytes) = load_source(client, source, limits).await?;
+    // The bundle has one aggregate byte budget across the root policy and
+    // every reference. Each source is capped at whatever is still left, so a
+    // blob that would exceed it is refused before it is fetched.
+    let mut budget = ByteBudget::new(limits.max_total_bytes);
+    let (commit, bytes) = load_source(client, source, limits, &mut budget).await?;
     let text = to_text(&source.label(), bytes)?;
     bundle.push(BundleSource {
         name: "policy".to_owned(),
@@ -318,16 +322,58 @@ pub async fn resolve<G: GitHub>(
     let document = yaml::parse_mapping(&text, limits.yaml)
         .map_err(|error| Error::Policy(format!("{}: {error}", source.label())))?;
 
-    let reference_data = resolve_references(client, source, &document, limits, &mut bundle).await?;
+    let reference_data =
+        resolve_references(client, source, &document, limits, &mut bundle, &mut budget).await?;
 
     compile(source, &document, reference_data, bundle)
+}
+
+/// What is left of the policy bundle's aggregate byte budget.
+///
+/// A per-file cap alone lets sixteen individually legal references add up to
+/// far more than one audit is allowed to hold, so the budget is spent down
+/// rather than re-applied.
+#[derive(Debug, Clone, Copy)]
+struct ByteBudget {
+    total: usize,
+    used: usize,
+}
+
+impl ByteBudget {
+    fn new(total: usize) -> Self {
+        Self { total, used: 0 }
+    }
+
+    fn remaining(&self) -> usize {
+        self.total.saturating_sub(self.used)
+    }
+
+    /// The most one source may occupy: the smaller of the per-blob cap and
+    /// whatever the bundle has left.
+    fn cap_for(&self, per_source: usize) -> usize {
+        per_source.min(self.remaining())
+    }
+
+    fn spend(&mut self, label: &str, bytes: usize) -> Result<()> {
+        if bytes > self.remaining() {
+            return Err(Error::Policy(format!(
+                "the policy bundle exceeds its {} byte budget at {label}; {} bytes were already \
+                 read and this source adds {bytes}",
+                self.total, self.used
+            )));
+        }
+        self.used += bytes;
+        Ok(())
+    }
 }
 
 async fn load_source<G: GitHub>(
     client: &G,
     source: &PolicySource,
     limits: &Limits,
+    budget: &mut ByteBudget,
 ) -> Result<(Option<String>, Vec<u8>)> {
+    let cap = budget.cap_for(limits.max_blob_bytes);
     match source {
         PolicySource::Local(path) => {
             let metadata = std::fs::symlink_metadata(path).map_err(|error| {
@@ -339,18 +385,20 @@ async fn load_source<G: GitHub>(
                     path.display()
                 )));
             }
-            if metadata.len() as usize > limits.max_blob_bytes {
+            if metadata.len() as usize > cap {
                 return Err(Error::Policy(format!(
-                    "{} is {} bytes, over the {} byte limit",
+                    "{} is {} bytes, over the {cap} bytes the policy bundle has left of its {} \
+                     byte budget",
                     path.display(),
                     metadata.len(),
-                    limits.max_blob_bytes
+                    limits.max_total_bytes
                 )));
             }
             let bytes = std::fs::read(path).map_err(|error| Error::Io {
                 path: path.clone(),
                 source: error,
             })?;
+            budget.spend(&path.display().to_string(), bytes.len())?;
             Ok((None, bytes))
         }
         PolicySource::Remote {
@@ -368,7 +416,9 @@ async fn load_source<G: GitHub>(
                         "cannot resolve `{target}` in {owner}/{repo}: {error}"
                     ))
                 })?;
-            let file = read_file_at(client, owner, repo, &commit, path, limits.max_blob_bytes)
+            // `read_file_at` compares the tree entry's declared size against
+            // the cap, so an oversized blob is refused before it is fetched.
+            let file = read_file_at(client, owner, repo, &commit, path, cap)
                 .await
                 .map_err(|error| {
                     Error::Policy(format!("cannot read {owner}/{repo}:{path}: {error}"))
@@ -379,6 +429,7 @@ async fn load_source<G: GitHub>(
                      policy, so there is nothing to audit against."
                 )));
             };
+            budget.spend(&format!("{owner}/{repo}:{path}"), bytes.len())?;
             Ok((Some(commit), bytes))
         }
     }
@@ -401,6 +452,7 @@ async fn resolve_references<G: GitHub>(
     document: &Yaml,
     limits: &Limits,
     bundle: &mut Vec<BundleSource>,
+    budget: &mut ByteBudget,
 ) -> Result<BTreeMap<String, Yaml>> {
     let mut resolved = BTreeMap::new();
     let mut seen: BTreeSet<String> = BTreeSet::new();
@@ -430,7 +482,7 @@ async fn resolve_references<G: GitHub>(
         }
 
         let source = resolve_reference_source(root, &reference)?;
-        let (commit, bytes) = load_source(client, &source, limits).await?;
+        let (commit, bytes) = load_source(client, &source, limits, budget).await?;
         let text = to_text(&source.label(), bytes)?;
         bundle.push(BundleSource {
             name: name.clone(),
@@ -1383,5 +1435,179 @@ capabilities:
         )
         .unwrap_err();
         assert!(error.to_string().contains("duplicate"));
+    }
+
+    #[test]
+    fn the_bundle_budget_is_aggregate_not_per_file() {
+        let mut budget = ByteBudget::new(100);
+        assert_eq!(budget.cap_for(80), 80);
+        budget.spend("first", 80).unwrap();
+        // The second file is individually legal at 80 bytes, but the bundle
+        // has only 20 left, so that is the cap it faces.
+        assert_eq!(budget.cap_for(80), 20);
+        let error = budget.spend("second", 80).unwrap_err().to_string();
+        assert!(error.contains("policy bundle exceeds its 100 byte budget"));
+        assert!(error.contains("second"));
+    }
+
+    #[test]
+    fn the_bundle_budget_admits_files_that_fit_together() {
+        let mut budget = ByteBudget::new(100);
+        budget.spend("first", 60).unwrap();
+        budget.spend("second", 40).unwrap();
+        assert_eq!(budget.remaining(), 0);
+        assert_eq!(budget.cap_for(1_000), 0);
+    }
+
+    #[tokio::test]
+    async fn a_policy_over_the_aggregate_budget_is_refused() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("policy.yml");
+        std::fs::write(&path, MINIMAL).unwrap();
+
+        let limits = Limits {
+            // Smaller than the policy, while the per-blob cap stays large — so
+            // only the aggregate budget can catch this.
+            max_total_bytes: 8,
+            ..Limits::default()
+        };
+        let error = resolve(&NoNetwork, &PolicySource::Local(path), &limits)
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("byte"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn individually_valid_references_can_still_exhaust_the_bundle_budget() {
+        let directory = tempfile::tempdir().unwrap();
+        let padding = "x".repeat(400);
+        std::fs::write(
+            directory.path().join("first.yml"),
+            format!("padding: {padding}\n"),
+        )
+        .unwrap();
+        std::fs::write(
+            directory.path().join("second.yml"),
+            format!("padding: {padding}\n"),
+        )
+        .unwrap();
+        let path = directory.path().join("policy.yml");
+        std::fs::write(
+            &path,
+            format!("{MINIMAL}reference-data:\n  first: ./first.yml\n  second: ./second.yml\n"),
+        )
+        .unwrap();
+
+        // Each file fits the per-blob cap comfortably. Together with the root
+        // policy they do not fit the bundle.
+        let generous = Limits {
+            max_total_bytes: 16 * 1024,
+            ..Limits::default()
+        };
+        let resolved = resolve(&NoNetwork, &PolicySource::Local(path.clone()), &generous)
+            .await
+            .expect("all three documents fit the generous budget");
+        assert_eq!(resolved.sources.len(), 3);
+
+        let tight = Limits {
+            max_blob_bytes: 4096,
+            max_total_bytes: 700,
+            ..Limits::default()
+        };
+        let error = resolve(&NoNetwork, &PolicySource::Local(path), &tight)
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("byte"), "{error}");
+    }
+
+    /// A GitHub that fails every call, proving the local paths never reach it.
+    struct NoNetwork;
+
+    impl crate::github::GitHub for NoNetwork {
+        async fn repository(
+            &self,
+            _owner: &str,
+            _repo: &str,
+        ) -> crate::github::ApiResult<crate::github::Repository> {
+            Err(unreachable_call())
+        }
+        async fn topics(&self, _owner: &str, _repo: &str) -> crate::github::ApiResult<Vec<String>> {
+            Err(unreachable_call())
+        }
+        async fn resolve_commit(
+            &self,
+            _owner: &str,
+            _repo: &str,
+            _reference: &str,
+        ) -> crate::github::ApiResult<String> {
+            Err(unreachable_call())
+        }
+        async fn tree(
+            &self,
+            _owner: &str,
+            _repo: &str,
+            _commit: &str,
+        ) -> crate::github::ApiResult<crate::github::Tree> {
+            Err(unreachable_call())
+        }
+        async fn blob(
+            &self,
+            _owner: &str,
+            _repo: &str,
+            _sha: &str,
+        ) -> crate::github::ApiResult<Vec<u8>> {
+            Err(unreachable_call())
+        }
+        async fn tags(
+            &self,
+            _owner: &str,
+            _repo: &str,
+        ) -> crate::github::ApiResult<crate::github::Paged<crate::github::TagRef>> {
+            Err(unreachable_call())
+        }
+        async fn history(
+            &self,
+            _owner: &str,
+            _repo: &str,
+            _commit: &str,
+            _max_commits: usize,
+        ) -> crate::github::ApiResult<crate::github::Paged<crate::github::CommitSummary>> {
+            Err(unreachable_call())
+        }
+        async fn rulesets(
+            &self,
+            _owner: &str,
+            _repo: &str,
+        ) -> crate::github::ApiResult<crate::github::Paged<crate::github::Ruleset>> {
+            Err(unreachable_call())
+        }
+        async fn branch_rules(
+            &self,
+            _owner: &str,
+            _repo: &str,
+            _branch: &str,
+        ) -> crate::github::ApiResult<crate::github::Paged<crate::github::BranchRule>> {
+            Err(unreachable_call())
+        }
+        async fn user_installations(
+            &self,
+        ) -> crate::github::ApiResult<Vec<crate::github::Installation>> {
+            Err(unreachable_call())
+        }
+        async fn authenticated_user(
+            &self,
+        ) -> crate::github::ApiResult<crate::github::AuthenticatedUser> {
+            Err(unreachable_call())
+        }
+    }
+
+    fn unreachable_call() -> crate::github::ApiError {
+        crate::github::ApiError::local(
+            crate::github::ErrorCause::Transport,
+            "test",
+            "this test must not reach github",
+        )
     }
 }

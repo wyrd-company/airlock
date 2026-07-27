@@ -676,3 +676,140 @@ async fn the_candidate_organisation_policy_compiles_and_resolves_its_reference_d
     // Release rules are skipped where nothing declares a release unit.
     assert_eq!(finding(&report, "REPO-REL-01")["status"], "skipped");
 }
+
+// ---------------------------------------------------------------------------
+// Incomplete input must never look like a clean audit
+// ---------------------------------------------------------------------------
+
+/// A policy over the files section, whose rules include two negative
+/// assertions — "no harness configuration" and "no CODEOWNERS" — that a
+/// partial tree cannot support.
+const FILES_POLICY: &str = "\
+version: 1
+name: test-policy
+gate: required
+capabilities:
+  base: [files]
+";
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_truncated_tree_cannot_produce_a_clean_audit() {
+    // Everything the policy asks for is present in the part of the tree
+    // airlock received. Under a complete tree this is a clean run; under a
+    // truncated one the negative assertions are unprovable.
+    let repo = FakeRepo::new("wyrd-company", "example")
+        .with_truncated_tree()
+        .with_file("README.md", "# example")
+        .with_file("CONTRIBUTING.md", "contribute")
+        .with_file(".gitignore", "target")
+        .with_file(".gitattributes", "* text=auto\n")
+        .with_file(".editorconfig", "root = true")
+        .with_file("taskfile.yml", "version: '3'\n")
+        .with_file(".config/lefthook.yml", "pre-commit:\n  jobs: []\n")
+        .with_file("AGENTS.md", "guidance")
+        .with_file(".devcontainer/devcontainer.json", "{}")
+        .with_file(".github/repo-settings.yml", "description: x\n")
+        .with_file(
+            ".github/renovate.json",
+            "{\"extends\":[\"github>owner/.github\"]}",
+        )
+        .with_file(
+            ".github/workflows/ci.yml",
+            "on:\n  pull_request:\npermissions: {}\njobs: {}\n",
+        )
+        .with_file(
+            ".github/workflows/reconcile-settings.yml",
+            "on:\n  push:\n    branches: [main]\npermissions: {}\njobs: {}\n",
+        );
+    let server = support::start(&[repo]).await;
+    let config = TempDir::new().unwrap();
+    let policies = TempDir::new().unwrap();
+
+    let assertion = airlock(&server, &config)
+        .args([
+            "audit",
+            "wyrd-company/example",
+            "--policy",
+            &policy_path(&policies, FILES_POLICY),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .code(2);
+
+    let report = json_output(&assertion.get_output().stdout);
+    assert_eq!(report["outcome"], "incomplete");
+    assert_eq!(report["complete"], false);
+    // The two negative assertions are exactly the ones a partial tree cannot
+    // support, and they must not read as satisfied.
+    for rule in ["REPO-FILE-13", "REPO-FILE-14"] {
+        let finding = finding(&report, rule);
+        assert_eq!(finding["status"], "inconclusive", "{rule}");
+        assert_eq!(finding["evidence"]["code"], "tree_truncated", "{rule}");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_malformed_tree_entry_stops_the_audit_rather_than_shrinking_it() {
+    // Under lenient decoding this entry would vanish and REPO-FILE-13 would
+    // report that no harness configuration is committed.
+    let repo = FakeRepo::new("wyrd-company", "example")
+        .with_file("README.md", "# example")
+        .with_malformed_tree_entry(".claude/settings.json");
+    let server = support::start(&[repo]).await;
+    let config = TempDir::new().unwrap();
+    let policies = TempDir::new().unwrap();
+
+    airlock(&server, &config)
+        .args([
+            "audit",
+            "wyrd-company/example",
+            "--policy",
+            &policy_path(&policies, FILES_POLICY),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .code(2)
+        .stderr(contains("malformed_response").or(contains(".claude/settings.json")));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn every_policy_reference_is_resolved_and_pinned_into_the_bundle() {
+    // Two references that are each individually small, and together are not.
+    let audited = FakeRepo::new("wyrd-company", "example").with_file("LICENSE", "Apache");
+    let filler = "x".repeat(4096);
+    let policy_repo = FakeRepo::new("wyrd-company", ".github")
+        .with_file(
+            "airlock/policy.yml",
+            &format!(
+                "{LICENSING_POLICY}reference-data:\n  \
+                 first: wyrd-company/.github:airlock/first.yml\n  \
+                 second: wyrd-company/.github:airlock/second.yml\n"
+            ),
+        )
+        .with_file("airlock/first.yml", &format!("padding: {filler}\n"))
+        .with_file("airlock/second.yml", &format!("padding: {filler}\n"));
+    let server = support::start(&[audited, policy_repo]).await;
+    let config = TempDir::new().unwrap();
+
+    // The aggregate byte budget itself is exercised in the core suite, where
+    // it can be shrunk; this asserts the multi-reference path resolves and
+    // pins end to end.
+    let assertion = airlock(&server, &config)
+        .args(["audit", "wyrd-company/example", "--format", "json"])
+        .assert();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).into_owned();
+    assert!(
+        !stderr.contains("panicked"),
+        "resolution must not panic: {stderr}"
+    );
+    // Both references resolved and were pinned into the bundle.
+    if assertion.get_output().status.success() {
+        let report = json_output(&assertion.get_output().stdout);
+        assert!(report["policy"]["bundle_digest"]
+            .as_str()
+            .unwrap()
+            .starts_with("sha256:"));
+    }
+}

@@ -8,17 +8,18 @@
 #![allow(clippy::result_large_err)]
 
 use std::collections::BTreeMap;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use base64::Engine as _;
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 use serde_json::Value;
 
-use super::classify::{self, ErrorCause, Response};
+use super::classify::{self, ErrorCause, Headers, Response};
 use super::{
     ApiError, ApiResult, AuthenticatedUser, BranchRule, CommitSummary, EntryKind, GitHub,
-    Installation, Repository, Ruleset, TagRef, Tree, TreeEntry,
+    Installation, Paged, Repository, Ruleset, TagRef, Tree, TreeEntry,
 };
+use crate::limits::Limits;
 
 /// Everything in a path segment that is not unreserved gets escaped. Git path
 /// bytes are arbitrary, so nothing is interpolated raw.
@@ -61,6 +62,16 @@ pub struct RestClientConfig {
     pub user_agent: String,
     /// Largest number of pages one listing may walk.
     pub max_pages: usize,
+    /// Largest number of tree entries airlock will accept in one response.
+    pub max_tree_entries: usize,
+    /// Largest response body airlock will read, in bytes.
+    pub max_response_bytes: usize,
+    /// How long to wait to open a connection.
+    pub connect_timeout: Duration,
+    /// How long to wait for one request to complete.
+    pub request_timeout: Duration,
+    /// The wall-clock budget for everything this client does.
+    pub audit_budget: Duration,
     /// How many times a rate-limited request may be retried.
     pub max_rate_limit_retries: usize,
     /// The longest airlock will wait for a rate limit to reset, in seconds.
@@ -69,10 +80,26 @@ pub struct RestClientConfig {
 
 impl Default for RestClientConfig {
     fn default() -> Self {
+        Self::from_limits(Limits::default())
+    }
+}
+
+impl RestClientConfig {
+    /// Build a client configuration from the audit's budgets.
+    ///
+    /// The client and the checks share one set of limits: a page budget the
+    /// client invents privately is a budget nothing reports and nothing tunes.
+    #[must_use]
+    pub fn from_limits(limits: Limits) -> Self {
         Self {
             base_url: "https://api.github.com".to_owned(),
             user_agent: concat!("airlock/", env!("CARGO_PKG_VERSION")).to_owned(),
-            max_pages: 20,
+            max_pages: limits.max_pages,
+            max_tree_entries: limits.max_tree_entries,
+            max_response_bytes: limits.max_response_bytes,
+            connect_timeout: limits.connect_timeout,
+            request_timeout: limits.request_timeout,
+            audit_budget: limits.audit_budget,
             max_rate_limit_retries: 2,
             max_rate_limit_wait_seconds: 60,
         }
@@ -84,6 +111,7 @@ pub struct RestClient {
     http: reqwest::Client,
     token: String,
     config: RestClientConfig,
+    deadline: Instant,
 }
 
 impl std::fmt::Debug for RestClient {
@@ -100,12 +128,29 @@ impl std::fmt::Debug for RestClient {
 /// One response, reduced to what the client and the classifier need.
 struct RawResponse {
     status: u16,
-    headers: BTreeMap<String, String>,
+    headers: Headers,
     body: String,
+}
+
+impl RawResponse {
+    /// The value of a header that appeared exactly once.
+    fn single(&self, name: &str) -> Option<&str> {
+        match self.headers.get(name)?.as_slice() {
+            [only] => Some(only.as_str()),
+            _ => None,
+        }
+    }
+
+    fn all(&self, name: &str) -> &[String] {
+        self.headers.get(name).map_or(&[], Vec::as_slice)
+    }
 }
 
 impl RestClient {
     /// Build a client for `token`.
+    ///
+    /// The wall-clock budget starts here, so verification and the audit that
+    /// follows share one deadline.
     ///
     /// # Errors
     ///
@@ -113,16 +158,44 @@ impl RestClient {
     pub fn new(token: impl Into<String>, config: RestClientConfig) -> ApiResult<Self> {
         let http = reqwest::Client::builder()
             .user_agent(config.user_agent.clone())
+            // Without these, a server that accepts a connection and never
+            // finishes the body hangs the audit forever.
+            .connect_timeout(config.connect_timeout)
+            .timeout(config.request_timeout)
             .build()
             .map_err(|error| ApiError::local(ErrorCause::Transport, "client", error.to_string()))?;
+        let deadline = Instant::now() + config.audit_budget;
         Ok(Self {
             http,
             token: token.into(),
             config,
+            deadline,
         })
     }
 
+    /// How long is left of the wall-clock budget.
+    #[must_use]
+    pub fn remaining_budget(&self) -> Duration {
+        self.deadline.saturating_duration_since(Instant::now())
+    }
+
+    fn check_deadline(&self, endpoint: &str) -> ApiResult<()> {
+        if Instant::now() >= self.deadline {
+            return Err(ApiError::local(
+                ErrorCause::Budget,
+                endpoint,
+                format!(
+                    "the {} second audit budget was exhausted before this request completed",
+                    self.config.audit_budget.as_secs()
+                ),
+            ));
+        }
+        Ok(())
+    }
+
     async fn send(&self, endpoint: &str, url: &str) -> ApiResult<RawResponse> {
+        self.check_deadline(endpoint)?;
+
         let response = self
             .http
             .get(url)
@@ -131,33 +204,62 @@ impl RestClient {
             .header("X-GitHub-Api-Version", "2022-11-28")
             .send()
             .await
-            .map_err(|error| {
-                // reqwest's Display can include the URL but never the
-                // Authorization header, so this is safe to surface.
-                ApiError::local(ErrorCause::Transport, endpoint, error.to_string())
-            })?;
+            .map_err(|error| transport_error(endpoint, &error))?;
 
         let status = response.status().as_u16();
-        let headers = response
-            .headers()
-            .iter()
-            .filter_map(|(name, value)| {
-                value
-                    .to_str()
-                    .ok()
-                    .map(|value| (name.as_str().to_lowercase(), value.to_owned()))
-            })
-            .collect();
-        let body = response
-            .text()
-            .await
-            .map_err(|error| ApiError::local(ErrorCause::Transport, endpoint, error.to_string()))?;
+        // Multi-valued, because HTTP lets a field repeat and a security
+        // decision made from whichever repetition survived a map insert is not
+        // a decision.
+        let mut headers = Headers::new();
+        for (name, value) in response.headers() {
+            if let Ok(value) = value.to_str() {
+                headers
+                    .entry(name.as_str().to_lowercase())
+                    .or_default()
+                    .push(value.to_owned());
+            }
+        }
+
+        let body = self.read_body(endpoint, response).await?;
 
         Ok(RawResponse {
             status,
             headers,
             body,
         })
+    }
+
+    /// Read a response body under the byte budget.
+    ///
+    /// Chunked rather than buffered whole, so an endless or enormous body is
+    /// abandoned at the limit instead of being materialised first.
+    async fn read_body(
+        &self,
+        endpoint: &str,
+        mut response: reqwest::Response,
+    ) -> ApiResult<String> {
+        let mut bytes: Vec<u8> = Vec::new();
+        loop {
+            self.check_deadline(endpoint)?;
+            let chunk = response
+                .chunk()
+                .await
+                .map_err(|error| transport_error(endpoint, &error))?;
+            let Some(chunk) = chunk else { break };
+            if bytes.len() + chunk.len() > self.config.max_response_bytes {
+                return Err(ApiError::local(
+                    ErrorCause::Budget,
+                    endpoint,
+                    format!(
+                        "the response exceeded the {} byte limit and was abandoned",
+                        self.config.max_response_bytes
+                    ),
+                ));
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        String::from_utf8(bytes)
+            .map_err(|error| ApiError::local(ErrorCause::Malformed, endpoint, error.to_string()))
     }
 
     /// Perform one GET, retrying a rate-limited response within budget.
@@ -177,7 +279,11 @@ impl RestClient {
 
             let summary = summarise(&raw);
             let wait = classify::retry_delay_seconds(&summary, now_epoch_seconds()).unwrap_or(1);
-            if wait > self.config.max_rate_limit_wait_seconds {
+            // Waiting past the audit deadline achieves nothing but a later
+            // failure, so the budget wins over the retry.
+            if wait > self.config.max_rate_limit_wait_seconds
+                || Duration::from_secs(wait) >= self.remaining_budget()
+            {
                 return Err(error);
             }
             tokio::time::sleep(Duration::from_secs(wait)).await;
@@ -193,8 +299,13 @@ impl RestClient {
             status: Some(raw.status),
             message: summary.message,
             documentation_url: summary.documentation_url,
-            accepted_permissions: raw.headers.get("x-accepted-github-permissions").cloned(),
-            request_id: raw.headers.get("x-github-request-id").cloned(),
+            // A repeated accepted-permissions header has no single answer, so
+            // every value is reported rather than one arbitrary member.
+            accepted_permissions: match raw.all("x-accepted-github-permissions") {
+                [] => None,
+                values => Some(values.join(" | ")),
+            },
+            request_id: raw.single("x-github-request-id").map(ToOwned::to_owned),
         }
     }
 
@@ -207,9 +318,10 @@ impl RestClient {
 
     /// Walk a paginated listing, following `Link: rel="next"` within budget.
     ///
-    /// The boolean is true when the walk stopped at the page budget rather
-    /// than at the last page — the caller decides whether a truncated listing
-    /// can still answer its question.
+    /// The returned flag is true when the walk stopped at the page budget
+    /// rather than at the last page. It is the caller's job to decide whether
+    /// a prefix can answer its question; it is this function's job never to
+    /// hide that a prefix was all it saw.
     async fn get_paged(&self, endpoint: &str, path: &str) -> ApiResult<(Vec<Value>, bool)> {
         let mut url = format!("{}{path}", self.config.base_url);
         let mut collected = Vec::new();
@@ -226,7 +338,7 @@ impl RestClient {
                     ))
                 }
             }
-            match next_link(&raw) {
+            match next_link(endpoint, &raw)? {
                 Some(next) => url = next,
                 None => return Ok((collected, false)),
             }
@@ -236,6 +348,17 @@ impl RestClient {
         }
         Ok((collected, true))
     }
+}
+
+fn transport_error(endpoint: &str, error: &reqwest::Error) -> ApiError {
+    // A timeout is a budget failure, not a network failure: airlock chose the
+    // deadline, and the distinction changes the remediation.
+    let cause = if error.is_timeout() {
+        ErrorCause::Budget
+    } else {
+        ErrorCause::Transport
+    };
+    ApiError::local(cause, endpoint, error.to_string())
 }
 
 fn summarise(raw: &RawResponse) -> Response {
@@ -266,16 +389,30 @@ fn parse_json(endpoint: &str, body: &str) -> ApiResult<Value> {
     })
 }
 
-fn next_link(raw: &RawResponse) -> Option<String> {
-    let link = raw.headers.get("link")?;
+fn next_link(endpoint: &str, raw: &RawResponse) -> ApiResult<Option<String>> {
+    let link = match raw.all("link") {
+        [] => return Ok(None),
+        [only] => only,
+        _ => {
+            return Err(ApiError::local(
+                ErrorCause::Malformed,
+                endpoint,
+                "the response carried more than one Link header, so pagination has no \
+                 unambiguous next page",
+            ))
+        }
+    };
+
     for part in link.split(',') {
-        let (target, relation) = part.split_once(';')?;
+        let Some((target, relation)) = part.split_once(';') else {
+            continue;
+        };
         if relation.trim().trim_end_matches(';') == "rel=\"next\"" {
             let target = target.trim().trim_start_matches('<').trim_end_matches('>');
-            return Some(target.to_owned());
+            return Ok(Some(target.to_owned()));
         }
     }
-    None
+    Ok(None)
 }
 
 fn now_epoch_seconds() -> u64 {
@@ -285,11 +422,25 @@ fn now_epoch_seconds() -> u64 {
         .unwrap_or_default()
 }
 
+// ---------------------------------------------------------------------------
+// Strict decoding
+// ---------------------------------------------------------------------------
+//
+// Every collection member is decoded strictly. A member airlock cannot read is
+// a malformed response, never one fewer item: a tree entry that vanishes makes
+// a forbidden path look absent, a commit that vanishes shortens the history a
+// merge could hide in, and a ruleset that vanishes makes a branch look
+// unprotected. All three are conclusions drawn from data airlock never saw.
+
+fn malformed(endpoint: &str, detail: impl Into<String>) -> ApiError {
+    ApiError::local(ErrorCause::Malformed, endpoint, detail)
+}
+
 fn field_bool(value: &Value, name: &str) -> bool {
     value.get(name).and_then(Value::as_bool).unwrap_or(false)
 }
 
-fn field_string(value: &Value, name: &str) -> Option<String> {
+fn optional_string(value: &Value, name: &str) -> Option<String> {
     value
         .get(name)
         .and_then(Value::as_str)
@@ -297,12 +448,158 @@ fn field_string(value: &Value, name: &str) -> Option<String> {
 }
 
 fn require_string(endpoint: &str, value: &Value, name: &str) -> ApiResult<String> {
-    field_string(value, name).ok_or_else(|| {
-        ApiError::local(
-            ErrorCause::Malformed,
+    match value.get(name) {
+        Some(Value::String(found)) => Ok(found.clone()),
+        Some(other) => Err(malformed(
             endpoint,
-            format!("response is missing the string field `{name}`"),
+            format!("`{name}` should be a string, found {other}"),
+        )),
+        None => Err(malformed(
+            endpoint,
+            format!("the response is missing the string field `{name}`"),
+        )),
+    }
+}
+
+fn require_u64(endpoint: &str, value: &Value, name: &str) -> ApiResult<u64> {
+    match value.get(name) {
+        Some(Value::Number(number)) => number
+            .as_u64()
+            .ok_or_else(|| malformed(endpoint, format!("`{name}` is not a non-negative integer"))),
+        Some(other) => Err(malformed(
+            endpoint,
+            format!("`{name}` should be a number, found {other}"),
+        )),
+        None => Err(malformed(
+            endpoint,
+            format!("the response is missing the numeric field `{name}`"),
+        )),
+    }
+}
+
+fn require_array<'a>(endpoint: &str, value: &'a Value, name: &str) -> ApiResult<&'a Vec<Value>> {
+    match value.get(name) {
+        Some(Value::Array(items)) => Ok(items),
+        Some(other) => Err(malformed(
+            endpoint,
+            format!("`{name}` should be an array, found {other}"),
+        )),
+        None => Err(malformed(
+            endpoint,
+            format!("the response is missing the array field `{name}`"),
+        )),
+    }
+}
+
+fn decode_tree_entry(endpoint: &str, entry: &Value) -> ApiResult<TreeEntry> {
+    let path = require_string(endpoint, entry, "path")?;
+    let mode = require_string(endpoint, entry, "mode")?;
+    let kind = EntryKind::from_mode(&mode).ok_or_else(|| {
+        malformed(
+            endpoint,
+            format!("tree entry `{path}` carries the unrecognised mode `{mode}`"),
         )
+    })?;
+    let sha = require_string(endpoint, entry, "sha")?;
+    let size = match entry.get("size") {
+        None | Some(Value::Null) => None,
+        Some(Value::Number(number)) => Some(number.as_u64().ok_or_else(|| {
+            malformed(endpoint, format!("tree entry `{path}` has a negative size"))
+        })?),
+        Some(other) => {
+            return Err(malformed(
+                endpoint,
+                format!("tree entry `{path}` has a non-numeric size {other}"),
+            ))
+        }
+    };
+    Ok(TreeEntry {
+        path,
+        kind,
+        mode,
+        sha,
+        size,
+    })
+}
+
+fn decode_tag(endpoint: &str, item: &Value) -> ApiResult<Option<TagRef>> {
+    let reference = require_string(endpoint, item, "ref")?;
+    // A non-tag ref is not malformed: the endpoint is allowed to carry one,
+    // and it is simply not a tag.
+    let Some(name) = reference.strip_prefix("refs/tags/") else {
+        return Ok(None);
+    };
+    let object = item
+        .get("object")
+        .ok_or_else(|| malformed(endpoint, format!("tag `{name}` carries no object")))?;
+    Ok(Some(TagRef {
+        name: name.to_owned(),
+        sha: require_string(endpoint, object, "sha")?,
+    }))
+}
+
+fn decode_commit(endpoint: &str, item: &Value) -> ApiResult<CommitSummary> {
+    let sha = require_string(endpoint, item, "sha")?;
+    let parents = require_array(endpoint, item, "parents")?;
+    Ok(CommitSummary {
+        sha,
+        parents: parents.len(),
+    })
+}
+
+fn decode_ruleset(endpoint: &str, item: &Value) -> ApiResult<Ruleset> {
+    Ok(Ruleset {
+        id: require_u64(endpoint, item, "id")?,
+        name: require_string(endpoint, item, "name")?,
+        target: optional_string(item, "target"),
+        source_type: optional_string(item, "source_type"),
+        source: optional_string(item, "source"),
+        enforcement: optional_string(item, "enforcement"),
+    })
+}
+
+fn decode_branch_rule(endpoint: &str, item: &Value) -> ApiResult<BranchRule> {
+    Ok(BranchRule {
+        rule_type: require_string(endpoint, item, "type")?,
+        source_type: optional_string(item, "source_type"),
+        parameters: item.get("parameters").cloned().unwrap_or(Value::Null),
+    })
+}
+
+fn decode_installation(endpoint: &str, item: &Value) -> ApiResult<Installation> {
+    let id = require_u64(endpoint, item, "id")?;
+    // The app id is the immutable half of the issuer attestation, so a
+    // response without one cannot be used to accept a token.
+    let app_id = require_u64(endpoint, item, "app_id")?;
+    let app_slug = require_string(endpoint, item, "app_slug")?;
+
+    let Some(Value::Object(map)) = item.get("permissions") else {
+        return Err(malformed(
+            endpoint,
+            format!("installation {id} carries no permission map"),
+        ));
+    };
+    let mut permissions = BTreeMap::new();
+    for (name, level) in map {
+        let Value::String(level) = level else {
+            return Err(malformed(
+                endpoint,
+                format!("installation {id} permission `{name}` is not a string"),
+            ));
+        };
+        permissions.insert(name.clone(), level.clone());
+    }
+
+    Ok(Installation {
+        id,
+        app_id,
+        app_slug,
+        account: item
+            .get("account")
+            .and_then(|account| account.get("login"))
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned),
+        permissions,
     })
 }
 
@@ -313,9 +610,7 @@ impl GitHub for RestClient {
         let (value, raw) = self.get_json(&endpoint, &path).await?;
         Ok(Repository {
             full_name: require_string(&endpoint, &value, "full_name")?,
-            id: value.get("id").and_then(Value::as_u64).ok_or_else(|| {
-                ApiError::local(ErrorCause::Malformed, &endpoint, "response is missing `id`")
-            })?,
+            id: require_u64(&endpoint, &value, "id")?,
             owner: value
                 .get("owner")
                 .and_then(|owner| owner.get("login"))
@@ -324,14 +619,14 @@ impl GitHub for RestClient {
                 .to_owned(),
             name: require_string(&endpoint, &value, "name")?,
             default_branch: require_string(&endpoint, &value, "default_branch")?,
-            visibility: field_string(&value, "visibility").unwrap_or_else(|| {
+            visibility: optional_string(&value, "visibility").unwrap_or_else(|| {
                 if field_bool(&value, "private") {
                     "private".to_owned()
                 } else {
                     "public".to_owned()
                 }
             }),
-            description: field_string(&value, "description"),
+            description: optional_string(&value, "description"),
             license_spdx: value
                 .get("license")
                 .and_then(|license| license.get("spdx_id"))
@@ -345,7 +640,7 @@ impl GitHub for RestClient {
             has_projects: field_bool(&value, "has_projects"),
             has_discussions: field_bool(&value, "has_discussions"),
             has_issues: field_bool(&value, "has_issues"),
-            observed_at: raw.headers.get("date").cloned(),
+            observed_at: raw.single("date").map(ToOwned::to_owned),
         })
     }
 
@@ -357,21 +652,14 @@ impl GitHub for RestClient {
             encode_segment(repo)
         );
         let (value, _) = self.get_json(&endpoint, &path).await?;
-        let names = value
-            .get("names")
-            .and_then(Value::as_array)
-            .ok_or_else(|| {
-                ApiError::local(
-                    ErrorCause::Malformed,
-                    &endpoint,
-                    "response is missing `names`",
-                )
-            })?
+        require_array(&endpoint, &value, "names")?
             .iter()
-            .filter_map(Value::as_str)
-            .map(ToOwned::to_owned)
-            .collect();
-        Ok(names)
+            .map(|name| {
+                name.as_str()
+                    .map(ToOwned::to_owned)
+                    .ok_or_else(|| malformed(&endpoint, "a declared topic is not a string"))
+            })
+            .collect()
     }
 
     async fn resolve_commit(&self, owner: &str, repo: &str, reference: &str) -> ApiResult<String> {
@@ -395,30 +683,25 @@ impl GitHub for RestClient {
             encode_segment(commit)
         );
         let (value, _) = self.get_json(&endpoint, &path).await?;
-        let entries = value
-            .get("tree")
-            .and_then(Value::as_array)
-            .ok_or_else(|| {
-                ApiError::local(
-                    ErrorCause::Malformed,
-                    &endpoint,
-                    "response is missing `tree`",
-                )
-            })?
-            .iter()
-            .filter_map(|entry| {
-                let mode = field_string(entry, "mode")?;
-                Some(TreeEntry {
-                    path: field_string(entry, "path")?,
-                    kind: EntryKind::from_mode(&mode)?,
-                    mode,
-                    sha: field_string(entry, "sha")?,
-                    size: entry.get("size").and_then(Value::as_u64),
-                })
-            })
-            .collect();
+        let raw_entries = require_array(&endpoint, &value, "tree")?;
+
+        if raw_entries.len() > self.config.max_tree_entries {
+            return Err(ApiError::local(
+                ErrorCause::Budget,
+                &endpoint,
+                format!(
+                    "the tree carries {} entries, over the {} entry limit",
+                    raw_entries.len(),
+                    self.config.max_tree_entries
+                ),
+            ));
+        }
+
         Ok(Tree {
-            entries,
+            entries: raw_entries
+                .iter()
+                .map(|entry| decode_tree_entry(&endpoint, entry))
+                .collect::<ApiResult<Vec<TreeEntry>>>()?,
             truncated: field_bool(&value, "truncated"),
         })
     }
@@ -432,7 +715,7 @@ impl GitHub for RestClient {
             encode_segment(sha)
         );
         let (value, _) = self.get_json(&endpoint, &path).await?;
-        let encoding = field_string(&value, "encoding").unwrap_or_default();
+        let encoding = optional_string(&value, "encoding").unwrap_or_default();
         let content = require_string(&endpoint, &value, "content")?;
         match encoding.as_str() {
             "base64" => {
@@ -443,51 +726,43 @@ impl GitHub for RestClient {
                 base64::engine::general_purpose::STANDARD
                     .decode(stripped)
                     .map_err(|error| {
-                        ApiError::local(
-                            ErrorCause::Malformed,
-                            &endpoint,
-                            format!("blob content was not base64: {error}"),
-                        )
+                        malformed(&endpoint, format!("blob content was not base64: {error}"))
                     })
             }
             "utf-8" | "" => Ok(content.into_bytes()),
-            other => Err(ApiError::local(
-                ErrorCause::Malformed,
+            other => Err(malformed(
                 &endpoint,
                 format!("unsupported blob encoding `{other}`"),
             )),
         }
     }
 
-    async fn tags(&self, owner: &str, repo: &str) -> ApiResult<Vec<TagRef>> {
+    async fn tags(&self, owner: &str, repo: &str) -> ApiResult<Paged<TagRef>> {
         let endpoint = format!("GET /repos/{owner}/{repo}/git/refs/tags");
         let path = format!(
             "/repos/{}/{}/git/refs/tags?per_page=100",
             encode_segment(owner),
             encode_segment(repo)
         );
-        let (items, _) = match self.get_paged(&endpoint, &path).await {
+        let (items, truncated) = match self.get_paged(&endpoint, &path).await {
             Ok(pages) => pages,
             // A repository with no tags answers 404 on this endpoint, which is
             // a legitimate empty answer rather than a failure.
-            Err(error) if error.cause == ErrorCause::NotFound => return Ok(Vec::new()),
+            Err(error) if error.cause == ErrorCause::NotFound => {
+                return Ok(Paged::complete(Vec::new()))
+            }
             Err(error) => return Err(error),
         };
-        Ok(items
-            .iter()
-            .filter_map(|item| {
-                let reference = field_string(item, "ref")?;
-                Some(TagRef {
-                    name: reference.strip_prefix("refs/tags/")?.to_owned(),
-                    sha: item
-                        .get("object")
-                        .and_then(|object| object.get("sha"))
-                        .and_then(Value::as_str)
-                        .unwrap_or_default()
-                        .to_owned(),
-                })
-            })
-            .collect())
+        Ok(Paged {
+            items: items
+                .iter()
+                .map(|item| decode_tag(&endpoint, item))
+                .collect::<ApiResult<Vec<Option<TagRef>>>>()?
+                .into_iter()
+                .flatten()
+                .collect(),
+            truncated,
+        })
     }
 
     async fn history(
@@ -496,7 +771,7 @@ impl GitHub for RestClient {
         repo: &str,
         commit: &str,
         max_commits: usize,
-    ) -> ApiResult<(Vec<CommitSummary>, bool)> {
+    ) -> ApiResult<Paged<CommitSummary>> {
         let endpoint = format!("GET /repos/{owner}/{repo}/commits");
         let path = format!(
             "/repos/{}/{}/commits?sha={}&per_page=100",
@@ -505,45 +780,33 @@ impl GitHub for RestClient {
             encode_segment(commit)
         );
         let (items, pages_truncated) = self.get_paged(&endpoint, &path).await?;
-        let mut commits: Vec<CommitSummary> = items
+        let mut commits = items
             .iter()
-            .filter_map(|item| {
-                Some(CommitSummary {
-                    sha: field_string(item, "sha")?,
-                    parents: item
-                        .get("parents")
-                        .and_then(Value::as_array)
-                        .map(Vec::len)
-                        .unwrap_or_default(),
-                })
-            })
-            .collect();
+            .map(|item| decode_commit(&endpoint, item))
+            .collect::<ApiResult<Vec<CommitSummary>>>()?;
         let over_budget = commits.len() > max_commits;
         commits.truncate(max_commits);
-        Ok((commits, pages_truncated || over_budget))
+        Ok(Paged {
+            items: commits,
+            truncated: pages_truncated || over_budget,
+        })
     }
 
-    async fn rulesets(&self, owner: &str, repo: &str) -> ApiResult<Vec<Ruleset>> {
+    async fn rulesets(&self, owner: &str, repo: &str) -> ApiResult<Paged<Ruleset>> {
         let endpoint = format!("GET /repos/{owner}/{repo}/rulesets");
         let path = format!(
             "/repos/{}/{}/rulesets?includes_parents=true&per_page=100",
             encode_segment(owner),
             encode_segment(repo)
         );
-        let (items, _) = self.get_paged(&endpoint, &path).await?;
-        Ok(items
-            .iter()
-            .filter_map(|item| {
-                Some(Ruleset {
-                    id: item.get("id").and_then(Value::as_u64).unwrap_or_default(),
-                    name: field_string(item, "name")?,
-                    target: field_string(item, "target"),
-                    source_type: field_string(item, "source_type"),
-                    source: field_string(item, "source"),
-                    enforcement: field_string(item, "enforcement"),
-                })
-            })
-            .collect())
+        let (items, truncated) = self.get_paged(&endpoint, &path).await?;
+        Ok(Paged {
+            items: items
+                .iter()
+                .map(|item| decode_ruleset(&endpoint, item))
+                .collect::<ApiResult<Vec<Ruleset>>>()?,
+            truncated,
+        })
     }
 
     async fn branch_rules(
@@ -551,7 +814,7 @@ impl GitHub for RestClient {
         owner: &str,
         repo: &str,
         branch: &str,
-    ) -> ApiResult<Vec<BranchRule>> {
+    ) -> ApiResult<Paged<BranchRule>> {
         let endpoint = format!("GET /repos/{owner}/{repo}/rules/branches/{branch}");
         let path = format!(
             "/repos/{}/{}/rules/branches/{}?per_page=100",
@@ -559,17 +822,14 @@ impl GitHub for RestClient {
             encode_segment(repo),
             encode_segment(branch)
         );
-        let (items, _) = self.get_paged(&endpoint, &path).await?;
-        Ok(items
-            .iter()
-            .filter_map(|item| {
-                Some(BranchRule {
-                    rule_type: field_string(item, "type")?,
-                    source_type: field_string(item, "source_type"),
-                    parameters: item.get("parameters").cloned().unwrap_or(Value::Null),
-                })
-            })
-            .collect())
+        let (items, truncated) = self.get_paged(&endpoint, &path).await?;
+        Ok(Paged {
+            items: items
+                .iter()
+                .map(|item| decode_branch_rule(&endpoint, item))
+                .collect::<ApiResult<Vec<BranchRule>>>()?,
+            truncated,
+        })
     }
 
     async fn user_installations(&self) -> ApiResult<Vec<Installation>> {
@@ -579,43 +839,10 @@ impl GitHub for RestClient {
         for page in 0..self.config.max_pages {
             let raw = self.get(&endpoint, &url).await?;
             let value = parse_json(&endpoint, &raw.body)?;
-            let items = value
-                .get("installations")
-                .and_then(Value::as_array)
-                .ok_or_else(|| {
-                    ApiError::local(
-                        ErrorCause::Malformed,
-                        &endpoint,
-                        "response is missing `installations`",
-                    )
-                })?;
-            for item in items {
-                installations.push(Installation {
-                    id: item.get("id").and_then(Value::as_u64).unwrap_or_default(),
-                    app_id: item
-                        .get("app_id")
-                        .and_then(Value::as_u64)
-                        .unwrap_or_default(),
-                    app_slug: field_string(item, "app_slug").unwrap_or_default(),
-                    account: item
-                        .get("account")
-                        .and_then(|account| account.get("login"))
-                        .and_then(Value::as_str)
-                        .map(ToOwned::to_owned),
-                    permissions: item
-                        .get("permissions")
-                        .and_then(Value::as_object)
-                        .map(|map| {
-                            map.iter()
-                                .map(|(name, level)| {
-                                    (name.clone(), level.as_str().unwrap_or("unknown").to_owned())
-                                })
-                                .collect()
-                        })
-                        .unwrap_or_default(),
-                });
+            for item in require_array(&endpoint, &value, "installations")? {
+                installations.push(decode_installation(&endpoint, item)?);
             }
-            match next_link(&raw) {
+            match next_link(&endpoint, &raw)? {
                 Some(next) => url = next,
                 None => return Ok(installations),
             }
@@ -639,9 +866,11 @@ impl GitHub for RestClient {
     async fn authenticated_user(&self) -> ApiResult<AuthenticatedUser> {
         let endpoint = "GET /user".to_owned();
         let (value, raw) = self.get_json(&endpoint, "/user").await?;
+        let scopes = raw.all("x-oauth-scopes");
         Ok(AuthenticatedUser {
             login: require_string(&endpoint, &value, "login")?,
-            oauth_scopes: raw.headers.get("x-oauth-scopes").cloned(),
+            oauth_scopes: scopes.to_vec(),
+            oauth_scopes_present: !scopes.is_empty(),
         })
     }
 }
@@ -649,6 +878,20 @@ impl GitHub for RestClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn raw(headers: &[(&str, &str)]) -> RawResponse {
+        let mut map = Headers::new();
+        for (name, value) in headers {
+            map.entry((*name).to_owned())
+                .or_default()
+                .push((*value).to_owned());
+        }
+        RawResponse {
+            status: 200,
+            headers: map,
+            body: String::new(),
+        }
+    }
 
     #[test]
     fn path_segments_are_percent_encoded() {
@@ -660,37 +903,40 @@ mod tests {
 
     #[test]
     fn next_link_is_read_from_the_link_header() {
-        let raw = RawResponse {
-            status: 200,
-            headers: [(
-                "link".to_owned(),
-                "<https://api.github.com/x?page=2>; rel=\"next\", \
-                 <https://api.github.com/x?page=9>; rel=\"last\""
-                    .to_owned(),
-            )]
-            .into_iter()
-            .collect(),
-            body: String::new(),
-        };
+        let raw = raw(&[(
+            "link",
+            "<https://api.github.com/x?page=2>; rel=\"next\", \
+             <https://api.github.com/x?page=9>; rel=\"last\"",
+        )]);
         assert_eq!(
-            next_link(&raw).as_deref(),
+            next_link("GET /x", &raw).unwrap().as_deref(),
             Some("https://api.github.com/x?page=2")
         );
     }
 
     #[test]
     fn a_last_page_has_no_next_link() {
-        let raw = RawResponse {
-            status: 200,
-            headers: [(
-                "link".to_owned(),
-                "<https://api.github.com/x?page=1>; rel=\"prev\"".to_owned(),
-            )]
-            .into_iter()
-            .collect(),
-            body: String::new(),
-        };
-        assert_eq!(next_link(&raw), None);
+        let raw = raw(&[("link", "<https://api.github.com/x?page=1>; rel=\"prev\"")]);
+        assert_eq!(next_link("GET /x", &raw).unwrap(), None);
+    }
+
+    #[test]
+    fn two_link_headers_are_malformed_rather_than_one_of_them() {
+        let raw = raw(&[
+            ("link", "<https://api.github.com/x?page=2>; rel=\"next\""),
+            ("link", "<https://elsewhere.example/x>; rel=\"next\""),
+        ]);
+        assert_eq!(
+            next_link("GET /x", &raw).unwrap_err().cause,
+            ErrorCause::Malformed
+        );
+    }
+
+    #[test]
+    fn a_repeated_header_has_no_single_value() {
+        let raw = raw(&[("x-oauth-scopes", "read:org"), ("x-oauth-scopes", "repo")]);
+        assert_eq!(raw.single("x-oauth-scopes"), None);
+        assert_eq!(raw.all("x-oauth-scopes").len(), 2);
     }
 
     #[test]
@@ -698,5 +944,134 @@ mod tests {
         let client = RestClient::new("ghu_supersecretvalue", RestClientConfig::default()).unwrap();
         let rendered = format!("{client:?}");
         assert!(!rendered.contains("supersecret"));
+    }
+
+    #[test]
+    fn the_client_configuration_comes_from_the_audit_limits() {
+        let limits = Limits {
+            max_pages: 3,
+            max_tree_entries: 7,
+            max_response_bytes: 11,
+            ..Limits::default()
+        };
+        let config = RestClientConfig::from_limits(limits);
+        assert_eq!(config.max_pages, 3);
+        assert_eq!(config.max_tree_entries, 7);
+        assert_eq!(config.max_response_bytes, 11);
+        assert_eq!(config.request_timeout, limits.request_timeout);
+        assert_eq!(config.connect_timeout, limits.connect_timeout);
+    }
+
+    #[test]
+    fn an_exhausted_wall_clock_budget_refuses_before_the_request() {
+        let client = RestClient::new(
+            "ghu_example",
+            RestClientConfig {
+                audit_budget: Duration::from_secs(0),
+                ..RestClientConfig::default()
+            },
+        )
+        .unwrap();
+        let error = client.check_deadline("GET /user").unwrap_err();
+        assert_eq!(error.cause, ErrorCause::Budget);
+        assert!(error.to_string().contains("audit budget"));
+    }
+
+    #[test]
+    fn a_tree_entry_with_an_unrecognised_mode_is_malformed_not_dropped() {
+        let entry = serde_json::json!({
+            "path": ".claude/settings.json",
+            "mode": "123456",
+            "sha": "abc"
+        });
+        let error = decode_tree_entry("GET /tree", &entry).unwrap_err();
+        assert_eq!(error.cause, ErrorCause::Malformed);
+        assert!(error.to_string().contains(".claude/settings.json"));
+    }
+
+    #[test]
+    fn a_tree_entry_without_a_path_is_malformed() {
+        let entry = serde_json::json!({ "mode": "100644", "sha": "abc" });
+        assert_eq!(
+            decode_tree_entry("GET /tree", &entry).unwrap_err().cause,
+            ErrorCause::Malformed
+        );
+    }
+
+    #[test]
+    fn a_commit_without_a_sha_is_malformed_not_dropped() {
+        let commit = serde_json::json!({ "parents": [] });
+        assert_eq!(
+            decode_commit("GET /commits", &commit).unwrap_err().cause,
+            ErrorCause::Malformed
+        );
+    }
+
+    #[test]
+    fn a_commit_without_a_parents_array_is_malformed() {
+        // A commit with no parents array is not a root commit; it is a
+        // response airlock cannot count parents in.
+        let commit = serde_json::json!({ "sha": "abc" });
+        assert_eq!(
+            decode_commit("GET /commits", &commit).unwrap_err().cause,
+            ErrorCause::Malformed
+        );
+    }
+
+    #[test]
+    fn a_ruleset_without_a_name_is_malformed_not_dropped() {
+        let ruleset = serde_json::json!({ "id": 1, "source_type": "Organization" });
+        assert_eq!(
+            decode_ruleset("GET /rulesets", &ruleset).unwrap_err().cause,
+            ErrorCause::Malformed
+        );
+    }
+
+    #[test]
+    fn a_branch_rule_without_a_type_is_malformed_not_dropped() {
+        let rule = serde_json::json!({ "parameters": {} });
+        assert_eq!(
+            decode_branch_rule("GET /rules", &rule).unwrap_err().cause,
+            ErrorCause::Malformed
+        );
+    }
+
+    #[test]
+    fn a_non_tag_ref_is_skipped_but_a_broken_tag_is_malformed() {
+        let head = serde_json::json!({ "ref": "refs/heads/main", "object": { "sha": "a" } });
+        assert_eq!(decode_tag("GET /refs", &head).unwrap(), None);
+
+        let broken = serde_json::json!({ "ref": "refs/tags/1.0.0" });
+        assert_eq!(
+            decode_tag("GET /refs", &broken).unwrap_err().cause,
+            ErrorCause::Malformed
+        );
+    }
+
+    #[test]
+    fn an_installation_without_an_app_id_is_malformed() {
+        let installation = serde_json::json!({
+            "id": 1,
+            "app_slug": "airlock-safe",
+            "permissions": { "metadata": "read" }
+        });
+        let error = decode_installation("GET /user/installations", &installation).unwrap_err();
+        assert_eq!(error.cause, ErrorCause::Malformed);
+        assert!(error.to_string().contains("app_id"));
+    }
+
+    #[test]
+    fn an_installation_without_a_permission_map_is_malformed() {
+        let installation = serde_json::json!({
+            "id": 1,
+            "app_id": 1,
+            "app_slug": "airlock-safe"
+        });
+        assert_eq!(
+            decode_installation("GET /user/installations", &installation)
+                .unwrap_err()
+                .cause,
+            ErrorCause::Malformed
+        );
     }
 }

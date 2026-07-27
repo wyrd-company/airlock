@@ -83,6 +83,48 @@ impl std::error::Error for ApiError {}
 /// The result of a GitHub call.
 pub type ApiResult<T> = Result<T, ApiError>;
 
+/// A listing, and whether airlock saw all of it.
+///
+/// GitHub paginates. A caller asserting something about a *whole* collection —
+/// "no tag carries a `v` prefix", "no organisation ruleset covers this branch"
+/// — cannot conclude anything from a prefix, so the page budget travels with
+/// the items rather than being discarded at the client boundary.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Paged<T> {
+    /// The items airlock collected.
+    pub items: Vec<T>,
+    /// True when the walk stopped at a budget rather than at the last page.
+    pub truncated: bool,
+}
+
+impl<T> Paged<T> {
+    /// A complete listing.
+    #[must_use]
+    pub fn complete(items: Vec<T>) -> Self {
+        Self {
+            items,
+            truncated: false,
+        }
+    }
+
+    /// How many items were collected.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.items.len()
+    }
+
+    /// Whether nothing was collected.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.items.is_empty()
+    }
+
+    /// Iterate the collected items.
+    pub fn iter(&self) -> std::slice::Iter<'_, T> {
+        self.items.iter()
+    }
+}
+
 /// A repository, as the settings snapshot sees it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Repository {
@@ -207,11 +249,14 @@ pub struct Installation {
 pub struct AuthenticatedUser {
     /// The login.
     pub login: String,
-    /// The raw `X-OAuth-Scopes` header, absent when GitHub did not send one.
+    /// Every `X-OAuth-Scopes` header value, in the order GitHub sent them.
     ///
-    /// Absence is meaningful: it is not an empty grant, it is an unverifiable
-    /// one.
-    pub oauth_scopes: Option<String>,
+    /// Absence is meaningful: an empty vector is not an empty grant, it is an
+    /// unread one. So is more than one value — a response carrying two scope
+    /// headers has no single answer to "what does this token grant".
+    pub oauth_scopes: Vec<String>,
+    /// Whether the response carried the header at all.
+    pub oauth_scopes_present: bool,
 }
 
 /// One commit, reduced to what a history scan needs.
@@ -283,21 +328,20 @@ pub trait GitHub {
     /// Fetch a blob's bytes by object sha.
     async fn blob(&self, owner: &str, repo: &str, sha: &str) -> ApiResult<Vec<u8>>;
 
-    /// List tags, newest page first, bounded by the client's page budget.
-    async fn tags(&self, owner: &str, repo: &str) -> ApiResult<Vec<TagRef>>;
+    /// List tags, bounded by the client's page budget.
+    async fn tags(&self, owner: &str, repo: &str) -> ApiResult<Paged<TagRef>>;
 
-    /// Walk history from a commit. The boolean is true when the walk stopped
-    /// at the budget rather than at the root commit.
+    /// Walk history from a commit, bounded by the page and commit budgets.
     async fn history(
         &self,
         owner: &str,
         repo: &str,
         commit: &str,
         max_commits: usize,
-    ) -> ApiResult<(Vec<CommitSummary>, bool)>;
+    ) -> ApiResult<Paged<CommitSummary>>;
 
     /// List rulesets covering the repository, including inherited ones.
-    async fn rulesets(&self, owner: &str, repo: &str) -> ApiResult<Vec<Ruleset>>;
+    async fn rulesets(&self, owner: &str, repo: &str) -> ApiResult<Paged<Ruleset>>;
 
     /// List the effective rules on a branch.
     async fn branch_rules(
@@ -305,7 +349,7 @@ pub trait GitHub {
         owner: &str,
         repo: &str,
         branch: &str,
-    ) -> ApiResult<Vec<BranchRule>>;
+    ) -> ApiResult<Paged<BranchRule>>;
 
     /// List every installation the credential can see, across every page.
     async fn user_installations(&self) -> ApiResult<Vec<Installation>>;

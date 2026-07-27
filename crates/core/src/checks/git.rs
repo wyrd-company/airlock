@@ -54,6 +54,17 @@ fn org_ruleset_coverage(context: &AuditContext) -> Verdict {
         .collect();
 
     if covering.is_empty() {
+        // Absence over a listing airlock only saw part of is not absence.
+        if rulesets.truncated {
+            return Verdict::inconclusive(
+                "ruleset_listing_truncated",
+                format!(
+                    "no organisation ruleset was found in the {} rulesets airlock could read, \
+                     but the listing stopped at the page budget, so the rest was never examined",
+                    rulesets.len()
+                ),
+            );
+        }
         Verdict::fail(
             "no_org_ruleset",
             "no active organisation-sourced branch ruleset covers the repository",
@@ -90,6 +101,19 @@ fn branch_rule_shape(context: &AuditContext) -> Verdict {
     let linear = rules
         .iter()
         .any(|rule| rule.rule_type == "required_linear_history");
+
+    // A rule airlock did not see is not a rule that is absent. Only a complete
+    // listing can support "this branch is not protected".
+    if rules.truncated && (pull_request.is_none() || !linear) {
+        return Verdict::inconclusive(
+            "branch_rule_listing_truncated",
+            format!(
+                "the rules on `{branch}` stopped at the page budget after {} rules, so a \
+                 missing rule may simply be one airlock never read",
+                rules.len()
+            ),
+        );
+    }
 
     let mut gaps = Vec::new();
     let Some(pull_request) = pull_request else {
@@ -244,6 +268,18 @@ fn tags_have_no_v_prefix(context: &AuditContext) -> Verdict {
         .collect();
 
     if offenders.is_empty() {
+        // "No tag carries a `v` prefix" is an assertion about every tag. A
+        // clean prefix of the tag list does not establish it.
+        if tags.truncated {
+            return Verdict::inconclusive(
+                "tag_listing_truncated",
+                format!(
+                    "none of the {} tags airlock read carry a `v` prefix, but the listing \
+                     stopped at the page budget, so the rest were never examined",
+                    tags.len()
+                ),
+            );
+        }
         Verdict::pass(
             "no_v_prefixed_tags",
             format!("none of the {} tags carry a `v` prefix", tags.len()),
@@ -287,6 +323,16 @@ fn multi_unit_tag_shape(context: &AuditContext) -> Verdict {
         .collect();
 
     if offenders.is_empty() {
+        if tags.truncated {
+            return Verdict::inconclusive(
+                "tag_listing_truncated",
+                format!(
+                    "all {} tags airlock read are scoped, but the listing stopped at the page \
+                     budget, so the rest were never examined",
+                    tags.len()
+                ),
+            );
+        }
         Verdict::pass(
             "scoped_tags",
             format!(
@@ -315,10 +361,12 @@ fn no_merge_commits(rule: &RuleInstance, context: &AuditContext) -> Verdict {
         .param_u64("max-commits")
         .unwrap_or(context.limits.max_history_commits as u64) as usize;
 
-    let (commits, truncated) = match &context.history {
+    let history = match &context.history {
         Ok(history) => history,
         Err(error) => return Verdict::from_api_error(error),
     };
+    let commits = &history.items;
+    let truncated = history.truncated;
 
     let merges: Vec<&str> = commits
         .iter()
@@ -342,7 +390,7 @@ fn no_merge_commits(rule: &RuleInstance, context: &AuditContext) -> Verdict {
         );
     }
 
-    if *truncated {
+    if truncated {
         // The assertion is about the whole history. A clean prefix does not
         // prove it, so this is inconclusive with the bound named.
         return Verdict::inconclusive(
@@ -422,7 +470,7 @@ mod tests {
     use super::super::evaluate;
     use super::super::fixtures::*;
     use crate::findings::Status;
-    use crate::github::{ApiError, BranchRule, CommitSummary, ErrorCause, Ruleset, TagRef};
+    use crate::github::{ApiError, BranchRule, CommitSummary, ErrorCause, Paged, Ruleset, TagRef};
     use serde_json::json;
 
     #[test]
@@ -458,14 +506,14 @@ mod tests {
             Status::Fail
         );
 
-        context.rulesets = Ok(vec![Ruleset {
+        context.rulesets = Ok(Paged::complete(vec![Ruleset {
             id: 1,
             name: "org-default".to_owned(),
             target: Some("branch".to_owned()),
             source_type: Some("Organization".to_owned()),
             source: Some("owner".to_owned()),
             enforcement: Some("active".to_owned()),
-        }]);
+        }]));
         assert_eq!(
             evaluate(&rule("REPO-GIT-02"), &context).status,
             Status::Pass
@@ -477,14 +525,14 @@ mod tests {
         let snapshot = snapshot(&[]);
         let policy = policy();
         let mut context = context(&snapshot, &policy, Vec::new());
-        context.rulesets = Ok(vec![Ruleset {
+        context.rulesets = Ok(Paged::complete(vec![Ruleset {
             id: 1,
             name: "local".to_owned(),
             target: Some("branch".to_owned()),
             source_type: Some("Repository".to_owned()),
             source: Some("owner/name".to_owned()),
             enforcement: Some("active".to_owned()),
-        }]);
+        }]));
         assert_eq!(
             evaluate(&rule("REPO-GIT-02"), &context).status,
             Status::Fail
@@ -540,7 +588,7 @@ mod tests {
         let policy = policy();
         let mut context = context(&snapshot, &policy, Vec::new());
 
-        context.branch_rules = Ok(vec![
+        context.branch_rules = Ok(Paged::complete(vec![
             BranchRule {
                 rule_type: "pull_request".to_owned(),
                 source_type: Some("Organization".to_owned()),
@@ -551,23 +599,23 @@ mod tests {
                 source_type: Some("Organization".to_owned()),
                 parameters: json!({}),
             },
-        ]);
+        ]));
         assert_eq!(
             evaluate(&rule("REPO-GIT-03"), &context).status,
             Status::Pass
         );
 
-        context.branch_rules = Ok(vec![BranchRule {
+        context.branch_rules = Ok(Paged::complete(vec![BranchRule {
             rule_type: "pull_request".to_owned(),
             source_type: None,
             parameters: json!({ "allowed_merge_methods": ["squash", "rebase", "merge"] }),
-        }]);
+        }]));
         assert_eq!(
             evaluate(&rule("REPO-GIT-03"), &context).status,
             Status::Fail
         );
 
-        context.branch_rules = Ok(Vec::new());
+        context.branch_rules = Ok(Paged::complete(Vec::new()));
         assert_eq!(
             evaluate(&rule("REPO-GIT-03"), &context).status,
             Status::Fail
@@ -612,7 +660,7 @@ mod tests {
         let snapshot = snapshot(&[]);
         let policy = policy();
         let mut context = context(&snapshot, &policy, Vec::new());
-        context.tags = Ok(vec![
+        context.tags = Ok(Paged::complete(vec![
             TagRef {
                 name: "1.0.0".to_owned(),
                 sha: "a".to_owned(),
@@ -621,13 +669,13 @@ mod tests {
                 name: "v2.0.0".to_owned(),
                 sha: "b".to_owned(),
             },
-        ]);
+        ]));
         assert_eq!(
             evaluate(&rule("REPO-GIT-08"), &context).status,
             Status::Fail
         );
 
-        context.tags = Ok(vec![
+        context.tags = Ok(Paged::complete(vec![
             TagRef {
                 name: "1.0.0".to_owned(),
                 sha: "a".to_owned(),
@@ -637,7 +685,7 @@ mod tests {
                 name: "very-old".to_owned(),
                 sha: "b".to_owned(),
             },
-        ]);
+        ]));
         assert_eq!(
             evaluate(&rule("REPO-GIT-08"), &context).status,
             Status::Pass
@@ -652,10 +700,10 @@ mod tests {
         )]);
         let policy = policy();
         let mut context = context(&snapshot, &policy, Vec::new());
-        context.tags = Ok(vec![TagRef {
+        context.tags = Ok(Paged::complete(vec![TagRef {
             name: "1.0.0".to_owned(),
             sha: "a".to_owned(),
-        }]);
+        }]));
         assert_eq!(
             evaluate(&rule("REPO-GIT-09"), &context).status,
             Status::Pass
@@ -670,19 +718,19 @@ mod tests {
         )]);
         let policy = policy();
         let mut context = context(&snapshot, &policy, Vec::new());
-        context.tags = Ok(vec![TagRef {
+        context.tags = Ok(Paged::complete(vec![TagRef {
             name: "1.0.0".to_owned(),
             sha: "a".to_owned(),
-        }]);
+        }]));
         assert_eq!(
             evaluate(&rule("REPO-GIT-09"), &context).status,
             Status::Fail
         );
 
-        context.tags = Ok(vec![TagRef {
+        context.tags = Ok(Paged::complete(vec![TagRef {
             name: "one@1.0.0".to_owned(),
             sha: "a".to_owned(),
-        }]);
+        }]));
         assert_eq!(
             evaluate(&rule("REPO-GIT-09"), &context).status,
             Status::Pass
@@ -694,19 +742,16 @@ mod tests {
         let snapshot = snapshot(&[]);
         let policy = policy();
         let mut context = context(&snapshot, &policy, Vec::new());
-        context.history = Ok((
-            vec![
-                CommitSummary {
-                    sha: "a".to_owned(),
-                    parents: 1,
-                },
-                CommitSummary {
-                    sha: "b".to_owned(),
-                    parents: 2,
-                },
-            ],
-            false,
-        ));
+        context.history = Ok(Paged::complete(vec![
+            CommitSummary {
+                sha: "a".to_owned(),
+                parents: 1,
+            },
+            CommitSummary {
+                sha: "b".to_owned(),
+                parents: 2,
+            },
+        ]));
         assert_eq!(
             evaluate(&rule("REPO-GIT-10"), &context).status,
             Status::Fail
@@ -718,13 +763,13 @@ mod tests {
         let snapshot = snapshot(&[]);
         let policy = policy();
         let mut context = context(&snapshot, &policy, Vec::new());
-        context.history = Ok((
-            vec![CommitSummary {
+        context.history = Ok(Paged {
+            items: vec![CommitSummary {
                 sha: "a".to_owned(),
                 parents: 1,
             }],
-            true,
-        ));
+            truncated: true,
+        });
         let verdict = evaluate(&rule("REPO-GIT-10"), &context);
         assert_eq!(verdict.status, Status::Inconclusive);
         assert!(verdict.evidence.unwrap().detail.contains("budget"));
@@ -735,13 +780,10 @@ mod tests {
         let snapshot = snapshot(&[]);
         let policy = policy();
         let mut context = context(&snapshot, &policy, Vec::new());
-        context.history = Ok((
-            vec![CommitSummary {
-                sha: "a".to_owned(),
-                parents: 1,
-            }],
-            false,
-        ));
+        context.history = Ok(Paged::complete(vec![CommitSummary {
+            sha: "a".to_owned(),
+            parents: 1,
+        }]));
         assert_eq!(
             evaluate(&rule("REPO-GIT-10"), &context).status,
             Status::Pass
@@ -778,6 +820,153 @@ mod tests {
         let context = context(&snapshot, &policy, workflows);
         assert_eq!(
             evaluate(&rule("REPO-GIT-13"), &context).status,
+            Status::Pass
+        );
+    }
+
+    #[test]
+    fn a_truncated_tag_listing_cannot_prove_no_tag_carries_a_prefix() {
+        let snapshot = snapshot(&[]);
+        let policy = policy();
+        let mut context = context(&snapshot, &policy, Vec::new());
+        context.tags = Ok(Paged {
+            items: vec![TagRef {
+                name: "1.0.0".to_owned(),
+                sha: "a".to_owned(),
+            }],
+            truncated: true,
+        });
+        let verdict = evaluate(&rule("REPO-GIT-08"), &context);
+        assert_eq!(verdict.status, Status::Inconclusive);
+        assert_eq!(verdict.evidence.unwrap().code, "tag_listing_truncated");
+    }
+
+    #[test]
+    fn a_truncated_tag_listing_still_fails_on_a_prefix_it_did_see() {
+        // Truncation cannot prove absence, but it does not un-see a violation.
+        let snapshot = snapshot(&[]);
+        let policy = policy();
+        let mut context = context(&snapshot, &policy, Vec::new());
+        context.tags = Ok(Paged {
+            items: vec![TagRef {
+                name: "v1.0.0".to_owned(),
+                sha: "a".to_owned(),
+            }],
+            truncated: true,
+        });
+        assert_eq!(
+            evaluate(&rule("REPO-GIT-08"), &context).status,
+            Status::Fail
+        );
+    }
+
+    #[test]
+    fn a_truncated_tag_listing_cannot_prove_every_tag_is_scoped() {
+        let snapshot = snapshot(&[(
+            ".intentional/config.yml",
+            "release-units:\n  one:\n    path: a\n  two:\n    path: b\n",
+        )]);
+        let policy = policy();
+        let mut context = context(&snapshot, &policy, Vec::new());
+        context.tags = Ok(Paged {
+            items: vec![TagRef {
+                name: "one@1.0.0".to_owned(),
+                sha: "a".to_owned(),
+            }],
+            truncated: true,
+        });
+        assert_eq!(
+            evaluate(&rule("REPO-GIT-09"), &context).status,
+            Status::Inconclusive
+        );
+    }
+
+    #[test]
+    fn a_truncated_ruleset_listing_cannot_prove_no_org_ruleset_covers_the_branch() {
+        let snapshot = snapshot(&[]);
+        let policy = policy();
+        let mut context = context(&snapshot, &policy, Vec::new());
+        context.rulesets = Ok(Paged {
+            items: vec![Ruleset {
+                id: 1,
+                name: "repo-local".to_owned(),
+                target: Some("branch".to_owned()),
+                source_type: Some("Repository".to_owned()),
+                source: Some("owner/name".to_owned()),
+                enforcement: Some("active".to_owned()),
+            }],
+            truncated: true,
+        });
+        let verdict = evaluate(&rule("REPO-GIT-02"), &context);
+        assert_eq!(verdict.status, Status::Inconclusive);
+        assert_eq!(verdict.evidence.unwrap().code, "ruleset_listing_truncated");
+    }
+
+    #[test]
+    fn a_truncated_ruleset_listing_that_already_found_one_still_passes() {
+        let snapshot = snapshot(&[]);
+        let policy = policy();
+        let mut context = context(&snapshot, &policy, Vec::new());
+        context.rulesets = Ok(Paged {
+            items: vec![Ruleset {
+                id: 1,
+                name: "org-default".to_owned(),
+                target: Some("branch".to_owned()),
+                source_type: Some("Organization".to_owned()),
+                source: Some("owner".to_owned()),
+                enforcement: Some("active".to_owned()),
+            }],
+            truncated: true,
+        });
+        assert_eq!(
+            evaluate(&rule("REPO-GIT-02"), &context).status,
+            Status::Pass
+        );
+    }
+
+    #[test]
+    fn a_truncated_branch_rule_listing_cannot_prove_a_rule_is_missing() {
+        let snapshot = snapshot(&[]);
+        let policy = policy();
+        let mut context = context(&snapshot, &policy, Vec::new());
+        context.branch_rules = Ok(Paged {
+            items: vec![BranchRule {
+                rule_type: "pull_request".to_owned(),
+                source_type: None,
+                parameters: json!({ "allowed_merge_methods": ["squash", "rebase"] }),
+            }],
+            truncated: true,
+        });
+        let verdict = evaluate(&rule("REPO-GIT-03"), &context);
+        assert_eq!(verdict.status, Status::Inconclusive);
+        assert_eq!(
+            verdict.evidence.unwrap().code,
+            "branch_rule_listing_truncated"
+        );
+    }
+
+    #[test]
+    fn a_truncated_branch_rule_listing_that_saw_everything_still_passes() {
+        let snapshot = snapshot(&[]);
+        let policy = policy();
+        let mut context = context(&snapshot, &policy, Vec::new());
+        context.branch_rules = Ok(Paged {
+            items: vec![
+                BranchRule {
+                    rule_type: "pull_request".to_owned(),
+                    source_type: None,
+                    parameters: json!({ "allowed_merge_methods": ["squash", "rebase"] }),
+                },
+                BranchRule {
+                    rule_type: "required_linear_history".to_owned(),
+                    source_type: None,
+                    parameters: json!({}),
+                },
+            ],
+            truncated: true,
+        });
+        assert_eq!(
+            evaluate(&rule("REPO-GIT-03"), &context).status,
             Status::Pass
         );
     }
