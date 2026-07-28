@@ -52,6 +52,9 @@ reports it for a human, or has not built it yet.
 | `1`  | `nonconformant` | Every enabled rule was decided; a gating rule failed      |
 | `2`  | `incomplete`    | A gating rule was left undecided, or the run never started |
 
+On Unix, a closed output pipe terminates silently on signal 13 (`SIGPIPE`),
+commonly reported by shells as status 141.
+
 The distinction is the point. An audit that could not evaluate an enabled rule
 — because it is not built yet, because a bounded scan ran out of budget, or
 because GitHub refused the request — never reports success. Every rule the
@@ -218,6 +221,10 @@ user access token:
    airlock auth token --profile ci |
      gh secret set AIRLOCK_TOKEN --repo wyrd-company/airlock
    ```
+
+   If the receiving command exits before reading the token, Airlock follows
+   normal Unix pipe semantics: it exits silently on `SIGPIPE` (signal 13,
+   commonly reported by shells as status 141) rather than printing a panic.
 
 Treat the output of `airlock auth token` as a secret: keep it out of shell
 history, logs, and shared terminals. The dogfood job runs the real audit

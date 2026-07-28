@@ -159,6 +159,8 @@ struct AuthTokenArgs {
 }
 
 fn main() -> ExitCode {
+    restore_sigpipe_default();
+
     let cli = Cli::parse();
     let interactive = std::io::stdout().is_terminal();
 
@@ -181,6 +183,27 @@ fn main() -> ExitCode {
         }
     }
 }
+
+/// Restore the Unix convention for writes to a pipe whose reader has exited.
+///
+/// Rust ignores `SIGPIPE`, which turns `println!` failures into panics. A CLI
+/// should instead terminate silently with signal 13 (usually surfaced by a
+/// shell as status 141): that preserves the fact that its output was
+/// incomplete and covers every stdout/stderr writer, including clap.
+/// The disposition is process-global and also applies to socket writes, so a
+/// rare network `EPIPE` terminates via signal 13 rather than an exit-2 error;
+/// that is the conventional trade-off accepted by Unix pipeline tools.
+#[cfg(unix)]
+fn restore_sigpipe_default() {
+    // SAFETY: this runs before the runtime or any application threads exist,
+    // and installs the operating system's default disposition for SIGPIPE.
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
+}
+
+#[cfg(not(unix))]
+fn restore_sigpipe_default() {}
 
 async fn run(cli: Cli, interactive: bool) -> Result<u8> {
     let Some(command) = cli.command else {
