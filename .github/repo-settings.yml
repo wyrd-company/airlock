@@ -10,7 +10,9 @@
 description: Audits a GitHub repository against a declared release-readiness policy and reports what would block a release.
 
 # Three to eight. At least one artifact-type and one ecosystem term.
-# See references/topics.md for the seed vocabulary.
+# The vocabulary is wyrd-company/.github:airlock/topics.yml, which the org
+# policy pins as reference data; docs/examples/wyrd-topics.yml is the copy
+# this repository ships.
 topics:
   - cli
   - rust

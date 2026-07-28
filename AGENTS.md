@@ -10,10 +10,13 @@ Run `task check` before pushing; it is what CI runs. Everything else is in
 
 ## Constraints that are not negotiable
 
-**No writes, ever.** No endpoint that mutates, no credential that could. This
-holds for the tool and for the tooling around it: never shell out to `git` or
-`gh` from the binary, and never add a dependency that does. Airlock speaks the
-GitHub REST API directly.
+**No writes, ever.** No endpoint that mutates, no credential that could.
+
+**The binary never shells out.** No `git`, no `gh`, no subprocess at all from
+`airlock` or anything it depends on. Airlock speaks the GitHub REST API
+directly. This is a rule about the binary, not about the repository:
+`.github/workflows/reconcile-settings.yml` uses `gh` deliberately, because a
+workflow holding a scoped token is exactly where a write belongs.
 
 **No ambient credentials.** `GH_TOKEN`, `GITHUB_TOKEN`, the `gh` credential
 store, and git credential helpers are off limits as sources and must not be
