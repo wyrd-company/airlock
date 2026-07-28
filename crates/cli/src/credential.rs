@@ -176,12 +176,20 @@ pub async fn resolve(
             source: CredentialSource::Environment,
         }),
         CredentialSelection::Profile => {
-            from_profile(&inputs.profile, config_path, login_base, client_id).await
+            resolve_profile(&inputs.profile, config_path, login_base, client_id).await
         }
     }
 }
 
-async fn from_profile(
+/// Resolve only the named stored profile, refreshing it when necessary.
+///
+/// This deliberately does not consult invocation or environment credentials.
+///
+/// # Errors
+///
+/// Returns an error when the profile is absent or its credential cannot be
+/// refreshed.
+pub async fn resolve_profile(
     profile_name: &str,
     config_path: &Path,
     login_base: &str,
@@ -347,6 +355,26 @@ mod tests {
     }
 
     #[test]
+    fn a_non_expiring_grant_is_stored_as_a_fresh_access_token() {
+        let mut config = Config::default();
+        let grant = TokenGrant {
+            access_token: "ghu_non_expiring".to_owned(),
+            expires_in: None,
+            refresh_token: None,
+            refresh_token_expires_in: None,
+        };
+
+        let stored = store_grant(&mut config, "ci", &grant, Some("user".to_owned()));
+
+        assert_eq!(stored, "ghu_non_expiring");
+        let profile = config.profile("ci").unwrap();
+        assert_eq!(profile.access_token.as_deref(), Some("ghu_non_expiring"));
+        assert_eq!(profile.access_token_expires_at, None);
+        assert_eq!(profile.refresh_token, None);
+        assert!(profile.access_token_is_fresh(u64::MAX));
+    }
+
+    #[test]
     fn every_selection_describes_itself_with_the_variable_it_reads() {
         assert_eq!(
             CredentialSelection::Environment.describe(),
@@ -362,7 +390,7 @@ mod tests {
     async fn a_profile_that_does_not_exist_names_the_whole_precedence_list() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("config.toml");
-        let error = from_profile("default", &path, "http://127.0.0.1:1", "Iv1")
+        let error = resolve_profile("default", &path, "http://127.0.0.1:1", "Iv1")
             .await
             .unwrap_err()
             .to_string();

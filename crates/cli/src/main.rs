@@ -121,6 +121,8 @@ enum AuthCommand {
     Login(AuthLoginArgs),
     /// Report which credential source would be used, and what it grants.
     Status(AuthStatusArgs),
+    /// Emit the verified token stored in a profile.
+    Token(AuthTokenArgs),
 }
 
 #[derive(Debug, Args)]
@@ -147,6 +149,13 @@ struct AuthStatusArgs {
     /// Read the token to inspect from standard input.
     #[arg(long, conflicts_with_all = ["token", "token_file"])]
     token_stdin: bool,
+}
+
+#[derive(Debug, Args)]
+struct AuthTokenArgs {
+    /// Configuration profile to emit.
+    #[arg(long, default_value = DEFAULT_PROFILE)]
+    profile: String,
 }
 
 fn main() -> ExitCode {
@@ -187,6 +196,9 @@ async fn run(cli: Cli, interactive: bool) -> Result<u8> {
         Command::Auth(AuthArgs {
             command: AuthCommand::Status(args),
         }) => status_command(&args).await,
+        Command::Auth(AuthArgs {
+            command: AuthCommand::Token(args),
+        }) => token_command(&args).await,
     }
 }
 
@@ -386,6 +398,30 @@ async fn status_command(args: &AuthStatusArgs) -> Result<u8> {
     }
 }
 
+async fn token_command(args: &AuthTokenArgs) -> Result<u8> {
+    let config_path = config::config_path()?;
+    let credential = credential::resolve_profile(
+        &args.profile,
+        &config_path,
+        &login_base(),
+        AIRLOCK_SAFE_CLIENT_ID,
+    )
+    .await?;
+    let client = RestClient::new(credential.token.clone(), client_config(Limits::default()))
+        .context("cannot build the github client")?;
+    auth::verify(&credential.token, &client)
+        .await
+        .with_context(|| {
+            format!(
+                "the credential from the `{}` profile was refused",
+                args.profile
+            )
+        })?;
+
+    println!("{}", credential.token);
+    Ok(0)
+}
+
 fn print_grant(grant: &VerifiedGrant) {
     println!("token kind: {}", grant.kind.code());
     if let Some(issuer) = &grant.issuer {
@@ -470,5 +506,17 @@ mod tests {
         };
         assert!(args.list_checks);
         assert!(args.target.is_none());
+    }
+
+    #[test]
+    fn auth_token_selects_a_named_profile() {
+        let cli = Cli::parse_from(["airlock", "auth", "token", "--profile", "ci"]);
+        let Some(Command::Auth(AuthArgs {
+            command: AuthCommand::Token(args),
+        })) = cli.command
+        else {
+            panic!("expected the auth token command");
+        };
+        assert_eq!(args.profile, "ci");
     }
 }
