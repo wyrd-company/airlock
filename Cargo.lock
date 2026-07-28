@@ -20,6 +20,7 @@ dependencies = [
  "assert_cmd",
  "base64",
  "clap",
+ "libc",
  "predicates",
  "reqwest",
  "serde",

@@ -219,6 +219,10 @@ user access token:
      gh secret set AIRLOCK_TOKEN --repo wyrd-company/airlock
    ```
 
+   If the receiving command exits before reading the token, Airlock follows
+   normal Unix pipe semantics: it exits silently on `SIGPIPE` (signal 13,
+   commonly reported by shells as status 141) rather than printing a panic.
+
 Treat the output of `airlock auth token` as a secret: keep it out of shell
 history, logs, and shared terminals. The dogfood job runs the real audit
 whenever the repository secret is present and reports a graceful skip when it

@@ -9,7 +9,11 @@ use assert_cmd::Command;
 use predicates::prelude::PredicateBooleanExt as _;
 use predicates::str::contains;
 use serde_json::Value;
+use std::os::fd::OwnedFd;
 use std::os::unix::fs::PermissionsExt as _;
+use std::os::unix::net::UnixStream;
+use std::os::unix::process::ExitStatusExt as _;
+use std::process::Stdio;
 use support::{FakeRepo, Response};
 use tempfile::TempDir;
 use wiremock::MockServer;
@@ -144,6 +148,25 @@ fn list_checks_marks_manual_and_unimplemented_rules() {
         .collect();
     assert!(unimplemented.contains(&"REPO-DOCS-05"));
     assert!(checks.iter().any(|check| check["evaluation"] == "manual"));
+}
+
+#[test]
+fn a_closed_output_pipe_terminates_silently_with_sigpipe() {
+    let (reader, writer) = UnixStream::pair().expect("the output pipe is created");
+    drop(reader);
+    let writer: OwnedFd = writer.into();
+
+    let output = std::process::Command::new(assert_cmd::cargo::cargo_bin!("airlock"))
+        .args(["audit", "--list-checks", "--format", "json"])
+        .stdout(Stdio::from(writer))
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("airlock starts")
+        .wait_with_output()
+        .expect("airlock exits");
+
+    assert_eq!(output.status.signal(), Some(libc::SIGPIPE));
+    assert_eq!(output.stderr, b"");
 }
 
 // ---------------------------------------------------------------------------
