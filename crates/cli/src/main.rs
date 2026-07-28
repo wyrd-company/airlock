@@ -190,6 +190,9 @@ fn main() -> ExitCode {
 /// should instead terminate silently with signal 13 (usually surfaced by a
 /// shell as status 141): that preserves the fact that its output was
 /// incomplete and covers every stdout/stderr writer, including clap.
+/// The disposition is process-global and also applies to socket writes, so a
+/// rare network `EPIPE` terminates via signal 13 rather than an exit-2 error;
+/// that is the conventional trade-off accepted by Unix pipeline tools.
 #[cfg(unix)]
 fn restore_sigpipe_default() {
     // SAFETY: this runs before the runtime or any application threads exist,
