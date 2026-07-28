@@ -139,7 +139,6 @@ impl Yaml {
     }
 
     /// The mapping's keys, in document order.
-    #[must_use]
     pub fn keys(&self) -> impl Iterator<Item = &str> {
         self.as_map()
             .into_iter()

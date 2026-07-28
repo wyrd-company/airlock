@@ -34,6 +34,10 @@ tasks:
     cmds:
       - cargo fmt --all -- --check
       - cargo clippy --workspace --all-targets -- -D warnings
+      - actionlint .github/workflows/*.yml
+      - shellcheck scripts/*.sh
+      - ryl check .github/workflows/*.yml .github/repo-settings.yml docs/examples/*.yml taskfile.yml
+      - rumdl check .
 
   format:
     desc: Apply formatting
@@ -41,7 +45,9 @@ tasks:
       - cargo fmt --all
 
   msrv:
-    desc: Build the production targets against the committed lockfile, for the minimum supported toolchain
+    desc: >-
+      Build the production targets against the committed lockfile, for the
+      minimum supported toolchain
     cmds:
       # Build, not test: the MSRV is a promise to consumers about building
       # airlock, and dev-dependencies (wiremock needs 1.88) are not part of it.

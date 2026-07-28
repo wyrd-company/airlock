@@ -7,7 +7,9 @@
 # There is deliberately no `visibility` field. Publishing a repository is an
 # unrecoverable act and stays a manual decision.
 
-description: Audits a GitHub repository against a declared release-readiness policy and reports what would block a release.
+description: >-
+  Audits a GitHub repository against a declared release-readiness policy and
+  reports what would block a release.
 
 # Three to eight. At least one artifact-type and one ecosystem term.
 # The vocabulary is wyrd-company/.github:airlock/topics.yml, which the org

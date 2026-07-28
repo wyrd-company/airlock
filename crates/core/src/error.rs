@@ -29,7 +29,7 @@ pub enum Error {
     #[error("github api error: {message}")]
     GitHub {
         #[source]
-        source: ApiError,
+        source: Box<ApiError>,
         message: String,
     },
 

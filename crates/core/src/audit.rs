@@ -375,7 +375,7 @@ fn repository_error(
 ) -> Error {
     if error.cause != ErrorCause::NotFound {
         return Error::GitHub {
-            source: error.clone(),
+            source: Box::new(error.clone()),
             message: error.to_string(),
         };
     }
@@ -399,7 +399,7 @@ fn repository_error(
         }
     }
     Error::GitHub {
-        source: error.clone(),
+        source: Box::new(error.clone()),
         message,
     }
 }
