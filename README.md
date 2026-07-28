@@ -19,7 +19,7 @@ Not yet published to any registry. Build from source:
 cargo install --git https://github.com/wyrd-company/airlock airlock-cli
 ```
 
-The minimum supported Rust version is 1.85.
+The minimum supported Rust version is 1.86.
 
 ## Quickstart
 
