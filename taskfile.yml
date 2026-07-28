@@ -41,9 +41,12 @@ tasks:
       - cargo fmt --all
 
   msrv:
-    desc: Test against the committed lockfile, for the minimum supported toolchain
+    desc: Build the production targets against the committed lockfile, for the minimum supported toolchain
     cmds:
-      - cargo test --workspace --locked
+      # Build, not test: the MSRV is a promise to consumers about building
+      # airlock, and dev-dependencies (wiremock needs 1.88) are not part of it.
+      # The full suite runs on stable in the test job.
+      - cargo build --workspace --locked
 
   lint:commit-msg:
     desc: Validate a conventional commit subject
