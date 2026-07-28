@@ -37,6 +37,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes shellcheck
           go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
           cargo install --locked ryl --version 0.21.0
           cargo install --locked rumdl --version 0.2.40
       - run: task lint
