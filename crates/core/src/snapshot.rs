@@ -386,16 +386,47 @@ mod tests {
 
     #[test]
     fn a_path_absent_from_a_truncated_tree_is_undecided_not_missing() {
+        // Asserted through `file()`, the accessor every check uses, so
+        // inverting the production branch fails here.
         let mut snapshot = snapshot(Vec::new());
         snapshot.tree.truncated = true;
+
         assert!(snapshot.tree_is_truncated());
-        let state = if snapshot.tree.truncated {
-            FileState::TreeTruncated
-        } else {
-            FileState::Missing
-        };
-        assert!(state.is_undecided());
-        assert!(!state.is_conclusively_missing());
+        assert_eq!(*snapshot.file("README.md"), FileState::TreeTruncated);
+        assert!(snapshot.file("README.md").is_undecided());
+        assert!(!snapshot.file("README.md").is_conclusively_missing());
+    }
+
+    #[test]
+    fn a_path_absent_from_a_complete_tree_is_conclusively_missing() {
+        // The other side of the same branch: without both, an inverted
+        // condition still passes one of them.
+        let snapshot = snapshot(vec![entry("README.md", EntryKind::Blob, "100644")]);
+
+        assert!(!snapshot.tree_is_truncated());
+        assert_eq!(*snapshot.file("CONTRIBUTING.md"), FileState::Missing);
+        assert!(snapshot.file("CONTRIBUTING.md").is_conclusively_missing());
+        assert!(!snapshot.file("CONTRIBUTING.md").is_undecided());
+    }
+
+    #[test]
+    fn a_read_path_is_reported_from_what_was_read_whatever_the_tree_says() {
+        // A path already in `files` answers from that record, so truncation
+        // never overrides something airlock actually read.
+        let mut snapshot = snapshot(vec![entry("README.md", EntryKind::Blob, "100644")]);
+        snapshot.tree.truncated = true;
+        snapshot.files.insert(
+            "README.md".to_owned(),
+            FileState::Content {
+                sha: "1".to_owned(),
+                bytes: b"# example".to_vec(),
+            },
+        );
+
+        assert!(snapshot.file("README.md").is_content());
+        assert_eq!(snapshot.file("README.md").text(), Some("# example"));
+        // A sibling that was never read is still undecided under truncation.
+        assert_eq!(*snapshot.file("AGENTS.md"), FileState::TreeTruncated);
     }
 
     #[test]

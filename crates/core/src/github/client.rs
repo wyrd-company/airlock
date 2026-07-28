@@ -17,7 +17,7 @@ use serde_json::Value;
 use super::classify::{self, ErrorCause, Headers, Response};
 use super::{
     ApiError, ApiResult, AuthenticatedUser, BranchRule, CommitSummary, EntryKind, GitHub,
-    Installation, Paged, Repository, Ruleset, TagRef, Tree, TreeEntry,
+    Installation, OAuthScopeHeader, Paged, Repository, Ruleset, TagRef, Tree, TreeEntry,
 };
 use crate::limits::Limits;
 
@@ -872,11 +872,9 @@ impl GitHub for RestClient {
     async fn authenticated_user(&self) -> ApiResult<AuthenticatedUser> {
         let endpoint = "GET /user".to_owned();
         let (value, raw) = self.get_json(&endpoint, "/user").await?;
-        let scopes = raw.all("x-oauth-scopes");
         Ok(AuthenticatedUser {
             login: require_string(&endpoint, &value, "login")?,
-            oauth_scopes: scopes.to_vec(),
-            oauth_scopes_present: !scopes.is_empty(),
+            oauth_scopes: OAuthScopeHeader::from_values(raw.all("x-oauth-scopes")),
         })
     }
 }
@@ -935,6 +933,34 @@ mod tests {
         assert_eq!(
             next_link("GET /x", &raw).unwrap_err().cause,
             ErrorCause::Malformed
+        );
+    }
+
+    #[test]
+    fn an_absent_scope_header_is_distinguished_from_an_empty_one() {
+        // The whole security decision hangs on these being different: one is
+        // "airlock could not read the grant", the other is GitHub stating the
+        // grant is empty.
+        assert_eq!(
+            OAuthScopeHeader::from_values(raw(&[]).all("x-oauth-scopes")),
+            OAuthScopeHeader::Absent
+        );
+        assert_eq!(
+            OAuthScopeHeader::from_values(raw(&[("x-oauth-scopes", "")]).all("x-oauth-scopes")),
+            OAuthScopeHeader::Single(String::new())
+        );
+        assert_eq!(
+            OAuthScopeHeader::from_values(
+                raw(&[("x-oauth-scopes", "read:org")]).all("x-oauth-scopes")
+            ),
+            OAuthScopeHeader::Single("read:org".to_owned())
+        );
+        assert_eq!(
+            OAuthScopeHeader::from_values(
+                raw(&[("x-oauth-scopes", "read:org"), ("x-oauth-scopes", "repo")])
+                    .all("x-oauth-scopes")
+            ),
+            OAuthScopeHeader::Repeated(vec!["read:org".to_owned(), "repo".to_owned()])
         );
     }
 

@@ -249,14 +249,44 @@ pub struct Installation {
 pub struct AuthenticatedUser {
     /// The login.
     pub login: String,
-    /// Every `X-OAuth-Scopes` header value, in the order GitHub sent them.
+    /// What the response said about the token's scopes.
+    pub oauth_scopes: OAuthScopeHeader,
+}
+
+/// What a response said about `X-OAuth-Scopes`.
+///
+/// Three distinct answers that a `Vec<String>` collapses into shapes a reader
+/// has to decode: no header at all, one header (whose value may legitimately
+/// be empty), and more than one header. They lead to different decisions, so
+/// they are different variants.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OAuthScopeHeader {
+    /// GitHub sent no `X-OAuth-Scopes` header.
     ///
-    /// Absence is meaningful: an empty vector is not an empty grant, it is an
-    /// unread one. So is more than one value — a response carrying two scope
-    /// headers has no single answer to "what does this token grant".
-    pub oauth_scopes: Vec<String>,
-    /// Whether the response carried the header at all.
-    pub oauth_scopes_present: bool,
+    /// Not an empty grant — an unread one.
+    Absent,
+    /// GitHub sent exactly one header, carrying this raw value.
+    ///
+    /// The value may be the empty string, which is a real and different answer
+    /// from the header being absent: it is GitHub stating that this token
+    /// holds no scopes.
+    Single(String),
+    /// GitHub sent the header more than once.
+    ///
+    /// A grant with more than one answer is not enumerated.
+    Repeated(Vec<String>),
+}
+
+impl OAuthScopeHeader {
+    /// Read the header out of the values a response carried.
+    #[must_use]
+    pub fn from_values(values: &[String]) -> Self {
+        match values {
+            [] => OAuthScopeHeader::Absent,
+            [only] => OAuthScopeHeader::Single(only.clone()),
+            many => OAuthScopeHeader::Repeated(many.to_vec()),
+        }
+    }
 }
 
 /// One commit, reduced to what a history scan needs.

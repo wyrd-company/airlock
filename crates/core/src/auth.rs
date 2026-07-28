@@ -15,7 +15,7 @@
 use std::collections::BTreeSet;
 use std::fmt;
 
-use crate::github::{ApiError, ErrorCause, GitHub, Installation};
+use crate::github::{ApiError, ErrorCause, GitHub, Installation, OAuthScopeHeader};
 
 /// The client id of the Airlock Safe GitHub App.
 ///
@@ -310,20 +310,27 @@ fn write_permissions(installation: &Installation) -> Vec<String> {
 async fn verify_scoped<G: GitHub>(kind: TokenKind, client: &G) -> Result<VerifiedGrant, Refusal> {
     let user = client.authenticated_user().await.map_err(api_refusal)?;
 
-    let header = match user.oauth_scopes.as_slice() {
-        [only] => only.clone(),
-        [] => {
-            // A missing header is not an empty grant. It is an unread one.
+    let header = match &user.oauth_scopes {
+        // GitHub sent one header. Its value may be empty, and that is a real
+        // answer — see below.
+        OAuthScopeHeader::Single(value) => value.clone(),
+
+        // A missing header is not an empty grant. It is an unread one, and
+        // brief §3 refuses an unread grant as unverifiable. This is the case a
+        // proxy that strips headers produces, and reading it as "no scopes"
+        // would accept a `repo`-scoped token that simply lost its header.
+        OAuthScopeHeader::Absent => {
             return Err(Refusal::new(
                 "missing_scope_header",
                 "GitHub did not return an `X-OAuth-Scopes` header, so the token's \
                  scopes could not be read. An unreadable grant is unverifiable.",
             ));
         }
-        values => {
-            // Two scope headers have no combination rule airlock is willing to
-            // invent. Reading whichever arrived first would let a response
-            // carrying both a read-only value and `repo` be accepted.
+
+        // Two scope headers have no combination rule airlock is willing to
+        // invent. Reading whichever arrived first would let a response
+        // carrying both a read-only value and `repo` be accepted.
+        OAuthScopeHeader::Repeated(values) => {
             return Err(Refusal::new(
                 "duplicate_scope_header",
                 format!(
@@ -339,8 +346,19 @@ async fn verify_scoped<G: GitHub>(kind: TokenKind, client: &G) -> Result<Verifie
             ));
         }
     };
-    let _ = user.oauth_scopes_present;
 
+    // A present-but-empty header is ACCEPTED, deliberately.
+    //
+    // `X-OAuth-Scopes: ` is GitHub positively stating that this token holds no
+    // scopes at all — the grant is enumerated, and it is empty. A classic
+    // token with no scopes can read public repository data and nothing else,
+    // which is exactly the authority airlock wants. Refusing it would refuse
+    // the most read-only credential of its kind on the grounds that it is too
+    // restricted, which inverts the rule.
+    //
+    // The distinction from an absent header is the whole point: absent means
+    // airlock could not read the grant, empty means it read it and there was
+    // nothing in it.
     let scopes = parse_scopes(&header)?;
     let allowed: BTreeSet<&str> = READ_ONLY_SCOPES.iter().copied().collect();
     let rejected: Vec<String> = scopes
@@ -525,6 +543,17 @@ mod tests {
             .collect(),
         };
         assert_eq!(write_permissions(&installation), vec!["checks=write"]);
+    }
+
+    #[test]
+    fn an_absent_and_an_empty_scope_header_are_different_answers() {
+        // Guards the distinction at the type level, so an accidental
+        // `Vec`-flattening refactor cannot quietly merge the two again.
+        assert_ne!(
+            OAuthScopeHeader::Absent,
+            OAuthScopeHeader::Single(String::new())
+        );
+        assert_eq!(parse_scopes("").unwrap(), Vec::<String>::new());
     }
 
     #[test]

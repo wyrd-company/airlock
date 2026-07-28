@@ -4,7 +4,7 @@
 //! reaches `api.github.com`.
 
 use airlock_core::auth::{verify, TokenKind, AIRLOCK_SAFE_APP_ID, AIRLOCK_SAFE_APP_SLUG};
-use airlock_core::github::{ErrorCause, GitHub, RestClient, RestClientConfig};
+use airlock_core::github::{ErrorCause, GitHub, OAuthScopeHeader, RestClient, RestClientConfig};
 use airlock_core::limits::Limits;
 use serde_json::{json, Value};
 use std::time::Duration;
@@ -537,8 +537,16 @@ async fn a_classic_token_with_an_unknown_scope_is_refused() {
     assert_eq!(refusal.code, "non_read_scope");
 }
 
+// The next two tests are a matched pair, and the pairing is the point: no
+// `X-OAuth-Scopes` header and an empty `X-OAuth-Scopes` header look alike in
+// any representation that flattens them, and they must not lead to the same
+// decision.
+
 #[tokio::test]
 async fn a_missing_scope_header_is_unverifiable_not_an_empty_grant() {
+    // No header at all: airlock could not read the grant. A proxy that strips
+    // headers produces this, and a `repo`-scoped token behind one must not be
+    // accepted as scopeless.
     let server = MockServer::start().await;
     mount_user(&server, None).await;
 
@@ -550,11 +558,39 @@ async fn a_missing_scope_header_is_unverifiable_not_an_empty_grant() {
 
 #[tokio::test]
 async fn an_empty_scope_header_is_an_enumerated_empty_grant() {
+    // The header is present and empty: GitHub stating this token holds no
+    // scopes. The grant is enumerated and it is empty, which is the most
+    // read-only a classic token gets, so it is accepted.
     let server = MockServer::start().await;
     mount_user(&server, Some("")).await;
 
     let grant = verify("ghp_fixture_token", &client(&server)).await.unwrap();
     assert!(grant.scopes.is_empty());
+    assert_eq!(grant.kind, TokenKind::ClassicPat);
+    assert_eq!(grant.login.as_deref(), Some("example-user"));
+}
+
+#[tokio::test]
+async fn the_authenticated_user_reports_which_of_the_three_header_cases_occurred() {
+    // The client is what draws the distinction, so it is asserted at the
+    // client boundary too rather than only through its consequence.
+    for (values, expected) in [
+        (Vec::new(), OAuthScopeHeader::Absent),
+        (vec![""], OAuthScopeHeader::Single(String::new())),
+        (
+            vec!["read:org"],
+            OAuthScopeHeader::Single("read:org".to_owned()),
+        ),
+        (
+            vec!["read:org", "repo"],
+            OAuthScopeHeader::Repeated(vec!["read:org".to_owned(), "repo".to_owned()]),
+        ),
+    ] {
+        let server = MockServer::start().await;
+        mount_user_with_scope_headers(&server, &values).await;
+        let user = client(&server).authenticated_user().await.unwrap();
+        assert_eq!(user.oauth_scopes, expected, "{values:?}");
+    }
 }
 
 #[tokio::test]
