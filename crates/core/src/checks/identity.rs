@@ -323,9 +323,13 @@ fn no_org_topic(rule: &RuleInstance, context: &AuditContext) -> Verdict {
         Ok(topics) => topics,
         Err(verdict) => return *verdict,
     };
-    let mut org_names = rule
-        .param_strings("org-names")
-        .unwrap_or_else(|| vec![context.snapshot.repository.owner.clone()]);
+    let mut org_names = match rule.param_strings("org-names") {
+        Ok(Some(names)) => names,
+        Ok(None) => Vec::new(),
+        Err(malformed) => {
+            return Verdict::inconclusive(super::MALFORMED_DECLARATION, malformed.to_string())
+        }
+    };
     org_names.push(context.snapshot.repository.owner.clone());
 
     let offenders: Vec<&String> = topics
@@ -861,5 +865,23 @@ features:
             evaluate(&rule("REPO-META-13"), &context).status,
             Status::Inconclusive
         );
+    }
+
+    #[test]
+    fn a_malformed_policy_parameter_is_reported_rather_than_partly_applied() {
+        // `org-names: [wyrd-company, 42]` must not quietly check against one
+        // org name and pass.
+        let snapshot = snapshot(&[(".github/repo-settings.yml", SETTINGS)]);
+        let policy = policy();
+        let context = context(&snapshot, &policy, Vec::new());
+        let instance = rule_with(
+            "REPO-META-10",
+            &[("org-names", json!(["wyrd-company", 42]))],
+        );
+        let verdict = evaluate(&instance, &context);
+        assert_eq!(verdict.status, Status::Inconclusive);
+        let evidence = verdict.evidence.unwrap();
+        assert_eq!(evidence.code, crate::checks::MALFORMED_DECLARATION);
+        assert!(evidence.detail.contains("org-names"));
     }
 }

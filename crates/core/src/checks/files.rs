@@ -293,12 +293,16 @@ fn presence_fallback(path: &str, state: &FileState) -> Verdict {
 }
 
 fn no_harness_config(rule: &RuleInstance, context: &AuditContext) -> Verdict {
-    let forbidden = rule.param_strings("forbidden-paths").unwrap_or_else(|| {
-        DEFAULT_FORBIDDEN_PATHS
+    let forbidden = match rule.param_strings("forbidden-paths") {
+        Ok(Some(paths)) => paths,
+        Ok(None) => DEFAULT_FORBIDDEN_PATHS
             .iter()
             .map(|path| (*path).to_owned())
-            .collect()
-    });
+            .collect(),
+        Err(malformed) => {
+            return Verdict::inconclusive(super::MALFORMED_DECLARATION, malformed.to_string())
+        }
+    };
 
     let found: Vec<String> = forbidden
         .iter()
@@ -682,5 +686,19 @@ mod tests {
             ),
             Status::Inconclusive
         );
+    }
+
+    #[test]
+    fn a_malformed_forbidden_path_parameter_is_reported_rather_than_partly_applied() {
+        let snapshot = snapshot(&[("README.md", "x")]);
+        let policy = policy();
+        let context = context(&snapshot, &policy, Vec::new());
+        let instance = rule_with(
+            "REPO-FILE-13",
+            &[("forbidden-paths", json!([".claude", 7]))],
+        );
+        let verdict = evaluate(&instance, &context);
+        assert_eq!(verdict.status, Status::Inconclusive);
+        assert!(verdict.evidence.unwrap().detail.contains("forbidden-paths"));
     }
 }

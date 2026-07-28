@@ -366,7 +366,7 @@ mod tests {
             .await
             .unwrap_err()
             .to_string();
-        assert!(error.contains("AIRLOCK_TOKEN"));
+        assert!(error.contains(TOKEN_ENVIRONMENT_VARIABLE));
         assert!(error.contains("airlock auth login"));
         // The message must not advertise credentials airlock refuses to read.
         assert!(!error.contains("GH_TOKEN"));

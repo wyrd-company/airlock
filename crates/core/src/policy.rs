@@ -180,15 +180,62 @@ impl RuleInstance {
     }
 
     /// A parameter as a list of strings, when the policy set one.
-    #[must_use]
-    pub fn param_strings(&self, name: &str) -> Option<Vec<String>> {
-        Some(
-            self.params
-                .get(name)?
-                .as_array()?
-                .iter()
-                .filter_map(|value| value.as_str().map(ToOwned::to_owned))
-                .collect(),
+    ///
+    /// `Ok(None)` means the policy set no such parameter. An entry that is not
+    /// a string is a malformed parameter rather than one fewer value: a policy
+    /// declaring `org-names: [wyrd-company, 42]` must not quietly check
+    /// against one org name.
+    ///
+    /// # Errors
+    ///
+    /// Returns the offending entry's position when the parameter is not a list
+    /// of strings.
+    pub fn param_strings(
+        &self,
+        name: &str,
+    ) -> std::result::Result<Option<Vec<String>>, MalformedParam> {
+        let Some(value) = self.params.get(name) else {
+            return Ok(None);
+        };
+        let Some(entries) = value.as_array() else {
+            return Err(MalformedParam {
+                rule: self.def.id,
+                param: name.to_owned(),
+                detail: "is not a list".to_owned(),
+            });
+        };
+        let mut values = Vec::with_capacity(entries.len());
+        for (index, entry) in entries.iter().enumerate() {
+            let Some(entry) = entry.as_str() else {
+                return Err(MalformedParam {
+                    rule: self.def.id,
+                    param: name.to_owned(),
+                    detail: format!("has a non-string entry at position {}", index + 1),
+                });
+            };
+            values.push(entry.to_owned());
+        }
+        Ok(Some(values))
+    }
+}
+
+/// A policy parameter airlock could read but not understand.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MalformedParam {
+    /// The rule the parameter belongs to.
+    pub rule: &'static str,
+    /// The parameter name.
+    pub param: String,
+    /// What is wrong with it.
+    pub detail: String,
+}
+
+impl std::fmt::Display for MalformedParam {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "the `{}` parameter on {} {}",
+            self.param, self.rule, self.detail
         )
     }
 }

@@ -325,12 +325,10 @@ async fn login_command(args: &AuthLoginArgs) -> Result<u8> {
     // The credential is verified before it is stored: a token airlock would
     // refuse to use is not worth keeping on disk.
     let client = RestClient::new(grant.access_token.clone(), client_config(Limits::default()))
-        .map_err(|error| anyhow::anyhow!("{error}"))?;
+        .context("cannot build the github client")?;
     let verified = auth::verify(&grant.access_token, &client)
         .await
-        .map_err(|refusal| {
-            anyhow::anyhow!("the credential GitHub issued was refused: {refusal}")
-        })?;
+        .context("the credential GitHub issued was refused")?;
 
     let config_path = config::config_path()?;
     let _lock = config::RotationLock::acquire(&config_path, &args.profile)?;
