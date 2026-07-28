@@ -22,3 +22,6 @@ target
 
 # Cargo build output at the workspace root
 /target
+
+# Markdown lint cache
+.rumdl_cache/

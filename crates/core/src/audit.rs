@@ -6,15 +6,16 @@
 //! checks run against what was gathered. Nothing a check reads can change
 //! underneath it.
 
+use crate::audited_repository::parse_suppression_requests;
 use crate::auth::VerifiedGrant;
 use crate::checks::{self, AuditContext, Workflow};
 use crate::findings::{
     AirlockIdentity, AuditedRepository, EffectiveRule, Finding, PolicyIdentity, PolicyObservation,
-    PolicySourceIdentity, Report, Status, Suppression,
+    PolicyObservationCode, PolicySourceIdentity, Report, Status, Suppression, SuppressionSource,
 };
 use crate::github::{ApiError, ErrorCause, GitHub};
 use crate::limits::Limits;
-use crate::policy::{parse_suppression_requests, ResolvedPolicy};
+use crate::policy::ResolvedPolicy;
 use crate::snapshot::RepoSnapshot;
 use crate::yaml;
 use crate::{Error, Result};
@@ -271,7 +272,7 @@ fn suppression_requests(
     for request in requests {
         if request.reason.trim().is_empty() {
             observations.push(PolicyObservation {
-                code: "invalid_suppression_request".to_owned(),
+                code: PolicyObservationCode::InvalidSuppressionRequest,
                 rule: Some(request.rule.clone()),
                 detail: format!(
                     "the repository asked to suppress {} without stating a reason, so the \
@@ -302,7 +303,7 @@ fn apply_suppressions(
     if let Some(direct) = policy.suppressions.direct_for(&finding.rule, full_name) {
         finding.status = Status::Suppressed;
         finding.suppression = Some(Suppression {
-            source: "policy".to_owned(),
+            source: SuppressionSource::Policy,
             requested_reason: None,
             policy_reason: Some(direct.reason.clone()),
             authorized_by: format!("policy `{}` suppressions.direct", policy.name),
@@ -323,7 +324,7 @@ fn apply_suppressions(
 
     finding.status = Status::Suppressed;
     finding.suppression = Some(Suppression {
-        source: "repository_request".to_owned(),
+        source: SuppressionSource::RepositoryRequest,
         requested_reason: Some(request.reason.clone()),
         policy_reason: None,
         authorized_by: format!("policy `{}` suppressions.allow-repo-requests", policy.name),
@@ -351,7 +352,7 @@ fn unauthorized_requests(
                     format!("still {}", finding.status.code())
                 });
             PolicyObservation {
-                code: "unauthorized_suppression_request".to_owned(),
+                code: PolicyObservationCode::UnauthorizedSuppressionRequest,
                 rule: Some(request.rule.clone()),
                 detail: format!(
                     "the repository asked to suppress {} (\"{}\"), which policy `{}` does not \
@@ -373,7 +374,10 @@ fn repository_error(
     grant: Option<&VerifiedGrant>,
 ) -> Error {
     if error.cause != ErrorCause::NotFound {
-        return Error::GitHub(error.to_string());
+        return Error::GitHub {
+            api_error: Box::new(error.clone()),
+            message: error.to_string(),
+        };
     }
 
     let mut message = format!(
@@ -394,7 +398,10 @@ fn repository_error(
             ));
         }
     }
-    Error::GitHub(message)
+    Error::GitHub {
+        api_error: Box::new(error.clone()),
+        message,
+    }
 }
 
 #[cfg(test)]
@@ -450,7 +457,7 @@ mod tests {
         apply_suppressions(&mut finding, &policy, &[], "owner/name");
         assert_eq!(finding.status, Status::Suppressed);
         let suppression = finding.suppression.unwrap();
-        assert_eq!(suppression.source, "policy");
+        assert_eq!(suppression.source.code(), "policy");
         assert!(suppression.policy_reason.is_some());
     }
 
@@ -480,7 +487,7 @@ mod tests {
         apply_suppressions(&mut finding, &policy, &requests, "owner/name");
         assert_eq!(finding.status, Status::Suppressed);
         let suppression = finding.suppression.unwrap();
-        assert_eq!(suppression.source, "repository_request");
+        assert_eq!(suppression.source.code(), "repository_request");
         assert_eq!(
             suppression.requested_reason.as_deref(),
             Some("docs are stubs until the first release")
@@ -501,7 +508,10 @@ mod tests {
 
         let observations = unauthorized_requests(&policy, &requests, &[finding]);
         assert_eq!(observations.len(), 1);
-        assert_eq!(observations[0].code, "unauthorized_suppression_request");
+        assert_eq!(
+            observations[0].code.code(),
+            "unauthorized_suppression_request"
+        );
         assert!(observations[0].detail.contains("still fail"));
     }
 

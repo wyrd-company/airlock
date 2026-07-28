@@ -14,7 +14,7 @@ use base64::Engine as _;
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 use serde_json::Value;
 
-use super::classify::{self, ErrorCause, Headers, Response};
+use super::classify::{self, all_headers, single_header, ErrorCause, Headers, Response};
 use super::{
     ApiError, ApiResult, AuthenticatedUser, BranchRule, CommitSummary, EntryKind, GitHub,
     Installation, OAuthScopeHeader, Paged, Repository, Ruleset, TagRef, Tree, TreeEntry,
@@ -49,7 +49,7 @@ const PATH_SEGMENT: &AsciiSet = &CONTROLS
 
 /// Percent-encode one path segment.
 #[must_use]
-pub fn encode_segment(segment: &str) -> String {
+pub(crate) fn encode_segment(segment: &str) -> String {
     utf8_percent_encode(segment, PATH_SEGMENT).to_string()
 }
 
@@ -133,16 +133,21 @@ struct RawResponse {
 }
 
 impl RawResponse {
-    /// The value of a header that appeared exactly once.
     fn single(&self, name: &str) -> Option<&str> {
-        match self.headers.get(name)?.as_slice() {
-            [only] => Some(only.as_str()),
-            _ => None,
-        }
+        single_header(&self.headers, name)
     }
 
     fn all(&self, name: &str) -> &[String] {
-        self.headers.get(name).map_or(&[], Vec::as_slice)
+        all_headers(&self.headers, name)
+    }
+
+    fn response(&self) -> Response {
+        Response {
+            status: self.status,
+            headers: self.headers.clone(),
+            message: None,
+            documentation_url: None,
+        }
     }
 }
 
@@ -271,14 +276,15 @@ impl RestClient {
                 return Ok(raw);
             }
 
-            let error = self.to_error(endpoint, &raw);
+            let summary = summarise(&raw);
+            let cause = classify::classify(&summary);
+            let wait = classify::retry_delay_seconds(&summary, now_epoch_seconds()).unwrap_or(1);
+            let error = self.to_error(endpoint, &raw, cause, summary);
             if error.cause != ErrorCause::RateLimit || attempt >= self.config.max_rate_limit_retries
             {
                 return Err(error);
             }
 
-            let summary = summarise(&raw);
-            let wait = classify::retry_delay_seconds(&summary, now_epoch_seconds()).unwrap_or(1);
             // Waiting past the audit deadline achieves nothing but a later
             // failure, so the budget wins over the retry.
             if wait > self.config.max_rate_limit_wait_seconds
@@ -291,10 +297,15 @@ impl RestClient {
         }
     }
 
-    fn to_error(&self, endpoint: &str, raw: &RawResponse) -> ApiError {
-        let summary = summarise(raw);
+    fn to_error(
+        &self,
+        endpoint: &str,
+        raw: &RawResponse,
+        cause: ErrorCause,
+        summary: Response,
+    ) -> ApiError {
         ApiError {
-            cause: classify::classify(&summary),
+            cause,
             endpoint: endpoint.to_owned(),
             status: Some(raw.status),
             message: summary.message,
@@ -363,20 +374,18 @@ fn transport_error(endpoint: &str, error: &reqwest::Error) -> ApiError {
 
 fn summarise(raw: &RawResponse) -> Response {
     let body: Option<Value> = serde_json::from_str(&raw.body).ok();
-    Response {
-        status: raw.status,
-        headers: raw.headers.clone(),
-        message: body
-            .as_ref()
-            .and_then(|body| body.get("message"))
-            .and_then(Value::as_str)
-            .map(ToOwned::to_owned),
-        documentation_url: body
-            .as_ref()
-            .and_then(|body| body.get("documentation_url"))
-            .and_then(Value::as_str)
-            .map(ToOwned::to_owned),
-    }
+    let mut response = raw.response();
+    response.message = body
+        .as_ref()
+        .and_then(|body| body.get("message"))
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned);
+    response.documentation_url = body
+        .as_ref()
+        .and_then(|body| body.get("documentation_url"))
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned);
+    response
 }
 
 fn parse_json(endpoint: &str, body: &str) -> ApiResult<Value> {

@@ -129,12 +129,6 @@ impl Yaml {
         }
     }
 
-    /// Whether the value is null.
-    #[must_use]
-    pub fn is_null(&self) -> bool {
-        matches!(self, Yaml::Null)
-    }
-
     /// The value stored under `key`, if this is a mapping that has one.
     #[must_use]
     pub fn get(&self, key: &str) -> Option<&Yaml> {
@@ -145,11 +139,10 @@ impl Yaml {
     }
 
     /// The mapping's keys, in document order.
-    #[must_use]
-    pub fn keys(&self) -> Vec<&str> {
+    pub fn keys(&self) -> impl Iterator<Item = &str> {
         self.as_map()
-            .map(|entries| entries.iter().map(|(key, _)| key.as_str()).collect())
-            .unwrap_or_default()
+            .into_iter()
+            .flat_map(|entries| entries.iter().map(|(key, _)| key.as_str()))
     }
 
     /// A short name for the value's shape, for error messages.
@@ -484,7 +477,7 @@ mod tests {
     #[test]
     fn parses_a_mapping_in_document_order() {
         let document = parse("b: 2\na: 1\n", limits()).unwrap();
-        assert_eq!(document.keys(), vec!["b", "a"]);
+        assert_eq!(document.keys().collect::<Vec<_>>(), vec!["b", "a"]);
         assert_eq!(document.get("a").and_then(Yaml::as_i64), Some(1));
     }
 

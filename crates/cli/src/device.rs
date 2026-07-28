@@ -9,7 +9,6 @@
 //! with that in mind — the caller stores the new pair before doing anything
 //! else with it.
 
-use std::collections::BTreeMap;
 use std::time::Duration;
 
 use anyhow::{bail, Context as _, Result};
@@ -20,6 +19,13 @@ pub const GITHUB_LOGIN_BASE: &str = "https://github.com";
 
 /// The device grant type, as the specification spells it.
 const DEVICE_GRANT_TYPE: &str = "urn:ietf:params:oauth:grant-type:device_code";
+
+fn device_code_expired() -> anyhow::Error {
+    anyhow::anyhow!(
+        "the device code expired before the authorisation finished. Run `airlock auth login` \
+         again."
+    )
+}
 
 /// Device and user codes, and how to poll for them.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -257,10 +263,7 @@ impl DeviceFlow {
         loop {
             let remaining = deadline.saturating_duration_since(std::time::Instant::now());
             if remaining.is_zero() {
-                bail!(
-                    "the device code expired before the authorisation finished. Run \
-                     `airlock auth login` again."
-                );
+                return Err(device_code_expired());
             }
             tokio::time::sleep(interval.min(remaining)).await;
 
@@ -270,12 +273,7 @@ impl DeviceFlow {
             let remaining = deadline.saturating_duration_since(std::time::Instant::now());
             let outcome = tokio::time::timeout(remaining, self.poll_once(&codes.device_code))
                 .await
-                .map_err(|_| {
-                    anyhow::anyhow!(
-                        "the device code expired before the authorisation finished. Run \
-                         `airlock auth login` again."
-                    )
-                })??;
+                .map_err(|_| device_code_expired())??;
 
             match outcome {
                 PollOutcome::Granted(grant) => return Ok(*grant),
@@ -289,10 +287,7 @@ impl DeviceFlow {
                             .max(Duration::from_secs(suggested)),
                     );
                 }
-                PollOutcome::Expired => bail!(
-                    "the device code expired before the authorisation finished. Run \
-                     `airlock auth login` again."
-                ),
+                PollOutcome::Expired => return Err(device_code_expired()),
                 PollOutcome::Denied => bail!("the authorisation was declined."),
                 PollOutcome::Failed(message) => bail!("{message}"),
             }
@@ -327,32 +322,26 @@ impl DeviceFlow {
 
 /// Turn a documented OAuth error code into something a human can act on.
 fn describe(error: &str, body: &serde_json::Value) -> String {
-    let explanations: BTreeMap<&str, &str> = [
-        (
-            "bad_refresh_token",
-            "the stored refresh token is no longer valid. Run `airlock auth login` again.",
-        ),
-        (
-            "unsupported_grant_type",
-            "GitHub rejected the grant type, which means this build sent the wrong request.",
-        ),
-        (
-            "incorrect_client_credentials",
-            "GitHub did not recognise the Airlock Safe client id.",
-        ),
-        (
-            "incorrect_device_code",
-            "GitHub did not recognise the device code. Run `airlock auth login` again.",
-        ),
-        (
-            "device_flow_disabled",
-            "device flow is disabled on the Airlock Safe app registration.",
-        ),
-    ]
-    .into_iter()
-    .collect();
+    let explanation = match error {
+        "bad_refresh_token" => {
+            Some("the stored refresh token is no longer valid. Run `airlock auth login` again.")
+        }
+        "unsupported_grant_type" => {
+            Some("GitHub rejected the grant type, which means this build sent the wrong request.")
+        }
+        "incorrect_client_credentials" => {
+            Some("GitHub did not recognise the Airlock Safe client id.")
+        }
+        "incorrect_device_code" => {
+            Some("GitHub did not recognise the device code. Run `airlock auth login` again.")
+        }
+        "device_flow_disabled" => {
+            Some("device flow is disabled on the Airlock Safe app registration.")
+        }
+        _ => None,
+    };
 
-    match explanations.get(error) {
+    match explanation {
         Some(explanation) => format!("{error}: {explanation}"),
         None => {
             let description = body

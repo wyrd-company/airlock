@@ -117,17 +117,11 @@ fn ci_workflow(context: &AuditContext) -> Verdict {
              workflow could not be established",
         );
     }
-    let mut found = None;
-    for workflow in &context.workflows {
-        match workflow.has_trigger("pull_request") {
-            Ok(true) => {
-                found = Some(workflow);
-                break;
-            }
-            Ok(false) => {}
-            Err(verdict) => return *verdict,
-        }
-    }
+    let workflows: Vec<_> = context.workflows.iter().collect();
+    let found = try_verdict!(super::first_workflow_with_trigger(
+        &workflows,
+        "pull_request"
+    ));
 
     match found {
         Some(workflow) => Verdict::pass_at(
@@ -156,11 +150,12 @@ fn renovate(rule: &RuleInstance, context: &AuditContext) -> Verdict {
             ".github/renovate.json is not valid JSON, so its presets could not be read",
         );
     };
-    let extends =
-        match super::json_strings(&document, "extends", "`extends` in .github/renovate.json") {
-            Ok(extends) => extends.unwrap_or_default(),
-            Err(verdict) => return *verdict,
-        };
+    let extends = try_verdict!(super::json_strings(
+        &document,
+        "extends",
+        "`extends` in .github/renovate.json",
+    ))
+    .unwrap_or_default();
 
     if extends.is_empty() {
         return Verdict::fail_at(
@@ -267,29 +262,34 @@ fn claude_symlink(context: &AuditContext) -> Verdict {
             "CLAUDE.md is absent",
             Remediation::new("add_symlink", "Add CLAUDE.md as a symlink to AGENTS.md."),
         ),
-        other => presence_fallback("CLAUDE.md", other),
+        other => presence_fallback(context, "CLAUDE.md", other),
     }
 }
 
-fn presence_fallback(path: &str, state: &FileState) -> Verdict {
+fn presence_fallback(context: &AuditContext, path: &str, state: &FileState) -> Verdict {
+    let mut verdict = presence(context, path, path);
+    // Preserve the established evidence text while delegating the state
+    // classification and remediation to the shared presence check.
     match state {
-        FileState::TreeTruncated => Verdict::inconclusive(
-            "tree_truncated",
-            format!("GitHub truncated the tree, so whether {path} exists was never established"),
-        ),
-        FileState::OverBudget { size, limit } => Verdict::inconclusive(
-            "file_over_budget",
-            format!("{path} is {size} bytes, over the {limit} byte limit, so it was not read"),
-        ),
-        FileState::Unreadable(error) => Verdict::from_api_error(error),
-        FileState::NotAFile { kind, mode } => Verdict::fail_at(
-            "path_is_not_a_file",
-            path,
-            format!("{path} is a {kind:?} (mode {mode})"),
-            Remediation::new("replace_entry", format!("Make {path} a regular file.")),
-        ),
-        _ => Verdict::inconclusive("indeterminate_path", format!("{path} could not be read")),
+        FileState::TreeTruncated => {
+            verdict
+                .evidence
+                .as_mut()
+                .expect("presence has evidence")
+                .detail = format!(
+                "GitHub truncated the tree, so whether {path} exists was never established"
+            );
+        }
+        FileState::NotAFile { kind, mode } => {
+            verdict
+                .evidence
+                .as_mut()
+                .expect("presence has evidence")
+                .detail = format!("{path} is a {kind:?} (mode {mode})");
+        }
+        _ => {}
     }
+    verdict
 }
 
 fn no_harness_config(rule: &RuleInstance, context: &AuditContext) -> Verdict {
@@ -380,10 +380,7 @@ fn reconcile_workflow(context: &AuditContext) -> Verdict {
         );
     };
     let branch = &context.snapshot.repository.default_branch;
-    let pushes_to_branch = match workflow.pushes_to(branch) {
-        Ok(pushes) => pushes,
-        Err(verdict) => return *verdict,
-    };
+    let pushes_to_branch = try_verdict!(workflow.pushes_to(branch));
     if pushes_to_branch {
         Verdict::pass_at(
             "reconcile_triggers_on_default_branch",
@@ -487,6 +484,23 @@ mod tests {
                 &[(".github/workflows/ci.yml", "on:\n  push:\njobs: {}\n")]
             ),
             Status::Fail
+        );
+    }
+
+    #[test]
+    fn a_matching_workflow_short_circuits_before_a_later_malformed_workflow() {
+        assert_eq!(
+            verdict(
+                "REPO-FILE-07",
+                &[
+                    (
+                        ".github/workflows/a-ci.yml",
+                        "on:\n  pull_request:\njobs: {}\n",
+                    ),
+                    (".github/workflows/z-malformed.yml", "on: [pull_request,"),
+                ],
+            ),
+            Status::Pass
         );
     }
 

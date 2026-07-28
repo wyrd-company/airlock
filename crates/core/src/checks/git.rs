@@ -121,14 +121,12 @@ fn branch_rule_shape(context: &AuditContext) -> Verdict {
         return report_branch_gaps(branch, gaps);
     };
 
-    let methods = match super::json_strings(
+    let methods = try_verdict!(super::json_strings(
         &pull_request.parameters,
         "allowed_merge_methods",
         "the allowed merge methods on the pull request rule",
-    ) {
-        Ok(methods) => methods.unwrap_or_default(),
-        Err(verdict) => return *verdict,
-    };
+    ))
+    .unwrap_or_default();
 
     let mut sorted = methods.clone();
     sorted.sort();
@@ -187,9 +185,10 @@ fn boolean_setting(
 }
 
 fn merge_commits_disabled(context: &AuditContext) -> Verdict {
+    let setting = super::merge_setting("merge_commit");
     boolean_setting(
-        context.snapshot.repository.allow_merge_commit,
-        false,
+        setting.live(&context.snapshot.repository),
+        setting.expected,
         "merge_commits_disabled",
         "merge_commits_enabled",
         "merge commits allowed",
@@ -198,9 +197,10 @@ fn merge_commits_disabled(context: &AuditContext) -> Verdict {
 }
 
 fn squash_enabled(context: &AuditContext) -> Verdict {
+    let setting = super::merge_setting("squash");
     boolean_setting(
-        context.snapshot.repository.allow_squash_merge,
-        true,
+        setting.live(&context.snapshot.repository),
+        setting.expected,
         "squash_enabled",
         "squash_disabled",
         "squash merge allowed",
@@ -209,9 +209,10 @@ fn squash_enabled(context: &AuditContext) -> Verdict {
 }
 
 fn auto_delete_enabled(context: &AuditContext) -> Verdict {
+    let setting = super::merge_setting("delete_branch_on_merge");
     boolean_setting(
-        context.snapshot.repository.delete_branch_on_merge,
-        true,
+        setting.live(&context.snapshot.repository),
+        setting.expected,
         "auto_delete_enabled",
         "auto_delete_disabled",
         "auto-delete head branch on merge",
@@ -472,32 +473,22 @@ mod tests {
 
     #[test]
     fn the_default_branch_must_be_main() {
-        let mut snapshot = snapshot(&[]);
-        let policy = policy();
+        let mut fixture = CheckFixture::new(&[]);
         assert_eq!(
-            evaluate(
-                &rule("REPO-GIT-01"),
-                &context(&snapshot, &policy, Vec::new())
-            )
-            .status,
+            evaluate(&rule("REPO-GIT-01"), &fixture.context()).status,
             Status::Pass
         );
-        snapshot.repository.default_branch = "master".to_owned();
+        fixture.snapshot.repository.default_branch = "master".to_owned();
         assert_eq!(
-            evaluate(
-                &rule("REPO-GIT-01"),
-                &context(&snapshot, &policy, Vec::new())
-            )
-            .status,
+            evaluate(&rule("REPO-GIT-01"), &fixture.context()).status,
             Status::Fail
         );
     }
 
     #[test]
     fn an_organisation_ruleset_is_required() {
-        let snapshot = snapshot(&[]);
-        let policy = policy();
-        let mut context = context(&snapshot, &policy, Vec::new());
+        let fixture = CheckFixture::new(&[]);
+        let mut context = fixture.context();
         assert_eq!(
             evaluate(&rule("REPO-GIT-02"), &context).status,
             Status::Fail
@@ -519,9 +510,8 @@ mod tests {
 
     #[test]
     fn a_repository_level_ruleset_does_not_satisfy_the_organisation_rule() {
-        let snapshot = snapshot(&[]);
-        let policy = policy();
-        let mut context = context(&snapshot, &policy, Vec::new());
+        let fixture = CheckFixture::new(&[]);
+        let mut context = fixture.context();
         context.rulesets = Ok(Paged::complete(vec![Ruleset {
             id: 1,
             name: "local".to_owned(),
@@ -538,9 +528,8 @@ mod tests {
 
     #[test]
     fn a_permission_error_makes_a_ruleset_rule_an_error_finding() {
-        let snapshot = snapshot(&[]);
-        let policy = policy();
-        let mut context = context(&snapshot, &policy, Vec::new());
+        let fixture = CheckFixture::new(&[]);
+        let mut context = fixture.context();
         context.rulesets = Err(ApiError {
             cause: ErrorCause::Permission,
             endpoint: "GET /repos/owner/name/rulesets".to_owned(),
@@ -562,9 +551,8 @@ mod tests {
 
     #[test]
     fn a_plan_limitation_error_names_the_plan_gate() {
-        let snapshot = snapshot(&[]);
-        let policy = policy();
-        let mut context = context(&snapshot, &policy, Vec::new());
+        let fixture = CheckFixture::new(&[]);
+        let mut context = fixture.context();
         context.rulesets = Err(ApiError {
             cause: ErrorCause::PlanLimitation,
             endpoint: "GET /repos/owner/name/rulesets".to_owned(),
@@ -581,9 +569,8 @@ mod tests {
 
     #[test]
     fn branch_rules_must_require_pull_requests_squash_rebase_and_linear_history() {
-        let snapshot = snapshot(&[]);
-        let policy = policy();
-        let mut context = context(&snapshot, &policy, Vec::new());
+        let fixture = CheckFixture::new(&[]);
+        let mut context = fixture.context();
 
         context.branch_rules = Ok(Paged::complete(vec![
             BranchRule {
@@ -621,20 +608,15 @@ mod tests {
 
     #[test]
     fn live_merge_settings_are_checked_individually() {
-        let mut snapshot = snapshot(&[]);
-        let policy = policy();
+        let mut fixture = CheckFixture::new(&[]);
         assert_eq!(
-            evaluate(
-                &rule("REPO-GIT-04"),
-                &context(&snapshot, &policy, Vec::new())
-            )
-            .status,
+            evaluate(&rule("REPO-GIT-04"), &fixture.context()).status,
             Status::Pass
         );
-        snapshot.repository.allow_merge_commit = true;
-        snapshot.repository.allow_squash_merge = false;
-        snapshot.repository.delete_branch_on_merge = false;
-        let context = context(&snapshot, &policy, Vec::new());
+        fixture.snapshot.repository.allow_merge_commit = true;
+        fixture.snapshot.repository.allow_squash_merge = false;
+        fixture.snapshot.repository.delete_branch_on_merge = false;
+        let context = fixture.context();
         for id in ["REPO-GIT-04", "REPO-GIT-05", "REPO-GIT-06"] {
             assert_eq!(evaluate(&rule(id), &context).status, Status::Fail, "{id}");
         }
@@ -642,10 +624,9 @@ mod tests {
 
     #[test]
     fn an_enabled_optional_feature_is_reported_rather_than_failed() {
-        let mut snapshot = snapshot(&[]);
-        snapshot.repository.has_wiki = true;
-        let policy = policy();
-        let context = context(&snapshot, &policy, Vec::new());
+        let mut fixture = CheckFixture::new(&[]);
+        fixture.snapshot.repository.has_wiki = true;
+        let context = fixture.context();
         assert_eq!(
             evaluate(&rule("REPO-GIT-07"), &context).status,
             Status::Manual
@@ -654,9 +635,8 @@ mod tests {
 
     #[test]
     fn v_prefixed_tags_fail() {
-        let snapshot = snapshot(&[]);
-        let policy = policy();
-        let mut context = context(&snapshot, &policy, Vec::new());
+        let fixture = CheckFixture::new(&[]);
+        let mut context = fixture.context();
         context.tags = Ok(Paged::complete(vec![
             TagRef {
                 name: "1.0.0".to_owned(),
@@ -691,12 +671,11 @@ mod tests {
 
     #[test]
     fn a_single_unit_repository_needs_no_scoped_tags() {
-        let snapshot = snapshot(&[(
+        let fixture = CheckFixture::new(&[(
             ".intentional/config.yml",
             "release-units:\n  only:\n    path: .\n",
         )]);
-        let policy = policy();
-        let mut context = context(&snapshot, &policy, Vec::new());
+        let mut context = fixture.context();
         context.tags = Ok(Paged::complete(vec![TagRef {
             name: "1.0.0".to_owned(),
             sha: "a".to_owned(),
@@ -709,12 +688,11 @@ mod tests {
 
     #[test]
     fn a_multi_unit_repository_needs_scoped_tags() {
-        let snapshot = snapshot(&[(
+        let fixture = CheckFixture::new(&[(
             ".intentional/config.yml",
             "release-units:\n  one:\n    path: a\n  two:\n    path: b\n",
         )]);
-        let policy = policy();
-        let mut context = context(&snapshot, &policy, Vec::new());
+        let mut context = fixture.context();
         context.tags = Ok(Paged::complete(vec![TagRef {
             name: "1.0.0".to_owned(),
             sha: "a".to_owned(),
@@ -736,9 +714,8 @@ mod tests {
 
     #[test]
     fn a_merge_commit_in_history_fails() {
-        let snapshot = snapshot(&[]);
-        let policy = policy();
-        let mut context = context(&snapshot, &policy, Vec::new());
+        let fixture = CheckFixture::new(&[]);
+        let mut context = fixture.context();
         context.history = Ok(Paged::complete(vec![
             CommitSummary {
                 sha: "a".to_owned(),
@@ -757,9 +734,8 @@ mod tests {
 
     #[test]
     fn a_truncated_history_scan_is_inconclusive_never_a_pass() {
-        let snapshot = snapshot(&[]);
-        let policy = policy();
-        let mut context = context(&snapshot, &policy, Vec::new());
+        let fixture = CheckFixture::new(&[]);
+        let mut context = fixture.context();
         context.history = Ok(Paged {
             items: vec![CommitSummary {
                 sha: "a".to_owned(),
@@ -774,9 +750,8 @@ mod tests {
 
     #[test]
     fn a_complete_clean_history_passes() {
-        let snapshot = snapshot(&[]);
-        let policy = policy();
-        let mut context = context(&snapshot, &policy, Vec::new());
+        let fixture = CheckFixture::new(&[]);
+        let mut context = fixture.context();
         context.history = Ok(Paged::complete(vec![CommitSummary {
             sha: "a".to_owned(),
             parents: 1,
@@ -789,13 +764,11 @@ mod tests {
 
     #[test]
     fn an_app_id_stored_as_a_secret_fails() {
-        let snapshot = snapshot(&[(
+        let fixture = CheckFixture::new(&[(
             ".github/workflows/x.yml",
             "jobs:\n  a:\n    steps:\n      - with:\n          app-id: ${{ secrets.THING_APP_ID }}\n",
         )]);
-        let workflows = workflows(&snapshot);
-        let policy = policy();
-        let context = context(&snapshot, &policy, workflows);
+        let context = fixture.context();
         assert_eq!(
             evaluate(&rule("REPO-GIT-13"), &context).status,
             Status::Fail
@@ -804,7 +777,7 @@ mod tests {
 
     #[test]
     fn the_documented_app_identity_split_passes() {
-        let snapshot = snapshot(&[(
+        let fixture = CheckFixture::new(&[(
             ".github/workflows/x.yml",
             concat!(
                 "jobs:\n  a:\n    steps:\n      - with:\n",
@@ -812,9 +785,7 @@ mod tests {
                 "          private-key: ${{ secrets.THING_APP_PRIVATE_KEY }}\n"
             ),
         )]);
-        let workflows = workflows(&snapshot);
-        let policy = policy();
-        let context = context(&snapshot, &policy, workflows);
+        let context = fixture.context();
         assert_eq!(
             evaluate(&rule("REPO-GIT-13"), &context).status,
             Status::Pass
@@ -823,9 +794,8 @@ mod tests {
 
     #[test]
     fn a_truncated_tag_listing_cannot_prove_no_tag_carries_a_prefix() {
-        let snapshot = snapshot(&[]);
-        let policy = policy();
-        let mut context = context(&snapshot, &policy, Vec::new());
+        let fixture = CheckFixture::new(&[]);
+        let mut context = fixture.context();
         context.tags = Ok(Paged {
             items: vec![TagRef {
                 name: "1.0.0".to_owned(),
@@ -841,9 +811,8 @@ mod tests {
     #[test]
     fn a_truncated_tag_listing_still_fails_on_a_prefix_it_did_see() {
         // Truncation cannot prove absence, but it does not un-see a violation.
-        let snapshot = snapshot(&[]);
-        let policy = policy();
-        let mut context = context(&snapshot, &policy, Vec::new());
+        let fixture = CheckFixture::new(&[]);
+        let mut context = fixture.context();
         context.tags = Ok(Paged {
             items: vec![TagRef {
                 name: "v1.0.0".to_owned(),
@@ -859,12 +828,11 @@ mod tests {
 
     #[test]
     fn a_truncated_tag_listing_cannot_prove_every_tag_is_scoped() {
-        let snapshot = snapshot(&[(
+        let fixture = CheckFixture::new(&[(
             ".intentional/config.yml",
             "release-units:\n  one:\n    path: a\n  two:\n    path: b\n",
         )]);
-        let policy = policy();
-        let mut context = context(&snapshot, &policy, Vec::new());
+        let mut context = fixture.context();
         context.tags = Ok(Paged {
             items: vec![TagRef {
                 name: "one@1.0.0".to_owned(),
@@ -880,9 +848,8 @@ mod tests {
 
     #[test]
     fn a_truncated_ruleset_listing_cannot_prove_no_org_ruleset_covers_the_branch() {
-        let snapshot = snapshot(&[]);
-        let policy = policy();
-        let mut context = context(&snapshot, &policy, Vec::new());
+        let fixture = CheckFixture::new(&[]);
+        let mut context = fixture.context();
         context.rulesets = Ok(Paged {
             items: vec![Ruleset {
                 id: 1,
@@ -901,9 +868,8 @@ mod tests {
 
     #[test]
     fn a_truncated_ruleset_listing_that_already_found_one_still_passes() {
-        let snapshot = snapshot(&[]);
-        let policy = policy();
-        let mut context = context(&snapshot, &policy, Vec::new());
+        let fixture = CheckFixture::new(&[]);
+        let mut context = fixture.context();
         context.rulesets = Ok(Paged {
             items: vec![Ruleset {
                 id: 1,
@@ -923,9 +889,8 @@ mod tests {
 
     #[test]
     fn a_truncated_branch_rule_listing_cannot_prove_a_rule_is_missing() {
-        let snapshot = snapshot(&[]);
-        let policy = policy();
-        let mut context = context(&snapshot, &policy, Vec::new());
+        let fixture = CheckFixture::new(&[]);
+        let mut context = fixture.context();
         context.branch_rules = Ok(Paged {
             items: vec![BranchRule {
                 rule_type: "pull_request".to_owned(),
@@ -944,9 +909,8 @@ mod tests {
 
     #[test]
     fn a_truncated_branch_rule_listing_that_saw_everything_still_passes() {
-        let snapshot = snapshot(&[]);
-        let policy = policy();
-        let mut context = context(&snapshot, &policy, Vec::new());
+        let fixture = CheckFixture::new(&[]);
+        let mut context = fixture.context();
         context.branch_rules = Ok(Paged {
             items: vec![
                 BranchRule {
@@ -970,9 +934,8 @@ mod tests {
 
     #[test]
     fn a_budget_failure_after_verification_is_an_error_finding_not_a_pass() {
-        let snapshot = snapshot(&[]);
-        let policy = policy();
-        let mut context = context(&snapshot, &policy, Vec::new());
+        let fixture = CheckFixture::new(&[]);
+        let mut context = fixture.context();
         context.rulesets = Err(ApiError::local(
             ErrorCause::Budget,
             "GET /repos/owner/name/rulesets",
@@ -985,9 +948,8 @@ mod tests {
 
     #[test]
     fn a_malformed_merge_method_list_is_not_read_as_an_empty_one() {
-        let snapshot = snapshot(&[]);
-        let policy = policy();
-        let mut context = context(&snapshot, &policy, Vec::new());
+        let fixture = CheckFixture::new(&[]);
+        let mut context = fixture.context();
         context.branch_rules = Ok(Paged::complete(vec![
             BranchRule {
                 rule_type: "pull_request".to_owned(),

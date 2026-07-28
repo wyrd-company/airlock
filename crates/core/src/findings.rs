@@ -236,11 +236,28 @@ pub struct FindingError {
 }
 
 /// Why a finding does not count.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SuppressionSource {
+    Policy,
+    RepositoryRequest,
+}
+
+impl SuppressionSource {
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::Policy => "policy",
+            Self::RepositoryRequest => "repository_request",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Suppression {
     /// `policy` when the policy suppressed it directly, `repository_request`
     /// when the audited repository asked and the policy allowed it.
-    pub source: String,
+    pub source: SuppressionSource,
     /// The reason the audited repository gave, when it asked.
     pub requested_reason: Option<String>,
     /// The reason the policy gave, when it suppressed directly.
@@ -275,10 +292,27 @@ pub struct Finding {
 ///
 /// A suppression request the policy did not authorise lands here: the finding
 /// it targeted keeps its real status, and the attempt is on the record.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PolicyObservationCode {
+    InvalidSuppressionRequest,
+    UnauthorizedSuppressionRequest,
+}
+
+impl PolicyObservationCode {
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::InvalidSuppressionRequest => "invalid_suppression_request",
+            Self::UnauthorizedSuppressionRequest => "unauthorized_suppression_request",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct PolicyObservation {
     /// A stable code naming the observation.
-    pub code: String,
+    pub code: PolicyObservationCode,
     /// The rule it concerns, when it concerns one.
     pub rule: Option<String>,
     /// Human-readable detail.

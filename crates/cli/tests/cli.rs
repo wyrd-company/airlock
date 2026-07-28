@@ -38,6 +38,20 @@ fn airlock(server: &MockServer, config: &TempDir) -> Command {
     command
 }
 
+fn offline() -> Command {
+    let mut command = Command::cargo_bin("airlock").expect("the airlock binary builds");
+    command
+        .env("AIRLOCK_GITHUB_API_URL", "http://127.0.0.1:9/offline-test")
+        .env(
+            "AIRLOCK_GITHUB_LOGIN_URL",
+            "http://127.0.0.1:9/offline-test",
+        )
+        .env_remove("AIRLOCK_TOKEN")
+        .env_remove("GH_TOKEN")
+        .env_remove("GITHUB_TOKEN");
+    command
+}
+
 fn policy_path(directory: &TempDir, body: &str) -> String {
     let path = directory.path().join("policy.yml");
     std::fs::write(&path, body).expect("the policy is written");
@@ -57,14 +71,31 @@ fn finding<'a>(report: &'a Value, rule: &str) -> &'a Value {
         .unwrap_or_else(|| panic!("{rule} has no finding"))
 }
 
+async fn audit_json(repo: FakeRepo, policy: &str, exit_code: i32) -> Value {
+    let server = support::start(&[repo]).await;
+    let config = TempDir::new().unwrap();
+    let policies = TempDir::new().unwrap();
+    let assertion = airlock(&server, &config)
+        .args([
+            "audit",
+            "wyrd-company/example",
+            "--policy",
+            &policy_path(&policies, policy),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .code(exit_code);
+    json_output(&assertion.get_output().stdout)
+}
+
 // ---------------------------------------------------------------------------
 // Surface
 // ---------------------------------------------------------------------------
 
 #[test]
 fn bare_invocation_exits_two_and_says_why() {
-    Command::cargo_bin("airlock")
-        .unwrap()
+    offline()
         .assert()
         .code(2)
         .stderr(contains("TUI not yet available; use a subcommand."));
@@ -72,8 +103,7 @@ fn bare_invocation_exits_two_and_says_why() {
 
 #[test]
 fn help_lists_the_command_surface() {
-    Command::cargo_bin("airlock")
-        .unwrap()
+    offline()
         .arg("--help")
         .assert()
         .success()
@@ -83,13 +113,16 @@ fn help_lists_the_command_surface() {
 
 #[test]
 fn list_checks_reports_the_whole_registry_without_a_target() {
-    let assertion = Command::cargo_bin("airlock")
-        .unwrap()
+    let assertion = offline()
         .args(["audit", "--list-checks", "--format", "json"])
         .assert()
         .success();
     let listing = json_output(&assertion.get_output().stdout);
-    assert_eq!(listing["checks"].as_array().unwrap().len(), 109);
+    let checks = listing["checks"].as_array().unwrap();
+    assert!(checks.len() >= 109);
+    for id in ["REPO-FILE-01", "REPO-CI-09", "REPO-PROP-04"] {
+        assert!(checks.iter().any(|check| check["id"] == id), "{id}");
+    }
     assert!(listing["registry_digest"]
         .as_str()
         .unwrap()
@@ -98,8 +131,7 @@ fn list_checks_reports_the_whole_registry_without_a_target() {
 
 #[test]
 fn list_checks_marks_manual_and_unimplemented_rules() {
-    let assertion = Command::cargo_bin("airlock")
-        .unwrap()
+    let assertion = offline()
         .args(["audit", "--list-checks", "--format", "json"])
         .assert()
         .success();
@@ -126,23 +158,7 @@ async fn a_conformant_repository_exits_zero() {
             "Cargo.toml",
             "[package]\nname = \"example\"\nlicense = \"Apache-2.0\"\n",
         );
-    let server = support::start(&[repo]).await;
-    let config = TempDir::new().unwrap();
-    let policies = TempDir::new().unwrap();
-
-    let assertion = airlock(&server, &config)
-        .args([
-            "audit",
-            "wyrd-company/example",
-            "--policy",
-            &policy_path(&policies, LICENSING_POLICY),
-            "--format",
-            "json",
-        ])
-        .assert()
-        .code(0);
-
-    let report = json_output(&assertion.get_output().stdout);
+    let report = audit_json(repo, LICENSING_POLICY, 0).await;
     assert_eq!(report["outcome"], "conformant");
     assert_eq!(report["complete"], true);
     assert_eq!(report["conformant"], true);
@@ -157,23 +173,7 @@ async fn a_blocking_failure_exits_one() {
         "Cargo.toml",
         "[package]\nname = \"example\"\nlicense = \"Apache-2.0\"\n",
     );
-    let server = support::start(&[repo]).await;
-    let config = TempDir::new().unwrap();
-    let policies = TempDir::new().unwrap();
-
-    let assertion = airlock(&server, &config)
-        .args([
-            "audit",
-            "wyrd-company/example",
-            "--policy",
-            &policy_path(&policies, LICENSING_POLICY),
-            "--format",
-            "json",
-        ])
-        .assert()
-        .code(1);
-
-    let report = json_output(&assertion.get_output().stdout);
+    let report = audit_json(repo, LICENSING_POLICY, 1).await;
     assert_eq!(report["outcome"], "nonconformant");
     assert_eq!(report["complete"], true);
     let lic01 = finding(&report, "REPO-LIC-01");
@@ -185,9 +185,6 @@ async fn a_blocking_failure_exits_one() {
 #[tokio::test(flavor = "multi_thread")]
 async fn an_enabled_unimplemented_rule_makes_the_audit_incomplete() {
     let repo = FakeRepo::new("wyrd-company", "example").with_file("README.md", "# example");
-    let server = support::start(&[repo]).await;
-    let config = TempDir::new().unwrap();
-    let policies = TempDir::new().unwrap();
 
     // REPO-DOCS-05 is registered but not built. Raising it to blocking is
     // exactly the case that must not be able to exit 0.
@@ -202,19 +199,7 @@ checks:
     severity: blocking
 ";
 
-    let assertion = airlock(&server, &config)
-        .args([
-            "audit",
-            "wyrd-company/example",
-            "--policy",
-            &policy_path(&policies, policy),
-            "--format",
-            "json",
-        ])
-        .assert()
-        .code(2);
-
-    let report = json_output(&assertion.get_output().stdout);
+    let report = audit_json(repo, policy, 2).await;
     assert_eq!(report["outcome"], "incomplete");
     assert_eq!(report["complete"], false);
     assert_eq!(finding(&report, "REPO-DOCS-05")["status"], "unimplemented");
@@ -230,9 +215,6 @@ async fn a_plan_limitation_makes_the_audit_incomplete_rather_than_passing() {
             "documentation_url": "https://docs.github.com/rest/repos/rules"
         }),
     ));
-    let server = support::start(&[repo]).await;
-    let config = TempDir::new().unwrap();
-    let policies = TempDir::new().unwrap();
 
     let policy = "\
 version: 1
@@ -242,19 +224,7 @@ capabilities:
   base: [git]
 ";
 
-    let assertion = airlock(&server, &config)
-        .args([
-            "audit",
-            "wyrd-company/example",
-            "--policy",
-            &policy_path(&policies, policy),
-            "--format",
-            "json",
-        ])
-        .assert()
-        .code(2);
-
-    let report = json_output(&assertion.get_output().stdout);
+    let report = audit_json(repo, policy, 2).await;
     assert_eq!(report["outcome"], "incomplete");
     let git02 = finding(&report, "REPO-GIT-02");
     assert_eq!(git02["status"], "error");
@@ -279,25 +249,8 @@ suppress:
 async fn an_authorised_suppression_request_is_honoured() {
     let repo = FakeRepo::new("wyrd-company", "example")
         .with_file(".github/airlock.yml", SUPPRESSION_REQUEST);
-    let server = support::start(&[repo]).await;
-    let config = TempDir::new().unwrap();
-    let policies = TempDir::new().unwrap();
-
     let policy = format!("{LICENSING_POLICY}suppressions:\n  allow-repo-requests: [REPO-LIC-01]\n");
-
-    let assertion = airlock(&server, &config)
-        .args([
-            "audit",
-            "wyrd-company/example",
-            "--policy",
-            &policy_path(&policies, &policy),
-            "--format",
-            "json",
-        ])
-        .assert()
-        .code(0);
-
-    let report = json_output(&assertion.get_output().stdout);
+    let report = audit_json(repo, &policy, 0).await;
     let lic01 = finding(&report, "REPO-LIC-01");
     assert_eq!(lic01["status"], "suppressed");
     assert_eq!(lic01["suppression"]["source"], "repository_request");
@@ -315,23 +268,7 @@ async fn an_authorised_suppression_request_is_honoured() {
 async fn an_unauthorised_suppression_request_changes_nothing() {
     let repo = FakeRepo::new("wyrd-company", "example")
         .with_file(".github/airlock.yml", SUPPRESSION_REQUEST);
-    let server = support::start(&[repo]).await;
-    let config = TempDir::new().unwrap();
-    let policies = TempDir::new().unwrap();
-
-    let assertion = airlock(&server, &config)
-        .args([
-            "audit",
-            "wyrd-company/example",
-            "--policy",
-            &policy_path(&policies, LICENSING_POLICY),
-            "--format",
-            "json",
-        ])
-        .assert()
-        .code(1);
-
-    let report = json_output(&assertion.get_output().stdout);
+    let report = audit_json(repo, LICENSING_POLICY, 1).await;
     assert_eq!(finding(&report, "REPO-LIC-01")["status"], "fail");
     let observations = report["policy_observations"].as_array().unwrap();
     assert_eq!(observations.len(), 1);
@@ -342,28 +279,12 @@ async fn an_unauthorised_suppression_request_changes_nothing() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_policy_suppression_is_recorded_with_its_authority() {
     let repo = FakeRepo::new("wyrd-company", "example");
-    let server = support::start(&[repo]).await;
-    let config = TempDir::new().unwrap();
-    let policies = TempDir::new().unwrap();
-
     let policy = format!(
         "{LICENSING_POLICY}suppressions:\n  direct:\n    - rule: REPO-LIC-01\n      repository: \
          wyrd-company/example\n      reason: \"the licence lands with the first release\"\n"
     );
 
-    let assertion = airlock(&server, &config)
-        .args([
-            "audit",
-            "wyrd-company/example",
-            "--policy",
-            &policy_path(&policies, &policy),
-            "--format",
-            "json",
-        ])
-        .assert()
-        .code(0);
-
-    let report = json_output(&assertion.get_output().stdout);
+    let report = audit_json(repo, &policy, 0).await;
     let lic01 = finding(&report, "REPO-LIC-01");
     assert_eq!(lic01["status"], "suppressed");
     assert_eq!(lic01["suppression"]["source"], "policy");
@@ -784,23 +705,7 @@ async fn a_truncated_tree_cannot_produce_a_clean_audit() {
             ".github/workflows/reconcile-settings.yml",
             "on:\n  push:\n    branches: [main]\npermissions: {}\njobs: {}\n",
         );
-    let server = support::start(&[repo]).await;
-    let config = TempDir::new().unwrap();
-    let policies = TempDir::new().unwrap();
-
-    let assertion = airlock(&server, &config)
-        .args([
-            "audit",
-            "wyrd-company/example",
-            "--policy",
-            &policy_path(&policies, FILES_POLICY),
-            "--format",
-            "json",
-        ])
-        .assert()
-        .code(2);
-
-    let report = json_output(&assertion.get_output().stdout);
+    let report = audit_json(repo, FILES_POLICY, 2).await;
     assert_eq!(report["outcome"], "incomplete");
     assert_eq!(report["complete"], false);
     // The two negative assertions are exactly the ones a partial tree cannot

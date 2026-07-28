@@ -167,10 +167,7 @@ fn release_is_dispatched(context: &AuditContext) -> Verdict {
         );
     };
 
-    let all_triggers = match workflow.triggers() {
-        Ok(triggers) => triggers,
-        Err(verdict) => return *verdict,
-    };
+    let all_triggers = try_verdict!(workflow.triggers());
 
     let mut gaps = Vec::new();
     if !all_triggers
@@ -187,13 +184,11 @@ fn release_is_dispatched(context: &AuditContext) -> Verdict {
         gaps.push(format!("it also triggers on {}", triggers.join(", ")));
     }
 
-    let inputs = workflow
+    let pins_a_sha = workflow
         .trigger("workflow_dispatch")
         .and_then(|dispatch| dispatch.get("inputs"))
-        .map(Yaml::keys)
-        .unwrap_or_default();
-    let pins_a_sha = inputs
-        .iter()
+        .into_iter()
+        .flat_map(Yaml::keys)
         .any(|input| input.contains("sha") || input.contains("commit"));
     if !pins_a_sha {
         gaps.push("its dispatch inputs name no source sha".to_owned());
@@ -230,20 +225,15 @@ fn no_publish_on_merge(context: &AuditContext) -> Verdict {
     let branch = &context.snapshot.repository.default_branch;
     let mut pushing = Vec::new();
     for workflow in &context.workflows {
-        match workflow.pushes_to(branch) {
-            Ok(true) => pushing.push(workflow),
-            Ok(false) => {}
-            Err(verdict) => return *verdict,
+        if try_verdict!(workflow.pushes_to(branch)) {
+            pushing.push(workflow);
         }
     }
 
     let offenders: Vec<String> = pushing
         .into_iter()
         .filter_map(|workflow| {
-            let found: Vec<&&str> = PUBLICATION_SIGNALS
-                .iter()
-                .filter(|signal| workflow.text.contains(**signal))
-                .collect();
+            let found = super::workflow_signals(&workflow.text, PUBLICATION_SIGNALS);
             if found.is_empty() {
                 None
             } else {

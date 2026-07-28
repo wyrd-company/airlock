@@ -16,8 +16,11 @@
       "installOhMyZsh": false
     },
     "ghcr.io/devcontainers/features/git": {},
+    "ghcr.io/devcontainers/features/go:1": {},
     "ghcr.io/devcontainers-extra/features/go-task:1": {}
   },
+
+  "postCreateCommand": "sudo apt-get update && sudo apt-get install --yes shellcheck && go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 && cargo install --locked ryl --version 0.21.0 && cargo install --locked rumdl --version 0.2.40",
 
   "customizations": {
     "vscode": {

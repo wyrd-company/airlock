@@ -412,7 +412,7 @@ async fn a_token_with_zero_installations_is_refused() {
     let refusal = verify("ghu_fixture_token", &client(&server))
         .await
         .unwrap_err();
-    assert_eq!(refusal.code, "no_installations");
+    assert_eq!(refusal.code.code(), "no_installations");
 }
 
 #[tokio::test]
@@ -432,7 +432,7 @@ async fn a_token_from_another_app_is_refused_as_unverifiable() {
     let refusal = verify("ghu_fixture_token", &client(&server))
         .await
         .unwrap_err();
-    assert_eq!(refusal.code, "foreign_issuer");
+    assert_eq!(refusal.code.code(), "foreign_issuer");
 }
 
 #[tokio::test]
@@ -460,7 +460,7 @@ async fn a_write_bearing_installation_on_the_second_page_is_still_caught() {
     let refusal = verify("ghu_fixture_token", &client(&server))
         .await
         .unwrap_err();
-    assert_eq!(refusal.code, "write_permission");
+    assert_eq!(refusal.code.code(), "write_permission");
     assert!(refusal.detail.contains("checks=write"));
 }
 
@@ -522,7 +522,7 @@ async fn a_classic_token_with_a_write_scope_is_refused() {
     let refusal = verify("ghp_fixture_token", &client(&server))
         .await
         .unwrap_err();
-    assert_eq!(refusal.code, "non_read_scope");
+    assert_eq!(refusal.code.code(), "non_read_scope");
     assert!(refusal.detail.contains("public_repo"));
 }
 
@@ -534,7 +534,7 @@ async fn a_classic_token_with_an_unknown_scope_is_refused() {
     let refusal = verify("gho_fixture_token", &client(&server))
         .await
         .unwrap_err();
-    assert_eq!(refusal.code, "non_read_scope");
+    assert_eq!(refusal.code.code(), "non_read_scope");
 }
 
 // The next two tests are a matched pair, and the pairing is the point: no
@@ -553,7 +553,7 @@ async fn a_missing_scope_header_is_unverifiable_not_an_empty_grant() {
     let refusal = verify("ghp_fixture_token", &client(&server))
         .await
         .unwrap_err();
-    assert_eq!(refusal.code, "missing_scope_header");
+    assert_eq!(refusal.code.code(), "missing_scope_header");
 }
 
 #[tokio::test]
@@ -604,7 +604,7 @@ async fn unverifiable_token_kinds_are_refused_without_any_request() {
         ("plain-old-string", "unverifiable_unknown_token"),
     ] {
         let refusal = verify(token, &client(&server)).await.unwrap_err();
-        assert_eq!(refusal.code, code, "{token}");
+        assert_eq!(refusal.code.code(), code, "{token}");
     }
 }
 
@@ -797,7 +797,7 @@ async fn an_exhausted_audit_budget_refuses_verification() {
         },
     );
     let refusal = verify("ghu_fixture_token", &client).await.unwrap_err();
-    assert_eq!(refusal.code, "budget_exhausted");
+    assert_eq!(refusal.code.code(), "budget_exhausted");
 }
 
 // ---------------------------------------------------------------------------
@@ -915,7 +915,7 @@ async fn a_token_from_an_app_wearing_the_trusted_slug_with_another_id_is_refused
     let refusal = verify("ghu_fixture_token", &client(&server))
         .await
         .unwrap_err();
-    assert_eq!(refusal.code, "foreign_issuer");
+    assert_eq!(refusal.code.code(), "foreign_issuer");
     assert!(refusal.detail.contains("999999"));
 }
 
@@ -941,7 +941,7 @@ async fn a_token_whose_installation_reports_app_id_zero_is_refused() {
     let refusal = verify("ghu_fixture_token", &client(&server))
         .await
         .unwrap_err();
-    assert_eq!(refusal.code, "malformed_issuer");
+    assert_eq!(refusal.code.code(), "malformed_issuer");
 }
 
 #[tokio::test]
@@ -966,7 +966,7 @@ async fn a_token_whose_installation_omits_the_app_id_is_refused() {
     let refusal = verify("ghu_fixture_token", &client(&server))
         .await
         .unwrap_err();
-    assert_eq!(refusal.code, "verification_failed");
+    assert_eq!(refusal.code.code(), "verification_failed");
     assert!(refusal.detail.contains("app_id"));
 }
 
@@ -995,7 +995,7 @@ async fn two_scope_headers_are_refused_with_the_safe_value_first() {
     let refusal = verify("ghp_fixture_token", &client(&server))
         .await
         .unwrap_err();
-    assert_eq!(refusal.code, "duplicate_scope_header");
+    assert_eq!(refusal.code.code(), "duplicate_scope_header");
     assert!(refusal.detail.contains("read:org"));
     assert!(refusal.detail.contains("repo"));
 }
@@ -1008,7 +1008,7 @@ async fn two_scope_headers_are_refused_with_the_unsafe_value_first() {
     let refusal = verify("ghp_fixture_token", &client(&server))
         .await
         .unwrap_err();
-    assert_eq!(refusal.code, "duplicate_scope_header");
+    assert_eq!(refusal.code.code(), "duplicate_scope_header");
 }
 
 #[tokio::test]

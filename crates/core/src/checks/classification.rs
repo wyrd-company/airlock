@@ -21,10 +21,7 @@ pub(crate) fn run(id: &str, _rule: &RuleInstance, context: &AuditContext) -> Opt
 }
 
 fn no_declared_custom_properties(context: &AuditContext) -> Verdict {
-    let settings = match repo_settings(context) {
-        Ok(settings) => settings,
-        Err(verdict) => return *verdict,
-    };
+    let settings = try_verdict!(repo_settings(context));
 
     let declared: Vec<&str> = ["properties", "custom-properties", "custom_properties"]
         .into_iter()
@@ -64,10 +61,7 @@ fn no_workflow_writes_properties(context: &AuditContext) -> Verdict {
         .workflows
         .iter()
         .filter_map(|workflow| {
-            let found: Vec<&&str> = PROPERTY_WRITE_SIGNALS
-                .iter()
-                .filter(|signal| workflow.text.contains(**signal))
-                .collect();
+            let found = super::workflow_signals(&workflow.text, PROPERTY_WRITE_SIGNALS);
             if found.is_empty() {
                 None
             } else {
