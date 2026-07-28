@@ -1,0 +1,22 @@
+# EXAMPLE of .github/airlock.yml, the file an audited repository uses to
+# ask for a suppression.
+#
+# These are requests, not decisions. A request is honoured only where the
+# organisation policy's `allow-repo-requests` names that rule; anything else
+# leaves the finding exactly as it was and records the attempt as an
+# unauthorized_suppression_request observation in the audit result.
+#
+# A request with no reason is invalid and is recorded as such.
+
+version: 1
+
+suppress:
+  - rule: REPO-DOCS-01
+    reason: >-
+      The docs directory holds design notes until the first release, so
+      nothing in it is user-facing yet.
+
+  - rule: REPO-FILE-10
+    reason: >-
+      The devcontainer for this repository lives in the umbrella workspace
+      that clones it, not in the repository itself.

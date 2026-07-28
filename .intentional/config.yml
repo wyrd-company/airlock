@@ -1,0 +1,21 @@
+$schema: https://intentional.foo/schemas/config.yml
+contract: contract-1
+settings:
+  internal-dependency-bump: patch
+  pre-1-0-bump-mapping: compatibility
+release-units:
+  airlock:
+    path: .
+    projections:
+      - adapter: toml
+        file: Cargo.toml
+        pointer: /workspace/package/version
+        mode: committed
+      - adapter: toml
+        file: crates/cli/Cargo.toml
+        pointer: /dependencies/airlock-core/version
+        mode: committed
+    tags:
+      primary:
+        role: primary
+        template: "{version}"
