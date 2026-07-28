@@ -295,6 +295,7 @@ fn tags_have_no_v_prefix(context: &AuditContext) -> Verdict {
 }
 
 fn multi_unit_tag_shape(context: &AuditContext) -> Verdict {
+    // Built-in applicability intercepts this; retain the guard as belt-and-braces defense.
     let Some(units) = context.release_units() else {
         return Verdict::inconclusive(
             "no_release_units_declared",

@@ -868,7 +868,14 @@ async fn a_truncated_tree_cannot_skip_a_conditional_capability() {
         report["summary"]["skipped"], 0,
         "no rule may be skipped on a condition airlock could not evaluate"
     );
-    for rule in ["REPO-REL-01", "REPO-REL-04", "REPO-REL-07"] {
+    for rule in [
+        "REPO-REL-01",
+        "REPO-REL-04",
+        "REPO-REL-07",
+        "REPO-GIT-09",
+        "REPO-TASK-04",
+        "REPO-LIC-04",
+    ] {
         let finding = finding(&report, rule);
         assert_eq!(finding["status"], "inconclusive", "{rule}");
         assert_eq!(finding["evidence"]["code"], "condition_undecided", "{rule}");
@@ -913,4 +920,16 @@ async fn a_complete_tree_still_skips_a_capability_whose_condition_is_absent() {
     let rel01 = finding(&report, "REPO-REL-01");
     assert_eq!(rel01["status"], "skipped");
     assert_eq!(rel01["evidence"]["code"], "condition_not_met");
+    for rule in ["REPO-GIT-09", "REPO-TASK-04", "REPO-LIC-04"] {
+        let finding = finding(&report, rule);
+        assert_eq!(finding["status"], "skipped", "{rule}");
+        assert_eq!(finding["evidence"]["code"], "condition_not_met", "{rule}");
+        assert!(
+            finding["evidence"]["detail"]
+                .as_str()
+                .unwrap()
+                .contains("release-units-declared"),
+            "{rule}"
+        );
+    }
 }

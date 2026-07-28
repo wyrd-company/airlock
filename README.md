@@ -86,7 +86,7 @@ It expresses no logic of its own: the checks are the only place logic lives.
 ```yaml
 version: 1
 name: wyrd-company
-requires-registry: ">=0.1"    # the binary's registry must satisfy this
+requires-registry: ">=0.2"    # the binary's registry must satisfy this
 gate: blocking                # which failing severities count: blocking | required
 
 capabilities:

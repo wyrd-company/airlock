@@ -167,7 +167,14 @@ mod tests {
     use crate::findings::Status;
 
     fn verdict(id: &str, files: &[(&str, &str)]) -> Status {
-        let snapshot = snapshot(files);
+        let mut files = files.to_vec();
+        if id == "REPO-LIC-04" {
+            files.push((
+                ".intentional/config.yml",
+                "release-units:\n  sample:\n    path: .\n",
+            ));
+        }
+        let snapshot = snapshot(&files);
         let policy = policy();
         let context = context(&snapshot, &policy, Vec::new());
         evaluate(&rule(id), &context).status
