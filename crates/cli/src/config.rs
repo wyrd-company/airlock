@@ -1,12 +1,12 @@
 //! Credential storage.
 //!
-//! The file airlock writes here holds a refresh token, so it is treated as a
-//! secret from the first syscall: created `0600` before anything is written to
-//! it, replaced by an atomic rename in the same directory, and refused
-//! outright if it is a symlink or readable by anyone but its owner. Rotation
-//! is serialised by a lock file, because two airlock processes racing to
-//! refresh would leave one of them holding a token GitHub has already
-//! invalidated.
+//! The file airlock writes here holds a user access token and, when GitHub
+//! issues expiring tokens, its refresh token. It is treated as a secret from
+//! the first syscall: created `0600` before anything is written to it, replaced
+//! by an atomic rename in the same directory, and refused outright if it is a
+//! symlink or readable by anyone but its owner. Rotation of expiring grants is
+//! serialised by a lock file, because two airlock processes racing to refresh
+//! would leave one of them holding a token GitHub has already invalidated.
 
 use std::collections::BTreeMap;
 use std::fs::OpenOptions;
@@ -36,7 +36,7 @@ pub struct Profile {
     /// When the access token expires, in seconds since the epoch.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub access_token_expires_at: Option<u64>,
-    /// The refresh token, which outlives the access token by months.
+    /// The refresh token, when GitHub issued an expiring access token.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub refresh_token: Option<String>,
     /// The account the credential was acquired for, for `auth status`.

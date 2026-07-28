@@ -116,8 +116,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    env:
-      AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -127,8 +125,15 @@ jobs:
           toolchain: stable
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - uses: go-task/setup-task@01a4adf9db2d14c1de7a560f09170b6e0df736aa # v2
-      - if: env.AIRLOCK_TOKEN != ''
-        run: task dogfood
+      - name: Run dogfood audit when provisioned
+        env:
+          AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}
+        run: |
+          if [[ -n "$AIRLOCK_TOKEN" ]]; then
+            task dogfood
+          else
+            echo "AIRLOCK_TOKEN is not provisioned; skipping the dogfood audit."
+          fi
 
 # Jobs are decomposed so a failure is legible on the pull request, and every job
 # invokes a task rather than a raw command so `task check` locally and CI cannot

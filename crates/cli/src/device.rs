@@ -463,6 +463,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_non_expiring_device_grant_omits_refresh_metadata() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/login/oauth/access_token"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({ "access_token": "ghu_non_expiring" })),
+            )
+            .mount(&server)
+            .await;
+
+        let outcome = impatient(&server).poll_once("device-code").await.unwrap();
+        let PollOutcome::Granted(grant) = outcome else {
+            panic!("expected a granted token");
+        };
+        assert_eq!(grant.access_token, "ghu_non_expiring");
+        assert_eq!(grant.expires_in, None);
+        assert_eq!(grant.refresh_token, None);
+        assert_eq!(grant.refresh_token_expires_in, None);
+    }
+
+    #[tokio::test]
     async fn a_stalled_refresh_is_abandoned_at_the_timeout() {
         let server = MockServer::start().await;
         mount_stalled(&server, "/login/oauth/access_token").await;
