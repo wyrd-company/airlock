@@ -187,9 +187,10 @@ fn boolean_setting(
 }
 
 fn merge_commits_disabled(context: &AuditContext) -> Verdict {
+    let setting = &super::MERGE_SETTINGS[2];
     boolean_setting(
-        context.snapshot.repository.allow_merge_commit,
-        false,
+        setting.live(&context.snapshot.repository),
+        setting.expected,
         "merge_commits_disabled",
         "merge_commits_enabled",
         "merge commits allowed",
@@ -198,9 +199,10 @@ fn merge_commits_disabled(context: &AuditContext) -> Verdict {
 }
 
 fn squash_enabled(context: &AuditContext) -> Verdict {
+    let setting = &super::MERGE_SETTINGS[0];
     boolean_setting(
-        context.snapshot.repository.allow_squash_merge,
-        true,
+        setting.live(&context.snapshot.repository),
+        setting.expected,
         "squash_enabled",
         "squash_disabled",
         "squash merge allowed",
@@ -209,9 +211,10 @@ fn squash_enabled(context: &AuditContext) -> Verdict {
 }
 
 fn auto_delete_enabled(context: &AuditContext) -> Verdict {
+    let setting = &super::MERGE_SETTINGS[3];
     boolean_setting(
-        context.snapshot.repository.delete_branch_on_merge,
-        true,
+        setting.live(&context.snapshot.repository),
+        setting.expected,
         "auto_delete_enabled",
         "auto_delete_disabled",
         "auto-delete head branch on merge",

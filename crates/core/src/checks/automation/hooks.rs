@@ -56,10 +56,7 @@ pub(super) fn hook_commands(
 }
 
 pub(super) fn pre_commit_hook(context: &AuditContext) -> Verdict {
-    let lefthook = match parse_lefthook(context) {
-        Ok(lefthook) => lefthook,
-        Err(verdict) => return *verdict,
-    };
+    let lefthook = try_verdict!(parse_lefthook(context));
     let commands = match hook_commands(&lefthook, "pre-commit") {
         Ok(commands) => commands,
         Err(verdict) => return *verdict,

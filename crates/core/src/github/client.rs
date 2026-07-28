@@ -14,7 +14,7 @@ use base64::Engine as _;
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 use serde_json::Value;
 
-use super::classify::{self, ErrorCause, Headers, Response};
+use super::classify::{self, all_headers, single_header, ErrorCause, Headers, Response};
 use super::{
     ApiError, ApiResult, AuthenticatedUser, BranchRule, CommitSummary, EntryKind, GitHub,
     Installation, OAuthScopeHeader, Paged, Repository, Ruleset, TagRef, Tree, TreeEntry,
@@ -49,7 +49,7 @@ const PATH_SEGMENT: &AsciiSet = &CONTROLS
 
 /// Percent-encode one path segment.
 #[must_use]
-pub fn encode_segment(segment: &str) -> String {
+pub(crate) fn encode_segment(segment: &str) -> String {
     utf8_percent_encode(segment, PATH_SEGMENT).to_string()
 }
 
@@ -133,16 +133,21 @@ struct RawResponse {
 }
 
 impl RawResponse {
-    /// The value of a header that appeared exactly once.
     fn single(&self, name: &str) -> Option<&str> {
-        match self.headers.get(name)?.as_slice() {
-            [only] => Some(only.as_str()),
-            _ => None,
-        }
+        single_header(&self.headers, name)
     }
 
     fn all(&self, name: &str) -> &[String] {
-        self.headers.get(name).map_or(&[], Vec::as_slice)
+        all_headers(&self.headers, name)
+    }
+
+    fn response(&self) -> Response {
+        Response {
+            status: self.status,
+            headers: self.headers.clone(),
+            message: None,
+            documentation_url: None,
+        }
     }
 }
 
@@ -363,20 +368,18 @@ fn transport_error(endpoint: &str, error: &reqwest::Error) -> ApiError {
 
 fn summarise(raw: &RawResponse) -> Response {
     let body: Option<Value> = serde_json::from_str(&raw.body).ok();
-    Response {
-        status: raw.status,
-        headers: raw.headers.clone(),
-        message: body
-            .as_ref()
-            .and_then(|body| body.get("message"))
-            .and_then(Value::as_str)
-            .map(ToOwned::to_owned),
-        documentation_url: body
-            .as_ref()
-            .and_then(|body| body.get("documentation_url"))
-            .and_then(Value::as_str)
-            .map(ToOwned::to_owned),
-    }
+    let mut response = raw.response();
+    response.message = body
+        .as_ref()
+        .and_then(|body| body.get("message"))
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned);
+    response.documentation_url = body
+        .as_ref()
+        .and_then(|body| body.get("documentation_url"))
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned);
+    response
 }
 
 fn parse_json(endpoint: &str, body: &str) -> ApiResult<Value> {

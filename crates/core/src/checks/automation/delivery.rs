@@ -158,10 +158,7 @@ pub(super) fn release_and_delivery_separate(context: &AuditContext) -> Verdict {
         return no_cd_workflow("the separation of release creation from delivery");
     };
 
-    let found: Vec<&&str> = RELEASE_CREATION_SIGNALS
-        .iter()
-        .filter(|signal| workflow.text.contains(**signal))
-        .collect();
+    let found = super::super::workflow_signals(&workflow.text, RELEASE_CREATION_SIGNALS);
 
     if found.is_empty() {
         Verdict::pass_at(

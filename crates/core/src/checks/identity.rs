@@ -364,14 +364,6 @@ fn no_org_topic(rule: &RuleInstance, context: &AuditContext) -> Verdict {
     }
 }
 
-/// The four merge settings, as the declared file spells them.
-const MERGE_EXPECTATIONS: &[(&str, bool)] = &[
-    ("squash", true),
-    ("rebase", true),
-    ("merge_commit", false),
-    ("delete_branch_on_merge", true),
-];
-
 fn merge_settings_declared(context: &AuditContext) -> Verdict {
     let settings = match repo_settings(context) {
         Ok(settings) => settings,
@@ -390,12 +382,14 @@ fn merge_settings_declared(context: &AuditContext) -> Verdict {
         );
     };
 
-    let wrong: Vec<String> = MERGE_EXPECTATIONS
+    let wrong: Vec<String> = super::MERGE_SETTINGS
         .iter()
-        .filter_map(|(key, expected)| {
+        .filter_map(|setting| {
+            let key = setting.declared;
+            let expected = setting.expected;
             let actual = merge.get(key).and_then(Yaml::as_bool);
             match actual {
-                Some(actual) if actual == *expected => None,
+                Some(actual) if actual == expected => None,
                 Some(actual) => Some(format!("{key} is {actual}, expected {expected}")),
                 None => Some(format!("{key} is not declared, expected {expected}")),
             }

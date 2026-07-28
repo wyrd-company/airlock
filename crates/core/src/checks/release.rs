@@ -187,13 +187,11 @@ fn release_is_dispatched(context: &AuditContext) -> Verdict {
         gaps.push(format!("it also triggers on {}", triggers.join(", ")));
     }
 
-    let inputs = workflow
+    let pins_a_sha = workflow
         .trigger("workflow_dispatch")
         .and_then(|dispatch| dispatch.get("inputs"))
-        .map(Yaml::keys)
-        .unwrap_or_default();
-    let pins_a_sha = inputs
-        .iter()
+        .into_iter()
+        .flat_map(Yaml::keys)
         .any(|input| input.contains("sha") || input.contains("commit"));
     if !pins_a_sha {
         gaps.push("its dispatch inputs name no source sha".to_owned());
@@ -240,10 +238,7 @@ fn no_publish_on_merge(context: &AuditContext) -> Verdict {
     let offenders: Vec<String> = pushing
         .into_iter()
         .filter_map(|workflow| {
-            let found: Vec<&&str> = PUBLICATION_SIGNALS
-                .iter()
-                .filter(|signal| workflow.text.contains(**signal))
-                .collect();
+            let found = super::workflow_signals(&workflow.text, PUBLICATION_SIGNALS);
             if found.is_empty() {
                 None
             } else {

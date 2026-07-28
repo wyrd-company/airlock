@@ -10,6 +10,15 @@
 //! inconclusive. A rule whose remaining clause is a judgment call is manual.
 //! Absence of evidence is never evidence of conformance.
 
+macro_rules! try_verdict {
+    ($expression:expr) => {
+        match $expression {
+            Ok(value) => value,
+            Err(verdict) => return *verdict,
+        }
+    };
+}
+
 mod automation;
 mod classification;
 mod files;
@@ -20,13 +29,49 @@ mod release;
 
 use crate::findings::{Evidence, FindingError, Remediation, Status};
 use crate::github::{
-    ApiError, BranchRule, CommitSummary, Paged, Ruleset, TagRef, MESSAGE_HINTS_VERSION,
+    ApiError, BranchRule, CommitSummary, Paged, Repository, Ruleset, TagRef, MESSAGE_HINTS_VERSION,
 };
 use crate::limits::Limits;
 use crate::policy::{Condition, ResolvedPolicy, RuleInstance};
 use crate::registry::Evaluation;
 use crate::snapshot::{FileState, RepoSnapshot};
 use crate::yaml::{self, Yaml};
+
+pub(crate) struct MergeSetting {
+    pub(crate) declared: &'static str,
+    pub(crate) expected: bool,
+}
+
+impl MergeSetting {
+    pub(crate) fn live(&self, repository: &Repository) -> bool {
+        match self.declared {
+            "squash" => repository.allow_squash_merge,
+            "rebase" => repository.allow_rebase_merge,
+            "merge_commit" => repository.allow_merge_commit,
+            "delete_branch_on_merge" => repository.delete_branch_on_merge,
+            _ => unreachable!("merge settings are declared in MERGE_SETTINGS"),
+        }
+    }
+}
+
+pub(crate) const MERGE_SETTINGS: &[MergeSetting] = &[
+    MergeSetting {
+        declared: "squash",
+        expected: true,
+    },
+    MergeSetting {
+        declared: "rebase",
+        expected: true,
+    },
+    MergeSetting {
+        declared: "merge_commit",
+        expected: false,
+    },
+    MergeSetting {
+        declared: "delete_branch_on_merge",
+        expected: true,
+    },
+];
 
 /// What one check concluded.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -677,6 +722,27 @@ pub(crate) fn json_strings(
 /// `Ok(None)` means no `topics` key at all.
 pub(crate) fn declared_topics(settings: &Yaml) -> Result<Option<Vec<String>>, Box<Verdict>> {
     yaml_strings(settings, "topics", "`topics` in .github/repo-settings.yml")
+}
+
+pub(crate) fn workflow_signals<'a>(text: &str, signals: &'a [&'a str]) -> Vec<&'a str> {
+    signals
+        .iter()
+        .copied()
+        .filter(|signal| text.contains(signal))
+        .collect()
+}
+
+fn workflows_with_trigger<'a>(
+    workflows: &[&'a Workflow],
+    trigger: &str,
+) -> Result<Vec<&'a Workflow>, Box<Verdict>> {
+    let mut matching = Vec::new();
+    for workflow in workflows {
+        if workflow.has_trigger(trigger)? {
+            matching.push(*workflow);
+        }
+    }
+    Ok(matching)
 }
 
 #[cfg(test)]

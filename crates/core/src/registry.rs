@@ -1075,7 +1075,8 @@ pub const CHECKS: &[CheckDefinition] = &[
         section: Section::Classification,
         evaluation: Evaluation::Mechanical,
         params: &[],
-    },];
+    },
+];
 
 /// Look a check definition up by id.
 #[must_use]

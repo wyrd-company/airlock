@@ -64,10 +64,7 @@ fn no_workflow_writes_properties(context: &AuditContext) -> Verdict {
         .workflows
         .iter()
         .filter_map(|workflow| {
-            let found: Vec<&&str> = PROPERTY_WRITE_SIGNALS
-                .iter()
-                .filter(|signal| workflow.text.contains(**signal))
-                .collect();
+            let found = super::workflow_signals(&workflow.text, PROPERTY_WRITE_SIGNALS);
             if found.is_empty() {
                 None
             } else {

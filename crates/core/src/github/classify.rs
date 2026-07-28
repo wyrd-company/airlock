@@ -66,6 +66,17 @@ impl ErrorCause {
 /// which answers only when there is exactly one value.
 pub type Headers = BTreeMap<String, Vec<String>>;
 
+pub(crate) fn single_header<'a>(headers: &'a Headers, name: &str) -> Option<&'a str> {
+    match headers.get(name)?.as_slice() {
+        [only] => Some(only.as_str()),
+        _ => None,
+    }
+}
+
+pub(crate) fn all_headers<'a>(headers: &'a Headers, name: &str) -> &'a [String] {
+    headers.get(name).map_or(&[], Vec::as_slice)
+}
+
 /// The parts of a failed response classification depends on.
 #[derive(Debug, Clone, Default)]
 pub struct Response {
@@ -85,20 +96,13 @@ impl Response {
     /// A repeated header answers `None`: "which one" has no safe default.
     #[must_use]
     pub fn single_header(&self, name: &str) -> Option<&str> {
-        match self.headers.get(name)?.as_slice() {
-            [only] => Some(only.as_str()),
-            _ => None,
-        }
+        single_header(&self.headers, name)
     }
 
     /// Whether the header appeared at all, however many times.
     #[must_use]
     pub fn has_header(&self, name: &str) -> bool {
         self.headers.contains_key(name)
-    }
-
-    fn header(&self, name: &str) -> Option<&str> {
-        self.single_header(name)
     }
 }
 
@@ -197,7 +201,7 @@ fn is_rate_limited(response: &Response) -> bool {
     if response.status != 403 && response.status != 429 {
         return false;
     }
-    if response.header("x-ratelimit-remaining") == Some("0") {
+    if response.single_header("x-ratelimit-remaining") == Some("0") {
         return true;
     }
     if response.has_header("retry-after") {
@@ -217,10 +221,13 @@ fn match_hint(response: &Response) -> Option<ErrorCause> {
 /// How long to wait before retrying, in seconds, if the response says.
 #[must_use]
 pub fn retry_delay_seconds(response: &Response, now_epoch_seconds: u64) -> Option<u64> {
-    if let Some(after) = response.header("retry-after").and_then(|v| v.parse().ok()) {
+    if let Some(after) = response
+        .single_header("retry-after")
+        .and_then(|v| v.parse().ok())
+    {
         return Some(after);
     }
-    let reset: u64 = response.header("x-ratelimit-reset")?.parse().ok()?;
+    let reset: u64 = response.single_header("x-ratelimit-reset")?.parse().ok()?;
     Some(reset.saturating_sub(now_epoch_seconds))
 }
 

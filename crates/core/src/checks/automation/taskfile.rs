@@ -14,11 +14,11 @@ pub(super) fn parse_taskfile(context: &AuditContext) -> Result<Yaml, Box<Verdict
 }
 
 pub(super) fn required_tasks(context: &AuditContext) -> Verdict {
-    let taskfile = match parse_taskfile(context) {
-        Ok(taskfile) => taskfile,
-        Err(verdict) => return *verdict,
-    };
-    let defined = taskfile.get("tasks").map(Yaml::keys).unwrap_or_default();
+    let taskfile = try_verdict!(parse_taskfile(context));
+    let defined: Vec<&str> = taskfile
+        .get("tasks")
+        .map(|tasks| tasks.keys().collect())
+        .unwrap_or_default();
 
     let missing: Vec<&&str> = REQUIRED_TASKS
         .iter()
@@ -107,10 +107,7 @@ pub(super) fn includes(context: &AuditContext) -> Result<Vec<(String, Yaml)>, Bo
 }
 
 pub(super) fn includes_set_dir(context: &AuditContext) -> Verdict {
-    let includes = match includes(context) {
-        Ok(includes) => includes,
-        Err(verdict) => return *verdict,
-    };
+    let includes = try_verdict!(includes(context));
     if includes.is_empty() {
         return Verdict::pass_at(
             "no_includes",
@@ -149,10 +146,7 @@ pub(super) fn includes_set_dir(context: &AuditContext) -> Verdict {
 }
 
 pub(super) fn include_namespaces(context: &AuditContext) -> Verdict {
-    let includes = match includes(context) {
-        Ok(includes) => includes,
-        Err(verdict) => return *verdict,
-    };
+    let includes = try_verdict!(includes(context));
     if includes.is_empty() {
         return Verdict::pass_at(
             "no_includes",

@@ -7,6 +7,9 @@
 //!
 //! Everything in this crate is read-only by construction. Airlock never
 //! mutates a repository it audits.
+//!
+//! Public modules support the workspace front end; they are not yet a
+//! stability promise for third-party consumers.
 
 mod audited_repository;
 

@@ -25,29 +25,12 @@ pub(super) fn readable_workflows<'a>(
     Ok(context.workflows.iter().collect())
 }
 
-/// The workflows declaring one trigger.
-///
-/// Fallible so a workflow whose trigger block airlock cannot read stops the
-/// rule rather than quietly dropping out of the filter.
-pub(super) fn workflows_with_trigger<'a>(
-    workflows: &[&'a Workflow],
-    trigger: &str,
-) -> Result<Vec<&'a Workflow>, Box<Verdict>> {
-    let mut matching = Vec::new();
-    for workflow in workflows {
-        if workflow.has_trigger(trigger)? {
-            matching.push(*workflow);
-        }
-    }
-    Ok(matching)
-}
-
 pub(super) fn ci_on_pull_request(context: &AuditContext) -> Verdict {
     let workflows = match readable_workflows(context) {
         Ok(workflows) => workflows,
         Err(verdict) => return *verdict,
     };
-    let triggered = match workflows_with_trigger(&workflows, "pull_request") {
+    let triggered = match super::super::workflows_with_trigger(&workflows, "pull_request") {
         Ok(triggered) => triggered,
         Err(verdict) => return *verdict,
     };
@@ -283,13 +266,14 @@ pub(super) fn no_pull_request_target(context: &AuditContext) -> Verdict {
         Err(verdict) => return *verdict,
     };
 
-    let offenders: Vec<&str> = match workflows_with_trigger(&workflows, "pull_request_target") {
-        Ok(matching) => matching
-            .iter()
-            .map(|workflow| workflow.path.as_str())
-            .collect(),
-        Err(verdict) => return *verdict,
-    };
+    let offenders: Vec<&str> =
+        match super::super::workflows_with_trigger(&workflows, "pull_request_target") {
+            Ok(matching) => matching
+                .iter()
+                .map(|workflow| workflow.path.as_str())
+                .collect(),
+            Err(verdict) => return *verdict,
+        };
 
     if offenders.is_empty() {
         Verdict::pass(
@@ -314,10 +298,11 @@ pub(super) fn concurrency_covers_pull_requests(context: &AuditContext) -> Verdic
         Err(verdict) => return *verdict,
     };
 
-    let pull_request_workflows = match workflows_with_trigger(&workflows, "pull_request") {
-        Ok(matching) => matching,
-        Err(verdict) => return *verdict,
-    };
+    let pull_request_workflows =
+        match super::super::workflows_with_trigger(&workflows, "pull_request") {
+            Ok(matching) => matching,
+            Err(verdict) => return *verdict,
+        };
 
     if pull_request_workflows.is_empty() {
         return Verdict::fail(

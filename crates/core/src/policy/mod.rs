@@ -41,6 +41,17 @@ use fetch::*;
 use references::*;
 use suppression::*;
 
+fn reject_unknown_keys(
+    document: &Yaml,
+    allowed: &[&str],
+    error: impl Fn(&str) -> Error,
+) -> Result<()> {
+    if let Some(key) = document.keys().find(|key| !allowed.contains(key)) {
+        return Err(error(key));
+    }
+    Ok(())
+}
+
 /// Where a policy comes from.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PolicySource {

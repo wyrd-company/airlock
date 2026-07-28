@@ -6,14 +6,12 @@ pub(super) fn compile(
     reference_data: BTreeMap<String, Yaml>,
     sources: Vec<BundleSource>,
 ) -> Result<ResolvedPolicy> {
-    for key in document.keys() {
-        if !KNOWN_TOP_LEVEL_KEYS.contains(&key) {
-            return Err(Error::Policy(format!(
-                "unknown policy key `{key}`; airlock accepts {}",
-                KNOWN_TOP_LEVEL_KEYS.join(", ")
-            )));
-        }
-    }
+    reject_unknown_keys(document, KNOWN_TOP_LEVEL_KEYS, |key| {
+        Error::Policy(format!(
+            "unknown policy key `{key}`; airlock accepts {}",
+            KNOWN_TOP_LEVEL_KEYS.join(", ")
+        ))
+    })?;
 
     match document.get("version").and_then(Yaml::as_i64) {
         Some(POLICY_SCHEMA_VERSION) => {}
