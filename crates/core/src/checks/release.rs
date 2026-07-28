@@ -225,9 +225,8 @@ fn no_publish_on_merge(context: &AuditContext) -> Verdict {
     let branch = &context.snapshot.repository.default_branch;
     let mut pushing = Vec::new();
     for workflow in &context.workflows {
-        match try_verdict!(workflow.pushes_to(branch)) {
-            true => pushing.push(workflow),
-            false => {}
+        if try_verdict!(workflow.pushes_to(branch)) {
+            pushing.push(workflow);
         }
     }
 
