@@ -6,6 +6,7 @@
 //! checks run against what was gathered. Nothing a check reads can change
 //! underneath it.
 
+use crate::audited_repository::parse_suppression_requests;
 use crate::auth::VerifiedGrant;
 use crate::checks::{self, AuditContext, Workflow};
 use crate::findings::{
@@ -14,7 +15,7 @@ use crate::findings::{
 };
 use crate::github::{ApiError, ErrorCause, GitHub};
 use crate::limits::Limits;
-use crate::policy::{parse_suppression_requests, ResolvedPolicy};
+use crate::policy::ResolvedPolicy;
 use crate::snapshot::RepoSnapshot;
 use crate::yaml;
 use crate::{Error, Result};
