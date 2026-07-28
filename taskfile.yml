@@ -40,6 +40,7 @@ tasks:
         ryl check --config-file .ryl.yml .github/workflows/*.yml
         .github/repo-settings.yml docs/examples/*.yml taskfile.yml
       - rumdl check .
+      - intentional check
 
   format:
     desc: Apply formatting

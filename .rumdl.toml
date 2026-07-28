@@ -1,0 +1,7 @@
+# rumdl configuration.
+
+[global]
+# Intent files are records written by `intentional add`: YAML frontmatter plus
+# a single prose paragraph. Their shape is owned by the tool, not this repo's
+# markdown conventions.
+exclude = [".intentional/intents"]
