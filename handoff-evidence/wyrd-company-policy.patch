@@ -1,0 +1,13 @@
+diff --git a/airlock/policy.yml b/airlock/policy.yml
+index aec197f..fc82525 100644
+--- a/airlock/policy.yml
++++ b/airlock/policy.yml
+@@ -8,7 +8,7 @@ name: wyrd-company
+ # Refuse to run against a binary whose check registry predates this policy.
+ # The registry version moves when a rule, statement, severity, or evaluation
+ # mode changes, so this is what stops an upgrade quietly changing the gate.
+-requires-registry: ">=0.1"
++requires-registry: ">=0.2"
+ 
+ # Only Blocking failures make a repository nonconformant. Required failures
+ # are reported and tracked; they do not stop a release. Raise this to

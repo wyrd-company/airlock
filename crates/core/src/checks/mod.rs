@@ -33,7 +33,7 @@ use crate::github::{
 };
 use crate::limits::Limits;
 use crate::policy::{Condition, ResolvedPolicy, RuleInstance};
-use crate::registry::Evaluation;
+use crate::registry::{Applicability, Evaluation};
 use crate::snapshot::{FileState, RepoSnapshot};
 use crate::yaml::{self, Yaml};
 
@@ -432,26 +432,25 @@ impl AuditContext<'_> {
 /// to have looked.
 #[must_use]
 pub fn evaluate(rule: &RuleInstance, context: &AuditContext) -> Verdict {
-    match condition_holds(rule.condition, context) {
-        ConditionOutcome::Holds => {}
-        ConditionOutcome::DoesNotHold => {
-            return Verdict {
-                status: Status::Skipped,
-                evidence: Some(Evidence::new(
-                    "condition_not_met",
-                    format!(
-                        "the capability that enables this rule applies only when `{}`",
-                        rule.condition.code()
-                    ),
-                )),
-                remediation: None,
-                error: None,
-            }
-        }
-        // A condition airlock could not evaluate is not a condition that
-        // failed. Skipping here would quietly drop every rule the capability
-        // governs, which is the same fail-open shape as passing them.
-        ConditionOutcome::Undecided(verdict) => return *verdict,
+    if let Some(verdict) = condition_verdict(condition_holds(rule.condition, context), || {
+        format!(
+            "the capability that enables this rule applies only when `{}`",
+            rule.condition.code()
+        )
+    }) {
+        return verdict;
+    }
+
+    if let Some(verdict) = condition_verdict(
+        applicability_holds(rule.def.applicability(), context),
+        || {
+            format!(
+                "this rule applies only when `{}`",
+                rule.def.applicability().code()
+            )
+        },
+    ) {
+        return verdict;
     }
 
     match rule.def.evaluation {
@@ -482,6 +481,28 @@ pub fn evaluate(rule: &RuleInstance, context: &AuditContext) -> Verdict {
     }
 }
 
+fn condition_verdict(
+    outcome: ConditionOutcome,
+    skipped_detail: impl FnOnce() -> String,
+) -> Option<Verdict> {
+    match outcome {
+        ConditionOutcome::Holds => {}
+        ConditionOutcome::DoesNotHold => {
+            return Some(Verdict {
+                status: Status::Skipped,
+                evidence: Some(Evidence::new("condition_not_met", skipped_detail())),
+                remediation: None,
+                error: None,
+            })
+        }
+        // A condition airlock could not evaluate is not a condition that
+        // failed. Skipping here would quietly drop every rule the capability
+        // governs, which is the same fail-open shape as passing them.
+        ConditionOutcome::Undecided(verdict) => return Some(*verdict),
+    }
+    None
+}
+
 /// What airlock could establish about a capability condition.
 ///
 /// Three-valued on purpose. "The condition does not hold" and "airlock could
@@ -501,6 +522,41 @@ fn condition_holds(condition: Condition, context: &AuditContext) -> ConditionOut
         Condition::Always => ConditionOutcome::Holds,
         Condition::IntentionalConfigPresent => {
             file_condition(context, ".intentional/config.yml", condition)
+        }
+    }
+}
+
+fn applicability_holds(applicability: Applicability, context: &AuditContext) -> ConditionOutcome {
+    match applicability {
+        Applicability::Always => ConditionOutcome::Holds,
+        Applicability::ReleaseUnitsDeclared => release_units_declared_condition(context),
+    }
+}
+
+fn release_units_declared_condition(context: &AuditContext) -> ConditionOutcome {
+    match context.yaml(".intentional/config.yml") {
+        ParsedFile::Missing | ParsedFile::NotAFile(_) => ConditionOutcome::DoesNotHold,
+        ParsedFile::Parsed(document) => match document.get("release-units") {
+            None => ConditionOutcome::DoesNotHold,
+            Some(units) => match units.as_map() {
+                Some([]) => ConditionOutcome::DoesNotHold,
+                Some(_) => ConditionOutcome::Holds,
+                None => ConditionOutcome::Undecided(Box::new(Verdict::inconclusive(
+                    "condition_undecided",
+                    "the `release-units-declared` condition could not interpret \
+                     `.intentional/config.yml`: `release-units` is not a mapping",
+                ))),
+            },
+        },
+        ParsedFile::Undecided(verdict) => {
+            let detail = verdict.evidence.as_ref().map_or_else(
+                || "the condition input could not be read".to_owned(),
+                |evidence| evidence.detail.clone(),
+            );
+            ConditionOutcome::Undecided(Box::new(Verdict::inconclusive(
+                "condition_undecided",
+                format!("the `release-units-declared` condition could not be decided: {detail}"),
+            )))
         }
     }
 }
@@ -1010,6 +1066,69 @@ mod tests {
         let mut instance = rule("REPO-REL-01");
         instance.condition = Condition::IntentionalConfigPresent;
         assert_eq!(evaluate(&instance, &context).status, Status::Pass);
+    }
+
+    #[test]
+    fn release_unit_rules_skip_when_no_units_are_declared() {
+        for files in [
+            Vec::new(),
+            vec![(".intentional/config.yml", "settings: {}\n")],
+            vec![(".intentional/config.yml", "release-units: {}\n")],
+        ] {
+            let snapshot = snapshot(&files);
+            let policy = policy();
+            let context = context(&snapshot, &policy, Vec::new());
+            for id in ["REPO-GIT-09", "REPO-TASK-04", "REPO-LIC-04"] {
+                let verdict = evaluate(&rule(id), &context);
+                assert_eq!(verdict.status, Status::Skipped, "{id}");
+                let evidence = verdict.evidence.expect("a skip names its condition");
+                assert_eq!(evidence.code, "condition_not_met", "{id}");
+                assert!(
+                    evidence.detail.contains("release-units-declared"),
+                    "{id}: {}",
+                    evidence.detail
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn release_unit_rules_run_when_units_are_declared() {
+        let snapshot = snapshot(&[
+            (
+                ".intentional/config.yml",
+                "release-units:\n  sample:\n    path: .\n",
+            ),
+            ("Cargo.toml", "[package]\nlicense = \"Apache-2.0\"\n"),
+        ]);
+        let policy = policy();
+        let context = context(&snapshot, &policy, Vec::new());
+
+        for id in ["REPO-GIT-09", "REPO-TASK-04", "REPO-LIC-04"] {
+            assert_eq!(evaluate(&rule(id), &context).status, Status::Pass, "{id}");
+        }
+    }
+
+    #[test]
+    fn undecidable_release_unit_input_cannot_skip_conditioned_rules() {
+        let mut truncated = snapshot(&[]);
+        truncated.tree.truncated = true;
+
+        let malformed = snapshot(&[(".intentional/config.yml", "release-units: [")]);
+
+        for snapshot in [&truncated, &malformed] {
+            let policy = policy();
+            let context = context(snapshot, &policy, Vec::new());
+            for id in ["REPO-GIT-09", "REPO-TASK-04", "REPO-LIC-04"] {
+                let verdict = evaluate(&rule(id), &context);
+                assert_eq!(verdict.status, Status::Inconclusive, "{id}");
+                assert_eq!(
+                    verdict.evidence.expect("inconclusive evidence").code,
+                    "condition_undecided",
+                    "{id}"
+                );
+            }
+        }
     }
 
     #[test]

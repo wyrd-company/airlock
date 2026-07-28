@@ -22,9 +22,33 @@ use sha2::{Digest, Sha256};
 /// The semantic version of the compiled registry.
 ///
 /// It moves when the set of rules, their statements, their default severities,
-/// or their evaluation modes change. Policies constrain it with
+/// evaluation modes, or applicability conditions change. Policies constrain it with
 /// `requires-registry`.
-pub const REGISTRY_VERSION: &str = "0.1.0";
+pub const REGISTRY_VERSION: &str = "0.2.0";
+
+/// A built-in condition that determines whether a check applies.
+///
+/// Applicability is part of check identity: policies may select and re-grade
+/// checks, but they cannot broaden a check beyond the repositories its
+/// compiled statement governs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Applicability {
+    /// The check applies to every repository that selects it.
+    Always,
+    /// The check applies only when at least one release unit is declared.
+    ReleaseUnitsDeclared,
+}
+
+impl Applicability {
+    /// The stable machine-readable name.
+    #[must_use]
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::Always => "always",
+            Self::ReleaseUnitsDeclared => "release-units-declared",
+        }
+    }
+}
 
 /// How severely a failure counts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -1093,9 +1117,21 @@ pub fn in_section(section: Section) -> Vec<&'static CheckDefinition> {
         .collect()
 }
 
+impl CheckDefinition {
+    /// The repository state under which this check's statement applies.
+    #[must_use]
+    pub fn applicability(&self) -> Applicability {
+        match self.id {
+            "REPO-GIT-09" | "REPO-TASK-04" | "REPO-LIC-04" => Applicability::ReleaseUnitsDeclared,
+            _ => Applicability::Always,
+        }
+    }
+}
+
 /// The registry content digest.
 ///
-/// SHA-256 over the sorted `(id, statement, severity, evaluation)` tuples, so
+/// SHA-256 over the sorted `(id, statement, severity, evaluation,
+/// applicability)` tuples, so
 /// two binaries that agree on the digest agree on what every rule means. It
 /// travels in every audit result.
 #[must_use]
@@ -1104,11 +1140,12 @@ pub fn digest() -> String {
         .iter()
         .map(|check| {
             format!(
-                "{}\u{1f}{}\u{1f}{}\u{1f}{}",
+                "{}\u{1f}{}\u{1f}{}\u{1f}{}\u{1f}{}",
                 check.id,
                 check.statement,
                 check.severity.code(),
-                check.evaluation.code()
+                check.evaluation.code(),
+                check.applicability().code()
             )
         })
         .collect();
@@ -1131,6 +1168,16 @@ mod tests {
     fn every_check_definition_id_is_unique() {
         let ids: BTreeSet<&str> = CHECKS.iter().map(|check| check.id).collect();
         assert_eq!(ids.len(), CHECKS.len());
+    }
+
+    #[test]
+    fn only_release_unit_rules_have_built_in_applicability() {
+        let conditioned: Vec<&str> = CHECKS
+            .iter()
+            .filter(|check| check.applicability() != Applicability::Always)
+            .map(|check| check.id)
+            .collect();
+        assert_eq!(conditioned, ["REPO-LIC-04", "REPO-GIT-09", "REPO-TASK-04"]);
     }
 
     #[test]

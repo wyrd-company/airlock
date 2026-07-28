@@ -6,6 +6,9 @@ assertion.
 **Always cite a rule by id and statement together.** `REPO-CI-02` alone is
 meaningless to whoever reads the task later.
 
+`REPO-GIT-09`, `REPO-TASK-04`, and `REPO-LIC-04` apply only when the
+repository declares at least one release unit.
+
 ## Severity
 
 | Level           | Meaning                                                             |
