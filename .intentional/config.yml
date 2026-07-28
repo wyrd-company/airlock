@@ -12,8 +12,8 @@ release-units:
         pointer: /workspace/package/version
         mode: committed
       - adapter: toml
-        file: crates/cli/Cargo.toml
-        pointer: /dependencies/airlock-core/version
+        file: Cargo.toml
+        pointer: /workspace/dependencies/airlock-core/version
         mode: committed
     tags:
       primary:

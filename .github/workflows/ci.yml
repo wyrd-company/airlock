@@ -40,6 +40,7 @@ jobs:
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
           cargo install --locked ryl --version 0.21.0
           cargo install --locked rumdl --version 0.2.40
+          cargo install --locked intentional-cli --version 0.1.6
       - run: task lint
 
   test:
