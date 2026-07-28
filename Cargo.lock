@@ -18,6 +18,7 @@ dependencies = [
  "airlock-core",
  "anyhow",
  "assert_cmd",
+ "base64",
  "clap",
  "predicates",
  "reqwest",

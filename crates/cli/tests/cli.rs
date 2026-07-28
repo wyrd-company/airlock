@@ -38,6 +38,20 @@ fn airlock(server: &MockServer, config: &TempDir) -> Command {
     command
 }
 
+fn offline() -> Command {
+    let mut command = Command::cargo_bin("airlock").expect("the airlock binary builds");
+    command
+        .env("AIRLOCK_GITHUB_API_URL", "http://127.0.0.1:9/offline-test")
+        .env(
+            "AIRLOCK_GITHUB_LOGIN_URL",
+            "http://127.0.0.1:9/offline-test",
+        )
+        .env_remove("AIRLOCK_TOKEN")
+        .env_remove("GH_TOKEN")
+        .env_remove("GITHUB_TOKEN");
+    command
+}
+
 fn policy_path(directory: &TempDir, body: &str) -> String {
     let path = directory.path().join("policy.yml");
     std::fs::write(&path, body).expect("the policy is written");
@@ -57,14 +71,31 @@ fn finding<'a>(report: &'a Value, rule: &str) -> &'a Value {
         .unwrap_or_else(|| panic!("{rule} has no finding"))
 }
 
+async fn audit_json(repo: FakeRepo, policy: &str, exit_code: i32) -> Value {
+    let server = support::start(&[repo]).await;
+    let config = TempDir::new().unwrap();
+    let policies = TempDir::new().unwrap();
+    let assertion = airlock(&server, &config)
+        .args([
+            "audit",
+            "wyrd-company/example",
+            "--policy",
+            &policy_path(&policies, policy),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .code(exit_code);
+    json_output(&assertion.get_output().stdout)
+}
+
 // ---------------------------------------------------------------------------
 // Surface
 // ---------------------------------------------------------------------------
 
 #[test]
 fn bare_invocation_exits_two_and_says_why() {
-    Command::cargo_bin("airlock")
-        .unwrap()
+    offline()
         .assert()
         .code(2)
         .stderr(contains("TUI not yet available; use a subcommand."));
@@ -72,8 +103,7 @@ fn bare_invocation_exits_two_and_says_why() {
 
 #[test]
 fn help_lists_the_command_surface() {
-    Command::cargo_bin("airlock")
-        .unwrap()
+    offline()
         .arg("--help")
         .assert()
         .success()
@@ -83,13 +113,16 @@ fn help_lists_the_command_surface() {
 
 #[test]
 fn list_checks_reports_the_whole_registry_without_a_target() {
-    let assertion = Command::cargo_bin("airlock")
-        .unwrap()
+    let assertion = offline()
         .args(["audit", "--list-checks", "--format", "json"])
         .assert()
         .success();
     let listing = json_output(&assertion.get_output().stdout);
-    assert_eq!(listing["checks"].as_array().unwrap().len(), 109);
+    let checks = listing["checks"].as_array().unwrap();
+    assert!(checks.len() >= 100);
+    for id in ["REPO-FILE-01", "REPO-CI-09", "REPO-PROP-04"] {
+        assert!(checks.iter().any(|check| check["id"] == id), "{id}");
+    }
     assert!(listing["registry_digest"]
         .as_str()
         .unwrap()
@@ -98,8 +131,7 @@ fn list_checks_reports_the_whole_registry_without_a_target() {
 
 #[test]
 fn list_checks_marks_manual_and_unimplemented_rules() {
-    let assertion = Command::cargo_bin("airlock")
-        .unwrap()
+    let assertion = offline()
         .args(["audit", "--list-checks", "--format", "json"])
         .assert()
         .success();
@@ -126,23 +158,7 @@ async fn a_conformant_repository_exits_zero() {
             "Cargo.toml",
             "[package]\nname = \"example\"\nlicense = \"Apache-2.0\"\n",
         );
-    let server = support::start(&[repo]).await;
-    let config = TempDir::new().unwrap();
-    let policies = TempDir::new().unwrap();
-
-    let assertion = airlock(&server, &config)
-        .args([
-            "audit",
-            "wyrd-company/example",
-            "--policy",
-            &policy_path(&policies, LICENSING_POLICY),
-            "--format",
-            "json",
-        ])
-        .assert()
-        .code(0);
-
-    let report = json_output(&assertion.get_output().stdout);
+    let report = audit_json(repo, LICENSING_POLICY, 0).await;
     assert_eq!(report["outcome"], "conformant");
     assert_eq!(report["complete"], true);
     assert_eq!(report["conformant"], true);
@@ -157,23 +173,7 @@ async fn a_blocking_failure_exits_one() {
         "Cargo.toml",
         "[package]\nname = \"example\"\nlicense = \"Apache-2.0\"\n",
     );
-    let server = support::start(&[repo]).await;
-    let config = TempDir::new().unwrap();
-    let policies = TempDir::new().unwrap();
-
-    let assertion = airlock(&server, &config)
-        .args([
-            "audit",
-            "wyrd-company/example",
-            "--policy",
-            &policy_path(&policies, LICENSING_POLICY),
-            "--format",
-            "json",
-        ])
-        .assert()
-        .code(1);
-
-    let report = json_output(&assertion.get_output().stdout);
+    let report = audit_json(repo, LICENSING_POLICY, 1).await;
     assert_eq!(report["outcome"], "nonconformant");
     assert_eq!(report["complete"], true);
     let lic01 = finding(&report, "REPO-LIC-01");

@@ -6,6 +6,7 @@
 
 use std::collections::BTreeMap;
 
+use base64::Engine as _;
 use serde_json::{json, Value};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -258,25 +259,7 @@ async fn mount_response(server: &MockServer, route: &str, response: &Response) {
 }
 
 fn base64(content: &str) -> String {
-    use std::fmt::Write as _;
-    const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let bytes = content.as_bytes();
-    let mut out = String::new();
-    for chunk in bytes.chunks(3) {
-        let mut buffer = [0u8; 3];
-        buffer[..chunk.len()].copy_from_slice(chunk);
-        let triple =
-            (u32::from(buffer[0]) << 16) | (u32::from(buffer[1]) << 8) | u32::from(buffer[2]);
-        for index in 0..4 {
-            if index <= chunk.len() {
-                let position = ((triple >> (18 - index * 6)) & 0x3f) as usize;
-                let _ = write!(out, "{}", ALPHABET[position] as char);
-            } else {
-                out.push('=');
-            }
-        }
-    }
-    out
+    base64::engine::general_purpose::STANDARD.encode(content)
 }
 
 /// Start a fake GitHub serving the given repositories, with a verified
