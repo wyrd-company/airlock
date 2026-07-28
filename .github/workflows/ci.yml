@@ -137,9 +137,9 @@ jobs:
           AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}
         run: |
           if [[ -n "$AIRLOCK_TOKEN" ]]; then
-          task dogfood
+            task dogfood
           else
-          echo "AIRLOCK_TOKEN is not provisioned; skipping the dogfood audit."
+            echo "AIRLOCK_TOKEN is not provisioned; skipping the dogfood audit."
           fi
 
 # Jobs are decomposed so a failure is legible on the pull request, and every job

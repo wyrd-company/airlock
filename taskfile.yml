@@ -36,7 +36,9 @@ tasks:
       - cargo clippy --workspace --all-targets -- -D warnings
       - actionlint .github/workflows/*.yml
       - shellcheck scripts/*.sh
-      - ryl check .github/workflows/*.yml .github/repo-settings.yml docs/examples/*.yml taskfile.yml
+      - >-
+        ryl check --config-file .ryl.yml .github/workflows/*.yml
+        .github/repo-settings.yml docs/examples/*.yml taskfile.yml
       - rumdl check .
 
   format:
