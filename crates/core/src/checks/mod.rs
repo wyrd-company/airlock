@@ -73,6 +73,13 @@ pub(crate) const MERGE_SETTINGS: &[MergeSetting] = &[
     },
 ];
 
+pub(crate) fn merge_setting(declared: &str) -> &'static MergeSetting {
+    MERGE_SETTINGS
+        .iter()
+        .find(|setting| setting.declared == declared)
+        .expect("named merge setting is declared")
+}
+
 /// What one check concluded.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Verdict {
@@ -745,6 +752,18 @@ fn workflows_with_trigger<'a>(
     Ok(matching)
 }
 
+fn first_workflow_with_trigger<'a>(
+    workflows: &[&'a Workflow],
+    trigger: &str,
+) -> Result<Option<&'a Workflow>, Box<Verdict>> {
+    for workflow in workflows {
+        if workflow.has_trigger(trigger)? {
+            return Ok(Some(*workflow));
+        }
+    }
+    Ok(None)
+}
+
 #[cfg(test)]
 pub(crate) mod fixtures {
     //! Builders for check tests.
@@ -753,6 +772,29 @@ pub(crate) mod fixtures {
     use crate::github::{EntryKind, Repository, Tree, TreeEntry};
     use crate::registry;
     use std::collections::BTreeMap;
+
+    /// Owned inputs for repeatedly evaluating checks in one test.
+    pub struct CheckFixture {
+        pub snapshot: RepoSnapshot,
+        policy: ResolvedPolicy,
+    }
+
+    impl CheckFixture {
+        pub fn new(files: &[(&str, &str)]) -> Self {
+            Self {
+                snapshot: snapshot(files),
+                policy: policy(),
+            }
+        }
+
+        pub fn context(&self) -> AuditContext<'_> {
+            context(&self.snapshot, &self.policy, workflows(&self.snapshot))
+        }
+
+        pub fn verdict(&self, id: &str) -> Verdict {
+            evaluate(&rule(id), &self.context())
+        }
+    }
 
     /// Build a snapshot from `(path, content)` pairs.
     pub fn snapshot(files: &[(&str, &str)]) -> RepoSnapshot {

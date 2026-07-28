@@ -118,10 +118,10 @@ fn ci_workflow(context: &AuditContext) -> Verdict {
         );
     }
     let workflows: Vec<_> = context.workflows.iter().collect();
-    let found = match super::workflows_with_trigger(&workflows, "pull_request") {
-        Ok(workflows) => workflows.into_iter().next(),
-        Err(verdict) => return *verdict,
-    };
+    let found = try_verdict!(super::first_workflow_with_trigger(
+        &workflows,
+        "pull_request"
+    ));
 
     match found {
         Some(workflow) => Verdict::pass_at(
@@ -150,11 +150,12 @@ fn renovate(rule: &RuleInstance, context: &AuditContext) -> Verdict {
             ".github/renovate.json is not valid JSON, so its presets could not be read",
         );
     };
-    let extends =
-        match super::json_strings(&document, "extends", "`extends` in .github/renovate.json") {
-            Ok(extends) => extends.unwrap_or_default(),
-            Err(verdict) => return *verdict,
-        };
+    let extends = try_verdict!(super::json_strings(
+        &document,
+        "extends",
+        "`extends` in .github/renovate.json",
+    ))
+    .unwrap_or_default();
 
     if extends.is_empty() {
         return Verdict::fail_at(
@@ -379,10 +380,7 @@ fn reconcile_workflow(context: &AuditContext) -> Verdict {
         );
     };
     let branch = &context.snapshot.repository.default_branch;
-    let pushes_to_branch = match workflow.pushes_to(branch) {
-        Ok(pushes) => pushes,
-        Err(verdict) => return *verdict,
-    };
+    let pushes_to_branch = try_verdict!(workflow.pushes_to(branch));
     if pushes_to_branch {
         Verdict::pass_at(
             "reconcile_triggers_on_default_branch",
@@ -486,6 +484,23 @@ mod tests {
                 &[(".github/workflows/ci.yml", "on:\n  push:\njobs: {}\n")]
             ),
             Status::Fail
+        );
+    }
+
+    #[test]
+    fn a_matching_workflow_short_circuits_before_a_later_malformed_workflow() {
+        assert_eq!(
+            verdict(
+                "REPO-FILE-07",
+                &[
+                    (
+                        ".github/workflows/a-ci.yml",
+                        "on:\n  pull_request:\njobs: {}\n",
+                    ),
+                    (".github/workflows/z-malformed.yml", "on: [pull_request,"),
+                ],
+            ),
+            Status::Pass
         );
     }
 
