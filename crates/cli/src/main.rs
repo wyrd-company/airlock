@@ -23,7 +23,7 @@ use anyhow::{bail, Context as _, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
 use crate::config::DEFAULT_PROFILE;
-use crate::credential::{CredentialInputs, CredentialSource};
+use crate::credential::{CredentialInputs, CredentialSelection};
 use crate::device::{DeviceFlow, DeviceFlowConfig, GITHUB_LOGIN_BASE};
 
 /// Exit code for an operational failure: authentication, network, policy
@@ -232,7 +232,11 @@ async fn audit_command(args: AuditArgs, interactive: bool) -> Result<u8> {
         return Ok(0);
     }
 
-    let target = args.target.clone().unwrap_or_default();
+    // clap requires a target unless --list-checks was given, and that branch
+    // returned above. There is no invocation that reaches here without one.
+    let Some(target) = args.target.clone() else {
+        bail!("a repository is required. Name one as `airlock audit <owner/repo>`.");
+    };
     let (owner, repo) = split_target(&target)?;
 
     let inputs = CredentialInputs {
@@ -247,24 +251,26 @@ async fn audit_command(args: AuditArgs, interactive: bool) -> Result<u8> {
 
     let limits = Limits::default();
     let client = RestClient::new(credential.token.clone(), client_config(limits))
-        .map_err(|error| anyhow::anyhow!("{error}"))?;
+        .context("cannot build the github client")?;
 
     let grant = auth::verify(&credential.token, &client)
         .await
-        .map_err(|refusal| {
-            anyhow::anyhow!(
-                "the credential from {} was refused: {refusal}",
+        .with_context(|| {
+            format!(
+                "the credential from {} was refused",
                 credential.source.describe()
             )
         })?;
 
     let source = match &args.policy {
-        Some(value) => PolicySource::parse(value).map_err(|error| anyhow::anyhow!("{error}"))?,
+        Some(value) => {
+            PolicySource::parse(value).with_context(|| format!("cannot read `--policy {value}`"))?
+        }
         None => PolicySource::default_for_owner(owner),
     };
     let policy = policy::resolve(&client, &source, &limits)
         .await
-        .map_err(|error| anyhow::anyhow!("{error}"))?;
+        .with_context(|| format!("cannot resolve the policy at {}", source.label()))?;
 
     let options = AuditOptions {
         reference: args.reference.clone(),
@@ -273,7 +279,7 @@ async fn audit_command(args: AuditArgs, interactive: bool) -> Result<u8> {
     };
     let report = audit::run(&client, owner, repo, &policy, &options, Some(&grant))
         .await
-        .map_err(|error| anyhow::anyhow!("{error}"))?;
+        .with_context(|| format!("cannot audit {owner}/{repo}"))?;
 
     match format {
         Format::Text => print!("{}", render::report_text(&report)),
@@ -348,10 +354,10 @@ async fn status_command(args: &AuthStatusArgs) -> Result<u8> {
         token_stdin: args.token_stdin,
         profile: args.profile.clone(),
     };
-    let source =
-        credential::selected_source(&inputs, std::env::var("AIRLOCK_TOKEN").ok().as_deref());
+    let environment = std::env::var(credential::TOKEN_ENVIRONMENT_VARIABLE).ok();
+    let source = credential::selected_source(&inputs, environment.as_deref());
     println!("credential source: {}", source.describe());
-    if source == CredentialSource::Flag {
+    if source == CredentialSelection::Flag {
         println!(
             "note: --token appears in shell history and in process listings. Prefer \
              --token-file or --token-stdin."
@@ -366,7 +372,7 @@ async fn status_command(args: &AuthStatusArgs) -> Result<u8> {
         credential::resolve(&inputs, &config_path, &login_base(), AIRLOCK_SAFE_CLIENT_ID).await?;
 
     let client = RestClient::new(credential.token.clone(), client_config(Limits::default()))
-        .map_err(|error| anyhow::anyhow!("{error}"))?;
+        .context("cannot build the github client")?;
 
     match auth::verify(&credential.token, &client).await {
         Ok(grant) => {

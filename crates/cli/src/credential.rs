@@ -19,7 +19,43 @@ use crate::device::{DeviceFlow, DeviceFlowConfig};
 /// The environment variable airlock reads, and the only one.
 pub const TOKEN_ENVIRONMENT_VARIABLE: &str = "AIRLOCK_TOKEN";
 
-/// Where a credential came from, for `auth status` and error messages.
+/// Which source the inputs and environment select.
+///
+/// Deliberately separate from [`CredentialSource`]: selection is decided
+/// before anything is read, so it cannot know whether the stored profile will
+/// need refreshing. Folding both into one enum leaves an arm that nothing can
+/// ever produce.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CredentialSelection {
+    /// `--token`, which is documented as insecure.
+    Flag,
+    /// `--token-file`.
+    File,
+    /// `--token-stdin`.
+    Stdin,
+    /// The `AIRLOCK_TOKEN` environment variable.
+    Environment,
+    /// The stored profile.
+    Profile,
+}
+
+impl CredentialSelection {
+    /// A short description for output.
+    #[must_use]
+    pub fn describe(self) -> String {
+        match self {
+            CredentialSelection::Flag => "--token".to_owned(),
+            CredentialSelection::File => "--token-file".to_owned(),
+            CredentialSelection::Stdin => "--token-stdin".to_owned(),
+            CredentialSelection::Environment => {
+                format!("the {TOKEN_ENVIRONMENT_VARIABLE} environment variable")
+            }
+            CredentialSelection::Profile => "the stored profile".to_owned(),
+        }
+    }
+}
+
+/// Where the credential actually came from, once it has been read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CredentialSource {
     /// `--token`, which is documented as insecure.
@@ -39,14 +75,14 @@ pub enum CredentialSource {
 impl CredentialSource {
     /// A short description for output.
     #[must_use]
-    pub fn describe(self) -> &'static str {
+    pub fn describe(self) -> String {
         match self {
-            CredentialSource::Flag => "--token",
-            CredentialSource::File => "--token-file",
-            CredentialSource::Stdin => "--token-stdin",
-            CredentialSource::Environment => "the AIRLOCK_TOKEN environment variable",
-            CredentialSource::Profile => "the stored profile",
-            CredentialSource::RefreshedProfile => "the stored profile, refreshed",
+            CredentialSource::Flag => CredentialSelection::Flag.describe(),
+            CredentialSource::File => CredentialSelection::File.describe(),
+            CredentialSource::Stdin => CredentialSelection::Stdin.describe(),
+            CredentialSource::Environment => CredentialSelection::Environment.describe(),
+            CredentialSource::Profile => CredentialSelection::Profile.describe(),
+            CredentialSource::RefreshedProfile => "the stored profile, refreshed".to_owned(),
         }
     }
 }
@@ -79,17 +115,20 @@ pub struct CredentialInputs {
 /// `auth status` uses this to say what *would* happen, and the resolver uses
 /// it so both agree.
 #[must_use]
-pub fn selected_source(inputs: &CredentialInputs, environment: Option<&str>) -> CredentialSource {
+pub fn selected_source(
+    inputs: &CredentialInputs,
+    environment: Option<&str>,
+) -> CredentialSelection {
     if inputs.token.is_some() {
-        CredentialSource::Flag
+        CredentialSelection::Flag
     } else if inputs.token_file.is_some() {
-        CredentialSource::File
+        CredentialSelection::File
     } else if inputs.token_stdin {
-        CredentialSource::Stdin
+        CredentialSelection::Stdin
     } else if environment.is_some_and(|value| !value.trim().is_empty()) {
-        CredentialSource::Environment
+        CredentialSelection::Environment
     } else {
-        CredentialSource::Profile
+        CredentialSelection::Profile
     }
 }
 
@@ -105,19 +144,20 @@ pub async fn resolve(
     login_base: &str,
     client_id: &str,
 ) -> Result<Credential> {
-    match selected_source(inputs, std::env::var("AIRLOCK_TOKEN").ok().as_deref()) {
-        CredentialSource::Flag => Ok(Credential {
+    let environment = std::env::var(TOKEN_ENVIRONMENT_VARIABLE).ok();
+    match selected_source(inputs, environment.as_deref()) {
+        CredentialSelection::Flag => Ok(Credential {
             token: inputs.token.clone().unwrap_or_default().trim().to_owned(),
             source: CredentialSource::Flag,
         }),
-        CredentialSource::File => {
+        CredentialSelection::File => {
             let path = inputs.token_file.clone().unwrap_or_default();
             Ok(Credential {
                 token: config::read_token_file(&path)?,
                 source: CredentialSource::File,
             })
         }
-        CredentialSource::Stdin => {
+        CredentialSelection::Stdin => {
             let mut token = String::new();
             std::io::stdin()
                 .read_to_string(&mut token)
@@ -131,17 +171,11 @@ pub async fn resolve(
                 source: CredentialSource::Stdin,
             })
         }
-        CredentialSource::Environment => {
-            let token = std::env::var(TOKEN_ENVIRONMENT_VARIABLE)
-                .unwrap_or_default()
-                .trim()
-                .to_owned();
-            Ok(Credential {
-                token,
-                source: CredentialSource::Environment,
-            })
-        }
-        CredentialSource::Profile | CredentialSource::RefreshedProfile => {
+        CredentialSelection::Environment => Ok(Credential {
+            token: environment.unwrap_or_default().trim().to_owned(),
+            source: CredentialSource::Environment,
+        }),
+        CredentialSelection::Profile => {
             from_profile(&inputs.profile, config_path, login_base, client_id).await
         }
     }
@@ -258,21 +292,21 @@ mod tests {
         supplied.token = Some("ghu_flag".to_owned());
         assert_eq!(
             selected_source(&supplied, Some("ghu_env")),
-            CredentialSource::Flag
+            CredentialSelection::Flag
         );
 
         let mut supplied = inputs();
         supplied.token_file = Some(PathBuf::from("/tmp/token"));
         assert_eq!(
             selected_source(&supplied, Some("ghu_env")),
-            CredentialSource::File
+            CredentialSelection::File
         );
 
         let mut supplied = inputs();
         supplied.token_stdin = true;
         assert_eq!(
             selected_source(&supplied, Some("ghu_env")),
-            CredentialSource::Stdin
+            CredentialSelection::Stdin
         );
     }
 
@@ -280,7 +314,7 @@ mod tests {
     fn the_environment_outranks_the_stored_profile() {
         assert_eq!(
             selected_source(&inputs(), Some("ghu_env")),
-            CredentialSource::Environment
+            CredentialSelection::Environment
         );
     }
 
@@ -288,9 +322,12 @@ mod tests {
     fn an_empty_environment_variable_is_not_a_credential() {
         assert_eq!(
             selected_source(&inputs(), Some("   ")),
-            CredentialSource::Profile
+            CredentialSelection::Profile
         );
-        assert_eq!(selected_source(&inputs(), None), CredentialSource::Profile);
+        assert_eq!(
+            selected_source(&inputs(), None),
+            CredentialSelection::Profile
+        );
     }
 
     #[test]
@@ -307,6 +344,18 @@ mod tests {
         let profile = config.profile("default").unwrap();
         assert_eq!(profile.refresh_token.as_deref(), Some("ghr_new"));
         assert!(profile.access_token_is_fresh(config::now_epoch_seconds()));
+    }
+
+    #[test]
+    fn every_selection_describes_itself_with_the_variable_it_reads() {
+        assert_eq!(
+            CredentialSelection::Environment.describe(),
+            format!("the {TOKEN_ENVIRONMENT_VARIABLE} environment variable")
+        );
+        assert_eq!(
+            CredentialSource::RefreshedProfile.describe(),
+            "the stored profile, refreshed"
+        );
     }
 
     #[tokio::test]
