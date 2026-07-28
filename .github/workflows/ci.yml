@@ -129,6 +129,8 @@ jobs:
       - uses: go-task/setup-task@01a4adf9db2d14c1de7a560f09170b6e0df736aa # v2
       - if: env.AIRLOCK_TOKEN != ''
         run: task dogfood
+      - if: env.AIRLOCK_TOKEN == ''
+        run: echo "AIRLOCK_TOKEN is not provisioned; skipping the dogfood audit."
 
 # Jobs are decomposed so a failure is legible on the pull request, and every job
 # invokes a task rather than a raw command so `task check` locally and CI cannot
