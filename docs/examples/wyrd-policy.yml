@@ -11,8 +11,8 @@ version: 1
 name: wyrd-company
 
 # Refuse to run against a binary whose check registry predates this policy.
-# The registry version moves when a rule, statement, severity, or evaluation
-# mode changes, so this is what stops an upgrade quietly changing the gate.
+# The registry version moves when a rule, statement, severity, evaluation mode,
+# or applicability condition changes, so an upgrade cannot quietly change the gate.
 requires-registry: ">=0.2"
 
 # Only Blocking failures make a repository nonconformant. Required failures

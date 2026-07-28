@@ -426,10 +426,10 @@ impl AuditContext<'_> {
 
 /// Evaluate one rule instance.
 ///
-/// The dispatch order is deliberate: policy conditions and registry evaluation
-/// modes are decided before any check runs, so a rule that cannot be evaluated
-/// says so through the status taxonomy rather than through a check pretending
-/// to have looked.
+/// The dispatch order is deliberate: the policy condition runs first, then
+/// built-in registry applicability, then the registry evaluation mode. A rule
+/// that cannot be evaluated therefore says so through the status taxonomy
+/// rather than through a check pretending to have looked.
 #[must_use]
 pub fn evaluate(rule: &RuleInstance, context: &AuditContext) -> Verdict {
     if let Some(verdict) = condition_verdict(condition_holds(rule.condition, context), || {

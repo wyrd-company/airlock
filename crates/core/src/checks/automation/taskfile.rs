@@ -52,6 +52,7 @@ pub(super) fn required_tasks(context: &AuditContext) -> Verdict {
 }
 
 pub(super) fn per_unit_taskfiles(context: &AuditContext) -> Verdict {
+    // Built-in applicability intercepts this; retain the guard as belt-and-braces defense.
     let Some(units) = context.release_units() else {
         return Verdict::inconclusive(
             "no_release_units_declared",
