@@ -188,13 +188,11 @@ fn read_apply(
                          condition"
                     ))
                 })?;
-                for key in value.keys() {
-                    if key != "when" {
-                        return Err(Error::Policy(format!(
-                            "unknown key `{key}` in the `apply` entry for `{capability}`"
-                        )));
-                    }
-                }
+                reject_unknown_keys(value, &["when"], |key| {
+                    Error::Policy(format!(
+                        "unknown key `{key}` in the `apply` entry for `{capability}`"
+                    ))
+                })?;
                 Condition::parse(when).ok_or_else(|| {
                     Error::Policy(format!(
                         "unknown condition `{when}` on capability `{capability}`"

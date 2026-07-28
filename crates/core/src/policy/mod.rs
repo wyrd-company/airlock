@@ -41,7 +41,7 @@ use fetch::*;
 use references::*;
 use suppression::*;
 
-fn reject_unknown_keys(
+pub(crate) fn reject_unknown_keys(
     document: &Yaml,
     allowed: &[&str],
     error: impl Fn(&str) -> Error,

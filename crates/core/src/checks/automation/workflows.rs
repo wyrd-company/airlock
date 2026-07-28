@@ -26,14 +26,11 @@ pub(super) fn readable_workflows<'a>(
 }
 
 pub(super) fn ci_on_pull_request(context: &AuditContext) -> Verdict {
-    let workflows = match readable_workflows(context) {
-        Ok(workflows) => workflows,
-        Err(verdict) => return *verdict,
-    };
-    let triggered = match super::super::workflows_with_trigger(&workflows, "pull_request") {
-        Ok(triggered) => triggered,
-        Err(verdict) => return *verdict,
-    };
+    let workflows = try_verdict!(readable_workflows(context));
+    let triggered = try_verdict!(super::super::workflows_with_trigger(
+        &workflows,
+        "pull_request"
+    ));
     match triggered.first() {
         Some(workflow) => Verdict::pass_at(
             "ci_triggers_on_pull_request",
@@ -49,10 +46,7 @@ pub(super) fn ci_on_pull_request(context: &AuditContext) -> Verdict {
 }
 
 pub(super) fn workflow_permissions_empty(context: &AuditContext) -> Verdict {
-    let workflows = match readable_workflows(context) {
-        Ok(workflows) => workflows,
-        Err(verdict) => return *verdict,
-    };
+    let workflows = try_verdict!(readable_workflows(context));
 
     let offenders: Vec<String> = workflows
         .iter()
@@ -91,10 +85,7 @@ pub(super) fn workflow_permissions_empty(context: &AuditContext) -> Verdict {
 }
 
 pub(super) fn jobs_declare_permissions(context: &AuditContext) -> Verdict {
-    let workflows = match readable_workflows(context) {
-        Ok(workflows) => workflows,
-        Err(verdict) => return *verdict,
-    };
+    let workflows = try_verdict!(readable_workflows(context));
 
     let offenders: Vec<String> = workflows
         .iter()
@@ -261,19 +252,15 @@ pub(super) fn find_comment_start(value: &str) -> Option<usize> {
 }
 
 pub(super) fn no_pull_request_target(context: &AuditContext) -> Verdict {
-    let workflows = match readable_workflows(context) {
-        Ok(workflows) => workflows,
-        Err(verdict) => return *verdict,
-    };
+    let workflows = try_verdict!(readable_workflows(context));
 
-    let offenders: Vec<&str> =
-        match super::super::workflows_with_trigger(&workflows, "pull_request_target") {
-            Ok(matching) => matching
-                .iter()
-                .map(|workflow| workflow.path.as_str())
-                .collect(),
-            Err(verdict) => return *verdict,
-        };
+    let offenders: Vec<&str> = try_verdict!(super::super::workflows_with_trigger(
+        &workflows,
+        "pull_request_target"
+    ))
+    .iter()
+    .map(|workflow| workflow.path.as_str())
+    .collect();
 
     if offenders.is_empty() {
         Verdict::pass(
@@ -293,16 +280,12 @@ pub(super) fn no_pull_request_target(context: &AuditContext) -> Verdict {
 }
 
 pub(super) fn concurrency_covers_pull_requests(context: &AuditContext) -> Verdict {
-    let workflows = match readable_workflows(context) {
-        Ok(workflows) => workflows,
-        Err(verdict) => return *verdict,
-    };
+    let workflows = try_verdict!(readable_workflows(context));
 
-    let pull_request_workflows =
-        match super::super::workflows_with_trigger(&workflows, "pull_request") {
-            Ok(matching) => matching,
-            Err(verdict) => return *verdict,
-        };
+    let pull_request_workflows = try_verdict!(super::super::workflows_with_trigger(
+        &workflows,
+        "pull_request"
+    ));
 
     if pull_request_workflows.is_empty() {
         return Verdict::fail(
@@ -355,10 +338,7 @@ pub(super) fn concurrency_covers_pull_requests(context: &AuditContext) -> Verdic
 }
 
 pub(super) fn jobs_invoke_tasks(context: &AuditContext) -> Verdict {
-    let workflows = match readable_workflows(context) {
-        Ok(workflows) => workflows,
-        Err(verdict) => return *verdict,
-    };
+    let workflows = try_verdict!(readable_workflows(context));
 
     let mut offenders = Vec::new();
     for workflow in workflows {
@@ -409,10 +389,7 @@ pub(super) fn jobs_invoke_tasks(context: &AuditContext) -> Verdict {
 }
 
 pub(super) fn pull_request_title_check(context: &AuditContext) -> Verdict {
-    let workflows = match readable_workflows(context) {
-        Ok(workflows) => workflows,
-        Err(verdict) => return *verdict,
-    };
+    let workflows = try_verdict!(readable_workflows(context));
 
     let validating = workflows
         .iter()
@@ -523,5 +500,336 @@ pub(super) fn reconcile_token_is_scoped(context: &AuditContext) -> Verdict {
                  repository.",
             ),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::super::evaluate;
+    use super::super::super::fixtures::*;
+    use crate::findings::Status;
+
+    fn verdict(id: &str, files: &[(&str, &str)]) -> Status {
+        CheckFixture::new(files).verdict(id).status
+    }
+
+    use super::super::decided;
+    const CI: &str = "\
+on:
+  pull_request:
+permissions: {}
+concurrency:
+  group: ci
+  cancel-in-progress: true
+jobs:
+  test:
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - run: task test
+";
+    #[test]
+    fn ci_must_trigger_on_pull_request() {
+        assert_eq!(
+            verdict("REPO-CI-01", &[(".github/workflows/ci.yml", CI)]),
+            Status::Pass
+        );
+        assert_eq!(
+            verdict(
+                "REPO-CI-01",
+                &[(
+                    ".github/workflows/ci.yml",
+                    "on:\n  push:\npermissions: {}\njobs: {}\n"
+                )]
+            ),
+            Status::Fail
+        );
+    }
+
+    #[test]
+    fn workflow_permissions_must_be_an_empty_map() {
+        assert_eq!(
+            verdict("REPO-CI-02", &[(".github/workflows/ci.yml", CI)]),
+            Status::Pass
+        );
+        assert_eq!(
+            verdict(
+                "REPO-CI-02",
+                &[(
+                    ".github/workflows/ci.yml",
+                    "on:\n  pull_request:\npermissions:\n  contents: read\njobs: {}\n"
+                )]
+            ),
+            Status::Fail
+        );
+        assert_eq!(
+            verdict(
+                "REPO-CI-02",
+                &[(
+                    ".github/workflows/ci.yml",
+                    "on:\n  pull_request:\njobs: {}\n"
+                )]
+            ),
+            Status::Fail
+        );
+    }
+
+    #[test]
+    fn a_job_without_permissions_fails() {
+        assert_eq!(
+            verdict(
+                "REPO-CI-03",
+                &[(
+                    ".github/workflows/ci.yml",
+                    "on:\n  pull_request:\npermissions: {}\njobs:\n  a:\n    steps: []\n"
+                )]
+            ),
+            Status::Fail
+        );
+        assert_eq!(
+            verdict("REPO-CI-03", &[(".github/workflows/ci.yml", CI)]),
+            Status::Manual
+        );
+    }
+
+    #[test]
+    fn actions_must_be_pinned_to_a_sha_with_a_comment() {
+        assert_eq!(
+            verdict("REPO-CI-04", &[(".github/workflows/ci.yml", CI)]),
+            Status::Pass
+        );
+        for unpinned in [
+            "jobs:\n  a:\n    steps:\n      - uses: actions/checkout@v4\n",
+            "jobs:\n  a:\n    steps:\n      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262\n",
+            "jobs:\n  a:\n    steps:\n      - uses: actions/checkout\n",
+        ] {
+            assert_eq!(
+                verdict("REPO-CI-04", &[(".github/workflows/x.yml", unpinned)]),
+                Status::Fail,
+                "{unpinned}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_local_action_needs_no_sha() {
+        assert_eq!(
+            verdict(
+                "REPO-CI-04",
+                &[(
+                    ".github/workflows/x.yml",
+                    "jobs:\n  a:\n    steps:\n      - uses: ./.github/actions/thing\n"
+                )]
+            ),
+            Status::Pass
+        );
+    }
+
+    #[test]
+    fn pull_request_target_fails() {
+        assert_eq!(
+            verdict(
+                "REPO-CI-05",
+                &[(
+                    ".github/workflows/x.yml",
+                    "on:\n  pull_request_target:\npermissions: {}\njobs: {}\n"
+                )]
+            ),
+            Status::Fail
+        );
+        assert_eq!(
+            verdict("REPO-CI-05", &[(".github/workflows/ci.yml", CI)]),
+            Status::Pass
+        );
+    }
+
+    #[test]
+    fn pull_request_workflows_need_a_cancelling_concurrency_group() {
+        assert_eq!(
+            verdict("REPO-CI-06", &[(".github/workflows/ci.yml", CI)]),
+            Status::Pass
+        );
+        assert_eq!(
+            verdict(
+                "REPO-CI-06",
+                &[(
+                    ".github/workflows/ci.yml",
+                    "on:\n  pull_request:\npermissions: {}\njobs: {}\n"
+                )]
+            ),
+            Status::Fail
+        );
+    }
+
+    #[test]
+    fn a_raw_command_in_a_job_fails() {
+        assert_eq!(
+            verdict("REPO-CI-07", &[(".github/workflows/ci.yml", CI)]),
+            Status::Pass
+        );
+        assert_eq!(
+            verdict(
+                "REPO-CI-07",
+                &[(
+                    ".github/workflows/x.yml",
+                    "jobs:\n  a:\n    steps:\n      - run: cargo test\n"
+                )]
+            ),
+            Status::Fail
+        );
+    }
+
+    #[test]
+    fn a_multi_line_run_block_is_judged_by_its_first_command() {
+        assert_eq!(
+            verdict(
+                "REPO-CI-07",
+                &[(
+                    ".github/workflows/x.yml",
+                    "jobs:\n  a:\n    steps:\n      - run: |\n          set -e\n          task test\n"
+                )]
+            ),
+            Status::Fail
+        );
+    }
+
+    #[test]
+    fn a_title_check_defers_the_ruleset_half_of_the_rule() {
+        assert_eq!(
+            verdict(
+                "REPO-CI-08",
+                &[(
+                    ".github/workflows/pr.yml",
+                    "on:\n  pull_request:\npermissions: {}\njobs:\n  t:\n    steps:\n      \
+                     - env:\n          PR_TITLE: ${{ github.event.pull_request.title }}\n        \
+                     run: task lint:commit-msg\n"
+                )]
+            ),
+            Status::Manual
+        );
+        assert_eq!(
+            verdict("REPO-CI-08", &[(".github/workflows/ci.yml", CI)]),
+            Status::Fail
+        );
+    }
+
+    #[test]
+    fn the_reconcile_token_must_be_scoped() {
+        let scoped = "\
+on:
+  push:
+    branches: [main]
+permissions: {}
+jobs:
+  reconcile:
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          repositories: name
+";
+        assert_eq!(
+            verdict(
+                "REPO-CI-09",
+                &[(".github/workflows/reconcile-settings.yml", scoped)]
+            ),
+            Status::Pass
+        );
+        let unscoped = scoped.replace("          repositories: name\n", "");
+        assert_eq!(
+            verdict(
+                "REPO-CI-09",
+                &[(".github/workflows/reconcile-settings.yml", &unscoped)]
+            ),
+            Status::Fail
+        );
+    }
+
+    #[test]
+    fn an_unparseable_workflow_makes_workflow_rules_inconclusive_not_passing() {
+        let snapshot = snapshot(&[(".github/workflows/x.yml", "a: 1\na: 2\n")]);
+        let workflows = workflows(&snapshot);
+        let policy = policy();
+        let context = context(&snapshot, &policy, workflows);
+        let verdict = evaluate(&rule("REPO-CI-02"), &context);
+        assert_eq!(verdict.status, Status::Inconclusive);
+        assert!(!decided(&verdict));
+    }
+
+    #[test]
+    fn an_action_pin_needs_a_comment_that_names_a_version() {
+        let sha = "11d5960a326750d5838078e36cf38b85af677262";
+        let cases: &[(&str, Status)] = &[
+            ("# v4", Status::Pass),
+            ("# 1.2.3", Status::Pass),
+            ("#v4", Status::Pass),
+            // A bare hash is not a version comment.
+            ("#", Status::Fail),
+            ("#   ", Status::Fail),
+            // Nor is a comment that names no version.
+            ("# see the wiki", Status::Fail),
+        ];
+        for (comment, expected) in cases {
+            let workflow = format!(
+                "jobs:\n  a:\n    steps:\n      - uses: actions/checkout@{sha} {comment}\n"
+            );
+            assert_eq!(
+                verdict("REPO-CI-04", &[(".github/workflows/x.yml", &workflow)]),
+                *expected,
+                "comment `{comment}`"
+            );
+        }
+    }
+
+    #[test]
+    fn a_hash_inside_a_quoted_uses_value_is_not_a_version_comment() {
+        let sha = "11d5960a326750d5838078e36cf38b85af677262";
+        let workflow =
+            format!("jobs:\n  a:\n    steps:\n      - uses: \"actions/checkout@{sha}#v4\"\n");
+        // The `#` is inside the scalar, so the ref is `{sha}#v4` — neither a
+        // bare sha nor a commented pin.
+        assert_eq!(
+            verdict("REPO-CI-04", &[(".github/workflows/x.yml", &workflow)]),
+            Status::Fail
+        );
+    }
+
+    #[test]
+    fn a_quoted_uses_value_with_a_real_trailing_comment_passes() {
+        let sha = "11d5960a326750d5838078e36cf38b85af677262";
+        let workflow =
+            format!("jobs:\n  a:\n    steps:\n      - uses: \"actions/checkout@{sha}\" # v4\n");
+        assert_eq!(
+            verdict("REPO-CI-04", &[(".github/workflows/x.yml", &workflow)]),
+            Status::Pass
+        );
+    }
+
+    #[test]
+    fn the_uses_splitter_keeps_a_scalar_hash_out_of_the_comment() {
+        let step = super::uses_step("      - uses: owner/action@abc#fragment").unwrap();
+        assert_eq!(step.reference, "owner/action@abc#fragment");
+        assert_eq!(step.comment, None);
+
+        let commented = super::uses_step("      - uses: owner/action@abc # v4").unwrap();
+        assert_eq!(commented.reference, "owner/action@abc");
+        assert_eq!(commented.comment, Some(" v4"));
+
+        let empty = super::uses_step("      - uses: owner/action@abc #").unwrap();
+        assert_eq!(empty.comment, Some(""));
+    }
+
+    #[test]
+    fn a_malformed_trigger_list_makes_workflow_rules_inconclusive() {
+        let workflow = "on: [pull_request, 3]\npermissions: {}\njobs: {}\n";
+        for id in ["REPO-CI-01", "REPO-CI-05"] {
+            assert_eq!(
+                verdict(id, &[(".github/workflows/x.yml", workflow)]),
+                Status::Inconclusive,
+                "{id}"
+            );
+        }
     }
 }

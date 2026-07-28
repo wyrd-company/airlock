@@ -7,20 +7,18 @@ pub(super) fn read_suppressions(
     let Some(suppressions) = document.get("suppressions") else {
         return Ok(SuppressionAuthority::default());
     };
-    let Some(entries) = suppressions.as_map() else {
+    let Some(_) = suppressions.as_map() else {
         return Err(Error::Policy(format!(
             "`suppressions` should be a mapping, found {}",
             suppressions.kind()
         )));
     };
-    for (key, _) in entries {
-        if !["direct", "allow-repo-requests"].contains(&key.as_str()) {
-            return Err(Error::Policy(format!(
-                "unknown key `{key}` under `suppressions`; airlock accepts direct, \
+    reject_unknown_keys(suppressions, &["direct", "allow-repo-requests"], |key| {
+        Error::Policy(format!(
+            "unknown key `{key}` under `suppressions`; airlock accepts direct, \
                  allow-repo-requests"
-            )));
-        }
-    }
+        ))
+    })?;
 
     let mut authority = SuppressionAuthority::default();
 
@@ -32,14 +30,12 @@ pub(super) fn read_suppressions(
             )));
         };
         for item in items {
-            for key in item.keys() {
-                if !["rule", "repository", "reason"].contains(&key) {
-                    return Err(Error::Policy(format!(
-                        "unknown key `{key}` in a direct suppression; airlock accepts rule, \
+            reject_unknown_keys(item, &["rule", "repository", "reason"], |key| {
+                Error::Policy(format!(
+                    "unknown key `{key}` in a direct suppression; airlock accepts rule, \
                          repository, reason"
-                    )));
-                }
-            }
+                ))
+            })?;
             let rule = item.get("rule").and_then(Yaml::as_str).ok_or_else(|| {
                 Error::Policy("every direct suppression must name a `rule`".to_owned())
             })?;

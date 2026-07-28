@@ -21,10 +21,7 @@ pub(crate) fn run(id: &str, _rule: &RuleInstance, context: &AuditContext) -> Opt
 }
 
 fn no_declared_custom_properties(context: &AuditContext) -> Verdict {
-    let settings = match repo_settings(context) {
-        Ok(settings) => settings,
-        Err(verdict) => return *verdict,
-    };
+    let settings = try_verdict!(repo_settings(context));
 
     let declared: Vec<&str> = ["properties", "custom-properties", "custom_properties"]
         .into_iter()

@@ -167,10 +167,7 @@ fn release_is_dispatched(context: &AuditContext) -> Verdict {
         );
     };
 
-    let all_triggers = match workflow.triggers() {
-        Ok(triggers) => triggers,
-        Err(verdict) => return *verdict,
-    };
+    let all_triggers = try_verdict!(workflow.triggers());
 
     let mut gaps = Vec::new();
     if !all_triggers
@@ -228,10 +225,9 @@ fn no_publish_on_merge(context: &AuditContext) -> Verdict {
     let branch = &context.snapshot.repository.default_branch;
     let mut pushing = Vec::new();
     for workflow in &context.workflows {
-        match workflow.pushes_to(branch) {
-            Ok(true) => pushing.push(workflow),
-            Ok(false) => {}
-            Err(verdict) => return *verdict,
+        match try_verdict!(workflow.pushes_to(branch)) {
+            true => pushing.push(workflow),
+            false => {}
         }
     }
 

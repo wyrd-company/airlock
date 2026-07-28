@@ -276,14 +276,15 @@ impl RestClient {
                 return Ok(raw);
             }
 
-            let error = self.to_error(endpoint, &raw);
+            let summary = summarise(&raw);
+            let cause = classify::classify(&summary);
+            let wait = classify::retry_delay_seconds(&summary, now_epoch_seconds()).unwrap_or(1);
+            let error = self.to_error(endpoint, &raw, cause, summary);
             if error.cause != ErrorCause::RateLimit || attempt >= self.config.max_rate_limit_retries
             {
                 return Err(error);
             }
 
-            let summary = summarise(&raw);
-            let wait = classify::retry_delay_seconds(&summary, now_epoch_seconds()).unwrap_or(1);
             // Waiting past the audit deadline achieves nothing but a later
             // failure, so the budget wins over the retry.
             if wait > self.config.max_rate_limit_wait_seconds
@@ -296,10 +297,15 @@ impl RestClient {
         }
     }
 
-    fn to_error(&self, endpoint: &str, raw: &RawResponse) -> ApiError {
-        let summary = summarise(raw);
+    fn to_error(
+        &self,
+        endpoint: &str,
+        raw: &RawResponse,
+        cause: ErrorCause,
+        summary: Response,
+    ) -> ApiError {
         ApiError {
-            cause: classify::classify(&summary),
+            cause,
             endpoint: endpoint.to_owned(),
             status: Some(raw.status),
             message: summary.message,

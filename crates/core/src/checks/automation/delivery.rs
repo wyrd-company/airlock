@@ -34,16 +34,12 @@ pub(super) fn cd_on_tags(rule: &RuleInstance, context: &AuditContext) -> Verdict
     let expected = rule.param_str("tag-pattern").unwrap_or(DEFAULT_TAG_PATTERN);
 
     let tags = match workflow.trigger("push") {
-        Some(push) => {
-            match super::super::yaml_strings(
-                push,
-                "tags",
-                &format!("the push tags in {}", workflow.path),
-            ) {
-                Ok(tags) => tags.unwrap_or_default(),
-                Err(verdict) => return *verdict,
-            }
-        }
+        Some(push) => try_verdict!(super::super::yaml_strings(
+            push,
+            "tags",
+            &format!("the push tags in {}", workflow.path),
+        ))
+        .unwrap_or_default(),
         None => Vec::new(),
     };
 
@@ -81,10 +77,7 @@ pub(super) fn cd_on_default_branch(context: &AuditContext) -> Verdict {
         return no_cd_workflow("the default-branch trigger");
     };
     let branch = &context.snapshot.repository.default_branch;
-    let pushes_to_branch = match workflow.pushes_to(branch) {
-        Ok(pushes) => pushes,
-        Err(verdict) => return *verdict,
-    };
+    let pushes_to_branch = try_verdict!(workflow.pushes_to(branch));
     if pushes_to_branch {
         Verdict::pass_at(
             "cd_triggers_on_default_branch",
@@ -183,5 +176,79 @@ pub(super) fn release_and_delivery_separate(context: &AuditContext) -> Verdict {
                 "Create the release in its own workflow and let CD deliver an existing tag.",
             ),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::super::evaluate;
+    use super::super::super::fixtures::*;
+    use crate::findings::Status;
+    use serde_json::json;
+
+    fn verdict(id: &str, files: &[(&str, &str)]) -> Status {
+        CheckFixture::new(files).verdict(id).status
+    }
+    #[test]
+    fn delivery_rules_defer_when_there_is_no_cd_workflow() {
+        for id in [
+            "REPO-CD-01",
+            "REPO-CD-02",
+            "REPO-CD-03",
+            "REPO-CD-04",
+            "REPO-CD-07",
+        ] {
+            assert_eq!(verdict(id, &[]), Status::Manual, "{id}");
+        }
+    }
+
+    #[test]
+    fn cd_tag_triggers_are_compared_against_the_policy_pattern() {
+        let cd = "on:\n  push:\n    tags: ['[0-9]*.[0-9]*.[0-9]*']\npermissions: {}\njobs: {}\n";
+        assert_eq!(
+            verdict("REPO-CD-02", &[(".github/workflows/cd.yml", cd)]),
+            Status::Pass
+        );
+
+        let snapshot = snapshot(&[(".github/workflows/cd.yml", cd)]);
+        let workflows = workflows(&snapshot);
+        let policy = policy();
+        let context = context(&snapshot, &policy, workflows);
+        let custom = rule_with("REPO-CD-02", &[("tag-pattern", json!("release-*"))]);
+        assert_eq!(evaluate(&custom, &context).status, Status::Fail);
+    }
+
+    #[test]
+    fn cd_must_not_cancel_a_delivery_in_flight() {
+        let cd = "on:\n  push:\n    tags: ['*']\nconcurrency:\n  group: cd\n  \
+                  cancel-in-progress: false\npermissions: {}\njobs: {}\n";
+        assert_eq!(
+            verdict("REPO-CD-04", &[(".github/workflows/cd.yml", cd)]),
+            Status::Pass
+        );
+        let cancelling = cd.replace("cancel-in-progress: false", "cancel-in-progress: true");
+        assert_eq!(
+            verdict("REPO-CD-04", &[(".github/workflows/cd.yml", &cancelling)]),
+            Status::Fail
+        );
+    }
+
+    #[test]
+    fn a_delivery_workflow_that_creates_releases_fails() {
+        let cd = "on:\n  push:\n    tags: ['*']\npermissions: {}\njobs:\n  a:\n    steps:\n      \
+                  - run: gh release create 1.0.0\n";
+        assert_eq!(
+            verdict("REPO-CD-07", &[(".github/workflows/cd.yml", cd)]),
+            Status::Fail
+        );
+    }
+
+    #[test]
+    fn a_malformed_cd_tag_list_is_not_read_as_no_tag_trigger() {
+        let cd = "on:\n  push:\n    tags: ['1.0.0', 7]\npermissions: {}\njobs: {}\n";
+        assert_eq!(
+            verdict("REPO-CD-02", &[(".github/workflows/cd.yml", cd)]),
+            Status::Inconclusive
+        );
     }
 }

@@ -188,9 +188,9 @@ impl fmt::Display for Evaluation {
 /// One registered check definition.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CheckDefinition {
-    /// The rule id, for example `REPO-LIC-01`.
+    /// The check definition id, for example `REPO-LIC-01`.
     pub id: &'static str,
-    /// The rule statement, verbatim from the conformance checklist.
+    /// The check definition statement, verbatim from the conformance checklist.
     pub statement: &'static str,
     /// The default severity, verbatim from the conformance checklist.
     pub severity: Severity,
@@ -1128,13 +1128,13 @@ mod tests {
     use std::collections::BTreeSet;
 
     #[test]
-    fn every_rule_id_is_unique() {
+    fn every_check_definition_id_is_unique() {
         let ids: BTreeSet<&str> = CHECKS.iter().map(|check| check.id).collect();
         assert_eq!(ids.len(), CHECKS.len());
     }
 
     #[test]
-    fn every_rule_has_a_statement() {
+    fn every_check_definition_has_a_statement() {
         for check in CHECKS {
             assert!(!check.statement.trim().is_empty(), "{}", check.id);
         }

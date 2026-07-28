@@ -195,3 +195,86 @@ pub(super) fn include_namespaces(context: &AuditContext) -> Verdict {
         )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::super::fixtures::*;
+    use crate::findings::Status;
+
+    fn verdict(id: &str, files: &[(&str, &str)]) -> Status {
+        CheckFixture::new(files).verdict(id).status
+    }
+
+    const TASKFILE: &str = "\
+version: '3'
+tasks:
+  test:
+    cmds: [cargo test]
+  lint:
+    cmds: [cargo clippy]
+  format:
+    cmds: [cargo fmt]
+  check:
+    cmds: [cargo test]
+";
+    #[test]
+    fn required_task_verbs_must_all_exist() {
+        assert_eq!(
+            verdict("REPO-TASK-01", &[("taskfile.yml", TASKFILE)]),
+            Status::Pass
+        );
+        assert_eq!(
+            verdict(
+                "REPO-TASK-01",
+                &[(
+                    "taskfile.yml",
+                    "version: '3'\ntasks:\n  test:\n    cmds: []\n"
+                )]
+            ),
+            Status::Fail
+        );
+    }
+
+    #[test]
+    fn a_missing_taskfile_fails_rather_than_passing_vacuously() {
+        assert_eq!(verdict("REPO-TASK-01", &[]), Status::Fail);
+    }
+
+    #[test]
+    fn includes_must_set_dir() {
+        let with_dir = "version: '3'\nincludes:\n  core:\n    taskfile: ./core\n    dir: ./core\n";
+        let without = "version: '3'\nincludes:\n  core:\n    taskfile: ./core\n";
+        assert_eq!(
+            verdict("REPO-TASK-05", &[("taskfile.yml", with_dir)]),
+            Status::Pass
+        );
+        assert_eq!(
+            verdict("REPO-TASK-05", &[("taskfile.yml", without)]),
+            Status::Fail
+        );
+    }
+
+    #[test]
+    fn include_namespaces_must_name_release_units() {
+        let files = [
+            (
+                "taskfile.yml",
+                "version: '3'\nincludes:\n  core:\n    taskfile: ./core\n    dir: ./core\n",
+            ),
+            (
+                ".intentional/config.yml",
+                "release-units:\n  core:\n    path: core\n  cli:\n    path: cli\n",
+            ),
+        ];
+        assert_eq!(verdict("REPO-TASK-06", &files), Status::Pass);
+
+        let mismatched = [
+            (
+                "taskfile.yml",
+                "version: '3'\nincludes:\n  other:\n    taskfile: ./x\n    dir: ./x\n",
+            ),
+            files[1],
+        ];
+        assert_eq!(verdict("REPO-TASK-06", &mismatched), Status::Fail);
+    }
+}

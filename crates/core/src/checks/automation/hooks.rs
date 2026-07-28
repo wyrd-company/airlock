@@ -57,10 +57,7 @@ pub(super) fn hook_commands(
 
 pub(super) fn pre_commit_hook(context: &AuditContext) -> Verdict {
     let lefthook = try_verdict!(parse_lefthook(context));
-    let commands = match hook_commands(&lefthook, "pre-commit") {
-        Ok(commands) => commands,
-        Err(verdict) => return *verdict,
-    };
+    let commands = try_verdict!(hook_commands(&lefthook, "pre-commit"));
     let Some(commands) = commands else {
         return Verdict::fail_at(
             "no_pre_commit_hook",
@@ -98,14 +95,8 @@ pub(super) fn pre_commit_hook(context: &AuditContext) -> Verdict {
 }
 
 pub(super) fn commit_msg_hook(context: &AuditContext) -> Verdict {
-    let lefthook = match parse_lefthook(context) {
-        Ok(lefthook) => lefthook,
-        Err(verdict) => return *verdict,
-    };
-    let commands = match hook_commands(&lefthook, "commit-msg") {
-        Ok(commands) => commands,
-        Err(verdict) => return *verdict,
-    };
+    let lefthook = try_verdict!(parse_lefthook(context));
+    let commands = try_verdict!(hook_commands(&lefthook, "commit-msg"));
     let Some(commands) = commands else {
         return Verdict::fail_at(
             "no_commit_msg_hook",
@@ -137,14 +128,8 @@ pub(super) fn commit_msg_hook(context: &AuditContext) -> Verdict {
 }
 
 pub(super) fn pre_push_hook(context: &AuditContext) -> Verdict {
-    let lefthook = match parse_lefthook(context) {
-        Ok(lefthook) => lefthook,
-        Err(verdict) => return *verdict,
-    };
-    let commands = match hook_commands(&lefthook, "pre-push") {
-        Ok(commands) => commands,
-        Err(verdict) => return *verdict,
-    };
+    let lefthook = try_verdict!(parse_lefthook(context));
+    let commands = try_verdict!(hook_commands(&lefthook, "pre-push"));
     let Some(commands) = commands else {
         return Verdict::pass_at(
             "no_pre_push_hook",
@@ -186,10 +171,7 @@ pub(super) fn pre_push_hook(context: &AuditContext) -> Verdict {
 }
 
 pub(super) fn hooks_invoke_tasks(context: &AuditContext) -> Verdict {
-    let lefthook = match parse_lefthook(context) {
-        Ok(lefthook) => lefthook,
-        Err(verdict) => return *verdict,
-    };
+    let lefthook = try_verdict!(parse_lefthook(context));
 
     let mut offenders = Vec::new();
     for hook in [
@@ -199,10 +181,7 @@ pub(super) fn hooks_invoke_tasks(context: &AuditContext) -> Verdict {
         "post-checkout",
         "post-merge",
     ] {
-        let commands = match hook_commands(&lefthook, hook) {
-            Ok(commands) => commands,
-            Err(verdict) => return *verdict,
-        };
+        let commands = try_verdict!(hook_commands(&lefthook, hook));
         let Some(commands) = commands else {
             continue;
         };
@@ -240,4 +219,103 @@ pub(super) fn decided(verdict: &Verdict) -> bool {
         verdict.status,
         crate::findings::Status::Pass | crate::findings::Status::Fail
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::super::fixtures::*;
+    use crate::findings::Status;
+
+    fn verdict(id: &str, files: &[(&str, &str)]) -> Status {
+        CheckFixture::new(files).verdict(id).status
+    }
+
+    const LEFTHOOK: &str = "\
+pre-commit:
+  jobs:
+    - name: format
+      run: task format
+    - name: lint
+      run: task lint
+commit-msg:
+  jobs:
+    - name: conventional
+      run: task lint:commit-msg -- {1}
+";
+    #[test]
+    fn hook_rules_read_the_lefthook_file() {
+        assert_eq!(
+            verdict("REPO-HOOK-01", &[(".config/lefthook.yml", LEFTHOOK)]),
+            Status::Manual
+        );
+        assert_eq!(
+            verdict("REPO-HOOK-02", &[(".config/lefthook.yml", LEFTHOOK)]),
+            Status::Pass
+        );
+        assert_eq!(
+            verdict("REPO-HOOK-03", &[(".config/lefthook.yml", LEFTHOOK)]),
+            Status::Pass
+        );
+        assert_eq!(
+            verdict("REPO-HOOK-04", &[(".config/lefthook.yml", LEFTHOOK)]),
+            Status::Pass
+        );
+    }
+
+    #[test]
+    fn a_pre_commit_missing_lint_fails() {
+        assert_eq!(
+            verdict(
+                "REPO-HOOK-01",
+                &[(
+                    ".config/lefthook.yml",
+                    "pre-commit:\n  jobs:\n    - name: format\n      run: task format\n"
+                )]
+            ),
+            Status::Fail
+        );
+    }
+
+    #[test]
+    fn a_heavy_pre_push_fails() {
+        assert_eq!(
+            verdict(
+                "REPO-HOOK-03",
+                &[(
+                    ".config/lefthook.yml",
+                    "pre-push:\n  jobs:\n    - name: test\n      run: task test\n"
+                )]
+            ),
+            Status::Fail
+        );
+    }
+
+    #[test]
+    fn a_raw_command_in_a_hook_fails() {
+        assert_eq!(
+            verdict(
+                "REPO-HOOK-04",
+                &[(
+                    ".config/lefthook.yml",
+                    "pre-commit:\n  jobs:\n    - name: fmt\n      run: cargo fmt\n"
+                )]
+            ),
+            Status::Fail
+        );
+    }
+
+    #[test]
+    fn a_hook_job_without_a_readable_command_is_malformed_not_absent() {
+        // A job declared with `script:` instead of `run:` used to vanish, so
+        // "every hook invokes a task" passed over a command nobody read.
+        let lefthook = "pre-commit:\n  jobs:\n    - name: format\n      script: format.sh\n";
+        assert_eq!(
+            verdict("REPO-HOOK-04", &[(".config/lefthook.yml", lefthook)]),
+            Status::Inconclusive
+        );
+        assert_eq!(
+            verdict("REPO-HOOK-01", &[(".config/lefthook.yml", lefthook)]),
+            Status::Inconclusive
+        );
+    }
 }

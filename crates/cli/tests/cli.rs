@@ -119,7 +119,7 @@ fn list_checks_reports_the_whole_registry_without_a_target() {
         .success();
     let listing = json_output(&assertion.get_output().stdout);
     let checks = listing["checks"].as_array().unwrap();
-    assert!(checks.len() >= 100);
+    assert!(checks.len() >= 109);
     for id in ["REPO-FILE-01", "REPO-CI-09", "REPO-PROP-04"] {
         assert!(checks.iter().any(|check| check["id"] == id), "{id}");
     }
@@ -185,9 +185,6 @@ async fn a_blocking_failure_exits_one() {
 #[tokio::test(flavor = "multi_thread")]
 async fn an_enabled_unimplemented_rule_makes_the_audit_incomplete() {
     let repo = FakeRepo::new("wyrd-company", "example").with_file("README.md", "# example");
-    let server = support::start(&[repo]).await;
-    let config = TempDir::new().unwrap();
-    let policies = TempDir::new().unwrap();
 
     // REPO-DOCS-05 is registered but not built. Raising it to blocking is
     // exactly the case that must not be able to exit 0.
@@ -202,19 +199,7 @@ checks:
     severity: blocking
 ";
 
-    let assertion = airlock(&server, &config)
-        .args([
-            "audit",
-            "wyrd-company/example",
-            "--policy",
-            &policy_path(&policies, policy),
-            "--format",
-            "json",
-        ])
-        .assert()
-        .code(2);
-
-    let report = json_output(&assertion.get_output().stdout);
+    let report = audit_json(repo, policy, 2).await;
     assert_eq!(report["outcome"], "incomplete");
     assert_eq!(report["complete"], false);
     assert_eq!(finding(&report, "REPO-DOCS-05")["status"], "unimplemented");
@@ -230,9 +215,6 @@ async fn a_plan_limitation_makes_the_audit_incomplete_rather_than_passing() {
             "documentation_url": "https://docs.github.com/rest/repos/rules"
         }),
     ));
-    let server = support::start(&[repo]).await;
-    let config = TempDir::new().unwrap();
-    let policies = TempDir::new().unwrap();
 
     let policy = "\
 version: 1
@@ -242,19 +224,7 @@ capabilities:
   base: [git]
 ";
 
-    let assertion = airlock(&server, &config)
-        .args([
-            "audit",
-            "wyrd-company/example",
-            "--policy",
-            &policy_path(&policies, policy),
-            "--format",
-            "json",
-        ])
-        .assert()
-        .code(2);
-
-    let report = json_output(&assertion.get_output().stdout);
+    let report = audit_json(repo, policy, 2).await;
     assert_eq!(report["outcome"], "incomplete");
     let git02 = finding(&report, "REPO-GIT-02");
     assert_eq!(git02["status"], "error");
@@ -279,25 +249,8 @@ suppress:
 async fn an_authorised_suppression_request_is_honoured() {
     let repo = FakeRepo::new("wyrd-company", "example")
         .with_file(".github/airlock.yml", SUPPRESSION_REQUEST);
-    let server = support::start(&[repo]).await;
-    let config = TempDir::new().unwrap();
-    let policies = TempDir::new().unwrap();
-
     let policy = format!("{LICENSING_POLICY}suppressions:\n  allow-repo-requests: [REPO-LIC-01]\n");
-
-    let assertion = airlock(&server, &config)
-        .args([
-            "audit",
-            "wyrd-company/example",
-            "--policy",
-            &policy_path(&policies, &policy),
-            "--format",
-            "json",
-        ])
-        .assert()
-        .code(0);
-
-    let report = json_output(&assertion.get_output().stdout);
+    let report = audit_json(repo, &policy, 0).await;
     let lic01 = finding(&report, "REPO-LIC-01");
     assert_eq!(lic01["status"], "suppressed");
     assert_eq!(lic01["suppression"]["source"], "repository_request");
@@ -315,23 +268,7 @@ async fn an_authorised_suppression_request_is_honoured() {
 async fn an_unauthorised_suppression_request_changes_nothing() {
     let repo = FakeRepo::new("wyrd-company", "example")
         .with_file(".github/airlock.yml", SUPPRESSION_REQUEST);
-    let server = support::start(&[repo]).await;
-    let config = TempDir::new().unwrap();
-    let policies = TempDir::new().unwrap();
-
-    let assertion = airlock(&server, &config)
-        .args([
-            "audit",
-            "wyrd-company/example",
-            "--policy",
-            &policy_path(&policies, LICENSING_POLICY),
-            "--format",
-            "json",
-        ])
-        .assert()
-        .code(1);
-
-    let report = json_output(&assertion.get_output().stdout);
+    let report = audit_json(repo, LICENSING_POLICY, 1).await;
     assert_eq!(finding(&report, "REPO-LIC-01")["status"], "fail");
     let observations = report["policy_observations"].as_array().unwrap();
     assert_eq!(observations.len(), 1);
@@ -342,28 +279,12 @@ async fn an_unauthorised_suppression_request_changes_nothing() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_policy_suppression_is_recorded_with_its_authority() {
     let repo = FakeRepo::new("wyrd-company", "example");
-    let server = support::start(&[repo]).await;
-    let config = TempDir::new().unwrap();
-    let policies = TempDir::new().unwrap();
-
     let policy = format!(
         "{LICENSING_POLICY}suppressions:\n  direct:\n    - rule: REPO-LIC-01\n      repository: \
          wyrd-company/example\n      reason: \"the licence lands with the first release\"\n"
     );
 
-    let assertion = airlock(&server, &config)
-        .args([
-            "audit",
-            "wyrd-company/example",
-            "--policy",
-            &policy_path(&policies, &policy),
-            "--format",
-            "json",
-        ])
-        .assert()
-        .code(0);
-
-    let report = json_output(&assertion.get_output().stdout);
+    let report = audit_json(repo, &policy, 0).await;
     let lic01 = finding(&report, "REPO-LIC-01");
     assert_eq!(lic01["status"], "suppressed");
     assert_eq!(lic01["suppression"]["source"], "policy");
@@ -784,23 +705,7 @@ async fn a_truncated_tree_cannot_produce_a_clean_audit() {
             ".github/workflows/reconcile-settings.yml",
             "on:\n  push:\n    branches: [main]\npermissions: {}\njobs: {}\n",
         );
-    let server = support::start(&[repo]).await;
-    let config = TempDir::new().unwrap();
-    let policies = TempDir::new().unwrap();
-
-    let assertion = airlock(&server, &config)
-        .args([
-            "audit",
-            "wyrd-company/example",
-            "--policy",
-            &policy_path(&policies, FILES_POLICY),
-            "--format",
-            "json",
-        ])
-        .assert()
-        .code(2);
-
-    let report = json_output(&assertion.get_output().stdout);
+    let report = audit_json(repo, FILES_POLICY, 2).await;
     assert_eq!(report["outcome"], "incomplete");
     assert_eq!(report["complete"], false);
     // The two negative assertions are exactly the ones a partial tree cannot

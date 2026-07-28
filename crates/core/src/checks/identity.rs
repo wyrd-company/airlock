@@ -96,10 +96,7 @@ fn description_shape(context: &AuditContext) -> Verdict {
     const MAX_CHARS: usize = 160;
     const TRUNCATION: usize = 80;
 
-    let description = match description(context) {
-        Ok(description) => description,
-        Err(verdict) => return *verdict,
-    };
+    let description = try_verdict!(description(context));
     let description = description.trim();
 
     let length = description.chars().count();
@@ -160,10 +157,7 @@ fn topic_count(rule: &RuleInstance, context: &AuditContext) -> Verdict {
     let minimum = rule.param_u64("min-topics").unwrap_or(3) as usize;
     let maximum = rule.param_u64("max-topics").unwrap_or(8) as usize;
 
-    let topics = match topics(context) {
-        Ok(topics) => topics,
-        Err(verdict) => return *verdict,
-    };
+    let topics = try_verdict!(topics(context));
 
     if topics.len() < minimum || topics.len() > maximum {
         Verdict::fail_at(
@@ -205,19 +199,10 @@ fn vocabulary(context: &AuditContext, category: &str) -> Result<Option<Vec<Strin
 }
 
 fn topic_vocabulary(context: &AuditContext) -> Verdict {
-    let topics = match topics(context) {
-        Ok(topics) => topics,
-        Err(verdict) => return *verdict,
-    };
+    let topics = try_verdict!(topics(context));
 
-    let artifacts = match vocabulary(context, "artifact-type") {
-        Ok(artifacts) => artifacts,
-        Err(verdict) => return *verdict,
-    };
-    let ecosystems = match vocabulary(context, "ecosystem") {
-        Ok(ecosystems) => ecosystems,
-        Err(verdict) => return *verdict,
-    };
+    let artifacts = try_verdict!(vocabulary(context, "artifact-type"));
+    let ecosystems = try_verdict!(vocabulary(context, "ecosystem"));
     let (Some(artifacts), Some(ecosystems)) = (artifacts, ecosystems) else {
         return Verdict::inconclusive(
             "no_topic_reference_data",
@@ -256,10 +241,7 @@ fn topic_vocabulary(context: &AuditContext) -> Verdict {
 }
 
 fn topics_are_catalogued(context: &AuditContext) -> Verdict {
-    let topics = match topics(context) {
-        Ok(topics) => topics,
-        Err(verdict) => return *verdict,
-    };
+    let topics = try_verdict!(topics(context));
 
     let Some(reference) = context.policy.reference_data.get("topics") else {
         return Verdict::inconclusive(
@@ -278,13 +260,10 @@ fn topics_are_catalogued(context: &AuditContext) -> Verdict {
 
     let mut catalogue: Vec<String> = Vec::new();
     for (category, values) in categories {
-        match super::yaml_string_seq(
+        catalogue.extend(try_verdict!(super::yaml_string_seq(
             values,
             &format!("the `{category}` list in the policy's topic vocabulary"),
-        ) {
-            Ok(terms) => catalogue.extend(terms),
-            Err(verdict) => return *verdict,
-        }
+        )));
     }
 
     let uncatalogued: Vec<&String> = topics
@@ -319,10 +298,7 @@ fn topics_are_catalogued(context: &AuditContext) -> Verdict {
 }
 
 fn no_org_topic(rule: &RuleInstance, context: &AuditContext) -> Verdict {
-    let topics = match topics(context) {
-        Ok(topics) => topics,
-        Err(verdict) => return *verdict,
-    };
+    let topics = try_verdict!(topics(context));
     let mut org_names = match rule.param_strings("org-names") {
         Ok(Some(names)) => names,
         Ok(None) => Vec::new(),
@@ -365,10 +341,7 @@ fn no_org_topic(rule: &RuleInstance, context: &AuditContext) -> Verdict {
 }
 
 fn merge_settings_declared(context: &AuditContext) -> Verdict {
-    let settings = match repo_settings(context) {
-        Ok(settings) => settings,
-        Err(verdict) => return *verdict,
-    };
+    let settings = try_verdict!(repo_settings(context));
     let Some(merge) = settings.get("merge") else {
         return Verdict::fail_at(
             "merge_settings_not_declared",
@@ -417,10 +390,7 @@ fn merge_settings_declared(context: &AuditContext) -> Verdict {
 }
 
 fn no_visibility_declared(context: &AuditContext) -> Verdict {
-    let settings = match repo_settings(context) {
-        Ok(settings) => settings,
-        Err(verdict) => return *verdict,
-    };
+    let settings = try_verdict!(repo_settings(context));
     if settings.get("visibility").is_some() {
         Verdict::fail_at(
             "visibility_declared",
@@ -442,10 +412,7 @@ fn no_visibility_declared(context: &AuditContext) -> Verdict {
 }
 
 fn live_matches_declared(context: &AuditContext) -> Verdict {
-    let settings = match repo_settings(context) {
-        Ok(settings) => settings,
-        Err(verdict) => return *verdict,
-    };
+    let settings = try_verdict!(repo_settings(context));
     let live = &context.snapshot.repository;
 
     let mut drift = Vec::new();
@@ -487,10 +454,7 @@ fn live_matches_declared(context: &AuditContext) -> Verdict {
         }
     }
 
-    let declared_topic_list = match declared_topics(&settings) {
-        Ok(declared) => declared,
-        Err(verdict) => return *verdict,
-    };
+    let declared_topic_list = try_verdict!(declared_topics(&settings));
     if let Some(declared) = declared_topic_list {
         match &context.snapshot.topics {
             Ok(live_topics) => {
