@@ -194,6 +194,8 @@ grant and every entry in that list is a read.
 `$XDG_CONFIG_HOME/airlock/config.toml`, created `0600` before anything is
 written to it, replaced atomically, and refused on later runs if it has become
 a symlink or readable by anyone but you.
+`airlock auth token --profile <name>` verifies a stored profile and writes only
+its token to standard output; see [Provisioning CI](#provisioning-ci).
 
 ### Provisioning CI
 
@@ -209,13 +211,18 @@ user access token:
 3. The operator runs `airlock auth token --profile ci`. Airlock verifies the
    stored token is Airlock-Safe-issued and wholly read-only before writing only
    the token to standard output.
-4. The operator pastes that value into the `AIRLOCK_TOKEN` Actions repository
-   secret for `wyrd-company/airlock`.
+4. The operator pipes that value into the `AIRLOCK_TOKEN` Actions repository
+   secret for `wyrd-company/airlock`:
 
-Treat the output of `airlock auth token` as a secret: avoid command
-substitution, shell history, logs, and shared terminals. The dogfood job runs
-the real audit whenever the repository secret is present and reports a
-graceful skip when it is absent.
+   ```bash
+   airlock auth token --profile ci |
+     gh secret set AIRLOCK_TOKEN --repo wyrd-company/airlock
+   ```
+
+Treat the output of `airlock auth token` as a secret: keep it out of shell
+history, logs, and shared terminals. The dogfood job runs the real audit
+whenever the repository secret is present and reports a graceful skip when it
+is absent.
 
 This chooses a long-lived credential to avoid giving CI any write authority.
 GitHub rotates refresh tokens on every exchange, so refreshing in a job would
