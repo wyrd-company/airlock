@@ -399,6 +399,21 @@ async fn the_default_policy_comes_from_the_owners_dot_github_repository() {
         .as_str()
         .unwrap()
         .starts_with("sha256:"));
+
+    // The bundle digest says the inputs changed; the sources say which one.
+    let sources = report["policy"]["sources"].as_array().unwrap();
+    assert_eq!(sources.len(), 1);
+    assert_eq!(sources[0]["name"], "policy");
+    assert_eq!(
+        sources[0]["source"],
+        "wyrd-company/.github:airlock/policy.yml"
+    );
+    assert_eq!(sources[0]["commit"], support::COMMIT);
+    assert!(sources[0]["blob_sha"].is_string());
+    assert!(sources[0]["content_digest"]
+        .as_str()
+        .unwrap()
+        .starts_with("sha256:"));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -804,13 +819,31 @@ async fn every_policy_reference_is_resolved_and_pinned_into_the_bundle() {
         !stderr.contains("panicked"),
         "resolution must not panic: {stderr}"
     );
-    // Both references resolved and were pinned into the bundle.
-    if assertion.get_output().status.success() {
-        let report = json_output(&assertion.get_output().stdout);
-        assert!(report["policy"]["bundle_digest"]
+    // Both references resolved and were pinned into the bundle, and both are
+    // reported with the blob they pinned to.
+    let report = json_output(&assertion.get_output().stdout);
+    let sources = report["policy"]["sources"].as_array().unwrap();
+    let names: Vec<&str> = sources
+        .iter()
+        .map(|source| source["name"].as_str().unwrap())
+        .collect();
+    assert!(names.contains(&"policy"));
+    assert!(names.contains(&"first"));
+    assert!(names.contains(&"second"));
+    for source in sources {
+        assert!(source["content_digest"]
             .as_str()
             .unwrap()
             .starts_with("sha256:"));
+    }
+    // The two references are remote, so they pin to a commit and a blob.
+    for name in ["first", "second"] {
+        let source = sources
+            .iter()
+            .find(|source| source["name"] == name)
+            .unwrap();
+        assert_eq!(source["commit"], support::COMMIT);
+        assert!(source["blob_sha"].is_string(), "{name}");
     }
 }
 

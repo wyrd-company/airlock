@@ -174,19 +174,30 @@ pub struct Workflow {
 
 impl Workflow {
     /// The workflow's triggers, whatever shape `on:` took.
-    #[must_use]
-    pub fn triggers(&self) -> Vec<String> {
+    ///
+    /// Fallible because `on: [push, 3]` is a workflow airlock cannot read, and
+    /// reporting one trigger fewer would let "no workflow uses
+    /// `pull_request_target`" pass over a trigger list it never understood.
+    ///
+    /// # Errors
+    ///
+    /// Returns an inconclusive verdict when the trigger block is not a shape
+    /// airlock can read.
+    pub fn triggers(&self) -> Result<Vec<String>, Box<Verdict>> {
         let Some(document) = &self.document else {
-            return Vec::new();
+            return Ok(Vec::new());
         };
         match document.get("on") {
-            Some(Yaml::String(name)) => vec![name.clone()],
-            Some(Yaml::Seq(names)) => names
-                .iter()
-                .filter_map(|name| name.as_str().map(ToOwned::to_owned))
-                .collect(),
-            Some(Yaml::Map(entries)) => entries.iter().map(|(name, _)| name.clone()).collect(),
-            _ => Vec::new(),
+            Some(Yaml::String(name)) => Ok(vec![name.clone()]),
+            Some(value @ Yaml::Seq(_)) => {
+                yaml_string_seq(value, &format!("the `on:` list in {}", self.path))
+            }
+            Some(Yaml::Map(entries)) => Ok(entries.iter().map(|(name, _)| name.clone()).collect()),
+            None => Ok(Vec::new()),
+            Some(other) => Err(Box::new(Verdict::inconclusive(
+                MALFORMED_DECLARATION,
+                format!("`on:` in {} is a {}", self.path, other.kind()),
+            ))),
         }
     }
 
@@ -197,9 +208,12 @@ impl Workflow {
     }
 
     /// Whether the workflow declares a trigger.
-    #[must_use]
-    pub fn has_trigger(&self, name: &str) -> bool {
-        self.triggers().iter().any(|trigger| trigger == name)
+    ///
+    /// # Errors
+    ///
+    /// Returns an inconclusive verdict when the trigger block is unreadable.
+    pub fn has_trigger(&self, name: &str) -> Result<bool, Box<Verdict>> {
+        Ok(self.triggers()?.iter().any(|trigger| trigger == name))
     }
 
     /// The jobs, in declaration order.
@@ -219,17 +233,22 @@ impl Workflow {
     }
 
     /// Whether the workflow pushes to `branch`.
-    #[must_use]
-    pub fn pushes_to(&self, branch: &str) -> bool {
+    ///
+    /// # Errors
+    ///
+    /// Returns an inconclusive verdict when the branch filter is unreadable.
+    pub fn pushes_to(&self, branch: &str) -> Result<bool, Box<Verdict>> {
         let Some(push) = self.trigger("push") else {
-            return false;
+            return Ok(false);
         };
-        match push.get("branches").and_then(Yaml::as_seq) {
-            Some(branches) => branches
-                .iter()
-                .any(|name| name.as_str() == Some(branch) || name.as_str() == Some("**")),
+        match yaml_strings(
+            push,
+            "branches",
+            &format!("the push branches in {}", self.path),
+        )? {
+            Some(branches) => Ok(branches.iter().any(|name| name == branch || name == "**")),
             // `on: push:` with no branch filter covers every branch.
-            None => push.get("tags").is_none(),
+            None => Ok(push.get("tags").is_none()),
         }
     }
 }
@@ -562,16 +581,102 @@ pub(crate) fn repo_settings(context: &AuditContext) -> Result<Yaml, Box<Verdict>
     }
 }
 
-/// The declared topics, as strings.
-pub(crate) fn declared_topics(settings: &Yaml) -> Option<Vec<String>> {
-    Some(
-        settings
-            .get("topics")?
-            .as_seq()?
+/// The stable evidence code for a declaration airlock could read but not
+/// understand.
+pub(crate) const MALFORMED_DECLARATION: &str = "malformed_declaration";
+
+/// Collect a sequence of strings, refusing one that is not entirely strings.
+///
+/// This is the audited-repository counterpart of the GitHub client's strict
+/// decoders, and it exists for the same reason: an entry airlock cannot read
+/// must never become one fewer item. `topics: [cli, 42, rust]` silently
+/// yielding two topics is how a rule counts wrong, and how a topic is never
+/// compared against the vocabulary that would have rejected it.
+fn collect_strings<'a>(
+    entries: impl IntoIterator<Item = (usize, Option<&'a str>)>,
+    subject: &str,
+) -> Result<Vec<String>, Box<Verdict>> {
+    let mut values = Vec::new();
+    for (index, entry) in entries {
+        match entry {
+            Some(value) => values.push(value.to_owned()),
+            None => {
+                return Err(Box::new(Verdict::inconclusive(
+                    MALFORMED_DECLARATION,
+                    format!(
+                        "entry {} of {subject} is not a string, so the declaration could not be \
+                         read",
+                        index + 1
+                    ),
+                )))
+            }
+        }
+    }
+    Ok(values)
+}
+
+/// A sequence of strings under `key` in a YAML document.
+///
+/// `Ok(None)` means the key is absent, which is a different answer from an
+/// empty or unreadable list.
+pub(crate) fn yaml_strings(
+    container: &Yaml,
+    key: &str,
+    subject: &str,
+) -> Result<Option<Vec<String>>, Box<Verdict>> {
+    let Some(value) = container.get(key) else {
+        return Ok(None);
+    };
+    yaml_string_seq(value, subject).map(Some)
+}
+
+/// A YAML value that must be a sequence of strings.
+pub(crate) fn yaml_string_seq(value: &Yaml, subject: &str) -> Result<Vec<String>, Box<Verdict>> {
+    let Some(entries) = value.as_seq() else {
+        return Err(Box::new(Verdict::inconclusive(
+            MALFORMED_DECLARATION,
+            format!("{subject} is a {} rather than a list", value.kind()),
+        )));
+    };
+    collect_strings(
+        entries
             .iter()
-            .filter_map(|topic| topic.as_str().map(ToOwned::to_owned))
-            .collect(),
+            .enumerate()
+            .map(|(index, entry)| (index, entry.as_str())),
+        subject,
     )
+}
+
+/// A sequence of strings under `key` in a JSON document.
+pub(crate) fn json_strings(
+    container: &serde_json::Value,
+    key: &str,
+    subject: &str,
+) -> Result<Option<Vec<String>>, Box<Verdict>> {
+    let Some(value) = container.get(key) else {
+        return Ok(None);
+    };
+    let Some(entries) = value.as_array() else {
+        return Err(Box::new(Verdict::inconclusive(
+            MALFORMED_DECLARATION,
+            format!("{subject} is not a list"),
+        )));
+    };
+    collect_strings(
+        entries
+            .iter()
+            .enumerate()
+            .map(|(index, entry)| (index, entry.as_str())),
+        subject,
+    )
+    .map(Some)
+}
+
+/// The declared topics, as strings.
+///
+/// `Ok(None)` means no `topics` key at all.
+pub(crate) fn declared_topics(settings: &Yaml) -> Result<Option<Vec<String>>, Box<Verdict>> {
+    yaml_strings(settings, "topics", "`topics` in .github/repo-settings.yml")
 }
 
 #[cfg(test)]
@@ -824,6 +929,57 @@ mod tests {
     }
 
     #[test]
+    fn a_sequence_with_a_non_string_entry_is_malformed_not_shorter() {
+        let document =
+            yaml::parse_mapping("topics: [cli, 42, rust]\n", Limits::default().yaml).unwrap();
+        let verdict = *declared_topics(&document).unwrap_err();
+        assert_eq!(verdict.status, Status::Inconclusive);
+        let evidence = verdict.evidence.unwrap();
+        assert_eq!(evidence.code, MALFORMED_DECLARATION);
+        assert!(evidence.detail.contains("entry 2"));
+    }
+
+    #[test]
+    fn a_sequence_of_strings_is_read_whole() {
+        let document =
+            yaml::parse_mapping("topics: [cli, rust]\n", Limits::default().yaml).unwrap();
+        assert_eq!(
+            declared_topics(&document).unwrap(),
+            Some(vec!["cli".to_owned(), "rust".to_owned()])
+        );
+    }
+
+    #[test]
+    fn an_absent_key_is_not_an_empty_list() {
+        let document = yaml::parse_mapping("description: x\n", Limits::default().yaml).unwrap();
+        assert_eq!(declared_topics(&document).unwrap(), None);
+    }
+
+    #[test]
+    fn a_value_that_is_not_a_list_is_malformed() {
+        let document = yaml::parse_mapping("topics: cli, rust\n", Limits::default().yaml).unwrap();
+        let verdict = *declared_topics(&document).unwrap_err();
+        assert_eq!(verdict.status, Status::Inconclusive);
+        assert!(verdict
+            .evidence
+            .unwrap()
+            .detail
+            .contains("rather than a list"));
+    }
+
+    #[test]
+    fn a_malformed_trigger_list_is_unreadable_rather_than_shorter() {
+        let snapshot = snapshot(&[(
+            ".github/workflows/x.yml",
+            "on: [push, 3]\npermissions: {}\njobs: {}\n",
+        )]);
+        let parsed = workflows(&snapshot);
+        let error = parsed[0].triggers().unwrap_err();
+        assert_eq!(error.status, Status::Inconclusive);
+        assert_eq!(error.evidence.unwrap().code, MALFORMED_DECLARATION);
+    }
+
+    #[test]
     fn workflow_triggers_are_read_whatever_shape_on_takes() {
         let snapshot = snapshot(&[
             (".github/workflows/a.yml", "on: push\njobs: {}\n"),
@@ -838,12 +994,13 @@ mod tests {
         ]);
         let parsed = workflows(&snapshot);
         for workflow in &parsed {
-            assert!(workflow.has_trigger("push"), "{}", workflow.name);
+            assert!(workflow.has_trigger("push").unwrap(), "{}", workflow.name);
         }
         assert!(parsed
             .iter()
             .find(|workflow| workflow.name == "c.yml")
             .unwrap()
-            .pushes_to("main"));
+            .pushes_to("main")
+            .unwrap());
     }
 }

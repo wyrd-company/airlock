@@ -10,7 +10,7 @@ use crate::auth::VerifiedGrant;
 use crate::checks::{self, AuditContext, Workflow};
 use crate::findings::{
     AirlockIdentity, AuditedRepository, EffectiveRule, Finding, PolicyIdentity, PolicyObservation,
-    Report, Status, Suppression,
+    PolicySourceIdentity, Report, Status, Suppression,
 };
 use crate::github::{ApiError, ErrorCause, GitHub};
 use crate::limits::Limits;
@@ -165,6 +165,17 @@ pub async fn run<G: GitHub>(
             name: policy.name.clone(),
             source: policy.source.clone(),
             commit: policy.commit.clone(),
+            sources: policy
+                .sources
+                .iter()
+                .map(|source| PolicySourceIdentity {
+                    name: source.name.clone(),
+                    source: source.source.clone(),
+                    commit: source.commit.clone(),
+                    blob_sha: source.blob_sha.clone(),
+                    content_digest: source.content_digest.clone(),
+                })
+                .collect(),
             bundle_digest: policy.bundle_digest.clone(),
             gate: policy.gate,
         },

@@ -337,6 +337,24 @@ pub struct AuditedRepository {
     pub settings_observed_at: Option<String>,
 }
 
+/// One resolved source in the policy bundle.
+///
+/// Pinning reference data is only useful if a reader can see what it was
+/// pinned to. The bundle digest says the inputs changed; these say which one.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PolicySourceIdentity {
+    /// The reference name, or `policy` for the root document.
+    pub name: String,
+    /// Where it was resolved from: `owner/repo:path` or a local path.
+    pub source: String,
+    /// The commit it was pinned to, for a remote source.
+    pub commit: Option<String>,
+    /// The blob sha, for a remote source.
+    pub blob_sha: Option<String>,
+    /// A digest over the source's bytes.
+    pub content_digest: String,
+}
+
 /// The policy the audit ran under.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct PolicyIdentity {
@@ -346,6 +364,8 @@ pub struct PolicyIdentity {
     pub source: String,
     /// The commit it was pinned to, for a remote source.
     pub commit: Option<String>,
+    /// Every source in the bundle, root first, each with what it pinned to.
+    pub sources: Vec<PolicySourceIdentity>,
     /// The digest over the normalised policy and every referenced blob.
     pub bundle_digest: String,
     /// The gate the policy declared.
@@ -374,8 +394,8 @@ pub struct Summary {
 }
 
 impl Summary {
-    fn record(&mut self, status: Status) {
-        let slot = match status {
+    fn slot(&mut self, status: Status) -> &mut usize {
+        match status {
             Status::Pass => &mut self.pass,
             Status::Fail => &mut self.fail,
             Status::Manual => &mut self.manual,
@@ -384,8 +404,22 @@ impl Summary {
             Status::Unimplemented => &mut self.unimplemented,
             Status::Inconclusive => &mut self.inconclusive,
             Status::Error => &mut self.error,
-        };
-        *slot += 1;
+        }
+    }
+
+    fn record(&mut self, status: Status) {
+        *self.slot(status) += 1;
+    }
+
+    /// How many findings landed in one status.
+    ///
+    /// Lets a renderer walk [`Status::ALL`] rather than restating the eight
+    /// fields, so a ninth status cannot be added without every reader of the
+    /// summary following it.
+    #[must_use]
+    pub fn count(&self, status: Status) -> usize {
+        let mut copy = self.clone();
+        *copy.slot(status)
     }
 }
 
@@ -512,6 +546,7 @@ mod tests {
                 name: "test".to_owned(),
                 source: "./policy.yml".to_owned(),
                 commit: None,
+                sources: Vec::new(),
                 bundle_digest: "sha256:0".to_owned(),
                 gate,
             },

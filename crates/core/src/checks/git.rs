@@ -121,17 +121,14 @@ fn branch_rule_shape(context: &AuditContext) -> Verdict {
         return report_branch_gaps(branch, gaps);
     };
 
-    let methods: Vec<String> = pull_request
-        .parameters
-        .get("allowed_merge_methods")
-        .and_then(|value| value.as_array())
-        .map(|values| {
-            values
-                .iter()
-                .filter_map(|value| value.as_str().map(ToOwned::to_owned))
-                .collect()
-        })
-        .unwrap_or_default();
+    let methods = match super::json_strings(
+        &pull_request.parameters,
+        "allowed_merge_methods",
+        "the allowed merge methods on the pull request rule",
+    ) {
+        Ok(methods) => methods.unwrap_or_default(),
+        Err(verdict) => return *verdict,
+    };
 
     let mut sorted = methods.clone();
     sorted.sort();
@@ -984,5 +981,28 @@ mod tests {
         let verdict = evaluate(&rule("REPO-GIT-02"), &context);
         assert_eq!(verdict.status, Status::Error);
         assert_eq!(verdict.error.unwrap().cause, "budget_exhausted");
+    }
+
+    #[test]
+    fn a_malformed_merge_method_list_is_not_read_as_an_empty_one() {
+        let snapshot = snapshot(&[]);
+        let policy = policy();
+        let mut context = context(&snapshot, &policy, Vec::new());
+        context.branch_rules = Ok(Paged::complete(vec![
+            BranchRule {
+                rule_type: "pull_request".to_owned(),
+                source_type: None,
+                parameters: json!({ "allowed_merge_methods": ["squash", 7] }),
+            },
+            BranchRule {
+                rule_type: "required_linear_history".to_owned(),
+                source_type: None,
+                parameters: json!({}),
+            },
+        ]));
+        assert_eq!(
+            evaluate(&rule("REPO-GIT-03"), &context).status,
+            Status::Inconclusive
+        );
     }
 }

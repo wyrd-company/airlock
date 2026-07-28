@@ -167,12 +167,19 @@ fn release_is_dispatched(context: &AuditContext) -> Verdict {
         );
     };
 
+    let all_triggers = match workflow.triggers() {
+        Ok(triggers) => triggers,
+        Err(verdict) => return *verdict,
+    };
+
     let mut gaps = Vec::new();
-    if !workflow.has_trigger("workflow_dispatch") {
+    if !all_triggers
+        .iter()
+        .any(|trigger| trigger == "workflow_dispatch")
+    {
         gaps.push("it does not trigger on workflow_dispatch".to_owned());
     }
-    let triggers: Vec<String> = workflow
-        .triggers()
+    let triggers: Vec<String> = all_triggers
         .into_iter()
         .filter(|trigger| trigger != "workflow_dispatch")
         .collect();
@@ -221,10 +228,17 @@ fn no_publish_on_merge(context: &AuditContext) -> Verdict {
     }
 
     let branch = &context.snapshot.repository.default_branch;
-    let offenders: Vec<String> = context
-        .workflows
-        .iter()
-        .filter(|workflow| workflow.pushes_to(branch))
+    let mut pushing = Vec::new();
+    for workflow in &context.workflows {
+        match workflow.pushes_to(branch) {
+            Ok(true) => pushing.push(workflow),
+            Ok(false) => {}
+            Err(verdict) => return *verdict,
+        }
+    }
+
+    let offenders: Vec<String> = pushing
+        .into_iter()
         .filter_map(|workflow| {
             let found: Vec<&&str> = PUBLICATION_SIGNALS
                 .iter()

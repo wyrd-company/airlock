@@ -277,15 +277,33 @@ fn readable_workflows<'a>(
     Ok(context.workflows.iter().collect())
 }
 
+/// The workflows declaring one trigger.
+///
+/// Fallible so a workflow whose trigger block airlock cannot read stops the
+/// rule rather than quietly dropping out of the filter.
+fn workflows_with_trigger<'a>(
+    workflows: &[&'a Workflow],
+    trigger: &str,
+) -> Result<Vec<&'a Workflow>, Box<Verdict>> {
+    let mut matching = Vec::new();
+    for workflow in workflows {
+        if workflow.has_trigger(trigger)? {
+            matching.push(*workflow);
+        }
+    }
+    Ok(matching)
+}
+
 fn ci_on_pull_request(context: &AuditContext) -> Verdict {
     let workflows = match readable_workflows(context) {
         Ok(workflows) => workflows,
         Err(verdict) => return *verdict,
     };
-    match workflows
-        .iter()
-        .find(|workflow| workflow.has_trigger("pull_request"))
-    {
+    let triggered = match workflows_with_trigger(&workflows, "pull_request") {
+        Ok(triggered) => triggered,
+        Err(verdict) => return *verdict,
+    };
+    match triggered.first() {
         Some(workflow) => Verdict::pass_at(
             "ci_triggers_on_pull_request",
             &workflow.path,
@@ -517,11 +535,13 @@ fn no_pull_request_target(context: &AuditContext) -> Verdict {
         Err(verdict) => return *verdict,
     };
 
-    let offenders: Vec<&str> = workflows
-        .iter()
-        .filter(|workflow| workflow.has_trigger("pull_request_target"))
-        .map(|workflow| workflow.path.as_str())
-        .collect();
+    let offenders: Vec<&str> = match workflows_with_trigger(&workflows, "pull_request_target") {
+        Ok(matching) => matching
+            .iter()
+            .map(|workflow| workflow.path.as_str())
+            .collect(),
+        Err(verdict) => return *verdict,
+    };
 
     if offenders.is_empty() {
         Verdict::pass(
@@ -546,10 +566,10 @@ fn concurrency_covers_pull_requests(context: &AuditContext) -> Verdict {
         Err(verdict) => return *verdict,
     };
 
-    let pull_request_workflows: Vec<&&Workflow> = workflows
-        .iter()
-        .filter(|workflow| workflow.has_trigger("pull_request"))
-        .collect();
+    let pull_request_workflows = match workflows_with_trigger(&workflows, "pull_request") {
+        Ok(matching) => matching,
+        Err(verdict) => return *verdict,
+    };
 
     if pull_request_workflows.is_empty() {
         return Verdict::fail(
@@ -810,17 +830,16 @@ fn cd_on_tags(rule: &RuleInstance, context: &AuditContext) -> Verdict {
     };
     let expected = rule.param_str("tag-pattern").unwrap_or(DEFAULT_TAG_PATTERN);
 
-    let tags: Vec<String> = workflow
-        .trigger("push")
-        .and_then(|push| push.get("tags"))
-        .and_then(Yaml::as_seq)
-        .map(|patterns| {
-            patterns
-                .iter()
-                .filter_map(|pattern| pattern.as_str().map(ToOwned::to_owned))
-                .collect()
-        })
-        .unwrap_or_default();
+    let tags = match workflow.trigger("push") {
+        Some(push) => {
+            match super::yaml_strings(push, "tags", &format!("the push tags in {}", workflow.path))
+            {
+                Ok(tags) => tags.unwrap_or_default(),
+                Err(verdict) => return *verdict,
+            }
+        }
+        None => Vec::new(),
+    };
 
     if tags.is_empty() {
         return Verdict::manual(
@@ -856,7 +875,11 @@ fn cd_on_default_branch(context: &AuditContext) -> Verdict {
         return no_cd_workflow("the default-branch trigger");
     };
     let branch = &context.snapshot.repository.default_branch;
-    if workflow.pushes_to(branch) {
+    let pushes_to_branch = match workflow.pushes_to(branch) {
+        Ok(pushes) => pushes,
+        Err(verdict) => return *verdict,
+    };
+    if pushes_to_branch {
         Verdict::pass_at(
             "cd_triggers_on_default_branch",
             &workflow.path,
@@ -978,14 +1001,42 @@ fn lefthook(context: &AuditContext) -> Result<Yaml, Box<Verdict>> {
 }
 
 /// The commands one hook runs, across all its jobs.
-fn hook_commands(lefthook: &Yaml, hook: &str) -> Option<Vec<String>> {
-    let jobs = lefthook.get(hook)?.get("jobs")?.as_seq()?;
-    Some(
-        jobs.iter()
-            .filter_map(|job| job.get("run").and_then(Yaml::as_str))
-            .map(ToOwned::to_owned)
-            .collect(),
-    )
+///
+/// `Ok(None)` means the hook is not defined. A job whose command airlock
+/// cannot read is malformed rather than absent: a job declared with `script:`
+/// instead of `run:` is still a command, and dropping it would let "every hook
+/// invokes a task" pass over a command nobody read.
+fn hook_commands(lefthook: &Yaml, hook: &str) -> Result<Option<Vec<String>>, Box<Verdict>> {
+    let Some(block) = lefthook.get(hook) else {
+        return Ok(None);
+    };
+    let Some(jobs) = block.get("jobs") else {
+        return Ok(None);
+    };
+    let Some(jobs) = jobs.as_seq() else {
+        return Err(Box::new(Verdict::inconclusive(
+            super::MALFORMED_DECLARATION,
+            format!("the `{hook}` jobs in .config/lefthook.yml are not a list"),
+        )));
+    };
+
+    let mut commands = Vec::new();
+    for (index, job) in jobs.iter().enumerate() {
+        match job.get("run") {
+            Some(Yaml::String(command)) => commands.push(command.clone()),
+            _ => {
+                return Err(Box::new(Verdict::inconclusive(
+                    super::MALFORMED_DECLARATION,
+                    format!(
+                        "job {} of the `{hook}` hook in .config/lefthook.yml declares no string \
+                         `run` command",
+                        index + 1
+                    ),
+                )))
+            }
+        }
+    }
+    Ok(Some(commands))
 }
 
 fn pre_commit_hook(context: &AuditContext) -> Verdict {
@@ -993,7 +1044,11 @@ fn pre_commit_hook(context: &AuditContext) -> Verdict {
         Ok(lefthook) => lefthook,
         Err(verdict) => return *verdict,
     };
-    let Some(commands) = hook_commands(&lefthook, "pre-commit") else {
+    let commands = match hook_commands(&lefthook, "pre-commit") {
+        Ok(commands) => commands,
+        Err(verdict) => return *verdict,
+    };
+    let Some(commands) = commands else {
         return Verdict::fail_at(
             "no_pre_commit_hook",
             ".config/lefthook.yml",
@@ -1034,7 +1089,11 @@ fn commit_msg_hook(context: &AuditContext) -> Verdict {
         Ok(lefthook) => lefthook,
         Err(verdict) => return *verdict,
     };
-    let Some(commands) = hook_commands(&lefthook, "commit-msg") else {
+    let commands = match hook_commands(&lefthook, "commit-msg") {
+        Ok(commands) => commands,
+        Err(verdict) => return *verdict,
+    };
+    let Some(commands) = commands else {
         return Verdict::fail_at(
             "no_commit_msg_hook",
             ".config/lefthook.yml",
@@ -1069,7 +1128,11 @@ fn pre_push_hook(context: &AuditContext) -> Verdict {
         Ok(lefthook) => lefthook,
         Err(verdict) => return *verdict,
     };
-    let Some(commands) = hook_commands(&lefthook, "pre-push") else {
+    let commands = match hook_commands(&lefthook, "pre-push") {
+        Ok(commands) => commands,
+        Err(verdict) => return *verdict,
+    };
+    let Some(commands) = commands else {
         return Verdict::pass_at(
             "no_pre_push_hook",
             ".config/lefthook.yml",
@@ -1123,7 +1186,11 @@ fn hooks_invoke_tasks(context: &AuditContext) -> Verdict {
         "post-checkout",
         "post-merge",
     ] {
-        let Some(commands) = hook_commands(&lefthook, hook) else {
+        let commands = match hook_commands(&lefthook, hook) {
+            Ok(commands) => commands,
+            Err(verdict) => return *verdict,
+        };
+        let Some(commands) = commands else {
             continue;
         };
         for command in commands {
@@ -1687,5 +1754,41 @@ commit-msg:
 
         let empty = super::uses_step("      - uses: owner/action@abc #").unwrap();
         assert_eq!(empty.comment, Some(""));
+    }
+
+    #[test]
+    fn a_hook_job_without_a_readable_command_is_malformed_not_absent() {
+        // A job declared with `script:` instead of `run:` used to vanish, so
+        // "every hook invokes a task" passed over a command nobody read.
+        let lefthook = "pre-commit:\n  jobs:\n    - name: format\n      script: format.sh\n";
+        assert_eq!(
+            verdict("REPO-HOOK-04", &[(".config/lefthook.yml", lefthook)]),
+            Status::Inconclusive
+        );
+        assert_eq!(
+            verdict("REPO-HOOK-01", &[(".config/lefthook.yml", lefthook)]),
+            Status::Inconclusive
+        );
+    }
+
+    #[test]
+    fn a_malformed_cd_tag_list_is_not_read_as_no_tag_trigger() {
+        let cd = "on:\n  push:\n    tags: ['1.0.0', 7]\npermissions: {}\njobs: {}\n";
+        assert_eq!(
+            verdict("REPO-CD-02", &[(".github/workflows/cd.yml", cd)]),
+            Status::Inconclusive
+        );
+    }
+
+    #[test]
+    fn a_malformed_trigger_list_makes_workflow_rules_inconclusive() {
+        let workflow = "on: [pull_request, 3]\npermissions: {}\njobs: {}\n";
+        for id in ["REPO-CI-01", "REPO-CI-05"] {
+            assert_eq!(
+                verdict(id, &[(".github/workflows/x.yml", workflow)]),
+                Status::Inconclusive,
+                "{id}"
+            );
+        }
     }
 }

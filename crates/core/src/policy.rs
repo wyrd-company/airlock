@@ -237,14 +237,34 @@ pub struct SuppressionRequest {
 }
 
 /// One source that went into the policy bundle.
+///
+/// The point of pinning reference data is that a reader of a findings document
+/// can see *which* blob produced the bundle digest, so every field here is
+/// reported rather than folded away into the digest.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BundleSource {
     /// The reference name, or `policy` for the root document.
     pub name: String,
-    /// The immutable identity the source resolved to.
-    pub identity: String,
-    /// A digest over the source's bytes.
+    /// Where it was resolved from: `owner/repo:path` or a local path.
+    pub source: String,
+    /// The commit it was pinned to, for a remote source.
+    pub commit: Option<String>,
+    /// The blob sha, for a remote source.
+    pub blob_sha: Option<String>,
+    /// A digest over the source's bytes, which is what a local source pins to.
     pub content_digest: String,
+}
+
+impl BundleSource {
+    /// The immutable identity, as one string, for the bundle digest.
+    #[must_use]
+    pub fn identity(&self) -> String {
+        match (&self.commit, &self.blob_sha) {
+            (Some(commit), Some(blob)) => format!("{}@{commit}#{blob}", self.source),
+            (Some(commit), None) => format!("{}@{commit}", self.source),
+            _ => format!("{}#{}", self.source, self.content_digest),
+        }
+    }
 }
 
 /// A policy, resolved, pinned, and normalised.
@@ -308,14 +328,13 @@ pub async fn resolve<G: GitHub>(
     // every reference. Each source is capped at whatever is still left, so a
     // blob that would exceed it is refused before it is fetched.
     let mut budget = ByteBudget::new(limits.max_total_bytes);
-    let (commit, bytes) = load_source(client, source, limits, &mut budget).await?;
-    let text = to_text(&source.label(), bytes)?;
+    let loaded = load_source(client, source, limits, &mut budget).await?;
+    let text = to_text(&source.label(), loaded.bytes)?;
     bundle.push(BundleSource {
         name: "policy".to_owned(),
-        identity: match &commit {
-            Some(commit) => format!("{}@{commit}", source.label()),
-            None => format!("{}#{}", source.label(), content_digest(&text)),
-        },
+        source: source.label(),
+        commit: loaded.commit,
+        blob_sha: loaded.blob_sha,
         content_digest: content_digest(&text),
     });
 
@@ -367,12 +386,19 @@ impl ByteBudget {
     }
 }
 
+/// One resolved source: its bytes and the identity it was pinned to.
+struct LoadedSource {
+    commit: Option<String>,
+    blob_sha: Option<String>,
+    bytes: Vec<u8>,
+}
+
 async fn load_source<G: GitHub>(
     client: &G,
     source: &PolicySource,
     limits: &Limits,
     budget: &mut ByteBudget,
-) -> Result<(Option<String>, Vec<u8>)> {
+) -> Result<LoadedSource> {
     let cap = budget.cap_for(limits.max_blob_bytes);
     match source {
         PolicySource::Local(path) => {
@@ -399,7 +425,13 @@ async fn load_source<G: GitHub>(
                 source: error,
             })?;
             budget.spend(&path.display().to_string(), bytes.len())?;
-            Ok((None, bytes))
+            // A local file has no commit and no blob sha; its content hash is
+            // the only immutable identity it has.
+            Ok(LoadedSource {
+                commit: None,
+                blob_sha: None,
+                bytes,
+            })
         }
         PolicySource::Remote {
             owner,
@@ -423,14 +455,18 @@ async fn load_source<G: GitHub>(
                 .map_err(|error| {
                     Error::Policy(format!("cannot read {owner}/{repo}:{path}: {error}"))
                 })?;
-            let Some((_, bytes)) = file else {
+            let Some((blob_sha, bytes)) = file else {
                 return Err(Error::Policy(format!(
                     "no policy at {owner}/{repo}:{path}@{commit}. Airlock ships no built-in \
                      policy, so there is nothing to audit against."
                 )));
             };
             budget.spend(&format!("{owner}/{repo}:{path}"), bytes.len())?;
-            Ok((Some(commit), bytes))
+            Ok(LoadedSource {
+                commit: Some(commit),
+                blob_sha: Some(blob_sha),
+                bytes,
+            })
         }
     }
 }
@@ -482,14 +518,13 @@ async fn resolve_references<G: GitHub>(
         }
 
         let source = resolve_reference_source(root, &reference)?;
-        let (commit, bytes) = load_source(client, &source, limits, budget).await?;
-        let text = to_text(&source.label(), bytes)?;
+        let loaded = load_source(client, &source, limits, budget).await?;
+        let text = to_text(&source.label(), loaded.bytes)?;
         bundle.push(BundleSource {
             name: name.clone(),
-            identity: match &commit {
-                Some(commit) => format!("{}@{commit}", source.label()),
-                None => format!("{}#{}", source.label(), content_digest(&text)),
-            },
+            source: source.label(),
+            commit: loaded.commit,
+            blob_sha: loaded.blob_sha,
             content_digest: content_digest(&text),
         });
 
@@ -613,10 +648,7 @@ fn compile(
     Ok(ResolvedPolicy {
         name,
         source: source.label(),
-        commit: sources
-            .first()
-            .and_then(|first| first.identity.split('@').next_back().map(ToOwned::to_owned))
-            .filter(|_| matches!(source, PolicySource::Remote { .. })),
+        commit: sources.first().and_then(|first| first.commit.clone()),
         bundle_digest,
         sources,
         gate,
@@ -1010,7 +1042,7 @@ fn bundle_digest(sources: &[BundleSource], rules: &[RuleInstance], gate: Gate) -
     for source in sources {
         hasher.update(source.name.as_bytes());
         hasher.update(b"\x1f");
-        hasher.update(source.identity.as_bytes());
+        hasher.update(source.identity().as_bytes());
         hasher.update(b"\x1f");
         hasher.update(source.content_digest.as_bytes());
         hasher.update(b"\x1e");
@@ -1110,7 +1142,9 @@ mod tests {
             BTreeMap::new(),
             vec![BundleSource {
                 name: "policy".to_owned(),
-                identity: "./policy.yml#test".to_owned(),
+                source: "./policy.yml".to_owned(),
+                commit: None,
+                blob_sha: None,
                 content_digest: content_digest(text),
             }],
         )

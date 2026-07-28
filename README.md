@@ -125,6 +125,22 @@ hash for local ones — and hashed into a **policy bundle digest** that travels
 in every result alongside the registry version and digest. Two runs that agree
 on those three values ran the same rules against the same policy.
 
+Each source is also reported individually under `policy.sources`, with what it
+pinned to, so a reader who sees the bundle digest move can tell which reference
+moved it:
+
+```json
+"sources": [
+  {
+    "name": "topics",
+    "source": "wyrd-company/.github:airlock/topics.yml",
+    "commit": "def456…",
+    "blob_sha": "abc789…",
+    "content_digest": "sha256:…"
+  }
+]
+```
+
 Suppression authority lives in the policy. An audited repository's
 `.github/airlock.yml` holds *requests*:
 

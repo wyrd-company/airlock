@@ -26,6 +26,20 @@ pub fn report_text(report: &Report) -> String {
         report.policy.source,
         short_digest(&report.policy.bundle_digest)
     );
+    for source in &report.policy.sources {
+        let pinned = match (&source.commit, &source.blob_sha) {
+            (Some(commit), Some(blob)) => {
+                format!("{}@{} blob {}", source.source, short(commit), short(blob))
+            }
+            (Some(commit), None) => format!("{}@{}", source.source, short(commit)),
+            _ => format!(
+                "{} ({})",
+                source.source,
+                short_digest(&source.content_digest)
+            ),
+        };
+        let _ = writeln!(out, "  {:<12} {pinned}", source.name);
+    }
     let _ = writeln!(
         out,
         "registry {} ({}), gate {}",
@@ -87,20 +101,13 @@ pub fn report_text(report: &Report) -> String {
     }
 
     out.push('\n');
-    let summary = &report.summary;
-    let _ = writeln!(
-        out,
-        "{} pass, {} fail, {} manual, {} suppressed, {} skipped, {} unimplemented, {} \
-         inconclusive, {} error",
-        summary.pass,
-        summary.fail,
-        summary.manual,
-        summary.suppressed,
-        summary.skipped,
-        summary.unimplemented,
-        summary.inconclusive,
-        summary.error
-    );
+    // Derived from the taxonomy rather than restated, so a status added to
+    // `Status::ALL` cannot quietly vanish from what a human reads.
+    let counts: Vec<String> = Status::ALL
+        .iter()
+        .map(|status| format!("{} {}", report.summary.count(*status), status.code()))
+        .collect();
+    let _ = writeln!(out, "{}", counts.join(", "));
     let _ = writeln!(
         out,
         "{} — complete: {}, conformant: {}",
@@ -194,6 +201,13 @@ mod tests {
                 name: "test".to_owned(),
                 source: "./policy.yml".to_owned(),
                 commit: None,
+                sources: vec![crate::findings::PolicySourceIdentity {
+                    name: "topics".to_owned(),
+                    source: "owner/.github:airlock/topics.yml".to_owned(),
+                    commit: Some("c".repeat(40)),
+                    blob_sha: Some("d".repeat(40)),
+                    content_digest: format!("sha256:{}", "e".repeat(64)),
+                }],
                 bundle_digest: format!("sha256:{}", "b".repeat(64)),
                 gate: Gate::Blocking,
             },
@@ -222,10 +236,32 @@ mod tests {
     }
 
     #[test]
+    fn the_text_report_names_what_each_policy_source_pinned_to() {
+        let text = report_text(&report());
+        assert!(text.contains("topics"));
+        assert!(text.contains("owner/.github:airlock/topics.yml@cccccccccccc"));
+        assert!(text.contains("blob dddddddddddd"));
+    }
+
+    #[test]
     fn the_text_report_shortens_digests_rather_than_dropping_them() {
         let text = report_text(&report());
         assert!(text.contains("sha256:bbbbbbbbbbbb"));
         assert!(!text.contains(&"b".repeat(64)));
+    }
+
+    #[test]
+    fn the_summary_line_names_every_status_in_the_taxonomy() {
+        let text = report_text(&report());
+        for status in Status::ALL {
+            assert!(
+                text.contains(status.code()),
+                "{} is missing from the summary line",
+                status.code()
+            );
+        }
+        assert!(text.contains("1 fail"));
+        assert!(text.contains("0 pass"));
     }
 
     #[test]

@@ -143,7 +143,7 @@ fn description_shape(context: &AuditContext) -> Verdict {
 
 fn topics(context: &AuditContext) -> Result<Vec<String>, Box<Verdict>> {
     let settings = repo_settings(context)?;
-    declared_topics(&settings).ok_or_else(|| {
+    declared_topics(&settings)?.ok_or_else(|| {
         Box::new(Verdict::fail_at(
             "topics_not_declared",
             ".github/repo-settings.yml",
@@ -187,18 +187,20 @@ fn topic_count(rule: &RuleInstance, context: &AuditContext) -> Verdict {
     }
 }
 
-/// The reference vocabulary, keyed by category.
-fn vocabulary<'a>(context: &'a AuditContext, category: &str) -> Option<Vec<&'a str>> {
-    Some(
-        context
-            .policy
-            .reference_data
-            .get("topics")?
-            .get(category)?
-            .as_seq()?
-            .iter()
-            .filter_map(Yaml::as_str)
-            .collect(),
+/// The reference vocabulary for one category.
+///
+/// `Ok(None)` means the policy declares no such category. A category that is
+/// declared but is not a list of strings is malformed reference data, and a
+/// vocabulary airlock read only part of would silently accept topics it never
+/// compared.
+fn vocabulary(context: &AuditContext, category: &str) -> Result<Option<Vec<String>>, Box<Verdict>> {
+    let Some(topics) = context.policy.reference_data.get("topics") else {
+        return Ok(None);
+    };
+    super::yaml_strings(
+        topics,
+        category,
+        &format!("the `{category}` list in the policy's topic vocabulary"),
     )
 }
 
@@ -208,10 +210,15 @@ fn topic_vocabulary(context: &AuditContext) -> Verdict {
         Err(verdict) => return *verdict,
     };
 
-    let (Some(artifacts), Some(ecosystems)) = (
-        vocabulary(context, "artifact-type"),
-        vocabulary(context, "ecosystem"),
-    ) else {
+    let artifacts = match vocabulary(context, "artifact-type") {
+        Ok(artifacts) => artifacts,
+        Err(verdict) => return *verdict,
+    };
+    let ecosystems = match vocabulary(context, "ecosystem") {
+        Ok(ecosystems) => ecosystems,
+        Err(verdict) => return *verdict,
+    };
+    let (Some(artifacts), Some(ecosystems)) = (artifacts, ecosystems) else {
         return Verdict::inconclusive(
             "no_topic_reference_data",
             "the policy declares no `topics` reference data with `artifact-type` and \
@@ -219,12 +226,8 @@ fn topic_vocabulary(context: &AuditContext) -> Verdict {
         );
     };
 
-    let has_artifact = topics
-        .iter()
-        .any(|topic| artifacts.contains(&topic.as_str()));
-    let has_ecosystem = topics
-        .iter()
-        .any(|topic| ecosystems.contains(&topic.as_str()));
+    let has_artifact = topics.iter().any(|topic| artifacts.contains(topic));
+    let has_ecosystem = topics.iter().any(|topic| ecosystems.contains(topic));
 
     if has_artifact && has_ecosystem {
         Verdict::pass_at(
@@ -266,21 +269,27 @@ fn topics_are_catalogued(context: &AuditContext) -> Verdict {
         );
     };
 
-    let catalogue: Vec<&str> = reference
-        .as_map()
-        .map(|entries| {
-            entries
-                .iter()
-                .filter_map(|(_, values)| values.as_seq())
-                .flatten()
-                .filter_map(Yaml::as_str)
-                .collect()
-        })
-        .unwrap_or_default();
+    let Some(categories) = reference.as_map() else {
+        return Verdict::inconclusive(
+            super::MALFORMED_DECLARATION,
+            "the policy's topic vocabulary is not a mapping of category to terms",
+        );
+    };
+
+    let mut catalogue: Vec<String> = Vec::new();
+    for (category, values) in categories {
+        match super::yaml_string_seq(
+            values,
+            &format!("the `{category}` list in the policy's topic vocabulary"),
+        ) {
+            Ok(terms) => catalogue.extend(terms),
+            Err(verdict) => return *verdict,
+        }
+    }
 
     let uncatalogued: Vec<&String> = topics
         .iter()
-        .filter(|topic| !catalogue.contains(&topic.as_str()))
+        .filter(|topic| !catalogue.contains(topic))
         .collect();
 
     if uncatalogued.is_empty() {
@@ -480,7 +489,11 @@ fn live_matches_declared(context: &AuditContext) -> Verdict {
         }
     }
 
-    if let Some(declared) = declared_topics(&settings) {
+    let declared_topic_list = match declared_topics(&settings) {
+        Ok(declared) => declared,
+        Err(verdict) => return *verdict,
+    };
+    if let Some(declared) = declared_topic_list {
         match &context.snapshot.topics {
             Ok(live_topics) => {
                 let mut declared_sorted = declared.clone();
@@ -764,6 +777,89 @@ features:
         assert_eq!(
             evaluate(&rule("REPO-META-13"), &aligned_context).status,
             Status::Pass
+        );
+    }
+
+    #[test]
+    fn a_non_string_topic_never_miscounts_the_topic_rule() {
+        // `topics: [cli, 42, rust]` used to yield two topics, so a three-topic
+        // minimum failed over a repository that declared three.
+        let files = [(
+            ".github/repo-settings.yml",
+            "topics:\n  - cli\n  - 42\n  - rust\n",
+        )];
+        let snapshot = snapshot(&files);
+        let policy = policy();
+        let context = context(&snapshot, &policy, Vec::new());
+
+        let verdict = evaluate(&rule("REPO-META-06"), &context);
+        assert_eq!(verdict.status, Status::Inconclusive);
+        let evidence = verdict.evidence.unwrap();
+        assert_eq!(evidence.code, crate::checks::MALFORMED_DECLARATION);
+        assert!(evidence.detail.contains("entry 2"));
+    }
+
+    #[test]
+    fn a_non_string_topic_is_never_skipped_by_the_vocabulary_rule() {
+        // The dropped entry used to be compared against nothing at all, so a
+        // topic outside the vocabulary could pass by being wrong-typed.
+        let snapshot = snapshot(&[(
+            ".github/repo-settings.yml",
+            "topics:\n  - cli\n  - 42\n  - rust\n",
+        )]);
+        let mut policy = policy();
+        policy.reference_data.insert(
+            "topics".to_owned(),
+            yaml::parse_mapping(
+                "artifact-type: [cli]\necosystem: [rust]\n",
+                crate::limits::Limits::default().yaml,
+            )
+            .unwrap(),
+        );
+        let context = context(&snapshot, &policy, Vec::new());
+
+        for id in ["REPO-META-07", "REPO-META-09", "REPO-META-10"] {
+            let verdict = evaluate(&rule(id), &context);
+            assert_eq!(verdict.status, Status::Inconclusive, "{id}");
+            assert_eq!(
+                verdict.evidence.unwrap().code,
+                crate::checks::MALFORMED_DECLARATION,
+                "{id}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_malformed_topic_vocabulary_in_the_policy_is_also_refused() {
+        let snapshot = snapshot(&[(".github/repo-settings.yml", SETTINGS)]);
+        let mut policy = policy();
+        policy.reference_data.insert(
+            "topics".to_owned(),
+            yaml::parse_mapping(
+                "artifact-type: [cli, 7]\necosystem: [rust]\n",
+                crate::limits::Limits::default().yaml,
+            )
+            .unwrap(),
+        );
+        let context = context(&snapshot, &policy, Vec::new());
+        for id in ["REPO-META-07", "REPO-META-09"] {
+            assert_eq!(
+                evaluate(&rule(id), &context).status,
+                Status::Inconclusive,
+                "{id}"
+            );
+        }
+    }
+
+    #[test]
+    fn live_metadata_drift_reports_a_malformed_declaration_rather_than_comparing_part_of_it() {
+        let mut snapshot = snapshot(&[(".github/repo-settings.yml", "topics:\n  - cli\n  - 42\n")]);
+        snapshot.topics = Ok(vec!["cli".to_owned()]);
+        let policy = policy();
+        let context = context(&snapshot, &policy, Vec::new());
+        assert_eq!(
+            evaluate(&rule("REPO-META-13"), &context).status,
+            Status::Inconclusive
         );
     }
 }

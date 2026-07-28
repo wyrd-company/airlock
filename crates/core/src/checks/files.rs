@@ -117,11 +117,19 @@ fn ci_workflow(context: &AuditContext) -> Verdict {
              workflow could not be established",
         );
     }
-    match context
-        .workflows
-        .iter()
-        .find(|workflow| workflow.has_trigger("pull_request"))
-    {
+    let mut found = None;
+    for workflow in &context.workflows {
+        match workflow.has_trigger("pull_request") {
+            Ok(true) => {
+                found = Some(workflow);
+                break;
+            }
+            Ok(false) => {}
+            Err(verdict) => return *verdict,
+        }
+    }
+
+    match found {
         Some(workflow) => Verdict::pass_at(
             "ci_workflow_present",
             &workflow.path,
@@ -148,16 +156,11 @@ fn renovate(rule: &RuleInstance, context: &AuditContext) -> Verdict {
             ".github/renovate.json is not valid JSON, so its presets could not be read",
         );
     };
-    let extends: Vec<String> = document
-        .get("extends")
-        .and_then(|value| value.as_array())
-        .map(|values| {
-            values
-                .iter()
-                .filter_map(|value| value.as_str().map(ToOwned::to_owned))
-                .collect()
-        })
-        .unwrap_or_default();
+    let extends =
+        match super::json_strings(&document, "extends", "`extends` in .github/renovate.json") {
+            Ok(extends) => extends.unwrap_or_default(),
+            Err(verdict) => return *verdict,
+        };
 
     if extends.is_empty() {
         return Verdict::fail_at(
@@ -373,7 +376,11 @@ fn reconcile_workflow(context: &AuditContext) -> Verdict {
         );
     };
     let branch = &context.snapshot.repository.default_branch;
-    if workflow.pushes_to(branch) {
+    let pushes_to_branch = match workflow.pushes_to(branch) {
+        Ok(pushes) => pushes,
+        Err(verdict) => return *verdict,
+    };
+    if pushes_to_branch {
         Verdict::pass_at(
             "reconcile_triggers_on_default_branch",
             &workflow.path,
@@ -659,6 +666,20 @@ mod tests {
         let context = context(&snapshot, &policy, Vec::new());
         assert_eq!(
             evaluate(&rule("REPO-FILE-10"), &context).status,
+            Status::Inconclusive
+        );
+    }
+
+    #[test]
+    fn a_malformed_renovate_preset_list_is_not_read_as_extending_nothing() {
+        assert_eq!(
+            verdict(
+                "REPO-FILE-08",
+                &[(
+                    ".github/renovate.json",
+                    "{\"extends\":[\"github>owner/.github\", 7]}"
+                )]
+            ),
             Status::Inconclusive
         );
     }
