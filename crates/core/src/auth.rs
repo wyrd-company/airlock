@@ -120,18 +120,62 @@ impl TokenKind {
 ///
 /// A refusal never carries the token, and never hints that airlock might have
 /// found a credential elsewhere.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RefusalCode {
+    UnverifiableFineGrainedPat,
+    UnverifiableInstallationToken,
+    RefreshTokenSupplied,
+    UnverifiableUnknownToken,
+    NoInstallations,
+    MalformedIssuer,
+    ForeignIssuer,
+    WritePermission,
+    MissingScopeHeader,
+    DuplicateScopeHeader,
+    NonReadScope,
+    MalformedScopeHeader,
+    RejectedCredential,
+    RateLimited,
+    BudgetExhausted,
+    VerificationFailed,
+}
+
+impl RefusalCode {
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::UnverifiableFineGrainedPat => "unverifiable_fine_grained_pat",
+            Self::UnverifiableInstallationToken => "unverifiable_installation_token",
+            Self::RefreshTokenSupplied => "refresh_token_supplied",
+            Self::UnverifiableUnknownToken => "unverifiable_unknown_token",
+            Self::NoInstallations => "no_installations",
+            Self::MalformedIssuer => "malformed_issuer",
+            Self::ForeignIssuer => "foreign_issuer",
+            Self::WritePermission => "write_permission",
+            Self::MissingScopeHeader => "missing_scope_header",
+            Self::DuplicateScopeHeader => "duplicate_scope_header",
+            Self::NonReadScope => "non_read_scope",
+            Self::MalformedScopeHeader => "malformed_scope_header",
+            Self::RejectedCredential => "rejected_credential",
+            Self::RateLimited => "rate_limited",
+            Self::BudgetExhausted => "budget_exhausted",
+            Self::VerificationFailed => "verification_failed",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Refusal {
     /// A stable code naming the refusal.
-    pub code: String,
+    pub code: RefusalCode,
     /// What a human should do about it.
     pub detail: String,
 }
 
 impl Refusal {
-    fn new(code: &str, detail: impl Into<String>) -> Self {
+    fn new(code: RefusalCode, detail: impl Into<String>) -> Self {
         Self {
-            code: code.to_owned(),
+            code,
             detail: detail.into(),
         }
     }
@@ -139,7 +183,7 @@ impl Refusal {
 
 impl fmt::Display for Refusal {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "{} ({})", self.detail, self.code)
+        write!(formatter, "{} ({})", self.detail, self.code.code())
     }
 }
 
@@ -193,25 +237,25 @@ pub async fn verify<G: GitHub>(token: &str, client: &G) -> Result<VerifiedGrant,
         TokenKind::AppUser => verify_app_user(client).await,
         kind @ (TokenKind::ClassicPat | TokenKind::OAuthUser) => verify_scoped(kind, client).await,
         TokenKind::FineGrainedPat => Err(Refusal::new(
-            "unverifiable_fine_grained_pat",
+            RefusalCode::UnverifiableFineGrainedPat,
             "GitHub offers no way to enumerate a fine-grained personal access \
              token's permissions, and a write probe would break airlock's \
              read-only contract. Run `airlock auth login` for a credential \
              airlock can verify.",
         )),
         TokenKind::Installation => Err(Refusal::new(
-            "unverifiable_installation_token",
+            RefusalCode::UnverifiableInstallationToken,
             "An installation token carries its permissions only in the \
              response that minted it, which airlock never sees. Run \
              `airlock auth login` for a credential airlock can verify.",
         )),
         TokenKind::Refresh => Err(Refusal::new(
-            "refresh_token_supplied",
+            RefusalCode::RefreshTokenSupplied,
             "That is a refresh token, not an access token. Run \
              `airlock auth login` to exchange it, or supply the access token.",
         )),
         TokenKind::Unknown => Err(Refusal::new(
-            "unverifiable_unknown_token",
+            RefusalCode::UnverifiableUnknownToken,
             "The token carries no prefix airlock recognises, so its \
              permissions cannot be enumerated. Run `airlock auth login` for a \
              credential airlock can verify.",
@@ -224,7 +268,7 @@ async fn verify_app_user<G: GitHub>(client: &G) -> Result<VerifiedGrant, Refusal
 
     if installations.is_empty() {
         return Err(Refusal::new(
-            "no_installations",
+            RefusalCode::NoInstallations,
             "The token's app is not installed on any account this user can \
              reach, so there is nothing for airlock to audit and no permission \
              map to enumerate. Install Airlock Safe on the account that owns \
@@ -237,7 +281,7 @@ async fn verify_app_user<G: GitHub>(client: &G) -> Result<VerifiedGrant, Refusal
         // reclaimed; an id alone tells a human nothing.
         if installation.app_id == 0 {
             return Err(Refusal::new(
-                "malformed_issuer",
+                RefusalCode::MalformedIssuer,
                 format!(
                     "Installation {} reports app id 0, which is not an app identity airlock can \
                      bind to. An issuer it cannot verify is an issuer it refuses.",
@@ -249,7 +293,7 @@ async fn verify_app_user<G: GitHub>(client: &G) -> Result<VerifiedGrant, Refusal
             || installation.app_id != AIRLOCK_SAFE_APP_ID
         {
             return Err(Refusal::new(
-                "foreign_issuer",
+                RefusalCode::ForeignIssuer,
                 format!(
                     "The token was issued by `{}` (app id {}), not `{AIRLOCK_SAFE_APP_SLUG}` \
                      (app id {AIRLOCK_SAFE_APP_ID}). Airlock can enumerate installation \
@@ -266,7 +310,7 @@ async fn verify_app_user<G: GitHub>(client: &G) -> Result<VerifiedGrant, Refusal
         let writes = write_permissions(installation);
         if !writes.is_empty() {
             return Err(Refusal::new(
-                "write_permission",
+                RefusalCode::WritePermission,
                 format!(
                     "Installation {} on {} carries {}. Airlock refuses any token with write \
                      permission.",
@@ -321,7 +365,7 @@ async fn verify_scoped<G: GitHub>(kind: TokenKind, client: &G) -> Result<Verifie
         // would accept a `repo`-scoped token that simply lost its header.
         OAuthScopeHeader::Absent => {
             return Err(Refusal::new(
-                "missing_scope_header",
+                RefusalCode::MissingScopeHeader,
                 "GitHub did not return an `X-OAuth-Scopes` header, so the token's \
                  scopes could not be read. An unreadable grant is unverifiable.",
             ));
@@ -332,7 +376,7 @@ async fn verify_scoped<G: GitHub>(kind: TokenKind, client: &G) -> Result<Verifie
         // carrying both a read-only value and `repo` be accepted.
         OAuthScopeHeader::Repeated(values) => {
             return Err(Refusal::new(
-                "duplicate_scope_header",
+                RefusalCode::DuplicateScopeHeader,
                 format!(
                     "GitHub returned {} `X-OAuth-Scopes` headers ({}). A grant with more than \
                      one answer is not enumerated, so the token is refused.",
@@ -369,7 +413,7 @@ async fn verify_scoped<G: GitHub>(kind: TokenKind, client: &G) -> Result<Verifie
 
     if !rejected.is_empty() {
         return Err(Refusal::new(
-            "non_read_scope",
+            RefusalCode::NonReadScope,
             format!(
                 "The token carries {}, which airlock's reviewed read-only scope list does not \
                  contain. A scope airlock cannot classify as read-only is refused rather than \
@@ -401,7 +445,7 @@ fn parse_scopes(header: &str) -> Result<Vec<String>, Refusal> {
         }
         if scope.contains(char::is_whitespace) {
             return Err(Refusal::new(
-                "malformed_scope_header",
+                RefusalCode::MalformedScopeHeader,
                 format!("The scope `{scope}` is not a well-formed scope token."),
             ));
         }
@@ -416,23 +460,23 @@ fn parse_scopes(header: &str) -> Result<Vec<String>, Refusal> {
 fn api_refusal(error: ApiError) -> Refusal {
     match error.cause {
         ErrorCause::Unauthenticated => Refusal::new(
-            "rejected_credential",
+            RefusalCode::RejectedCredential,
             "GitHub rejected the credential. Run `airlock auth login`.",
         ),
         ErrorCause::RateLimit => Refusal::new(
-            "rate_limited",
+            RefusalCode::RateLimited,
             "GitHub rate-limited the verification request, so the credential \
              could not be verified. Try again after the limit resets.",
         ),
         ErrorCause::Budget => Refusal::new(
-            "budget_exhausted",
+            RefusalCode::BudgetExhausted,
             format!(
                 "The credential could not be verified within airlock's time and size budgets, \
                  so nothing about it was established: {error}"
             ),
         ),
         _ => Refusal::new(
-            "verification_failed",
+            RefusalCode::VerificationFailed,
             format!("The credential could not be verified: {error}"),
         ),
     }
@@ -525,7 +569,7 @@ mod tests {
     #[test]
     fn a_scope_with_whitespace_inside_it_is_malformed() {
         let refusal = parse_scopes("read org").unwrap_err();
-        assert_eq!(refusal.code, "malformed_scope_header");
+        assert_eq!(refusal.code, RefusalCode::MalformedScopeHeader);
     }
 
     #[test]
@@ -558,7 +602,10 @@ mod tests {
 
     #[test]
     fn a_refusal_never_renders_a_token() {
-        let refusal = Refusal::new("unverifiable_unknown_token", "no prefix airlock knows");
+        let refusal = Refusal::new(
+            RefusalCode::UnverifiableUnknownToken,
+            "no prefix airlock knows",
+        );
         assert!(!refusal.to_string().contains("ghu_"));
     }
 }

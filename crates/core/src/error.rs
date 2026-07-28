@@ -5,6 +5,9 @@
 
 use std::path::PathBuf;
 
+use crate::auth::Refusal;
+use crate::github::ApiError;
+
 /// The result type used throughout `airlock-core`.
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -20,11 +23,15 @@ pub enum Error {
     /// Airlock refuses any token that carries write permission, and refuses a
     /// token whose permissions cannot be enumerated at all.
     #[error("credential refused: {0}")]
-    Credential(String),
+    Credential(#[source] Refusal),
 
     /// The GitHub API was reachable but the request could not be completed.
-    #[error("github api error: {0}")]
-    GitHub(String),
+    #[error("github api error: {message}")]
+    GitHub {
+        #[source]
+        source: ApiError,
+        message: String,
+    },
 
     /// A file on disk could not be read.
     #[error("failed to access {path}: {source}")]

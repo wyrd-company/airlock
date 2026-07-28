@@ -185,9 +185,9 @@ impl fmt::Display for Evaluation {
     }
 }
 
-/// One registered rule.
+/// One registered check definition.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CheckDef {
+pub struct CheckDefinition {
     /// The rule id, for example `REPO-LIC-01`.
     pub id: &'static str,
     /// The rule statement, verbatim from the conformance checklist.
@@ -202,9 +202,9 @@ pub struct CheckDef {
     pub params: &'static [&'static str],
 }
 
-/// Every registered rule, in conformance document order.
-pub const CHECKS: &[CheckDef] = &[
-    CheckDef {
+/// Every registered check definition, in conformance document order.
+pub const CHECKS: &[CheckDefinition] = &[
+    CheckDefinition {
         id: "REPO-ORG-01",
         statement: "The repository is in the org its audience implies: `boblangley` if overfit to Bob, `wyrd-company` if a stranger benefits, `flapstack` if a vendor-neutral public good",
         severity: Severity::Observation,
@@ -212,7 +212,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Manual,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-ORG-02",
         statement: "A `boblangley` repository that has generalized has been considered for graduation to `wyrd-company`",
         severity: Severity::Observation,
@@ -220,7 +220,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Manual,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-NAME-01",
         statement: "The name is `lower-kebab-case`; no underscores, camelCase, or PascalCase",
         severity: Severity::Required,
@@ -228,7 +228,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-NAME-02",
         statement: "A dotted name is used only where the repository is a deployable site and the name is its hostname",
         severity: Severity::Required,
@@ -236,7 +236,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Manual,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-NAME-03",
         statement: "A repository in a product family carries the family prefix",
         severity: Severity::Observation,
@@ -244,7 +244,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Manual,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-NAME-04",
         statement: "The family prefix and the family topic agree",
         severity: Severity::Required,
@@ -252,7 +252,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Manual,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-META-01",
         statement: "`.github/repo-settings.yml` declares a description",
         severity: Severity::Blocking,
@@ -260,7 +260,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-META-02",
         statement: "The description is one sentence, at most 160 characters, and survives truncation at ~80",
         severity: Severity::Required,
@@ -268,7 +268,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-META-03",
         statement: "The description expands any acronym on first use",
         severity: Severity::Required,
@@ -276,7 +276,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Manual,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-META-04",
         statement: "The description contains no self-deprecation",
         severity: Severity::Required,
@@ -284,7 +284,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Manual,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-META-05",
         statement: "The description agrees with the README's opening line",
         severity: Severity::Required,
@@ -292,7 +292,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Manual,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-META-06",
         statement: "Between three and eight topics are declared",
         severity: Severity::Required,
@@ -300,7 +300,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &["min-topics", "max-topics"],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-META-07",
         statement: "Topics include at least one artifact-type and one ecosystem term",
         severity: Severity::Required,
@@ -308,7 +308,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-META-08",
         statement: "A repository in a product family carries the family topic",
         severity: Severity::Required,
@@ -316,7 +316,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Manual,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-META-09",
         statement: "Any topic not in `topics.md` has been added to it",
         severity: Severity::Required,
@@ -324,7 +324,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-META-10",
         statement: "No org-name topic is declared",
         severity: Severity::Required,
@@ -332,7 +332,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &["org-names"],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-META-11",
         statement: "The declared merge settings are squash and rebase enabled, merge commits disabled, head branches auto-deleted",
         severity: Severity::Required,
@@ -340,7 +340,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-META-12",
         statement: "`.github/repo-settings.yml` declares no `visibility` field",
         severity: Severity::Blocking,
@@ -348,7 +348,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-META-13",
         statement: "Live GitHub metadata matches the declared file",
         severity: Severity::Observation,
@@ -356,7 +356,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-LIC-01",
         statement: "A `LICENSE` file exists",
         severity: Severity::Blocking,
@@ -364,7 +364,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-LIC-02",
         statement: "The license matches the repository's category: Apache-2.0 by default, CC0-1.0 for specs and schemas, MIT for plumbing, or a matched ecosystem license",
         severity: Severity::Required,
@@ -372,7 +372,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Manual,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-LIC-03",
         statement: "The repository is not dual-licensed `MIT OR Apache-2.0`",
         severity: Severity::Blocking,
@@ -380,7 +380,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-LIC-04",
         statement: "A repository publishing to a registry declares the license in package metadata",
         severity: Severity::Required,
@@ -388,7 +388,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-LIC-05",
         statement: "A plumbing repository's README states that the license covers packaging, not payload",
         severity: Severity::Required,
@@ -396,7 +396,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Manual,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-LIC-06",
         statement: "A non-default license choice has a stated reason in the README or a decision record",
         severity: Severity::Observation,
@@ -404,7 +404,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Manual,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-FILE-01",
         statement: "`README.md` exists",
         severity: Severity::Blocking,
@@ -412,7 +412,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-FILE-02",
         statement: "`CONTRIBUTING.md` exists in the repository, not only at org level",
         severity: Severity::Required,
@@ -420,7 +420,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-FILE-03",
         statement: "`.gitignore` exists and is ecosystem-appropriate",
         severity: Severity::Required,
@@ -428,7 +428,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-FILE-04",
         statement: "`.gitattributes` exists and normalizes line endings",
         severity: Severity::Required,
@@ -436,7 +436,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-FILE-05",
         statement: "`.editorconfig` exists",
         severity: Severity::Required,
@@ -444,7 +444,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-FILE-06",
         statement: "`taskfile.yml` exists, lowercase",
         severity: Severity::Required,
@@ -452,7 +452,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-FILE-07",
         statement: "`.github/workflows/` contains at least a CI workflow triggered on pull request",
         severity: Severity::Blocking,
@@ -460,7 +460,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-FILE-08",
         statement: "`.github/renovate.json` exists and extends the org preset",
         severity: Severity::Required,
@@ -468,7 +468,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &["renovate-preset"],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-FILE-16",
         statement: "`.github/repo-settings.yml` exists",
         severity: Severity::Blocking,
@@ -476,7 +476,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-FILE-17",
         statement: "`.github/workflows/reconcile-settings.yml` exists and triggers on push to the default branch",
         severity: Severity::Blocking,
@@ -484,7 +484,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-FILE-09",
         statement: "`.config/lefthook.yml` exists",
         severity: Severity::Required,
@@ -492,7 +492,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-FILE-10",
         statement: "`.devcontainer/` exists",
         severity: Severity::Required,
@@ -500,7 +500,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-FILE-11",
         statement: "`AGENTS.md` exists",
         severity: Severity::Required,
@@ -508,7 +508,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-FILE-12",
         statement: "`CLAUDE.md` exists and is a symlink to `AGENTS.md`",
         severity: Severity::Required,
@@ -516,7 +516,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-FILE-13",
         statement: "No agent harness configuration is committed — no `.claude/`, `.cursor/`, or equivalent",
         severity: Severity::Required,
@@ -524,7 +524,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &["forbidden-paths"],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-FILE-14",
         statement: "No `CODEOWNERS` file is present",
         severity: Severity::Observation,
@@ -532,7 +532,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-FILE-15",
         statement: "Community health files are inherited from the org rather than duplicated, unless the local copy deliberately differs",
         severity: Severity::Observation,
@@ -540,7 +540,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Manual,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-README-01",
         statement: "Opens with a title and a one-line statement of what it is",
         severity: Severity::Required,
@@ -548,7 +548,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Manual,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-README-02",
         statement: "Badges are present",
         severity: Severity::Required,
@@ -556,7 +556,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Manual,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-README-03",
         statement: "An installation section covers every supported channel",
         severity: Severity::Blocking,
@@ -564,7 +564,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Manual,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-README-04",
         statement: "A quickstart or usage section contains at least one real, runnable example",
         severity: Severity::Blocking,
@@ -572,7 +572,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Manual,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-README-05",
         statement: "A repository with a user interface has an animated demo",
         severity: Severity::Observation,
@@ -580,7 +580,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Manual,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-README-06",
         statement: "Where a demo exists, its `.tape` source is committed",
         severity: Severity::Required,
@@ -588,7 +588,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Unimplemented,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-README-07",
         statement: "Prerequisites appear only where non-obvious",
         severity: Severity::Observation,
@@ -596,7 +596,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Manual,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-README-08",
         statement: "No license section",
         severity: Severity::Required,
@@ -604,7 +604,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Manual,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-README-09",
         statement: "No contributing section",
         severity: Severity::Required,
@@ -612,7 +612,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Manual,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-GIT-01",
         statement: "The default branch is `main`",
         severity: Severity::Required,
@@ -620,7 +620,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-GIT-02",
         statement: "The repository is covered by organization-sourced rulesets on its default branch",
         severity: Severity::Blocking,
@@ -628,7 +628,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-GIT-03",
         statement: "Those rulesets require pull requests, allow only squash and rebase, and require linear history",
         severity: Severity::Blocking,
@@ -636,7 +636,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-GIT-13",
         statement: "A GitHub App's identity is a variable named `<APP>_APP_ID`; only its private key is a secret, named `<APP>_APP_PRIVATE_KEY`",
         severity: Severity::Required,
@@ -644,7 +644,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-GIT-14",
         statement: "No secret or variable is named after the task that introduced it",
         severity: Severity::Required,
@@ -652,7 +652,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Manual,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-GIT-04",
         statement: "Merge commits are disabled",
         severity: Severity::Required,
@@ -660,7 +660,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-GIT-05",
         statement: "Squash merge is enabled",
         severity: Severity::Required,
@@ -668,7 +668,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-GIT-06",
         statement: "Auto-delete head branch on merge is enabled",
         severity: Severity::Required,
@@ -676,7 +676,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-GIT-07",
         statement: "Wikis, Projects, and Discussions are off unless deliberately used",
         severity: Severity::Observation,
@@ -684,7 +684,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-GIT-08",
         statement: "Tags carry no `v` prefix",
         severity: Severity::Required,
@@ -692,7 +692,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-GIT-09",
         statement: "Multi-release-unit tags use `@scope/name@version`",
         severity: Severity::Required,
@@ -700,7 +700,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-GIT-10",
         statement: "History contains no merge commits",
         severity: Severity::Required,
@@ -708,7 +708,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &["max-commits"],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-TASK-01",
         statement: "`test`, `lint`, `format`, and `check` tasks exist",
         severity: Severity::Required,
@@ -716,7 +716,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-TASK-02",
         statement: "Applicability of `build` and `dev` was an explicit decision, and they exist where applicable",
         severity: Severity::Required,
@@ -724,7 +724,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Manual,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-TASK-03",
         statement: "`task check` runs everything CI runs",
         severity: Severity::Required,
@@ -732,7 +732,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Manual,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-TASK-04",
         statement: "In a monorepo, each release unit has a `taskfile.yml` at its path",
         severity: Severity::Required,
@@ -740,7 +740,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-TASK-05",
         statement: "Every include sets `dir:`",
         severity: Severity::Required,
@@ -748,7 +748,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-TASK-06",
         statement: "Include namespaces match release unit ids",
         severity: Severity::Required,
@@ -756,7 +756,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-CI-01",
         statement: "CI is triggered on `pull_request`",
         severity: Severity::Blocking,
@@ -764,7 +764,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-CI-02",
         statement: "Workflow-level `permissions:` is set to `{}`",
         severity: Severity::Blocking,
@@ -772,7 +772,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-CI-03",
         statement: "Every job declares only the permissions it needs",
         severity: Severity::Required,
@@ -780,7 +780,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-CI-04",
         statement: "Every action is pinned to a full commit SHA with a version comment",
         severity: Severity::Blocking,
@@ -788,7 +788,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-CI-05",
         statement: "No workflow uses `pull_request_target`",
         severity: Severity::Blocking,
@@ -796,7 +796,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-CI-06",
         statement: "A `concurrency` group with `cancel-in-progress` covers pull requests",
         severity: Severity::Required,
@@ -804,7 +804,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-CI-07",
         statement: "Every job invokes a task rather than a raw command",
         severity: Severity::Required,
@@ -812,7 +812,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-CI-08",
         statement: "A required check validates pull request title format",
         severity: Severity::Required,
@@ -820,7 +820,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-CI-09",
         statement: "The reconcile workflow requests a token scoped to a single repository",
         severity: Severity::Required,
@@ -828,7 +828,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-CI-10",
         statement: "No workflow mutates repository settings outside the reconcile workflow",
         severity: Severity::Required,
@@ -836,7 +836,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Manual,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-CD-01",
         statement: "A repository that delivers anything has `.github/workflows/cd.yml`",
         severity: Severity::Required,
@@ -844,7 +844,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-CD-02",
         statement: "A repository publishing a versioned artifact triggers CD on tags matching `[0-9]*.[0-9]*.[0-9]*`",
         severity: Severity::Required,
@@ -852,7 +852,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &["tag-pattern"],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-CD-03",
         statement: "A repository deploying a site or service triggers CD on push to the default branch",
         severity: Severity::Required,
@@ -860,7 +860,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-CD-04",
         statement: "CD sets `concurrency` with `cancel-in-progress: false`",
         severity: Severity::Blocking,
@@ -868,7 +868,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-CD-05",
         statement: "A CD `workflow_dispatch` can only re-deliver an existing tag, never create a release",
         severity: Severity::Blocking,
@@ -876,7 +876,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Manual,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-CD-06",
         statement: "CD asserts every required publication credential is present before doing any work",
         severity: Severity::Required,
@@ -884,7 +884,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Manual,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-CD-07",
         statement: "Release creation and delivery are separate workflows",
         severity: Severity::Required,
@@ -892,7 +892,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-HOOK-01",
         statement: "`pre-commit` runs `format` and `lint` on staged files only",
         severity: Severity::Required,
@@ -900,7 +900,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-HOOK-02",
         statement: "`commit-msg` validates conventional commit format",
         severity: Severity::Required,
@@ -908,7 +908,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-HOOK-03",
         statement: "`pre-push` runs nothing or lint only",
         severity: Severity::Required,
@@ -916,7 +916,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-HOOK-04",
         statement: "Hooks invoke tasks rather than raw commands",
         severity: Severity::Required,
@@ -924,7 +924,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-AGENT-01",
         statement: "`AGENTS.md` covers what the repository is, commands by reference, repository-specific conventions, what not to touch, and where docs live",
         severity: Severity::Required,
@@ -932,7 +932,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Manual,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-AGENT-02",
         statement: "`AGENTS.md` contains nothing discoverable by reading the repository",
         severity: Severity::Required,
@@ -940,7 +940,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Manual,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-AGENT-03",
         statement: "`AGENTS.md` does not restate the README or `CONTRIBUTING.md`",
         severity: Severity::Required,
@@ -948,7 +948,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Manual,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-AGENT-04",
         statement: "`CONTRIBUTING.md` contains no command sequences beyond `task check`",
         severity: Severity::Required,
@@ -956,7 +956,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Manual,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-AGENT-05",
         statement: "Generated directories are marked `linguist-generated=true` in `.gitattributes`",
         severity: Severity::Required,
@@ -964,7 +964,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Manual,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-DOCS-01",
         statement: "User-facing pages sit at the top level of `docs/`",
         severity: Severity::Observation,
@@ -972,7 +972,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Manual,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-DOCS-02",
         statement: "Engineering artifacts sit in `docs/decisions/`, `docs/technical-designs/`, or `docs/spikes/`",
         severity: Severity::Observation,
@@ -980,7 +980,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Manual,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-DOCS-03",
         statement: "Artifact filenames are lower-kebab slugs with no type prefix and no `id:` field",
         severity: Severity::Observation,
@@ -988,7 +988,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Manual,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-DOCS-04",
         statement: "A tool publishing docs to `wyrd.foo` has `docs/docs.yml`",
         severity: Severity::Required,
@@ -996,7 +996,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Manual,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-DOCS-05",
         statement: "Schema-bound YAML artifacts follow their schema where one exists",
         severity: Severity::Observation,
@@ -1004,7 +1004,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Unimplemented,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-REL-01",
         statement: "`.intentional/config.yml` exists and declares release units",
         severity: Severity::Required,
@@ -1012,7 +1012,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-REL-02",
         statement: "A `CHANGELOG.md` exists at each release unit's declared path",
         severity: Severity::Required,
@@ -1020,7 +1020,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-REL-03",
         statement: "A multi-unit repository has no root aggregate changelog",
         severity: Severity::Required,
@@ -1028,7 +1028,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-REL-04",
         statement: "Release is `workflow_dispatch` on a pinned source SHA",
         severity: Severity::Blocking,
@@ -1036,7 +1036,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-REL-05",
         statement: "The release workflow asserts the pinned SHA equals current `main`",
         severity: Severity::Blocking,
@@ -1044,7 +1044,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Manual,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-REL-06",
         statement: "The release workflow asserts a successful push-event CI run for exactly that SHA",
         severity: Severity::Blocking,
@@ -1052,7 +1052,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Manual,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-REL-07",
         statement: "No workflow publishes automatically on merge",
         severity: Severity::Blocking,
@@ -1060,7 +1060,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-PROP-03",
         statement: "`.github/repo-settings.yml` declares no custom property values",
         severity: Severity::Blocking,
@@ -1068,7 +1068,7 @@ pub const CHECKS: &[CheckDef] = &[
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
-    CheckDef {
+    CheckDefinition {
         id: "REPO-PROP-04",
         statement: "No workflow writes organization custom properties",
         severity: Severity::Blocking,
@@ -1077,15 +1077,15 @@ pub const CHECKS: &[CheckDef] = &[
         params: &[],
     },];
 
-/// Look a rule up by id.
+/// Look a check definition up by id.
 #[must_use]
-pub fn find(id: &str) -> Option<&'static CheckDef> {
+pub fn find(id: &str) -> Option<&'static CheckDefinition> {
     CHECKS.iter().find(|check| check.id == id)
 }
 
-/// Every rule in a section, in registry order.
+/// Every check definition in a section, in registry order.
 #[must_use]
-pub fn in_section(section: Section) -> Vec<&'static CheckDef> {
+pub fn in_section(section: Section) -> Vec<&'static CheckDefinition> {
     CHECKS
         .iter()
         .filter(|check| check.section == section)

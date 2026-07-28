@@ -23,7 +23,7 @@ use sha2::{Digest, Sha256};
 use crate::findings::Gate;
 use crate::github::GitHub;
 use crate::limits::Limits;
-use crate::registry::{self, CheckDef, Section, Severity, REGISTRY_VERSION};
+use crate::registry::{self, CheckDefinition, Section, Severity, REGISTRY_VERSION};
 use crate::snapshot::read_file_at;
 use crate::yaml::{self, Yaml};
 use crate::{Error, Result};
@@ -95,7 +95,7 @@ impl Condition {
 #[derive(Debug, Clone, PartialEq)]
 pub struct RuleInstance {
     /// The registry definition.
-    pub def: &'static CheckDef,
+    pub def: &'static CheckDefinition,
     /// The severity after refinement.
     pub severity: Severity,
     /// The parameters after refinement.

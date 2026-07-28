@@ -6,7 +6,7 @@
 use std::fmt::Write as _;
 
 use crate::findings::{Report, Status};
-use crate::registry::{self, CheckDef};
+use crate::registry::{self, CheckDefinition};
 
 /// Render an audit report for a terminal.
 #[must_use]
@@ -157,7 +157,7 @@ pub fn list_checks_json() -> serde_json::Value {
     })
 }
 
-fn check_json(check: &CheckDef) -> serde_json::Value {
+fn check_json(check: &CheckDefinition) -> serde_json::Value {
     serde_json::json!({
         "id": check.id,
         "statement": check.statement,
