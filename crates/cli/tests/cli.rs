@@ -624,18 +624,42 @@ async fn auth_token_verifies_and_emits_only_the_stored_profile_token() {
     let path = directory.join("config.toml");
     std::fs::write(
         &path,
-        "[profiles.ci]\naccess_token = \"ghu_fixture_token\"\nlogin = \"example-user\"\n",
+        "[profiles.ci]\naccess_token = \"ghu_profile_token\"\nlogin = \"example-user\"\n",
     )
     .unwrap();
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
 
     airlock(&server, &config)
-        .env_remove("AIRLOCK_TOKEN")
         .args(["auth", "token", "--profile", "ci"])
         .assert()
         .code(0)
-        .stdout("ghu_fixture_token\n")
+        .stdout("ghu_profile_token\n")
         .stderr("");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn auth_token_emits_nothing_when_the_stored_profile_is_refused() {
+    let server = support::start(&[FakeRepo::new("wyrd-company", "example")]).await;
+    let config = TempDir::new().unwrap();
+    let directory = config.path().join("airlock");
+    std::fs::create_dir_all(&directory).unwrap();
+    let path = directory.join("config.toml");
+    let refused_token = "github_pat_11ABCDEFG";
+    std::fs::write(
+        &path,
+        format!("[profiles.ci]\naccess_token = \"{refused_token}\"\nlogin = \"example-user\"\n"),
+    )
+    .unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+
+    let assertion = airlock(&server, &config)
+        .args(["auth", "token", "--profile", "ci"])
+        .assert()
+        .failure()
+        .stdout("");
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr);
+    assert!(!stderr.contains(refused_token));
+    assert!(!stderr.contains("ghu_"));
 }
 
 #[tokio::test(flavor = "multi_thread")]
