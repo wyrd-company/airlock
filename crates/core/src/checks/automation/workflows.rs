@@ -445,6 +445,11 @@ pub(super) fn audit_uses_airlock_token(context: &AuditContext) -> Verdict {
         );
     };
 
+    let local_action_is_airlock = matches!(
+        context.yaml("action.yml"),
+        ParsedFile::Parsed(ref action)
+            if action.get("name").and_then(Yaml::as_str) == Some("Airlock audit")
+    );
     let audit_steps: Vec<&Yaml> = document
         .get("jobs")
         .and_then(Yaml::as_map)
@@ -453,9 +458,9 @@ pub(super) fn audit_uses_airlock_token(context: &AuditContext) -> Verdict {
                 .filter_map(|(_, job)| job.get("steps").and_then(Yaml::as_seq))
                 .flatten()
                 .filter(|step| {
-                    step.get("uses")
-                        .and_then(Yaml::as_str)
-                        .is_some_and(|uses| uses == "./")
+                    step.get("uses").and_then(Yaml::as_str).is_some_and(|uses| {
+                        (uses == "./" && local_action_is_airlock) || is_remote_root_action(uses)
+                    })
                 })
                 .collect()
         })
@@ -464,10 +469,7 @@ pub(super) fn audit_uses_airlock_token(context: &AuditContext) -> Verdict {
     if audit_steps.is_empty() {
         return Verdict::fail(
             "local_audit_action_missing",
-            format!(
-                "{} does not invoke the repository's audit action",
-                workflow.path
-            ),
+            format!("{} does not invoke the Airlock audit action", workflow.path),
             Remediation::new(
                 ActionGroup::SUPPLY_AIRLOCK_TOKEN,
                 "Invoke the local audit action and supply `secrets.AIRLOCK_TOKEN`.",
@@ -500,6 +502,17 @@ pub(super) fn audit_uses_airlock_token(context: &AuditContext) -> Verdict {
             ),
         )
     }
+}
+
+fn is_remote_root_action(uses: &str) -> bool {
+    let Some((repository, reference)) = uses.rsplit_once('@') else {
+        return false;
+    };
+    !reference.is_empty()
+        && repository.split('/').count() == 2
+        && repository
+            .split('/')
+            .all(|component| !component.is_empty() && component != "." && component != "..")
 }
 
 #[cfg(test)]
@@ -714,7 +727,7 @@ jobs:
     }
 
     #[test]
-    fn the_audit_action_must_receive_airlock_token() {
+    fn the_local_audit_action_must_receive_airlock_token() {
         let configured = "\
 on: workflow_dispatch
 permissions: {}
@@ -728,7 +741,16 @@ jobs:
           AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}
 ";
         assert_eq!(
-            verdict("REPO-CI-09", &[(".github/workflows/audit.yml", configured)]),
+            verdict(
+                "REPO-CI-09",
+                &[
+                    (".github/workflows/audit.yml", configured),
+                    (
+                        "action.yml",
+                        "name: Airlock audit\nruns:\n  using: composite\n"
+                    ),
+                ]
+            ),
             Status::Pass
         );
         let unconfigured = configured.replace(
@@ -739,6 +761,52 @@ jobs:
             verdict(
                 "REPO-CI-09",
                 &[(".github/workflows/audit.yml", &unconfigured)]
+            ),
+            Status::Fail
+        );
+    }
+
+    #[test]
+    fn a_remote_airlock_action_must_receive_airlock_token() {
+        let configured = "\
+on: workflow_dispatch
+permissions: {}
+jobs:
+  audit:
+    permissions:
+      contents: read
+    steps:
+      - uses: example/airlock@0123456789abcdef0123456789abcdef01234567
+        env:
+          AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}
+";
+        assert_eq!(
+            verdict("REPO-CI-09", &[(".github/workflows/audit.yml", configured)]),
+            Status::Pass
+        );
+    }
+
+    #[test]
+    fn an_unrelated_local_action_is_not_the_airlock_action() {
+        let workflow = "\
+on: workflow_dispatch
+permissions: {}
+jobs:
+  audit:
+    permissions:
+      contents: read
+    steps:
+      - uses: ./
+        env:
+          AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}
+";
+        assert_eq!(
+            verdict(
+                "REPO-CI-09",
+                &[
+                    (".github/workflows/audit.yml", workflow),
+                    ("action.yml", "name: Deploy\nruns:\n  using: composite\n"),
+                ]
             ),
             Status::Fail
         );

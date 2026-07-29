@@ -876,7 +876,7 @@ pub const CHECKS: &[CheckDefinition] = &[
     },
     CheckDefinition {
         id: "REPO-CI-09",
-        statement: "The scheduled audit workflow uses a verified read-only `AIRLOCK_TOKEN`",
+        statement: "The scheduled audit workflow supplies `secrets.AIRLOCK_TOKEN` to the Airlock audit action",
         severity: Severity::Required,
         section: Section::Automation,
         evaluation: Evaluation::Mechanical,

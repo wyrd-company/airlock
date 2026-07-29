@@ -490,9 +490,9 @@ fn live_matches_declared(context: &AuditContext) -> Verdict {
                 drift.join(", ")
             ),
             Remediation::new(
-                ActionGroup::RUN_RECONCILE,
-                "Run the reconcile workflow, or fix the declared file. Drift means \
-                 reconciliation is not running.",
+                ActionGroup::RUN_ALIGN,
+                "Run `airlock align`, or fix the declared file. Drift means the declared and live \
+                 settings have not been aligned.",
             ),
         )
     }

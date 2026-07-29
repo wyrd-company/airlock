@@ -894,8 +894,8 @@ async fn a_truncated_tree_cannot_produce_a_clean_audit() {
             "on:\n  pull_request:\npermissions: {}\njobs: {}\n",
         )
         .with_file(
-            ".github/workflows/reconcile-settings.yml",
-            "on:\n  push:\n    branches: [main]\npermissions: {}\njobs: {}\n",
+            ".github/workflows/audit.yml",
+            "on:\n  schedule:\n    - cron: '0 0 * * 1'\n  workflow_dispatch: {}\npermissions: {}\njobs: {}\n",
         );
     let report = audit_json(repo, FILES_POLICY, 2).await;
     assert_eq!(report["outcome"], "incomplete");

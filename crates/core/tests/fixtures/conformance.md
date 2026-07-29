@@ -123,7 +123,7 @@ repository declares at least one release unit.
 | `REPO-CI-06`   | A `concurrency` group with `cancel-in-progress` covers pull requests                             | Required | Workflow contents                            |
 | `REPO-CI-07`   | Every job invokes a task rather than a raw command                                               | Required | Workflow contents                            |
 | `REPO-CI-08`   | A required check validates pull request title format                                             | Required | Workflow contents and ruleset                |
-| `REPO-CI-09`   | The scheduled audit workflow uses a verified read-only `AIRLOCK_TOKEN`                            | Required | Workflow contents                            |
+| `REPO-CI-09`   | The scheduled audit workflow supplies `secrets.AIRLOCK_TOKEN` to the Airlock audit action         | Required | Workflow contents                            |
 | `REPO-CI-10`   | No workflow mutates repository settings                                                          | Required | Manual — Workflow contents |
 | `REPO-CD-01`   | A repository that delivers anything has `.github/workflows/cd.yml`                               | Required | File presence                                |
 | `REPO-CD-02`   | A repository publishing a versioned artifact triggers CD on tags matching `[0-9]*.[0-9]*.[0-9]*` | Required | Workflow contents                            |

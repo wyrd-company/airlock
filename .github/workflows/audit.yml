@@ -22,6 +22,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+      - uses: go-task/setup-task@01a4adf9db2d14c1de7a560f09170b6e0df736aa # v2
       - name: Run Airlock
         id: airlock
         uses: ./
@@ -41,10 +42,4 @@ jobs:
         env:
           OUTCOME: ${{ env.AIRLOCK_OUTCOME }}
           COMPLETE: ${{ env.AIRLOCK_COMPLETE }}
-        run: |
-          {
-            echo "## Airlock audit"
-            echo
-            echo "- Outcome: \`$OUTCOME\`"
-            echo "- Complete: \`$COMPLETE\`"
-          } >> "$GITHUB_STEP_SUMMARY"
+        run: task audit:summary

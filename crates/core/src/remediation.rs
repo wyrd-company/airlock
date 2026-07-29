@@ -136,7 +136,7 @@ action_groups! {
     REPLACE_WITH_SYMLINK => "replace_with_symlink",
     RETAG_WITHOUT_PREFIX => "retag_without_prefix",
     REWRITE_OR_PREVENT_MERGES => "rewrite_or_prevent_merges",
-    RUN_RECONCILE => "run_reconcile",
+    RUN_ALIGN => "run_align",
     SCOPE_TAGS => "scope_tags",
     SUPPLY_AIRLOCK_TOKEN => "supply_airlock_token",
     SET_INCLUDE_DIR => "set_include_dir",
@@ -386,10 +386,10 @@ pub const CLASSIFICATIONS: &[Classification] = &[
         true,
     ),
     remediation(
-        "reconcile-live-settings",
+        "align-live-settings",
         "REPO-META-13",
         Lane::OperatorSetting,
-        "Reconcile live GitHub metadata to the declared file.",
+        "Align live GitHub metadata to the declared file.",
         true,
     ),
     remediation(

@@ -36,14 +36,7 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - uses: go-task/setup-task@01a4adf9db2d14c1de7a560f09170b6e0df736aa # v2
       - name: Install repository linters
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes shellcheck
-          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
-          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
-          cargo install --locked ryl --version 0.21.0
-          cargo install --locked rumdl --version 0.2.40
-          cargo install --locked intentional-cli --version 0.1.6
+        run: task ci:install-linters
       - run: task lint
 
   test:
