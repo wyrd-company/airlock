@@ -29,7 +29,8 @@ decision-outcome:
     locally modified files cannot masquerade as the emitted version.
     Rule-by-rule inspection guidance remains hand-written in a separate
     reference and is joined into the generated checklist without owning any
-    registry field.
+    registry field. Forced replacement requires Airlock's provenance marker,
+    so a mistyped path cannot replace an arbitrary directory.
 
 expected-outcomes:
   positive:

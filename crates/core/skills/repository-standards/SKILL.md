@@ -298,22 +298,9 @@ Two things are **not** inherited despite the intuition:
 
 ### Required in every public repository
 
-| File                        | Notes                                                                                                                     |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `README.md`                 | See [README](#readme)                                                                                                     |
-| `LICENSE`                   | Not inheritable                                                                                                           |
-| `CONTRIBUTING.md`           | Per repository — build and test specifics are repository-specific                                                         |
-| `.gitignore`                | Ecosystem-appropriate                                                                                                     |
-| `.gitattributes`            | Line-ending normalization; marks generated paths                                                                          |
-| `.editorconfig`             |                                                                                                                           |
-| `taskfile.yml`              | Lowercase filename. See [Automation](#automation)                                                                         |
-| `.github/workflows/`        | `ci.yml`, `reconcile-settings.yml`, and `cd.yml` where the repo delivers. See [Workflow vocabulary](#workflow-vocabulary) |
-| `.github/renovate.json`     | Extends the org preset                                                                                                    |
-| `.github/repo-settings.yml` | Declared repository metadata. See [Settings as an artifact](#settings-as-an-artifact)                                     |
-| `.config/lefthook.yml`      |                                                                                                                           |
-| `.devcontainer/`            | Every repository — an outside contributor cannot reconstruct the build environment                                        |
-| `AGENTS.md`                 | See [Agent affordances](#agent-affordances)                                                                               |
-| `CLAUDE.md`                 | A symlink to `AGENTS.md`                                                                                                  |
+The compiled registry owns the required set. Read the Files, Automation, and
+Agent affordances sections of `references/conformance.md`; do not maintain a
+second file checklist here.
 
 ### Required under conditions
 

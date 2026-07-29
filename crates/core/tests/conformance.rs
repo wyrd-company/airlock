@@ -34,7 +34,7 @@ fn section_for_heading(heading: &str) -> Option<Section> {
 
 /// Parse the checklist's rule tables.
 fn parse_checklist() -> BTreeMap<String, Rule> {
-    let conformance = airlock_core::skill::conformance();
+    let conformance = airlock_core::skill::conformance().unwrap();
     let mut rules = BTreeMap::new();
     let mut section = None;
 
@@ -47,7 +47,7 @@ fn parse_checklist() -> BTreeMap<String, Rule> {
             continue;
         }
 
-        let cells: Vec<&str> = line.trim_matches('|').split('|').map(str::trim).collect();
+        let cells = split_table_row(line);
         if cells.len() < 4 {
             continue;
         }
@@ -87,14 +87,34 @@ fn parse_checklist() -> BTreeMap<String, Rule> {
     rules
 }
 
+fn split_table_row(line: &str) -> Vec<String> {
+    let mut cells = Vec::new();
+    let mut cell = String::new();
+    let mut escaped = false;
+    for character in line.trim_matches('|').chars() {
+        if escaped {
+            cell.push(character);
+            escaped = false;
+        } else if character == '\\' {
+            escaped = true;
+        } else if character == '|' {
+            cells.push(cell.trim().to_owned());
+            cell.clear();
+        } else {
+            cell.push(character);
+        }
+    }
+    if escaped {
+        cell.push('\\');
+    }
+    cells.push(cell.trim().to_owned());
+    cells
+}
+
 #[test]
 fn the_generated_checklist_parses() {
     let rules = parse_checklist();
-    assert_eq!(
-        rules.len(),
-        109,
-        "the committed checklist should carry 109 rules"
-    );
+    assert_eq!(rules.len(), CHECKS.len());
 }
 
 #[test]

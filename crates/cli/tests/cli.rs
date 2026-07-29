@@ -177,6 +177,16 @@ fn skill_emits_the_complete_offline_tree_and_refuses_existing_targets() {
         .assert()
         .code(2)
         .stderr(contains("pass --force to replace it"));
+
+    let unrelated = temp.path().join("unrelated");
+    std::fs::create_dir(&unrelated).unwrap();
+    offline()
+        .args(["skill", unrelated.to_str().unwrap(), "--force"])
+        .assert()
+        .code(2)
+        .stderr(contains(
+            "not a repository-standards skill previously emitted",
+        ));
 }
 
 #[test]

@@ -4,6 +4,7 @@
 //! reference is rendered from the compiled registry so its rule identity can
 //! never drift from the questions this binary asks.
 
+use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::fs;
 use std::io;
@@ -11,6 +12,9 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::registry::{self, Evaluation, Section};
+
+const EMISSION_MARKER_PATH: &str = ".airlock-skill";
+const EMISSION_MARKER: &str = "airlock:repository-standards\n";
 
 const FILES: &[(&str, &str)] = &[
     ("SKILL.md", include_str!("../skills/repository-standards/SKILL.md")),
@@ -60,6 +64,9 @@ pub fn emit(target: &Path, force: bool) -> io::Result<()> {
             ),
         ));
     }
+    if target.exists() {
+        verify_previous_emission(target)?;
+    }
 
     let parent = target
         .parent()
@@ -68,39 +75,55 @@ pub fn emit(target: &Path, force: bool) -> io::Result<()> {
     fs::create_dir_all(parent)?;
     let staging = staging_path(parent, target);
     fs::create_dir(&staging)?;
+    let mut staging_guard = CleanupGuard::new(staging.clone());
 
-    let result = (|| {
-        for (relative, contents) in FILES {
-            write_file(&staging, relative, contents)?;
-        }
-        write_file(&staging, "references/conformance.md", &conformance())?;
-
-        if target.exists() && !force {
-            return Err(io::Error::new(
-                io::ErrorKind::AlreadyExists,
-                format!(
-                    "{} appeared while the skill was being staged; pass --force to replace it",
-                    target.display()
-                ),
-            ));
-        }
-        if !target.exists() {
-            return fs::rename(&staging, target);
-        }
-
-        let backup = staging.with_extension("replaced");
-        fs::rename(target, &backup)?;
-        if let Err(error) = fs::rename(&staging, target) {
-            let _ = fs::rename(&backup, target);
-            return Err(error);
-        }
-        remove_path(&backup)
-    })();
-
-    if result.is_err() {
-        let _ = fs::remove_dir_all(&staging);
+    for (relative, contents) in FILES {
+        write_file(&staging, relative, contents)?;
     }
-    result
+    write_file(&staging, "references/conformance.md", &conformance()?)?;
+    write_file(&staging, EMISSION_MARKER_PATH, EMISSION_MARKER)?;
+
+    if target.exists() && !force {
+        return Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            format!(
+                "{} appeared while the skill was being staged; pass --force to replace it",
+                target.display()
+            ),
+        ));
+    }
+    if !target.exists() {
+        fs::rename(&staging, target)?;
+        staging_guard.disarm();
+        return Ok(());
+    }
+
+    verify_previous_emission(target)?;
+    let backup = backup_path(&staging)?;
+    fs::rename(target, &backup)?;
+    if let Err(error) = fs::rename(&staging, target) {
+        let _ = fs::rename(&backup, target);
+        return Err(error);
+    }
+    staging_guard.disarm();
+    let _ = remove_path(&backup);
+    Ok(())
+}
+
+fn verify_previous_emission(target: &Path) -> io::Result<()> {
+    let marker = target.join(EMISSION_MARKER_PATH);
+    match fs::read_to_string(&marker) {
+        Ok(contents) if contents == EMISSION_MARKER => Ok(()),
+        _ => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "{} is not a repository-standards skill previously emitted by Airlock; \
+                 expected marker {}",
+                target.display(),
+                marker.display()
+            ),
+        )),
+    }
 }
 
 fn staging_path(parent: &Path, target: &Path) -> PathBuf {
@@ -113,6 +136,41 @@ fn staging_path(parent: &Path, target: &Path) -> PathBuf {
         .unwrap_or_default()
         .as_nanos();
     parent.join(format!(".{name}.airlock-{}-{nonce}", std::process::id()))
+}
+
+fn backup_path(staging: &Path) -> io::Result<PathBuf> {
+    let name = staging.file_name().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("staging path {} has no file name", staging.display()),
+        )
+    })?;
+    let mut backup_name = name.to_os_string();
+    backup_name.push(".replaced");
+    Ok(staging.with_file_name(backup_name))
+}
+
+struct CleanupGuard {
+    path: PathBuf,
+    armed: bool,
+}
+
+impl CleanupGuard {
+    fn new(path: PathBuf) -> Self {
+        Self { path, armed: true }
+    }
+
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for CleanupGuard {
+    fn drop(&mut self) {
+        if self.armed {
+            let _ = remove_path(&self.path);
+        }
+    }
 }
 
 fn write_file(root: &Path, relative: &str, contents: &str) -> io::Result<()> {
@@ -132,8 +190,8 @@ fn remove_path(path: &Path) -> io::Result<()> {
 }
 
 /// Render the registry-owned conformance reference.
-#[must_use]
-pub fn conformance() -> String {
+pub fn conformance() -> io::Result<String> {
+    let guidance = guidance_by_rule()?;
     let mut output = format!(
         "# Conformance Checklist\n\n\
          This reference is generated from Airlock check registry **{}** \
@@ -168,11 +226,11 @@ pub fn conformance() -> String {
                 escape_table(check.statement),
                 severity_title(check.severity.code()),
                 evaluation_title(check.evaluation),
-                guidance(check.id)
+                escape_table(&guidance[check.id])
             );
         }
     }
-    output
+    Ok(output)
 }
 
 fn section_title(section: Section) -> &'static str {
@@ -208,32 +266,91 @@ fn evaluation_title(evaluation: Evaluation) -> &'static str {
 }
 
 fn escape_table(value: &str) -> String {
-    value.replace('|', "\\|")
+    value.replace('\\', "\\\\").replace('|', "\\|")
 }
 
-fn guidance(id: &str) -> &'static str {
+fn guidance_by_rule() -> io::Result<BTreeMap<String, String>> {
     const DOCUMENT: &str =
         include_str!("../skills/repository-standards/references/check-guidance.md");
-    DOCUMENT
-        .lines()
-        .find_map(|line| {
-            let mut cells = line.trim_matches('|').split('|').map(str::trim);
-            let candidate = cells.next()?.strip_prefix('`')?.strip_suffix('`')?;
-            let guidance = cells.next()?;
-            (candidate == id).then_some(guidance)
-        })
-        .unwrap_or_else(|| panic!("{id} has no hand-written check guidance"))
+    let mut entries = BTreeMap::new();
+
+    for line in DOCUMENT.lines() {
+        let cells = split_table_row(line);
+        let Some(id) = cells
+            .first()
+            .and_then(|cell| cell.strip_prefix('`'))
+            .and_then(|cell| cell.strip_suffix('`'))
+        else {
+            continue;
+        };
+        if !id.starts_with("REPO-") {
+            continue;
+        }
+        let value = cells
+            .get(1)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| invalid_data(format!("{id} has no hand-written check guidance")))?;
+        if registry::find(id).is_none() {
+            return Err(invalid_data(format!(
+                "check guidance names {id}, which is not in the registry"
+            )));
+        }
+        if entries.insert(id.to_owned(), value.to_owned()).is_some() {
+            return Err(invalid_data(format!(
+                "check guidance names {id} more than once"
+            )));
+        }
+    }
+
+    for check in registry::CHECKS {
+        if !entries.contains_key(check.id) {
+            return Err(invalid_data(format!(
+                "{} has no hand-written check guidance",
+                check.id
+            )));
+        }
+    }
+    Ok(entries)
+}
+
+fn split_table_row(line: &str) -> Vec<String> {
+    let mut cells = Vec::new();
+    let mut cell = String::new();
+    let mut escaped = false;
+    for character in line.trim_matches('|').chars() {
+        if escaped {
+            cell.push(character);
+            escaped = false;
+        } else if character == '\\' {
+            escaped = true;
+        } else if character == '|' {
+            cells.push(cell.trim().to_owned());
+            cell.clear();
+        } else {
+            cell.push(character);
+        }
+    }
+    if escaped {
+        cell.push('\\');
+    }
+    cells.push(cell.trim().to_owned());
+    cells
+}
+
+fn invalid_data(message: String) -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidData, message)
 }
 
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
+    use std::ffi::OsStr;
 
     use super::*;
 
     #[test]
     fn generated_conformance_carries_registry_identity_and_every_rule_once() {
-        let document = conformance();
+        let document = conformance().unwrap();
         assert!(document.contains(registry::REGISTRY_VERSION));
         assert!(document.contains(&registry::digest()));
         for check in registry::CHECKS {
@@ -254,14 +371,43 @@ mod tests {
     }
 
     #[test]
-    fn every_rule_has_hand_written_guidance() {
-        for check in registry::CHECKS {
-            assert!(
-                !guidance(check.id).is_empty(),
-                "{} has no guidance",
-                check.id
-            );
-        }
+    fn embedded_manifest_covers_the_on_disk_skill_tree() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("skills/repository-standards");
+        let mut on_disk = BTreeSet::new();
+        collect_files(&root, &root, &mut on_disk);
+        let embedded = FILES
+            .iter()
+            .map(|(path, _)| PathBuf::from(path))
+            .collect::<BTreeSet<_>>();
+        assert_eq!(embedded, on_disk);
+    }
+
+    #[test]
+    fn hand_written_guidance_and_registry_name_the_same_rules() {
+        let guidance = guidance_by_rule().unwrap();
+        let registry = registry::CHECKS
+            .iter()
+            .map(|check| check.id.to_owned())
+            .collect::<BTreeSet<_>>();
+        assert_eq!(guidance.keys().cloned().collect::<BTreeSet<_>>(), registry);
+    }
+
+    #[test]
+    fn table_cells_escape_and_unescape_pipes_and_backslashes() {
+        let value = r"read a | b from c:\file";
+        let row = format!("| id | {} |", escape_table(value));
+        assert_eq!(split_table_row(&row), ["id", value]);
+    }
+
+    #[test]
+    fn backup_paths_retain_the_unique_staging_name() {
+        let first = Path::new("/tmp/.repository-standards.airlock-1-100");
+        let second = Path::new("/tmp/.repository-standards.airlock-1-200");
+        assert_eq!(
+            backup_path(first).unwrap().file_name(),
+            Some(OsStr::new(".repository-standards.airlock-1-100.replaced"))
+        );
+        assert_ne!(backup_path(first).unwrap(), backup_path(second).unwrap());
     }
 
     #[test]
@@ -279,7 +425,39 @@ mod tests {
         assert!(!target.join("local-change").exists());
         assert_eq!(
             fs::read_to_string(target.join("references/conformance.md")).unwrap(),
-            conformance()
+            conformance().unwrap()
         );
+        assert_eq!(
+            fs::read_to_string(target.join(EMISSION_MARKER_PATH)).unwrap(),
+            EMISSION_MARKER
+        );
+    }
+
+    #[test]
+    fn force_refuses_a_target_airlock_did_not_emit() {
+        let temp = tempfile::tempdir().unwrap();
+        let target = temp.path().join("other-skills");
+        fs::create_dir(&target).unwrap();
+        fs::write(target.join("SKILL.md"), "unrelated").unwrap();
+
+        let error = emit(&target, true).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+        assert!(error.to_string().contains("previously emitted by Airlock"));
+        assert_eq!(
+            fs::read_to_string(target.join("SKILL.md")).unwrap(),
+            "unrelated"
+        );
+    }
+
+    fn collect_files(root: &Path, directory: &Path, files: &mut BTreeSet<PathBuf>) {
+        for entry in fs::read_dir(directory).unwrap() {
+            let entry = entry.unwrap();
+            let path = entry.path();
+            if entry.file_type().unwrap().is_dir() {
+                collect_files(root, &path, files);
+            } else {
+                files.insert(path.strip_prefix(root).unwrap().to_owned());
+            }
+        }
     }
 }

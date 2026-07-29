@@ -29,10 +29,12 @@ your agent skill directory:
 airlock skill ~/.agents/skills/repository-standards
 ```
 
-The target must not exist. Use `--force` only when you intend to replace the
-entire existing directory; Airlock never merges an emitted tree with local
-changes. With no target, the command writes `repository-standards` in the
-current directory.
+The target must not exist. Use `--force` only to replace a tree previously
+emitted by Airlock; the command verifies its `.airlock-skill` provenance marker
+and refuses any other file or directory. Airlock never merges an emitted tree
+with local changes. To adopt an older standalone copy that has no marker, move
+it aside and emit a fresh tree. With no target, the command writes
+`repository-standards` in the current directory.
 
 The generated `references/conformance.md` quotes the compiled registry version
 and digest. Its rule statements, severities, sections, and evaluation modes
