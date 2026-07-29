@@ -7,6 +7,7 @@ use std::fmt::Write as _;
 
 use crate::findings::{Report, Status};
 use crate::registry::{self, CheckDefinition};
+use crate::worklist::AgentWorkList;
 
 /// Render an audit report for a terminal.
 #[must_use]
@@ -117,6 +118,87 @@ pub fn report_text(report: &Report) -> String {
     );
 
     out
+}
+
+/// Render the agent-lane definition-of-done result for a terminal.
+#[must_use]
+pub fn agent_work_list_text(list: &AgentWorkList) -> String {
+    let mut out = String::new();
+    let _ = writeln!(
+        out,
+        "{} at {} — agent lane only; not repository conformance",
+        list.repository.full_name,
+        short(&list.repository.audited_commit)
+    );
+    let _ = writeln!(
+        out,
+        "sources: files {}, platform {}",
+        list.observation.file_source,
+        list.observation
+            .platform_source
+            .as_deref()
+            .unwrap_or("not observed")
+    );
+    if let Some(tree) = &list.observation.working_tree {
+        let dirtiness = tree.dirty.map_or(
+            "undetermined",
+            |dirty| if dirty { "dirty" } else { "clean" },
+        );
+        let _ = writeln!(
+            out,
+            "working tree: {} at {} ({dirtiness}, includes uncommitted files)",
+            tree.root,
+            short(&tree.head_commit)
+        );
+    }
+
+    render_work_group(&mut out, "agent work", &list.agent_lane);
+    render_work_group(
+        &mut out,
+        "operator deferred (never gates)",
+        &list.operator_deferred,
+    );
+
+    let _ = writeln!(
+        out,
+        "\nunsettled gating questions ({})",
+        list.unsettled.count
+    );
+    for item in &list.unsettled.items {
+        let _ = writeln!(
+            out,
+            "  {} [{}] {} (source: {})",
+            item.rule,
+            item.severity,
+            item.status.code(),
+            item.source.as_deref().unwrap_or("not observed")
+        );
+    }
+    let _ = writeln!(
+        out,
+        "\n{} — this is not a repository conformance verdict",
+        list.outcome.code()
+    );
+    out
+}
+
+fn render_work_group(
+    out: &mut String,
+    heading: &str,
+    group: &crate::worklist::WorkGroup<crate::worklist::WorkItem>,
+) {
+    let _ = writeln!(out, "\n{heading} ({})", group.count);
+    for item in &group.items {
+        let _ = writeln!(
+            out,
+            "  {} [{}] {} — {} (source: {})",
+            item.rule,
+            item.lane,
+            item.remediation_code,
+            item.change,
+            item.source.as_deref().unwrap_or("not observed")
+        );
+    }
 }
 
 /// Render the check registry for a terminal.

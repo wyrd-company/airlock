@@ -93,6 +93,22 @@ async fn audit_json(repo: FakeRepo, policy: &str, exit_code: i32) -> Value {
     json_output(&assertion.get_output().stdout)
 }
 
+async fn agent_work_json(repo: FakeRepo, policy: &str, exit_code: i32) -> Value {
+    let server = support::start(&[repo]).await;
+    let config = TempDir::new().unwrap();
+    let policies = TempDir::new().unwrap();
+    let assertion = airlock(&server, &config)
+        .args([
+            "agent-work",
+            "wyrd-company/example",
+            "--policy",
+            &policy_path(&policies, policy),
+        ])
+        .assert()
+        .code(exit_code);
+    json_output(&assertion.get_output().stdout)
+}
+
 // ---------------------------------------------------------------------------
 // Surface
 // ---------------------------------------------------------------------------
@@ -112,6 +128,7 @@ fn help_lists_the_command_surface() {
         .assert()
         .success()
         .stdout(contains("audit"))
+        .stdout(contains("agent-work"))
         .stdout(contains("auth"));
 }
 
@@ -224,6 +241,45 @@ async fn a_blocking_failure_exits_one() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn agent_work_is_json_by_default_and_reports_file_work() {
+    let repo = FakeRepo::new("wyrd-company", "example").with_file(
+        "Cargo.toml",
+        "[package]\nname = \"example\"\nlicense = \"Apache-2.0\"\n",
+    );
+
+    let list = agent_work_json(repo, LICENSING_POLICY, 1).await;
+
+    assert_eq!(list["outcome"], "agent_lane_work_remains");
+    assert_eq!(list["scope"], "agent_lane_only_not_repository_conformance");
+    assert!(list.get("conformant").is_none());
+    assert_eq!(list["agent_lane"]["count"], 1);
+    assert_eq!(list["agent_lane"]["items"][0]["rule"], "REPO-LIC-01");
+    assert_eq!(
+        list["agent_lane"]["items"][0]["remediation_code"],
+        "add-license-file"
+    );
+    assert_eq!(list["agent_lane"]["items"][0]["lane"], "deterministic-file");
+    assert_eq!(list["agent_lane"]["items"][0]["source"], "api");
+    assert_eq!(list["operator_deferred"]["count"], 0);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_clear_agent_lane_is_not_a_repository_conformance_claim() {
+    let repo = FakeRepo::new("wyrd-company", "example")
+        .with_file("LICENSE", "Apache License 2.0")
+        .with_file(
+            "Cargo.toml",
+            "[package]\nname = \"example\"\nlicense = \"Apache-2.0\"\n",
+        );
+
+    let list = agent_work_json(repo, LICENSING_POLICY, 0).await;
+
+    assert_eq!(list["outcome"], "agent_lane_clear");
+    assert_eq!(list["agent_lane"]["count"], 0);
+    assert!(list.get("conformant").is_none());
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn an_enabled_manual_rule_does_not_make_the_audit_incomplete() {
     let repo = FakeRepo::new("wyrd-company", "example").with_file("README.md", "# example");
 
@@ -276,6 +332,33 @@ capabilities:
     assert_eq!(git02["error"]["status"], 403);
     assert_eq!(git02["error"]["request_id"], "FIXT:0001");
     assert_eq!(git02["remediation"]["action_group"], "plan_gate");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn agent_work_cannot_settle_when_the_audit_is_incomplete() {
+    let repo = FakeRepo::new("wyrd-company", "example").with_rulesets(Response::Status(
+        403,
+        serde_json::json!({
+            "message": "Upgrade to GitHub Pro or make this repository public to enable this feature.",
+            "documentation_url": "https://docs.github.com/rest/repos/rules"
+        }),
+    ));
+    let policy = "\
+version: 1
+name: test-policy
+gate: blocking
+capabilities:
+  base: [git]
+";
+
+    let list = agent_work_json(repo, policy, 2).await;
+
+    assert_eq!(list["outcome"], "could_not_settle");
+    assert!(list["unsettled"]["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item["rule"] == "REPO-GIT-02"));
 }
 
 // ---------------------------------------------------------------------------

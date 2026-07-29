@@ -55,14 +55,31 @@ struct Cli {
 enum Command {
     /// Audit a repository against a policy.
     Audit(AuditArgs),
+    /// List outstanding agent-lane work and check whether that lane is clear.
+    AgentWork(AgentWorkArgs),
     /// Manage the read-only credential airlock uses.
     Auth(AuthArgs),
 }
 
 #[derive(Debug, Args)]
 struct AuditArgs {
+    #[command(flatten)]
+    repository: RepositoryArgs,
+
+    /// Print the check registry and exit, without auditing anything.
+    #[arg(long)]
+    list_checks: bool,
+}
+
+#[derive(Debug, Args)]
+struct AgentWorkArgs {
+    #[command(flatten)]
+    repository: RepositoryArgs,
+}
+
+#[derive(Debug, Args)]
+struct RepositoryArgs {
     /// Repository to audit, as `owner/repo`.
-    #[arg(required_unless_present_any = ["list_checks", "working_tree"])]
     target: Option<String>,
 
     /// Policy source: `owner/repo:path[@ref]` or a local file path.
@@ -102,10 +119,6 @@ struct AuditArgs {
     /// Configuration profile to use.
     #[arg(long, default_value = DEFAULT_PROFILE)]
     profile: String,
-
-    /// Print the check registry and exit, without auditing anything.
-    #[arg(long)]
-    list_checks: bool,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -220,6 +233,7 @@ async fn run(cli: Cli, interactive: bool) -> Result<u8> {
 
     match command {
         Command::Audit(args) => audit_command(args, interactive).await,
+        Command::AgentWork(args) => agent_work_command(args, interactive).await,
         Command::Auth(AuthArgs {
             command: AuthCommand::Login(args),
         }) => login_command(&args).await,
@@ -260,7 +274,7 @@ fn resolved_format(requested: Option<Format>, interactive: bool) -> Format {
 }
 
 async fn audit_command(args: AuditArgs, interactive: bool) -> Result<u8> {
-    let format = resolved_format(args.format, interactive);
+    let format = resolved_format(args.repository.format, interactive);
 
     if args.list_checks {
         match format {
@@ -274,19 +288,56 @@ async fn audit_command(args: AuditArgs, interactive: bool) -> Result<u8> {
         return Ok(0);
     }
 
+    let report = repository_report(&args.repository, "audit").await?;
+    render_report(&report, format)?;
+    Ok(report.exit_code())
+}
+
+async fn agent_work_command(args: AgentWorkArgs, interactive: bool) -> Result<u8> {
+    let format = resolved_format(args.repository.format, interactive);
+    let report = repository_report(&args.repository, "agent-work").await?;
+    let list = airlock_core::worklist::AgentWorkList::from_report(&report);
+
+    match format {
+        Format::Text => print!("{}", render::agent_work_list_text(&list)),
+        Format::Json => println!(
+            "{}",
+            serde_json::to_string_pretty(&list)
+                .context("cannot render the agent work-list document")?
+        ),
+    }
+
+    Ok(list.exit_code())
+}
+
+fn render_report(report: &airlock_core::findings::Report, format: Format) -> Result<()> {
+    match format {
+        Format::Text => print!("{}", render::report_text(report)),
+        Format::Json => println!(
+            "{}",
+            serde_json::to_string_pretty(report).context("cannot render the findings document")?
+        ),
+    }
+    Ok(())
+}
+
+async fn repository_report(
+    args: &RepositoryArgs,
+    command_name: &str,
+) -> Result<airlock_core::findings::Report> {
     // A working tree with no repository target is a local-only audit: no
     // credential, no API, platform rules reported as not observed.
     if args.target.is_none() {
-        let Some(root) = args.working_tree.clone() else {
-            bail!("a repository is required. Name one as `airlock audit <owner/repo>`.");
+        let Some(root) = &args.working_tree else {
+            bail!("a repository is required. Name one as `airlock {command_name} <owner/repo>`.");
         };
-        return local_audit_command(&args, &root, format).await;
+        return local_audit(args, root).await;
     }
 
-    // clap requires a target or a working tree, and both absent returned
-    // above. There is no invocation that reaches here without a target.
+    // Both absent returned above. There is no invocation that reaches here
+    // without a target.
     let Some(target) = args.target.clone() else {
-        bail!("a repository is required. Name one as `airlock audit <owner/repo>`.");
+        bail!("a repository is required.");
     };
     let (owner, repo) = split_target(&target)?;
 
@@ -332,22 +383,13 @@ async fn audit_command(args: AuditArgs, interactive: bool) -> Result<u8> {
     let report = audit::run(&client, owner, repo, &policy, &options, Some(&grant))
         .await
         .with_context(|| format!("cannot audit {owner}/{repo}"))?;
-
-    match format {
-        Format::Text => print!("{}", render::report_text(&report)),
-        Format::Json => println!(
-            "{}",
-            serde_json::to_string_pretty(&report).context("cannot render the findings document")?
-        ),
-    }
-
-    Ok(report.exit_code())
+    Ok(report)
 }
 
 /// A local-only audit: file rules from the working tree, platform rules not
 /// observed. No credential is resolved and no request is made; the policy
 /// must therefore be a local file with no remote references.
-async fn local_audit_command(args: &AuditArgs, root: &Path, format: Format) -> Result<u8> {
+async fn local_audit(args: &RepositoryArgs, root: &Path) -> Result<airlock_core::findings::Report> {
     let Some(policy_arg) = &args.policy else {
         bail!(
             "a local-only audit has no credential to fetch a policy with. Name a local policy \
@@ -377,16 +419,7 @@ async fn local_audit_command(args: &AuditArgs, root: &Path, format: Format) -> R
     };
     let report = audit::run_local(&policy, &options, root)
         .with_context(|| format!("cannot audit the working tree at {}", root.display()))?;
-
-    match format {
-        Format::Text => print!("{}", render::report_text(&report)),
-        Format::Json => println!(
-            "{}",
-            serde_json::to_string_pretty(&report).context("cannot render the findings document")?
-        ),
-    }
-
-    Ok(report.exit_code())
+    Ok(report)
 }
 
 fn split_target(target: &str) -> Result<(&str, &str)> {
@@ -590,7 +623,7 @@ mod tests {
             panic!("expected the audit command");
         };
         assert!(args.list_checks);
-        assert!(args.target.is_none());
+        assert!(args.repository.target.is_none());
     }
 
     #[test]

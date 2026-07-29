@@ -25,6 +25,7 @@ pub mod registry;
 pub mod remediation;
 pub mod render;
 pub mod snapshot;
+pub mod worklist;
 pub mod worktree;
 pub mod yaml;
 

@@ -40,6 +40,25 @@ Output is text on a terminal and JSON otherwise, so piping needs no extra flag:
 airlock audit wyrd-company/airlock --policy ./policy.yml | jq '.summary'
 ```
 
+At the end of an agent's work, `agent-work` re-runs the same audit and projects
+its findings into the agent's file-change lanes:
+
+```sh
+airlock agent-work wyrd-company/airlock --working-tree .
+```
+
+Its `agent_lane` contains failed rules classified as `deterministic-file` or
+`judgment-file`, keyed by rule id and carrying the remediation code and the
+change it would make. `operator_deferred` separately identifies failed
+`operator-setting` rules and never gates the command. Both groups retain each
+finding's observation source, and the top-level `observation` block says
+whether file findings came from the API tree or the local working tree.
+
+This is a lane-scoped definition-of-done check, not an audit substitute or a
+repository conformance claim. A clear agent lane can coexist with operator
+work, manual judgment, suppressed debt, and other repository gaps; run
+`airlock audit` for the complete findings authority.
+
 `airlock audit --list-checks` prints the whole check registry: every rule id,
 its statement, its severity, and whether airlock evaluates it mechanically,
 reports it for a human, or has not built it yet.
@@ -54,6 +73,19 @@ reports it for a human, or has not built it yet.
 
 On Unix, a closed output pipe terminates silently on signal 13 (`SIGPIPE`),
 commonly reported by shells as status 141.
+
+`airlock agent-work` uses the same numeric codes for a different, explicitly
+lane-scoped question:
+
+| Code | Outcome                   | Meaning                                                        |
+| ---- | ------------------------- | -------------------------------------------------------------- |
+| `0`  | `agent_lane_clear`        | No deterministic or judgment file failure remains              |
+| `1`  | `agent_lane_work_remains` | At least one deterministic or judgment file failure remains    |
+| `2`  | `could_not_settle`        | The audit left a gate-relevant question unanswered or could not run |
+
+Operator-setting failures are always counted and identified in
+`operator_deferred`, but do not change code `0` to code `1`. Code `0` therefore
+means only “my lane is clear”; it never means “the repository is aligned.”
 
 The distinction is the point. An audit that could not evaluate an enabled rule
 — because it is not built yet, because a bounded scan ran out of budget, or

@@ -15,12 +15,21 @@ repository and organisation settings, capability decisions, judgment
 attestations, and the publishing bootstrap.
 
 It requires an interactive terminal. Under a pipe, a scheduler, or any
-non-tty, it exits without rendering; `airlock audit` is the surface for
-unattended use.
+non-tty, it exits without rendering; `airlock audit` is the complete
+unattended findings surface, and `airlock agent-work` is its lane-scoped
+definition-of-done projection for an executing agent.
 
 The interface never writes files. File-level gaps are closed by an agent
 working headlessly and arrive as pull requests for review. Nothing on any
 screen offers to edit a tracked file.
+
+The headless projection uses the same grouping boundary as the findings queue:
+failed `deterministic-file` and `judgment-file` remediations are agent work;
+failed `operator-setting` remediations are reported separately and never gate
+the agent lane. Undecided gate-relevant findings make the projection
+`could_not_settle`. Its clear outcome means only “the agent lane is clear,”
+never “the repository is aligned,” and its output retains the audit's
+per-finding and run-level observation sources.
 
 ## Authorization and the credential
 
