@@ -11,12 +11,14 @@
 
 pub mod classify;
 mod client;
+mod offline;
 
 use std::collections::BTreeMap;
 use std::fmt;
 
 pub use classify::{ErrorCause, MESSAGE_HINTS_VERSION};
 pub use client::{RestClient, RestClientConfig};
+pub use offline::Offline;
 
 /// A failed GitHub API call, with every diagnostic that is safe to keep.
 ///

@@ -17,6 +17,7 @@ use crate::findings::{
 use crate::github::{ApiError, ErrorCause, GitHub};
 use crate::limits::Limits;
 use crate::policy::ResolvedPolicy;
+use crate::registry::{Evaluation, Observation};
 use crate::snapshot::RepoSnapshot;
 use crate::yaml;
 use crate::{Error, Result};
@@ -56,11 +57,45 @@ const AUDITED_PATHS: &[&str] = &[
 #[derive(Debug, Clone, Default)]
 pub struct AuditOptions {
     /// The commit, branch, or tag to audit. Defaults to the default branch.
+    /// Only meaningful for API-sourced file observation: a working tree is
+    /// audited as it stands.
     pub reference: Option<String>,
     /// The budgets to run under.
     pub limits: Limits,
     /// The airlock version to record.
     pub version: String,
+    /// A local working tree to observe file-level rules from, instead of the
+    /// API tree. Platform rules stay with the API — or, without a
+    /// credential, are reported as not observed.
+    pub working_tree: Option<std::path::PathBuf>,
+}
+
+/// The source labels one run evaluates under.
+struct Sources {
+    /// What file-level rules were read from.
+    file: &'static str,
+    /// What platform rules were read from, when they were observed at all.
+    platform: Option<&'static str>,
+    /// The stated terms of the working-tree observation, when one happened.
+    working_tree: Option<crate::findings::WorkingTreeObservation>,
+}
+
+impl Sources {
+    fn api() -> Self {
+        Self {
+            file: "api",
+            platform: Some("api"),
+            working_tree: None,
+        }
+    }
+
+    fn record(&self) -> crate::findings::ObservationRecord {
+        crate::findings::ObservationRecord {
+            file_source: self.file.to_owned(),
+            platform_source: self.platform.map(ToOwned::to_owned),
+            working_tree: self.working_tree.clone(),
+        }
+    }
 }
 
 /// Run one audit.
@@ -78,6 +113,10 @@ pub async fn run<G: GitHub>(
     options: &AuditOptions,
     grant: Option<&VerifiedGrant>,
 ) -> Result<Report> {
+    if let Some(root) = options.working_tree.clone() {
+        return run_mixed(client, owner, repo, policy, options, grant, &root).await;
+    }
+
     let mut snapshot = RepoSnapshot::read(
         client,
         owner,
@@ -104,25 +143,294 @@ pub async fn run<G: GitHub>(
     }
 
     let workflows = parse_workflows(&snapshot, &workflow_paths.paths, options.limits);
-
     let branch = snapshot.repository.default_branch.clone();
     let commit = snapshot.commit.clone();
-    let context = AuditContext {
-        policy,
-        limits: options.limits,
-        workflows,
-        workflows_truncated: workflow_paths.truncated || snapshot.tree.truncated,
+    let platform = PlatformData {
         tags: client.tags(owner, repo).await,
         history: client
             .history(owner, repo, &commit, options.limits.max_history_commits)
             .await,
         rulesets: client.rulesets(owner, repo).await,
         branch_rules: client.branch_rules(owner, repo, &branch).await,
-        snapshot: &snapshot,
+    };
+
+    let id = Some(snapshot.repository.id);
+    complete_run(
+        &snapshot,
+        workflows,
+        workflow_paths.truncated || snapshot.tree.truncated,
+        platform,
+        policy,
+        options,
+        Sources::api(),
+        id,
+    )
+}
+
+/// Run a mixed audit: file-level rules from a working tree, platform rules
+/// from the API.
+async fn run_mixed<G: GitHub>(
+    client: &G,
+    owner: &str,
+    repo: &str,
+    policy: &ResolvedPolicy,
+    options: &AuditOptions,
+    grant: Option<&VerifiedGrant>,
+    root: &std::path::Path,
+) -> Result<Report> {
+    refuse_reference_with_working_tree(options)?;
+    let facts = crate::worktree::read_facts(root)?;
+
+    let repository = client
+        .repository(owner, repo)
+        .await
+        .map_err(|error| repository_error(owner, repo, &error, grant))?;
+    let topics = client.topics(owner, repo).await;
+    let branch = repository.default_branch.clone();
+
+    let mut snapshot = RepoSnapshot {
+        repository,
+        topics,
+        commit: facts.head_commit.clone(),
+        tree: facts.tree.clone(),
+        files: std::collections::BTreeMap::new(),
+        bytes_read: 0,
+        limits: options.limits,
+    };
+    load_local_files(&mut snapshot, &facts, options.limits);
+    let workflow_paths = workflow_paths(&snapshot, options.limits.max_workflow_files);
+    let workflows = parse_workflows(&snapshot, &workflow_paths.paths, options.limits);
+
+    let platform = PlatformData {
+        tags: client.tags(owner, repo).await,
+        history: client
+            .history(
+                owner,
+                repo,
+                &facts.head_commit,
+                options.limits.max_history_commits,
+            )
+            .await,
+        rulesets: client.rulesets(owner, repo).await,
+        branch_rules: client.branch_rules(owner, repo, &branch).await,
+    };
+
+    let sources = Sources {
+        file: "working-tree",
+        platform: Some("api"),
+        working_tree: Some(working_tree_observation(&facts, &branch, true)),
+    };
+    let id = Some(snapshot.repository.id);
+    complete_run(
+        &snapshot,
+        workflows,
+        workflow_paths.truncated,
+        platform,
+        policy,
+        options,
+        sources,
+        id,
+    )
+}
+
+/// Run a local-only audit: file-level rules from a working tree, no
+/// credential, platform rules reported as not observed — never as passing.
+///
+/// # Errors
+///
+/// Returns an operational error when the working tree cannot be read.
+pub fn run_local(
+    policy: &ResolvedPolicy,
+    options: &AuditOptions,
+    root: &std::path::Path,
+) -> Result<Report> {
+    refuse_reference_with_working_tree(options)?;
+    let facts = crate::worktree::read_facts(root)?;
+
+    let full_name = facts
+        .remote_full_name
+        .clone()
+        .unwrap_or_else(|| "unknown/unknown".to_owned());
+    let (owner, name) = full_name.split_once('/').unwrap_or(("unknown", "unknown"));
+    let default_branch_observed = facts.observed_default_branch.is_some();
+    let branch = facts
+        .observed_default_branch
+        .clone()
+        .unwrap_or_else(|| "main".to_owned());
+
+    // The platform's record was never read. These values exist only so the
+    // snapshot has its shape; every rule that would read them is gated to
+    // `not_observed` before its check runs.
+    let repository = crate::github::Repository {
+        full_name: full_name.clone(),
+        id: 0,
+        owner: owner.to_owned(),
+        name: name.to_owned(),
+        default_branch: branch.clone(),
+        visibility: String::new(),
+        description: None,
+        license_spdx: None,
+        allow_merge_commit: false,
+        allow_squash_merge: false,
+        allow_rebase_merge: false,
+        delete_branch_on_merge: false,
+        has_wiki: false,
+        has_projects: false,
+        has_discussions: false,
+        has_issues: false,
+        observed_at: None,
+    };
+
+    let mut snapshot = RepoSnapshot {
+        repository,
+        topics: Err(not_observed_error("topics")),
+        commit: facts.head_commit.clone(),
+        tree: facts.tree.clone(),
+        files: std::collections::BTreeMap::new(),
+        bytes_read: 0,
+        limits: options.limits,
+    };
+    load_local_files(&mut snapshot, &facts, options.limits);
+    let workflow_paths = workflow_paths(&snapshot, options.limits.max_workflow_files);
+    let workflows = parse_workflows(&snapshot, &workflow_paths.paths, options.limits);
+
+    let platform = PlatformData {
+        tags: Err(not_observed_error("tags")),
+        history: Err(not_observed_error("history")),
+        rulesets: Err(not_observed_error("rulesets")),
+        branch_rules: Err(not_observed_error("branch rules")),
+    };
+
+    let sources = Sources {
+        file: "working-tree",
+        platform: None,
+        working_tree: Some(working_tree_observation(
+            &facts,
+            &branch,
+            default_branch_observed,
+        )),
+    };
+    complete_run(
+        &snapshot,
+        workflows,
+        workflow_paths.truncated,
+        platform,
+        policy,
+        options,
+        sources,
+        None,
+    )
+}
+
+fn refuse_reference_with_working_tree(options: &AuditOptions) -> Result<()> {
+    if options.reference.is_some() {
+        return Err(Error::WorkingTree(
+            "a working tree is audited as it stands; `--ref` applies only to API-sourced audits"
+                .to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn working_tree_observation(
+    facts: &crate::worktree::WorkingTreeFacts,
+    default_branch: &str,
+    default_branch_observed: bool,
+) -> crate::findings::WorkingTreeObservation {
+    crate::findings::WorkingTreeObservation {
+        root: facts.root.display().to_string(),
+        head_commit: facts.head_commit.clone(),
+        dirty: facts.dirty,
+        includes_uncommitted: true,
+        ignored_files_excluded: true,
+        default_branch: default_branch.to_owned(),
+        default_branch_observed,
+    }
+}
+
+/// Load the audited paths from the working tree, mirroring the API path
+/// loading: the standard set, workflows, then release-unit paths once the
+/// config has been read.
+fn load_local_files(
+    snapshot: &mut RepoSnapshot,
+    facts: &crate::worktree::WorkingTreeFacts,
+    limits: Limits,
+) {
+    let workflow_paths = workflow_paths(snapshot, limits.max_workflow_files);
+    let mut paths: Vec<String> = AUDITED_PATHS
+        .iter()
+        .map(|path| (*path).to_owned())
+        .collect();
+    paths.extend(workflow_paths.paths);
+    crate::worktree::load_files(
+        facts,
+        &paths,
+        limits,
+        &mut snapshot.files,
+        &mut snapshot.bytes_read,
+    );
+
+    let unit_paths = release_unit_paths(snapshot, limits);
+    if !unit_paths.is_empty() {
+        crate::worktree::load_files(
+            facts,
+            &unit_paths,
+            limits,
+            &mut snapshot.files,
+            &mut snapshot.bytes_read,
+        );
+    }
+}
+
+fn not_observed_error(subject: &str) -> ApiError {
+    ApiError::local(
+        ErrorCause::Unauthenticated,
+        format!("local://not-observed/{subject}"),
+        format!(
+            "{subject} live on the GitHub API and this run had no credential, so they were not \
+             observed"
+        ),
+    )
+}
+
+/// The platform-owned inputs of one run, however they were (or were not)
+/// gathered.
+struct PlatformData {
+    tags: std::result::Result<crate::github::Paged<crate::github::TagRef>, ApiError>,
+    history: std::result::Result<crate::github::Paged<crate::github::CommitSummary>, ApiError>,
+    rulesets: std::result::Result<crate::github::Paged<crate::github::Ruleset>, ApiError>,
+    branch_rules: std::result::Result<crate::github::Paged<crate::github::BranchRule>, ApiError>,
+}
+
+/// Evaluate every enabled rule and assemble the report.
+#[allow(clippy::too_many_arguments)]
+fn complete_run(
+    snapshot: &RepoSnapshot,
+    workflows: Vec<Workflow>,
+    workflows_truncated: bool,
+    platform: PlatformData,
+    policy: &ResolvedPolicy,
+    options: &AuditOptions,
+    sources: Sources,
+    repository_id: Option<u64>,
+) -> Result<Report> {
+    let branch = snapshot.repository.default_branch.clone();
+    let commit = snapshot.commit.clone();
+    let context = AuditContext {
+        policy,
+        limits: options.limits,
+        workflows,
+        workflows_truncated,
+        tags: platform.tags,
+        history: platform.history,
+        rulesets: platform.rulesets,
+        branch_rules: platform.branch_rules,
+        snapshot,
     };
 
     let (requests, mut observations) = suppression_requests(&context, options.limits)?;
 
+    let platform_unobserved = sources.platform.is_none();
     let mut findings = Vec::with_capacity(policy.rules.len());
     let mut effective_policy = Vec::with_capacity(policy.rules.len());
 
@@ -134,7 +442,36 @@ pub async fn run<G: GitHub>(
             provenance: rule.provenance.clone(),
         });
 
-        let verdict = checks::evaluate(rule, &context);
+        // A platform rule with no API behind it was not observed. It is
+        // gated here, before its check could run against synthesized state,
+        // and it can never pass.
+        let gated = platform_unobserved
+            && rule.def.observation() == Observation::Platform
+            && rule.def.evaluation == Evaluation::Mechanical;
+        let verdict = if gated {
+            checks::Verdict::inconclusive(
+                "not_observed",
+                format!(
+                    "{} reads platform state only the GitHub API reports, and this run had no \
+                     credential, so it was not observed",
+                    rule.def.id
+                ),
+            )
+        } else {
+            checks::evaluate(rule, &context)
+        };
+
+        // The source that decided the finding. A judgment or unimplemented
+        // rule was decided by neither source, and an unobserved platform
+        // rule was decided by none at all.
+        let source = match rule.def.evaluation {
+            Evaluation::Mechanical => match rule.def.observation() {
+                Observation::FileTree => Some(sources.file.to_owned()),
+                Observation::Platform => sources.platform.map(ToOwned::to_owned),
+            },
+            Evaluation::Manual | Evaluation::Unimplemented => None,
+        };
+
         let mut finding = Finding {
             rule: rule.def.id.to_owned(),
             statement: rule.def.statement.to_owned(),
@@ -144,6 +481,7 @@ pub async fn run<G: GitHub>(
             remediation: verdict.remediation,
             remediation_class: RemediationClass::for_rule(rule.def.id),
             suppression: None,
+            source,
             error: verdict.error,
         };
 
@@ -159,11 +497,12 @@ pub async fn run<G: GitHub>(
         AirlockIdentity::current(&options.version),
         AuditedRepository {
             full_name: snapshot.repository.full_name.clone(),
-            id: snapshot.repository.id,
+            id: repository_id,
             default_branch: branch,
             audited_commit: commit,
             settings_observed_at: snapshot.repository.observed_at.clone(),
         },
+        sources.record(),
         PolicyIdentity {
             name: policy.name.clone(),
             source: policy.source.clone(),
@@ -442,6 +781,7 @@ mod tests {
             remediation: None,
             remediation_class: RemediationClass::for_rule(rule),
             suppression: None,
+            source: None,
             error: None,
         }
     }

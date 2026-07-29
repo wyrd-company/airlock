@@ -184,8 +184,8 @@ fn short_digest(digest: &str) -> String {
 mod tests {
     use super::*;
     use crate::findings::{
-        AirlockIdentity, AuditedRepository, Evidence, Finding, Gate, PolicyIdentity, Remediation,
-        RemediationClass,
+        AirlockIdentity, AuditedRepository, Evidence, Finding, Gate, ObservationRecord,
+        PolicyIdentity, Remediation, RemediationClass,
     };
 
     fn report() -> Report {
@@ -193,11 +193,12 @@ mod tests {
             AirlockIdentity::current("0.1.0"),
             AuditedRepository {
                 full_name: "owner/name".to_owned(),
-                id: 1,
+                id: Some(1),
                 default_branch: "main".to_owned(),
                 audited_commit: "a".repeat(40),
                 settings_observed_at: None,
             },
+            ObservationRecord::api(),
             PolicyIdentity {
                 name: "test".to_owned(),
                 source: "./policy.yml".to_owned(),
@@ -223,6 +224,7 @@ mod tests {
                 remediation: Some(Remediation::new("add_file", "Add LICENSE.")),
                 remediation_class: RemediationClass::for_rule("REPO-LIC-01"),
                 suppression: None,
+                source: Some("api".to_owned()),
                 error: None,
             }],
         )

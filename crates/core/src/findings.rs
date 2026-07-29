@@ -343,6 +343,12 @@ pub struct Finding {
     pub remediation_class: RemediationClass,
     /// Why it does not count.
     pub suppression: Option<Suppression>,
+    /// The observation source that decided it: `api` or `working-tree`.
+    ///
+    /// Null when no observation decided the finding — a judgment rule, a
+    /// rule the registry has not implemented, or a platform rule in a run
+    /// with no API credential.
+    pub source: Option<String>,
     /// What stopped the evaluation.
     pub error: Option<FindingError>,
 }
@@ -420,8 +426,11 @@ impl AirlockIdentity {
 pub struct AuditedRepository {
     /// `owner/name`.
     pub full_name: String,
-    /// The numeric repository id.
-    pub id: u64,
+    /// The numeric repository id, when the platform reported one.
+    ///
+    /// A working-tree run without a credential never saw the platform's
+    /// record, so it carries no id rather than a made-up one.
+    pub id: Option<u64>,
     /// The default branch.
     pub default_branch: String,
     /// The commit every git-backed fact was read at.
@@ -517,6 +526,61 @@ impl Summary {
     }
 }
 
+/// What each half of the audit was observed through.
+///
+/// One record per run, alongside the per-finding `source`: this says what
+/// the run read, each finding says what decided it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ObservationRecord {
+    /// Where file-level rules were read from: `api` or `working-tree`.
+    pub file_source: String,
+    /// Where platform rules were read from: `api`, or null when no
+    /// credential was supplied and platform rules were not observed.
+    pub platform_source: Option<String>,
+    /// The working tree that was observed, when one was.
+    pub working_tree: Option<WorkingTreeObservation>,
+}
+
+impl ObservationRecord {
+    /// The record for an API-only run.
+    #[must_use]
+    pub fn api() -> Self {
+        Self {
+            file_source: "api".to_owned(),
+            platform_source: Some("api".to_owned()),
+            working_tree: None,
+        }
+    }
+}
+
+/// The stated terms of a working-tree observation.
+///
+/// Every field here is a claim a reader would otherwise have to guess at,
+/// which is exactly how a local result gets mistaken for a statement about
+/// the default branch.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct WorkingTreeObservation {
+    /// The root of the observed working tree.
+    pub root: String,
+    /// The commit HEAD pointed at when the tree was observed.
+    pub head_commit: String,
+    /// Whether the tree differed from HEAD. Null when dirtiness could not be
+    /// established — undetermined is never reported as clean.
+    pub dirty: Option<bool>,
+    /// Always true: the tree was evaluated as it stood, including
+    /// uncommitted and untracked content.
+    pub includes_uncommitted: bool,
+    /// Always true: gitignored files were excluded, because a rule satisfied
+    /// by an ignored file is not satisfied.
+    pub ignored_files_excluded: bool,
+    /// The default branch this run compared against, and whether it was
+    /// observed from the clone's origin or assumed to be `main`.
+    pub default_branch: String,
+    /// True when `default_branch` was read from `refs/remotes/origin/HEAD`;
+    /// false when it was assumed.
+    pub default_branch_observed: bool,
+}
+
 /// The whole audit result.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Report {
@@ -526,6 +590,8 @@ pub struct Report {
     pub airlock: AirlockIdentity,
     /// The repository it is about.
     pub repository: AuditedRepository,
+    /// What the run observed each half through.
+    pub observation: ObservationRecord,
     /// The policy it ran under.
     pub policy: PolicyIdentity,
     /// Every rule instance the policy compiled to.
@@ -553,6 +619,7 @@ impl Report {
     pub fn assemble(
         airlock: AirlockIdentity,
         repository: AuditedRepository,
+        observation: ObservationRecord,
         policy: PolicyIdentity,
         effective_policy: Vec<EffectiveRule>,
         policy_observations: Vec<PolicyObservation>,
@@ -591,6 +658,7 @@ impl Report {
             schema_version: SCHEMA_VERSION,
             airlock,
             repository,
+            observation,
             policy,
             effective_policy,
             policy_observations,
@@ -623,6 +691,7 @@ mod tests {
             remediation: None,
             remediation_class: RemediationClass::for_rule(rule),
             suppression: None,
+            source: None,
             error: None,
         }
     }
@@ -632,11 +701,12 @@ mod tests {
             AirlockIdentity::current("0.1.0"),
             AuditedRepository {
                 full_name: "owner/name".to_owned(),
-                id: 1,
+                id: Some(1),
                 default_branch: "main".to_owned(),
                 audited_commit: "a".repeat(40),
                 settings_observed_at: None,
             },
+            ObservationRecord::api(),
             PolicyIdentity {
                 name: "test".to_owned(),
                 source: "./policy.yml".to_owned(),

@@ -32,6 +32,10 @@ pub enum Error {
         message: String,
     },
 
+    /// A local working tree could not serve as an observation source.
+    #[error("working tree error: {0}")]
+    WorkingTree(String),
+
     /// A file on disk could not be read.
     #[error("failed to access {path}: {source}")]
     Io {

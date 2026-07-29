@@ -25,6 +25,7 @@ pub mod registry;
 pub mod remediation;
 pub mod render;
 pub mod snapshot;
+pub mod worktree;
 pub mod yaml;
 
 pub use error::{Error, Result};
