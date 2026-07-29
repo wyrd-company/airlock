@@ -384,9 +384,16 @@ failing, and says why.
 The screen states the boundary plainly: file-level gaps leave as a pull
 request. They are proposed for review and are never written to the default
 branch, and this interface does not author them. Settings-level fixes are
-applied directly, because they are not files. Creating a repository and its
-first commit is the one direct-write exception, because an empty repository has
-no branch to open a pull request against.
+applied directly, because they are not files. There is no exception: the
+interface writes no file, in any flow, at any point.
+
+Creating a repository is settings-level and is applied directly. Its first
+commit is not, and the interface does not make it. An empty repository has no
+branch to open a pull request against, so until a first commit exists the
+agentic path has nothing to deliver against. The screen names that step,
+states that it is performed outside this interface — by a person, or by the
+agentic path committing directly to the new repository — and re-observes until
+a default branch exists. The pull-request path resumes at that point.
 
 A queue shows the remaining remediations with their rule ids and, for each,
 its remediation code, whether it is a file change or a setting, and how it
