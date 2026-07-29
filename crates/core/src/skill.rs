@@ -80,14 +80,17 @@ pub fn emit(target: &Path, force: bool) -> io::Result<()> {
                 ),
             ));
         }
-        if target.exists() {
-            if target.is_dir() {
-                fs::remove_dir_all(target)?;
-            } else {
-                fs::remove_file(target)?;
-            }
+        if !target.exists() {
+            return fs::rename(&staging, target);
         }
-        fs::rename(&staging, target)
+
+        let backup = staging.with_extension("replaced");
+        fs::rename(target, &backup)?;
+        if let Err(error) = fs::rename(&staging, target) {
+            let _ = fs::rename(&backup, target);
+            return Err(error);
+        }
+        remove_path(&backup)
     })();
 
     if result.is_err() {
@@ -114,6 +117,14 @@ fn write_file(root: &Path, relative: &str, contents: &str) -> io::Result<()> {
         fs::create_dir_all(parent)?;
     }
     fs::write(path, contents)
+}
+
+fn remove_path(path: &Path) -> io::Result<()> {
+    if fs::symlink_metadata(path)?.file_type().is_dir() {
+        fs::remove_dir_all(path)
+    } else {
+        fs::remove_file(path)
+    }
 }
 
 /// Render the registry-owned conformance reference.
