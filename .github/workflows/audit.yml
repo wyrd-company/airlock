@@ -1,0 +1,48 @@
+name: Audit
+
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: audit
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    name: Audit this repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Run Airlock
+        id: airlock
+        uses: ./
+        env:
+          AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}
+        with:
+          format: json
+      - name: Attach findings
+        if: always() && steps.airlock.outputs.findings-location != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: airlock-findings
+          path: ${{ steps.airlock.outputs.findings-location }}
+          if-no-files-found: error
+      - name: Summarize outcome
+        if: always() && steps.airlock.outputs.outcome != ''
+        env:
+          OUTCOME: ${{ steps.airlock.outputs.outcome }}
+          COMPLETE: ${{ steps.airlock.outputs.complete }}
+        run: |
+          {
+            echo "## Airlock audit"
+            echo
+            echo "- Outcome: \`$OUTCOME\`"
+            echo "- Complete: \`$COMPLETE\`"
+          } >> "$GITHUB_STEP_SUMMARY"

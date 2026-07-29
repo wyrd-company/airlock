@@ -28,6 +28,7 @@ tasks:
     desc: Run the full test suite
     cmds:
       - cargo test --workspace
+      - scripts/test-action.sh
 
   lint:
     desc: Static analysis and a formatting check, both non-mutating

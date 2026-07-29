@@ -1,8 +1,8 @@
-# Declared repository metadata. Reconciled to GitHub by
-# .github/workflows/reconcile-settings.yml on push to the default branch.
+# Declared repository metadata. Applied to GitHub by an operator through
+# `airlock align`.
 #
 # This file is the source of truth. Changing settings in the GitHub UI is
-# not a change — the next reconcile reverts it.
+# drift, not a change; the scheduled read-only audit detects the discrepancy.
 #
 # There is deliberately no `visibility` field. Publishing a repository is an
 # unrecoverable act and stays a manual decision.

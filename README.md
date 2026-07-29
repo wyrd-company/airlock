@@ -30,6 +30,52 @@ airlock auth login
 airlock audit wyrd-company/airlock
 ```
 
+## GitHub Action
+
+The Action audits through the GitHub REST API, so the repository being audited
+does not need to be checked out. Give the step an `AIRLOCK_TOKEN` secret and,
+if the owner does not publish the default policy, name a policy explicitly:
+
+```yaml
+permissions:
+  contents: read
+
+steps:
+  - id: audit
+    uses: wyrd-company/airlock@0.0.1
+    env:
+      AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}
+    with:
+      policy: example/.github:airlock/policy.yml
+      ref: ${{ github.sha }}
+      format: json
+  - if: always() && steps.audit.outputs.findings-location != ''
+    uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+    with:
+      name: airlock-findings
+      path: ${{ steps.audit.outputs.findings-location }}
+```
+
+Pin the Action to the immutable release tag your repository has reviewed.
+`repository` defaults to the repository running the workflow. `policy`, `ref`,
+and `format` (`json` or `text`) are optional. The step exposes `outcome`,
+`complete`, and `findings-location`; the last is an absolute runner path that
+can be uploaded as an artifact even when the audit fails.
+
+The Action preserves Airlock's exit codes: conformant exits `0`,
+nonconformant exits `1`, and incomplete exits `2`. An incomplete audit fails
+the step by default. Set `fail-on-incomplete: "false"` only when the workflow
+must continue despite an unanswered audit; the outputs still say
+`outcome: incomplete` and `complete: false`. Nonconformance always fails.
+
+`AIRLOCK_TOKEN` must be minted by the Airlock Safe GitHub App as described in
+[Provisioning CI](#provisioning-ci). The Action does not use the workflow's
+automatic GitHub token. Before making any audit request, the same verifier as
+the command-line interface enumerates the credential's authority and refuses
+it if any permission is writable or cannot be proved read-only. Airlock has no
+mutating GitHub client methods, and the Action only builds and runs Airlock, so
+it can report changes but can never apply them.
+
 With no `--policy`, airlock reads `{owner}/.github:airlock/policy.yml` for the
 audited repository's owner. Airlock ships no built-in policy, so a repository
 whose owner has none cannot be audited — that is an error, not an empty run.
@@ -197,10 +243,6 @@ checks:
     enabled: false
 
 suppressions:
-  direct:
-    - rule: REPO-CI-07
-      repository: wyrd-company/airlock
-      reason: "the reconcile workflow holds a credential"
   allow-repo-requests: [REPO-DOCS-01, REPO-DOCS-02]
 
 reference-data:
