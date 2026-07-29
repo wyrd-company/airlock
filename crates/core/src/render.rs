@@ -365,24 +365,51 @@ pub fn plan_text(report: &Report) -> String {
         }
     }
 
+    // Undecided rules are named whenever there are any. Completeness is a
+    // statement about the gate, not about what was answered: a rule the
+    // effective gate does not enforce can end undecided and leave the run
+    // complete. Keying this on `complete` would drop those rules silently,
+    // and a plan that omits a rule it could not see is claiming to have
+    // looked where it had not.
     out.push('\n');
-    if plan.complete {
+    if plan.undecided.is_empty() {
         let _ = writeln!(
             out,
-            "The observation was complete, so this names every gap the policy \
-             asked about."
+            "Every rule the policy asked about was decided, so this names every \
+             gap it\nfound."
         );
     } else {
         let _ = writeln!(
             out,
-            "The observation was incomplete: {} rule(s) ended undecided, so this \
-             plan may\nbe missing changes. An unanswered question is not a clean \
-             repository.",
+            "{} rule(s) ended undecided, so this plan may be missing changes. An\n\
+             unanswered question is not a clean repository.",
             plan.undecided.len()
         );
         for rule in &plan.undecided {
-            let _ = writeln!(out, "  undecided: {rule}");
+            let _ = writeln!(
+                out,
+                "  undecided: {:<16} {:<13} {:<14} {}",
+                rule.rule,
+                rule.severity,
+                rule.status.code(),
+                if rule.blocks_completeness {
+                    "makes the run incomplete"
+                } else {
+                    "does not gate, and is still not a pass"
+                }
+            );
         }
+        let _ = writeln!(
+            out,
+            "{}",
+            if plan.is_incomplete() {
+                "At least one is graded at a severity the effective gate enforces, so \
+                 the\nrun is incomplete and no verdict below it can be certified."
+            } else {
+                "None of them is graded at a severity the effective gate enforces, so \
+                 the\nrun is still complete."
+            }
+        );
     }
 
     out
@@ -586,7 +613,42 @@ mod tests {
     #[test]
     fn the_plan_reports_the_completeness_of_the_observation_it_came_from() {
         let text = plan_text(&report());
-        assert!(text.contains("The observation was complete"));
+        assert!(text.contains("Every rule the policy asked about was decided"));
+    }
+
+    #[test]
+    fn the_plan_names_an_undecided_rule_even_when_the_run_stays_complete() {
+        let mut ungated = report();
+        ungated.findings[0].status = Status::Inconclusive;
+        ungated.findings[0].severity = "observation".to_owned();
+        let text = plan_text(&ungated);
+
+        assert!(
+            text.contains("undecided: REPO-LIC-01"),
+            "a non-gating undecided rule must still be named: {text}"
+        );
+        assert!(
+            text.contains("does not gate, and is still not a pass"),
+            "{text}"
+        );
+        assert!(
+            !text.contains("Every rule the policy asked about was decided"),
+            "the plan must not claim everything was decided: {text}"
+        );
+    }
+
+    #[test]
+    fn the_plan_says_when_an_undecided_rule_stops_the_run() {
+        let mut gated = report();
+        gated.findings[0].status = Status::Error;
+        let text = plan_text(&gated);
+
+        assert!(text.contains("undecided: REPO-LIC-01"), "{text}");
+        assert!(text.contains("makes the run incomplete"), "{text}");
+        assert!(
+            text.contains("no verdict below it can be certified"),
+            "{text}"
+        );
     }
 
     #[test]
@@ -634,21 +696,39 @@ mod tests {
     }
 
     #[test]
-    fn the_json_listing_carries_the_same_remediation_class_a_finding_would() {
+    fn the_json_listing_publishes_the_remediation_model_verbatim() {
+        // Compared against the model itself, not against the helper the
+        // listing is built with — comparing the listing to a second call of
+        // its own builder would pass even if both stopped saying anything.
+        // That the listing agrees with a real *run* is proved in
+        // `tests/remediation_catalogue.rs`, which audits a repository.
         let json = list_checks_json();
-        let checks = json["checks"].as_array().unwrap();
-        for check in checks {
-            let rule = check["id"].as_str().unwrap();
-            let listed = &check["remediation_class"];
-            let found = serde_json::to_value(RemediationClass::for_rule(rule)).unwrap();
-            assert_eq!(
-                *listed, found,
-                "{rule} is catalogued differently from how a run would report it"
-            );
-            assert!(
-                listed["code"].is_string() || listed["none_reason"].is_string(),
-                "{rule} says neither what would close it nor why nothing would"
-            );
+        let listed: std::collections::BTreeMap<&str, &serde_json::Value> = json["checks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|check| (check["id"].as_str().unwrap(), &check["remediation_class"]))
+            .collect();
+
+        assert_eq!(listed.len(), crate::remediation::CLASSIFICATIONS.len());
+        for classification in crate::remediation::CLASSIFICATIONS {
+            let rule = classification.rule();
+            let entry = listed
+                .get(rule)
+                .unwrap_or_else(|| panic!("{rule} is missing from the listing"));
+            match classification {
+                Classification::Remediation(definition) => {
+                    assert_eq!(entry["code"], definition.code, "{rule}");
+                    assert_eq!(entry["lane"], definition.lane.code(), "{rule}");
+                    assert_eq!(entry["change"], definition.change, "{rule}");
+                    assert_eq!(entry["reversible"], definition.reversible, "{rule}");
+                    assert!(entry["none_reason"].is_null(), "{rule}");
+                }
+                Classification::NotRemediable { reason, .. } => {
+                    assert_eq!(entry["none_reason"], *reason, "{rule}");
+                    assert!(entry["code"].is_null(), "{rule}");
+                }
+            }
         }
     }
 
