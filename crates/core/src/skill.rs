@@ -382,16 +382,20 @@ mod tests {
         assert_eq!(embedded, on_disk);
     }
 
+    /// Tripwire for quoted rule identity, not paraphrase detection.
+    ///
+    /// This catches literal rule ids and statements. A paraphrase is not
+    /// mechanically decidable; the "Authority and ownership" section in
+    /// `SKILL.md` is the control that forbids hand-written rule summaries.
     #[test]
     fn hand_written_skill_files_do_not_restate_registry_rules() {
         for (path, contents) in FILES {
-            if *path == "references/check-guidance.md" {
-                continue;
+            if *path != "references/check-guidance.md" {
+                assert!(
+                    !contents.contains("REPO-"),
+                    "{path} contains a registry rule id"
+                );
             }
-            assert!(
-                !contents.contains("REPO-"),
-                "{path} contains a registry rule id"
-            );
             for check in registry::CHECKS {
                 assert!(
                     !contents.contains(check.statement),
