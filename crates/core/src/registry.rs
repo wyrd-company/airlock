@@ -209,6 +209,33 @@ impl fmt::Display for Evaluation {
     }
 }
 
+/// What a rule observes: the repository's file tree, or platform state that
+/// only the GitHub API can report.
+///
+/// The domain decides which observation source can answer for the rule. A
+/// file-tree rule can be evaluated from the API tree or from a local working
+/// tree; a platform rule has no local equivalent and is never inferred from
+/// one — without the API it is reported as not observed, never as passing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Observation {
+    /// The rule reads committed (or, locally, working-tree) file content.
+    FileTree,
+    /// The rule reads live platform state: settings, rulesets, tags, history,
+    /// secrets, or anything else the API owns.
+    Platform,
+}
+
+impl Observation {
+    /// The stable machine-readable name.
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Observation::FileTree => "file-tree",
+            Observation::Platform => "platform",
+        }
+    }
+}
+
 /// One registered check definition.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CheckDefinition {
@@ -1126,6 +1153,31 @@ impl CheckDefinition {
             _ => Applicability::Always,
         }
     }
+
+    /// What the rule observes.
+    ///
+    /// Declared here, per rule, and read everywhere — the audit gates
+    /// platform rules on API availability from this, and every finding's
+    /// `source` is derived from it. Like remediation classification, the
+    /// domain is not part of the registry digest: it describes where airlock
+    /// looks, not what the rule means.
+    #[must_use]
+    pub fn observation(&self) -> Observation {
+        match self.id {
+            // Org placement and repository naming are platform identity.
+            "REPO-ORG-01" | "REPO-ORG-02" | "REPO-NAME-01" | "REPO-NAME-02" | "REPO-NAME-03"
+            | "REPO-NAME-04"
+            // Live metadata against the declared file needs the live half.
+            | "REPO-META-13"
+            // Branch, ruleset, merge-setting, feature, tag, history, and
+            // credential-naming facts are all API-owned. REPO-GIT-13 is the
+            // exception: it reads workflow text.
+            | "REPO-GIT-01" | "REPO-GIT-02" | "REPO-GIT-03" | "REPO-GIT-04" | "REPO-GIT-05"
+            | "REPO-GIT-06" | "REPO-GIT-07" | "REPO-GIT-08" | "REPO-GIT-09" | "REPO-GIT-10"
+            | "REPO-GIT-14" => Observation::Platform,
+            _ => Observation::FileTree,
+        }
+    }
 }
 
 /// The registry content digest.
@@ -1178,6 +1230,38 @@ mod tests {
             .map(|check| check.id)
             .collect();
         assert_eq!(conditioned, ["REPO-LIC-04", "REPO-GIT-09", "REPO-TASK-04"]);
+    }
+
+    #[test]
+    fn platform_rules_are_exactly_the_api_owned_facts() {
+        let platform: Vec<&str> = CHECKS
+            .iter()
+            .filter(|check| check.observation() == Observation::Platform)
+            .map(|check| check.id)
+            .collect();
+        assert_eq!(
+            platform,
+            [
+                "REPO-ORG-01",
+                "REPO-ORG-02",
+                "REPO-NAME-01",
+                "REPO-NAME-02",
+                "REPO-NAME-03",
+                "REPO-NAME-04",
+                "REPO-META-13",
+                "REPO-GIT-01",
+                "REPO-GIT-02",
+                "REPO-GIT-03",
+                "REPO-GIT-14",
+                "REPO-GIT-04",
+                "REPO-GIT-05",
+                "REPO-GIT-06",
+                "REPO-GIT-07",
+                "REPO-GIT-08",
+                "REPO-GIT-09",
+                "REPO-GIT-10",
+            ]
+        );
     }
 
     #[test]
