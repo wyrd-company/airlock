@@ -65,7 +65,7 @@ repository declares at least one release unit.
 | `REPO-FILE-07` | `.github/workflows/` contains at least a CI workflow triggered on pull request                                       | Blocking    | File presence                                |
 | `REPO-FILE-08` | `.github/renovate.json` exists and extends the org preset                                                            | Required    | File contents                                |
 | `REPO-FILE-16` | `.github/repo-settings.yml` exists                                                                                   | Blocking    | File presence                                |
-| `REPO-FILE-17` | `.github/workflows/reconcile-settings.yml` exists and triggers on push to the default branch                         | Blocking    | File contents                                |
+| `REPO-FILE-17` | `.github/workflows/audit.yml` exists and triggers on a schedule and on demand                                        | Blocking    | File contents                                |
 | `REPO-FILE-09` | `.config/lefthook.yml` exists                                                                                        | Required    | File presence                                |
 | `REPO-FILE-10` | `.devcontainer/` exists                                                                                              | Required    | File presence                                |
 | `REPO-FILE-11` | `AGENTS.md` exists                                                                                                   | Required    | File presence                                |
@@ -123,8 +123,8 @@ repository declares at least one release unit.
 | `REPO-CI-06`   | A `concurrency` group with `cancel-in-progress` covers pull requests                             | Required | Workflow contents                            |
 | `REPO-CI-07`   | Every job invokes a task rather than a raw command                                               | Required | Workflow contents                            |
 | `REPO-CI-08`   | A required check validates pull request title format                                             | Required | Workflow contents and ruleset                |
-| `REPO-CI-09`   | The reconcile workflow requests a token scoped to a single repository                            | Required | `repositories:` on the token-minting step    |
-| `REPO-CI-10`   | No workflow mutates repository settings outside the reconcile workflow                           | Required | Manual — Workflow contents |
+| `REPO-CI-09`   | The scheduled audit workflow uses a verified read-only `AIRLOCK_TOKEN`                            | Required | Workflow contents                            |
+| `REPO-CI-10`   | No workflow mutates repository settings                                                          | Required | Manual — Workflow contents |
 | `REPO-CD-01`   | A repository that delivers anything has `.github/workflows/cd.yml`                               | Required | File presence                                |
 | `REPO-CD-02`   | A repository publishing a versioned artifact triggers CD on tags matching `[0-9]*.[0-9]*.[0-9]*` | Required | Workflow contents                            |
 | `REPO-CD-03`   | A repository deploying a site or service triggers CD on push to the default branch               | Required | Workflow contents                            |

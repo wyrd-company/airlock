@@ -41,7 +41,7 @@ pub(crate) fn run(id: &str, rule: &RuleInstance, context: &AuditContext) -> Opti
             ".github/repo-settings.yml",
             ".github/repo-settings.yml",
         ),
-        "REPO-FILE-17" => reconcile_workflow(context),
+        "REPO-FILE-17" => audit_workflow(context),
         _ => return None,
     })
 }
@@ -381,30 +381,36 @@ fn no_codeowners(context: &AuditContext) -> Verdict {
     }
 }
 
-fn reconcile_workflow(context: &AuditContext) -> Verdict {
-    let Some(workflow) = context.workflow("reconcile-settings.yml") else {
+fn audit_workflow(context: &AuditContext) -> Verdict {
+    let Some(workflow) = context.workflow("audit.yml") else {
         return presence(
             context,
-            ".github/workflows/reconcile-settings.yml",
-            ".github/workflows/reconcile-settings.yml",
+            ".github/workflows/audit.yml",
+            ".github/workflows/audit.yml",
         );
     };
-    let branch = &context.snapshot.repository.default_branch;
-    let pushes_to_branch = try_verdict!(workflow.pushes_to(branch));
-    if pushes_to_branch {
+    let scheduled = try_verdict!(workflow.has_trigger("schedule"));
+    let on_demand = try_verdict!(workflow.has_trigger("workflow_dispatch"));
+    if scheduled && on_demand {
         Verdict::pass_at(
-            "reconcile_triggers_on_default_branch",
+            "audit_is_scheduled_and_on_demand",
             &workflow.path,
-            format!("the reconcile workflow triggers on push to `{branch}`"),
+            "the audit workflow triggers on a schedule and through workflow_dispatch",
         )
     } else {
+        let missing = match (scheduled, on_demand) {
+            (false, false) => "schedule and workflow_dispatch",
+            (false, true) => "schedule",
+            (true, false) => "workflow_dispatch",
+            (true, true) => unreachable!(),
+        };
         Verdict::fail_at(
-            "reconcile_trigger_wrong",
+            "audit_trigger_missing",
             &workflow.path,
-            format!("the reconcile workflow does not trigger on push to `{branch}`"),
+            format!("the audit workflow does not trigger on {missing}"),
             Remediation::new(
-                ActionGroup::TRIGGER_ON_DEFAULT_BRANCH,
-                format!("Trigger the reconcile workflow on push to `{branch}`."),
+                ActionGroup::ADD_AUDIT_WORKFLOW,
+                "Use the standard audit workflow with schedule and workflow_dispatch triggers.",
             ),
         )
     }
@@ -606,13 +612,13 @@ mod tests {
     }
 
     #[test]
-    fn the_reconcile_workflow_must_trigger_on_the_default_branch() {
+    fn the_audit_workflow_must_be_scheduled_and_on_demand() {
         assert_eq!(
             verdict(
                 "REPO-FILE-17",
                 &[(
-                    ".github/workflows/reconcile-settings.yml",
-                    "on:\n  push:\n    branches: [main]\njobs: {}\n"
+                    ".github/workflows/audit.yml",
+                    "on:\n  schedule:\n    - cron: '0 0 * * 1'\n  workflow_dispatch: {}\njobs: {}\n"
                 )]
             ),
             Status::Pass
@@ -621,8 +627,8 @@ mod tests {
             verdict(
                 "REPO-FILE-17",
                 &[(
-                    ".github/workflows/reconcile-settings.yml",
-                    "on:\n  workflow_dispatch: {}\njobs: {}\n"
+                    ".github/workflows/audit.yml",
+                    "on:\n  schedule:\n    - cron: '0 0 * * 1'\njobs: {}\n"
                 )]
             ),
             Status::Fail

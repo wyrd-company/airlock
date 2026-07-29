@@ -426,14 +426,14 @@ pub(super) fn pull_request_title_check(context: &AuditContext) -> Verdict {
     )
 }
 
-pub(super) fn reconcile_token_is_scoped(context: &AuditContext) -> Verdict {
-    let Some(workflow) = context.workflow("reconcile-settings.yml") else {
+pub(super) fn audit_uses_airlock_token(context: &AuditContext) -> Verdict {
+    let Some(workflow) = context.workflow("audit.yml") else {
         return Verdict::fail(
-            "no_reconcile_workflow",
-            "there is no .github/workflows/reconcile-settings.yml to inspect",
+            "no_audit_workflow",
+            "there is no .github/workflows/audit.yml to inspect",
             Remediation::new(
-                ActionGroup::ADD_RECONCILE_WORKFLOW,
-                "Add the reconcile workflow that applies .github/repo-settings.yml.",
+                ActionGroup::ADD_AUDIT_WORKFLOW,
+                "Add the standard scheduled, on-demand audit workflow.",
             ),
         );
     };
@@ -445,7 +445,7 @@ pub(super) fn reconcile_token_is_scoped(context: &AuditContext) -> Verdict {
         );
     };
 
-    let minting_steps: Vec<&Yaml> = document
+    let audit_steps: Vec<&Yaml> = document
         .get("jobs")
         .and_then(Yaml::as_map)
         .map(|jobs| {
@@ -455,56 +455,48 @@ pub(super) fn reconcile_token_is_scoped(context: &AuditContext) -> Verdict {
                 .filter(|step| {
                     step.get("uses")
                         .and_then(Yaml::as_str)
-                        .is_some_and(|uses| uses.contains("create-github-app-token"))
+                        .is_some_and(|uses| uses == "./")
                 })
                 .collect()
         })
         .unwrap_or_default();
 
-    if minting_steps.is_empty() {
+    if audit_steps.is_empty() {
         return Verdict::fail(
-            "no_token_minting_step",
-            format!("{} mints no scoped app token", workflow.path),
+            "local_audit_action_missing",
+            format!(
+                "{} does not invoke the repository's audit action",
+                workflow.path
+            ),
             Remediation::new(
-                ActionGroup::MINT_SCOPED_TOKEN,
-                "Mint the token with `repositories:` naming this repository only.",
+                ActionGroup::SUPPLY_AIRLOCK_TOKEN,
+                "Invoke the local audit action and supply `secrets.AIRLOCK_TOKEN`.",
             ),
         );
     }
 
-    let unscoped: Vec<usize> = minting_steps
-        .iter()
-        .enumerate()
-        .filter(|(_, step)| {
-            step.get("with")
-                .and_then(|with| with.get("repositories"))
-                .is_none()
-        })
-        .map(|(index, _)| index + 1)
-        .collect();
+    let has_airlock_token = audit_steps.iter().any(|step| {
+        step.get("env")
+            .and_then(|env| env.get("AIRLOCK_TOKEN"))
+            .and_then(Yaml::as_str)
+            .is_some_and(|value| value.contains("secrets.AIRLOCK_TOKEN"))
+    });
 
-    if unscoped.is_empty() {
+    if has_airlock_token {
         Verdict::pass_at(
-            "reconcile_token_scoped",
+            "audit_uses_airlock_token",
             &workflow.path,
-            "the token-minting step names the repositories the token may reach",
+            "the local audit action receives secrets.AIRLOCK_TOKEN as AIRLOCK_TOKEN",
         )
     } else {
         Verdict::fail_at(
-            "reconcile_token_unscoped",
+            "audit_token_missing",
             &workflow.path,
-            format!(
-                "token-minting step {} sets no `repositories:`",
-                unscoped
-                    .iter()
-                    .map(ToString::to_string)
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
+            "the local audit action does not receive secrets.AIRLOCK_TOKEN as AIRLOCK_TOKEN",
             Remediation::new(
-                ActionGroup::SCOPE_TOKEN,
-                "Set `repositories:` on the token-minting step so the token reaches one \
-                 repository.",
+                ActionGroup::SUPPLY_AIRLOCK_TOKEN,
+                "Set the action step's `AIRLOCK_TOKEN` environment variable to \
+                 `${{ secrets.AIRLOCK_TOKEN }}`.",
             ),
         )
     }
@@ -722,33 +714,31 @@ jobs:
     }
 
     #[test]
-    fn the_reconcile_token_must_be_scoped() {
-        let scoped = "\
-on:
-  push:
-    branches: [main]
+    fn the_audit_action_must_receive_airlock_token() {
+        let configured = "\
+on: workflow_dispatch
 permissions: {}
 jobs:
-  reconcile:
+  audit:
     permissions:
       contents: read
     steps:
-      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
-        with:
-          repositories: name
+      - uses: ./
+        env:
+          AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}
 ";
         assert_eq!(
-            verdict(
-                "REPO-CI-09",
-                &[(".github/workflows/reconcile-settings.yml", scoped)]
-            ),
+            verdict("REPO-CI-09", &[(".github/workflows/audit.yml", configured)]),
             Status::Pass
         );
-        let unscoped = scoped.replace("          repositories: name\n", "");
+        let unconfigured = configured.replace(
+            "        env:\n          AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}\n",
+            "",
+        );
         assert_eq!(
             verdict(
                 "REPO-CI-09",
-                &[(".github/workflows/reconcile-settings.yml", &unscoped)]
+                &[(".github/workflows/audit.yml", &unconfigured)]
             ),
             Status::Fail
         );

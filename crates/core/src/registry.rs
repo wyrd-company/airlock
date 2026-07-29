@@ -24,7 +24,7 @@ use sha2::{Digest, Sha256};
 /// It moves when the set of rules, their statements, their default severities,
 /// evaluation modes, or applicability conditions change. Policies constrain it with
 /// `requires-registry`.
-pub const REGISTRY_VERSION: &str = "0.3.0";
+pub const REGISTRY_VERSION: &str = "0.4.0";
 
 /// A built-in condition that determines whether a check applies.
 ///
@@ -529,7 +529,7 @@ pub const CHECKS: &[CheckDefinition] = &[
     },
     CheckDefinition {
         id: "REPO-FILE-17",
-        statement: "`.github/workflows/reconcile-settings.yml` exists and triggers on push to the default branch",
+        statement: "`.github/workflows/audit.yml` exists and triggers on a schedule and on demand",
         severity: Severity::Blocking,
         section: Section::Files,
         evaluation: Evaluation::Mechanical,
@@ -876,7 +876,7 @@ pub const CHECKS: &[CheckDefinition] = &[
     },
     CheckDefinition {
         id: "REPO-CI-09",
-        statement: "The reconcile workflow requests a token scoped to a single repository",
+        statement: "The scheduled audit workflow uses a verified read-only `AIRLOCK_TOKEN`",
         severity: Severity::Required,
         section: Section::Automation,
         evaluation: Evaluation::Mechanical,
@@ -884,7 +884,7 @@ pub const CHECKS: &[CheckDefinition] = &[
     },
     CheckDefinition {
         id: "REPO-CI-10",
-        statement: "No workflow mutates repository settings outside the reconcile workflow",
+        statement: "No workflow mutates repository settings",
         severity: Severity::Required,
         section: Section::Automation,
         evaluation: Evaluation::Manual,
