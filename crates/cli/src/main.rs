@@ -10,7 +10,7 @@ mod credential;
 mod device;
 
 use std::io::IsTerminal;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use airlock_core::audit::{self, AuditOptions};
@@ -62,7 +62,7 @@ enum Command {
 #[derive(Debug, Args)]
 struct AuditArgs {
     /// Repository to audit, as `owner/repo`.
-    #[arg(required_unless_present = "list_checks")]
+    #[arg(required_unless_present_any = ["list_checks", "working_tree"])]
     target: Option<String>,
 
     /// Policy source: `owner/repo:path[@ref]` or a local file path.
@@ -72,8 +72,15 @@ struct AuditArgs {
     policy: Option<String>,
 
     /// Audit at a specific commit, branch, or tag.
-    #[arg(long = "ref")]
+    #[arg(long = "ref", conflicts_with = "working_tree")]
     reference: Option<String>,
+
+    /// Observe file-level rules from a local working tree instead of the
+    /// API tree. With a repository and a credential, platform rules still
+    /// come from the API; alone, platform rules are reported as not
+    /// observed — never as passing.
+    #[arg(long)]
+    working_tree: Option<PathBuf>,
 
     /// Output format. Defaults to text on a terminal and json otherwise.
     #[arg(long, value_enum)]
@@ -267,8 +274,17 @@ async fn audit_command(args: AuditArgs, interactive: bool) -> Result<u8> {
         return Ok(0);
     }
 
-    // clap requires a target unless --list-checks was given, and that branch
-    // returned above. There is no invocation that reaches here without one.
+    // A working tree with no repository target is a local-only audit: no
+    // credential, no API, platform rules reported as not observed.
+    if args.target.is_none() {
+        let Some(root) = args.working_tree.clone() else {
+            bail!("a repository is required. Name one as `airlock audit <owner/repo>`.");
+        };
+        return local_audit_command(&args, &root, format).await;
+    }
+
+    // clap requires a target or a working tree, and both absent returned
+    // above. There is no invocation that reaches here without a target.
     let Some(target) = args.target.clone() else {
         bail!("a repository is required. Name one as `airlock audit <owner/repo>`.");
     };
@@ -311,10 +327,56 @@ async fn audit_command(args: AuditArgs, interactive: bool) -> Result<u8> {
         reference: args.reference.clone(),
         limits,
         version: VERSION.to_owned(),
+        working_tree: args.working_tree.clone(),
     };
     let report = audit::run(&client, owner, repo, &policy, &options, Some(&grant))
         .await
         .with_context(|| format!("cannot audit {owner}/{repo}"))?;
+
+    match format {
+        Format::Text => print!("{}", render::report_text(&report)),
+        Format::Json => println!(
+            "{}",
+            serde_json::to_string_pretty(&report).context("cannot render the findings document")?
+        ),
+    }
+
+    Ok(report.exit_code())
+}
+
+/// A local-only audit: file rules from the working tree, platform rules not
+/// observed. No credential is resolved and no request is made; the policy
+/// must therefore be a local file with no remote references.
+async fn local_audit_command(args: &AuditArgs, root: &Path, format: Format) -> Result<u8> {
+    let Some(policy_arg) = &args.policy else {
+        bail!(
+            "a local-only audit has no credential to fetch a policy with. Name a local policy \
+             file as `--policy ./policy.yml`."
+        );
+    };
+    let source = PolicySource::parse(policy_arg)
+        .with_context(|| format!("cannot read `--policy {policy_arg}`"))?;
+
+    let limits = Limits::default();
+    let offline = airlock_core::github::Offline;
+    let policy = policy::resolve(&offline, &source, &limits)
+        .await
+        .with_context(|| {
+            format!(
+                "cannot resolve the policy at {} without a credential; a local-only audit needs \
+                 a local policy with no remote references",
+                source.label()
+            )
+        })?;
+
+    let options = AuditOptions {
+        reference: args.reference.clone(),
+        limits,
+        version: VERSION.to_owned(),
+        working_tree: Some(root.to_path_buf()),
+    };
+    let report = audit::run_local(&policy, &options, root)
+        .with_context(|| format!("cannot audit the working tree at {}", root.display()))?;
 
     match format {
         Format::Text => print!("{}", render::report_text(&report)),

@@ -390,6 +390,9 @@ impl AuditContext<'_> {
             FileState::Unreadable(error) => {
                 ParsedFile::Undecided(Box::new(Verdict::from_api_error(error)))
             }
+            FileState::LocalUnreadable { detail } => ParsedFile::Undecided(Box::new(
+                Verdict::inconclusive("local_path_unreadable", detail.clone()),
+            )),
             FileState::Symlink { .. } | FileState::NotAFile { .. } => ParsedFile::NotAFile(state),
         }
     }
@@ -589,6 +592,9 @@ fn file_condition(context: &AuditContext, path: &str, condition: Condition) -> C
         FileState::Unreadable(error) => {
             ConditionOutcome::Undecided(Box::new(Verdict::from_api_error(error)))
         }
+        FileState::LocalUnreadable { detail } => ConditionOutcome::Undecided(Box::new(
+            Verdict::inconclusive("condition_undecided", detail.clone()),
+        )),
         // A symlink or a directory where the condition expects a file is a
         // conclusive answer: the file the condition asks about is not there.
         FileState::Symlink { .. } | FileState::NotAFile { .. } => ConditionOutcome::DoesNotHold,
@@ -660,6 +666,9 @@ pub(crate) fn presence(context: &AuditContext, path: &str, subject: &str) -> Ver
             format!("{path} is {size} bytes, over the {limit} byte limit, so it was not read"),
         ),
         FileState::Unreadable(error) => Verdict::from_api_error(error),
+        FileState::LocalUnreadable { detail } => {
+            Verdict::inconclusive("local_path_unreadable", detail.clone())
+        }
     }
 }
 

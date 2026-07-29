@@ -52,6 +52,15 @@ pub enum FileState {
     },
     /// The file exists but could not be read.
     Unreadable(ApiError),
+    /// A working-tree file that exists but could not be read from disk.
+    ///
+    /// Distinct from [`FileState::Unreadable`] because it is not an API
+    /// failure: checks report it as inconclusive rather than as an error,
+    /// and it is never a false pass.
+    LocalUnreadable {
+        /// What went wrong, with the path.
+        detail: String,
+    },
 }
 
 impl FileState {
@@ -81,7 +90,10 @@ impl FileState {
     pub fn is_undecided(&self) -> bool {
         matches!(
             self,
-            FileState::OverBudget { .. } | FileState::Unreadable(_) | FileState::TreeTruncated
+            FileState::OverBudget { .. }
+                | FileState::Unreadable(_)
+                | FileState::LocalUnreadable { .. }
+                | FileState::TreeTruncated
         )
     }
 }

@@ -77,6 +77,59 @@ Requests carry connect and read timeouts and the whole run carries a wall-clock
 budget; exhausting either is a refusal before verification and an error finding
 after it.
 
+## Remediation lanes
+
+Every registered rule declares, as compiled-in data, what closing its gap
+takes. Each finding carries that declaration in `remediation_class`: a stable
+code, what the change would be, whether it is reversible, and the lane it
+travels in — or `none_reason` when airlock offers no remediation. Airlock
+itself never performs any of them; the classification tells the consumer who
+can.
+
+| Lane                 | What it means                                                                                              | Who does the work                    |
+| -------------------- | ---------------------------------------------------------------------------------------------------------- | ------------------------------------ |
+| `deterministic-file` | The same gap resolves to the same file content in every repository                                          | Closed headlessly, delivered as a PR |
+| `judgment-file`      | The fix is repository-specific file content — prose, or configuration wired to this repository's toolchain | An agent authors it; a human reviews |
+| `operator-setting`   | The fix sits behind the administration API, and `administration: write` is indivisible                     | A human, behind the TUI              |
+| *(none)*             | A human attestation, a fix outside the repository, or history surgery airlock will not automate            | Nobody — the reason says why         |
+
+The classification is not part of the registry digest. The digest attests what
+every rule means and how it is evaluated — the contract a policy binds to with
+`requires-registry`. Remediation is airlock's answer to a gap, and a better
+answer must not invalidate policy compatibility.
+
+## Two observation sources
+
+File-level rules can be observed two ways; platform rules only one.
+
+- **API tree** (the default): every git-backed fact is read from GitHub at a
+  single resolved commit. This is the source for scheduled audits, the
+  Action, and any run without a checkout. Airlock never requires a clone.
+- **Local working tree** (`--working-tree <path>`): file-level rules are read
+  from a checkout on disk, **as it stands** — including uncommitted and
+  untracked content, because that is what an agent that just wrote changes is
+  asking about. Gitignored files are excluded: a rule satisfied only by an
+  ignored file is not satisfied. Tracked files are still read even when an
+  ignore rule matches them.
+
+Platform rules — settings, rulesets, tags, history, secrets — have no local
+equivalent and are never inferred from a working tree. With a repository and
+a credential (`airlock audit owner/repo --working-tree .`) they still come
+from the API and the run mixes sources; without a credential
+(`airlock audit --working-tree . --policy ./policy.yml`) they are reported as
+`inconclusive` with evidence `not_observed` — never as passing — and the
+audit is `incomplete` at any gating severity.
+
+Every finding carries a `source` field naming what decided it (`api` or
+`working-tree`; null when nothing observed it), and the report carries an
+`observation` block stating the run's terms: which source served each half,
+the working tree's HEAD commit, and whether the tree was dirty. "Clear
+against an unpushed working tree" and "clear against the default branch" are
+different facts; the output never lets one wear the other's words. A local
+result with `dirty: true` describes something not yet committed, and a
+working-tree run that had to assume the default branch says so with
+`default_branch_observed: false`.
+
 ## Policy
 
 The policy is YAML. It selects sections of the check registry through
