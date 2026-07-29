@@ -134,7 +134,7 @@ fn list_checks_reports_the_whole_registry_without_a_target() {
 }
 
 #[test]
-fn list_checks_marks_manual_and_unimplemented_rules() {
+fn list_checks_reports_evaluation_modes_and_no_unimplemented_rules() {
     let assertion = offline()
         .args(["audit", "--list-checks", "--format", "json"])
         .assert()
