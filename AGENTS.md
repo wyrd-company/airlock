@@ -10,7 +10,10 @@ Run `task check` before pushing; it is what CI runs. Everything else is in
 
 ## Constraints that are not negotiable
 
-**No writes, ever.** No endpoint that mutates, no credential that could.
+**The audit never writes.** `airlock audit` and every headless surface hold no
+mutating endpoint and refuse any credential that could write. The interactive
+align session alone may apply settings-level remediations — under an
+operator's device-flow grant held only in memory — and it never writes files.
 
 **The binary never shells out.** No `git`, no `gh`, no subprocess at all from
 `airlock` or anything it depends on. Airlock speaks the GitHub REST API
