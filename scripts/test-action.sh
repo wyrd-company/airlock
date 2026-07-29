@@ -39,12 +39,12 @@ run_case() {
   set -e
 
   [[ "$actual_status" -eq "$expected_status" ]]
-  rg -q "^outcome=$expected_outcome$" "$output_file"
-  rg -q "^complete=$expected_complete$" "$output_file"
-  rg -q '^findings-location=' "$output_file"
-  rg -q "^AIRLOCK_OUTCOME=$expected_outcome$" "$environment_file"
-  rg -q "^AIRLOCK_COMPLETE=$expected_complete$" "$environment_file"
-  rg -q '^AIRLOCK_FINDINGS=' "$environment_file"
+  grep -qE "^outcome=$expected_outcome$" "$output_file"
+  grep -qE "^complete=$expected_complete$" "$output_file"
+  grep -qE '^findings-location=' "$output_file"
+  grep -qE "^AIRLOCK_OUTCOME=$expected_outcome$" "$environment_file"
+  grep -qE "^AIRLOCK_COMPLETE=$expected_complete$" "$environment_file"
+  grep -qE '^AIRLOCK_FINDINGS=' "$environment_file"
 }
 
 run_case 0 0 true conformant true
@@ -62,8 +62,8 @@ AIRLOCK_BIN="$fake_airlock" \
   GITHUB_OUTPUT="$missing_token_output" \
   GITHUB_ENV="$missing_token_environment" \
   "$root/scripts/run-action.sh" >/dev/null
-rg -q '^outcome=incomplete$' "$missing_token_output"
-rg -q '^complete=false$' "$missing_token_output"
+grep -qE '^outcome=incomplete$' "$missing_token_output"
+grep -qE '^complete=false$' "$missing_token_output"
 missing_token_findings=$(sed -n 's/^findings-location=//p' "$missing_token_output")
 jq -e '.outcome == "incomplete" and .complete == false' "$missing_token_findings" >/dev/null
 
@@ -81,8 +81,8 @@ AIRLOCK_BIN="$fake_airlock" \
 missing_token_status=$?
 set -e
 [[ "$missing_token_status" -eq 2 ]]
-rg -q '^outcome=incomplete$' "$missing_token_failing_output"
-rg -q '^complete=false$' "$missing_token_failing_output"
+grep -qE '^outcome=incomplete$' "$missing_token_failing_output"
+grep -qE '^complete=false$' "$missing_token_failing_output"
 missing_token_failing_findings=$(sed -n 's/^findings-location=//p' "$missing_token_failing_output")
 [[ -f "$missing_token_failing_findings" ]]
 
@@ -97,7 +97,7 @@ AIRLOCK_TOKEN=fixture \
   GITHUB_ENV="$test_root/environment-invalid-format" \
   GITHUB_ACTION=invalid-format \
   "$root/scripts/run-action.sh" >/dev/null
-rg -q '^outcome=incomplete$' "$invalid_format_output"
+grep -qE '^outcome=incomplete$' "$invalid_format_output"
 invalid_format_findings=$(sed -n 's/^findings-location=//p' "$invalid_format_output")
 [[ -f "$invalid_format_findings" ]]
 
