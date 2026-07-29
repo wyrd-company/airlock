@@ -42,25 +42,29 @@ permissions:
 
 steps:
   - id: audit
-    uses: wyrd-company/airlock@0.0.1
+    uses: wyrd-company/airlock@0123456789abcdef0123456789abcdef01234567 # 0.0.1
     env:
       AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}
     with:
       policy: example/.github:airlock/policy.yml
       ref: ${{ github.sha }}
       format: json
-  - if: always() && steps.audit.outputs.findings-location != ''
+  - if: always() && env.AIRLOCK_FINDINGS != ''
     uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
     with:
       name: airlock-findings
-      path: ${{ steps.audit.outputs.findings-location }}
+      path: ${{ env.AIRLOCK_FINDINGS }}
 ```
 
-Pin the Action to the immutable release tag your repository has reviewed.
+Replace the example revision with the full commit SHA for the Action release
+your repository has reviewed, retaining the release version comment.
 `repository` defaults to the repository running the workflow. `policy`, `ref`,
 and `format` (`json` or `text`) are optional. The step exposes `outcome`,
 `complete`, and `findings-location`; the last is an absolute runner path that
 can be uploaded as an artifact even when the audit fails.
+The Action also exports `AIRLOCK_FINDINGS`, `AIRLOCK_OUTCOME`, and
+`AIRLOCK_COMPLETE` to later steps because GitHub may not propagate composite
+outputs after a failing inner step.
 
 The Action preserves Airlock's exit codes: conformant exits `0`,
 nonconformant exits `1`, and incomplete exits `2`. An incomplete audit fails
@@ -75,6 +79,11 @@ the command-line interface enumerates the credential's authority and refuses
 it if any permission is writable or cannot be proved read-only. Airlock has no
 mutating GitHub client methods, and the Action only builds and runs Airlock, so
 it can report changes but can never apply them.
+
+`AIRLOCK_TOKEN` is present in the environment of every composite step,
+including the toolchain setup and cached source build. The positive read-only
+verification is therefore the security boundary; the Action does not claim
+credential isolation from the build it performs.
 
 With no `--policy`, airlock reads `{owner}/.github:airlock/policy.yml` for the
 audited repository's owner. Airlock ships no built-in policy, so a repository

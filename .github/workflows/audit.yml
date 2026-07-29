@@ -15,6 +15,7 @@ jobs:
   audit:
     name: Audit this repository
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
     steps:
@@ -29,17 +30,17 @@ jobs:
         with:
           format: json
       - name: Attach findings
-        if: always() && steps.airlock.outputs.findings-location != ''
+        if: always() && env.AIRLOCK_FINDINGS != ''
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: airlock-findings
-          path: ${{ steps.airlock.outputs.findings-location }}
+          path: ${{ env.AIRLOCK_FINDINGS }}
           if-no-files-found: error
       - name: Summarize outcome
-        if: always() && steps.airlock.outputs.outcome != ''
+        if: always() && env.AIRLOCK_OUTCOME != ''
         env:
-          OUTCOME: ${{ steps.airlock.outputs.outcome }}
-          COMPLETE: ${{ steps.airlock.outputs.complete }}
+          OUTCOME: ${{ env.AIRLOCK_OUTCOME }}
+          COMPLETE: ${{ env.AIRLOCK_COMPLETE }}
         run: |
           {
             echo "## Airlock audit"

@@ -18,7 +18,8 @@ operator's device-flow grant held only in memory — and it never writes files.
 **The binary never shells out.** No `git`, no `gh`, no subprocess at all from
 `airlock` or anything it depends on. Airlock speaks the GitHub REST API
 directly. This is a rule about the binary, not repository automation in
-general. A workflow may invoke a tool appropriate to its scoped job, but no
+general: the composite Action in `action.yml` invokes Cargo and
+`scripts/run-action.sh` while the Airlock binary remains subprocess-free. No
 workflow receives automated settings-write authority.
 
 **No ambient credentials.** `GH_TOKEN`, `GITHUB_TOKEN`, the `gh` credential
@@ -63,5 +64,9 @@ registry mirrors it, and drift is resolved in favour of the document.
 organisation policy and its topic vocabulary live in `wyrd-company/.github`
 once an operator moves them. An integration test compiles the candidate policy
 against the compiled registry, so it cannot rot in place.
+
+`action.yml` defines the adopter-facing composite Action.
+`scripts/run-action.sh` adapts the CLI exit and findings contracts to GitHub
+Actions; `scripts/test-action.sh` pins that adapter behavior.
 
 Wider design context lives in memory and in the kanban task, not here.

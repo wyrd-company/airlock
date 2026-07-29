@@ -12,16 +12,16 @@ case "$format" in
   json) extension=json ;;
   text) extension=txt ;;
   *)
-    echo "::error::format must be 'json' or 'text'."
-    exit 2
+    extension=txt
+    validation_error="format must be 'json' or 'text'."
     ;;
 esac
 
 case "$fail_on_incomplete" in
   true | false) ;;
   *)
-    echo "::error::fail-on-incomplete must be 'true' or 'false'."
-    exit 2
+    fail_on_incomplete=true
+    validation_error="fail-on-incomplete must be 'true' or 'false'."
     ;;
 esac
 
@@ -29,18 +29,46 @@ invocation=${GITHUB_ACTION:-airlock}
 invocation=${invocation//[^[:alnum:]_.-]/_}
 findings_location="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/airlock-findings-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}-${invocation}.${extension}"
 
-finish_incomplete() {
-  local message=$1
-  printf '%s\n' "$message" >"$findings_location"
-  echo "::error::$message"
+write_environment() {
+  if [[ -n ${GITHUB_ENV:-} ]]; then
+    {
+      echo "AIRLOCK_FINDINGS=$findings_location"
+      echo "AIRLOCK_OUTCOME=$1"
+      echo "AIRLOCK_COMPLETE=$2"
+    } >>"$GITHUB_ENV"
+  fi
+}
+
+write_outputs() {
   {
-    echo "outcome=incomplete"
-    echo "complete=false"
+    echo "outcome=$1"
+    echo "complete=$2"
     echo "findings-location=$findings_location"
   } >>"$GITHUB_OUTPUT"
+  write_environment "$1" "$2"
+}
+
+finish_incomplete() {
+  local message=$1
+  if [[ "$extension" == json ]]; then
+    local escaped=$message
+    escaped=${escaped//\\/\\\\}
+    escaped=${escaped//\"/\\\"}
+    escaped=${escaped//$'\n'/\\n}
+    printf '{"outcome":"incomplete","complete":false,"message":"%s"}\n' \
+      "$escaped" >"$findings_location"
+  else
+    printf 'incomplete — complete: false\n%s\n' "$message" >"$findings_location"
+  fi
+  echo "::error::$message"
+  write_outputs incomplete false
   [[ "$fail_on_incomplete" == false ]] && exit 0
   exit 2
 }
+
+if [[ -n ${validation_error:-} ]]; then
+  finish_incomplete "$validation_error"
+fi
 
 if [[ -z ${AIRLOCK_TOKEN:-} ]]; then
   finish_incomplete "AIRLOCK_TOKEN is required and must be a credential Airlock can prove is read-only."
@@ -80,11 +108,7 @@ case "$status" in
     ;;
 esac
 
-{
-  echo "outcome=$outcome"
-  echo "complete=$complete"
-  echo "findings-location=$findings_location"
-} >>"$GITHUB_OUTPUT"
+write_outputs "$outcome" "$complete"
 
 if [[ "$status" -eq 2 && "$fail_on_incomplete" == false ]]; then
   exit 0
