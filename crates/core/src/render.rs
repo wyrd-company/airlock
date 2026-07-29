@@ -5,9 +5,10 @@
 
 use std::fmt::Write as _;
 
-use crate::findings::{Report, Status};
+use crate::findings::{RemediationClass, Report, Status};
 use crate::plan::{self, Plan};
 use crate::registry::{self, CheckDefinition};
+use crate::remediation::{self, Classification};
 use crate::worklist::AgentWorkList;
 
 /// Render an audit report for a terminal.
@@ -409,6 +410,32 @@ pub fn list_checks_text() -> String {
                 check.evaluation.code(),
                 check.statement
             );
+            // The declared remediation is printed with the rule so an adopter
+            // can read what airlock would do to their repository before
+            // running it against one. It is read from the same table the
+            // findings document quotes, so the catalogue cannot drift from
+            // what a run reports.
+            match remediation::classify(check.id) {
+                Some(Classification::Remediation(definition)) => {
+                    let _ = writeln!(
+                        out,
+                        "  {:<16} → {} [{}, {}] {}",
+                        "",
+                        definition.code,
+                        definition.lane.code(),
+                        if definition.reversible {
+                            "reversible"
+                        } else {
+                            "not reversible"
+                        },
+                        definition.change
+                    );
+                }
+                Some(Classification::NotRemediable { reason, .. }) => {
+                    let _ = writeln!(out, "  {:<16} → no remediation: {reason}", "");
+                }
+                None => {}
+            }
         }
         let _ = writeln!(out);
     }
@@ -431,6 +458,7 @@ fn check_json(check: &CheckDefinition) -> serde_json::Value {
         "statement": check.statement,
         "severity": check.severity.code(),
         "section": check.section.code(),
+        "remediation_class": RemediationClass::for_rule(check.id),
         "evaluation": check.evaluation.code(),
         "evaluation_reason": check.evaluation_reason(),
         "implemented": check.evaluation != registry::Evaluation::Unimplemented,
@@ -575,6 +603,52 @@ mod tests {
         let text = list_checks_text();
         for check in registry::CHECKS {
             assert!(text.contains(check.id), "{} is missing", check.id);
+        }
+    }
+
+    #[test]
+    fn the_listing_says_what_closing_every_rule_would_take() {
+        let text = list_checks_text();
+        for classification in crate::remediation::CLASSIFICATIONS {
+            match classification {
+                Classification::Remediation(definition) => {
+                    assert!(
+                        text.contains(definition.code),
+                        "{} is listed without its remediation code",
+                        definition.rule
+                    );
+                    assert!(
+                        text.contains(definition.lane.code()),
+                        "{} is listed without its lane",
+                        definition.rule
+                    );
+                }
+                Classification::NotRemediable { rule, reason } => {
+                    assert!(
+                        text.contains(reason),
+                        "{rule} is listed without the reason airlock offers no remediation"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_json_listing_carries_the_same_remediation_class_a_finding_would() {
+        let json = list_checks_json();
+        let checks = json["checks"].as_array().unwrap();
+        for check in checks {
+            let rule = check["id"].as_str().unwrap();
+            let listed = &check["remediation_class"];
+            let found = serde_json::to_value(RemediationClass::for_rule(rule)).unwrap();
+            assert_eq!(
+                *listed, found,
+                "{rule} is catalogued differently from how a run would report it"
+            );
+            assert!(
+                listed["code"].is_string() || listed["none_reason"].is_string(),
+                "{rule} says neither what would close it nor why nothing would"
+            );
         }
     }
 

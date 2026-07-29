@@ -120,8 +120,17 @@ work, manual judgment, suppressed debt, and other repository gaps; run
 `airlock audit` for the complete findings authority.
 
 `airlock audit --list-checks` prints the whole check registry: every rule id,
-its statement, its severity, and whether airlock evaluates it mechanically,
-reports it for a human, or has not built it yet.
+its statement, its severity, whether airlock evaluates it mechanically, reports
+it for a human, or has not built it yet, and what closing its gap would take.
+That last part is the remediation catalogue — read it to know what airlock
+would do to a repository before pointing it at one.
+
+To see what it would change about a particular repository rather than in
+general:
+
+```sh
+airlock plan wyrd-company/airlock
+```
 
 ## What the exit code means
 
@@ -189,6 +198,37 @@ The classification is not part of the registry digest. The digest attests what
 every rule means and how it is evaluated — the contract a policy binds to with
 `requires-registry`. Remediation is airlock's answer to a gap, and a better
 answer must not invalidate policy compatibility.
+
+## Planning what would change
+
+`airlock plan` observes a repository and prints the change each open gap calls
+for, grouped by lane: what an operator can apply directly, what airlock can
+author, and what needs an author's judgment. Each entry names the rule, its
+remediation code, what the change would be, and whether it can be undone.
+
+```sh
+airlock plan wyrd-company/airlock
+```
+
+It reads the repository through the same verified read-only path the audit
+uses. There is no write anywhere behind it, and no flag that adds one.
+
+A plan is a display, and the output says so. Nothing consumes it: it has no
+JSON form, it is never stored, and it is never handed to anything that applies
+changes. Aligning re-observes each rule immediately before acting on it and
+decides from what it then sees — a plan printed a minute ago describes a
+repository that may since have changed, and acting on it would be acting on a
+remembered observation. Machine consumers read the audit's findings document,
+which carries the same `remediation_class` this is derived from.
+
+An authorized failure keeps its remediation on offer and is marked as standing
+debt: a suppression permitted the failure, it did not close the gap. A rule
+airlock could not decide proposes nothing and is named separately, because
+there is no observed gap to propose a change for.
+
+`airlock plan` exits 0 whenever it could observe and render at all. It is not a
+second gate; `airlock audit` is the surface whose exit code carries the
+verdict.
 
 ## Two observation sources
 
