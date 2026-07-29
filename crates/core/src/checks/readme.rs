@@ -88,9 +88,10 @@ fn has_tape_under(context: &AuditContext, directory: &str) -> bool {
     let prefix = (!directory.is_empty()).then(|| format!("{directory}/"));
     context.snapshot.tree.entries.iter().any(|entry| {
         entry.kind.is_file()
-            && prefix
-                .as_deref()
-                .is_none_or(|prefix| entry.path.starts_with(prefix))
+            && prefix.as_deref().map_or_else(
+                || !entry.path.contains('/'),
+                |prefix| entry.path.starts_with(prefix),
+            )
             && entry
                 .path
                 .rsplit_once('.')
@@ -128,6 +129,18 @@ mod tests {
             ("legacy/old.tape", "source"),
         ]);
         assert_eq!(fixture.verdict("REPO-README-06").status, Status::Fail);
+    }
+
+    #[test]
+    fn an_unrelated_nested_tape_does_not_satisfy_a_root_scoped_demo() {
+        for demo in ["demo.gif", "assets/demo.gif"] {
+            let fixture = CheckFixture::new(&[(demo, "gif"), ("legacy/old.tape", "source")]);
+            assert_eq!(
+                fixture.verdict("REPO-README-06").status,
+                Status::Fail,
+                "{demo}"
+            );
+        }
     }
 
     #[test]
