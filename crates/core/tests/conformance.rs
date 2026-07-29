@@ -3,6 +3,10 @@
 //! These tests parse that projection independently and prove the generated
 //! document retains every registry-owned field. There is no second checklist
 //! fixture whose rule prose can drift.
+//! The table parser is intentionally independent of the generator: sharing the
+//! production parser would only prove that one implementation agrees with
+//! itself. Its delimiter-first implementation differs from the generator's
+//! streaming parser so escaping regressions require both paths to agree.
 
 use std::collections::BTreeMap;
 
@@ -88,27 +92,37 @@ fn parse_checklist() -> BTreeMap<String, Rule> {
 }
 
 fn split_table_row(line: &str) -> Vec<String> {
+    let line = line.trim_matches('|');
     let mut cells = Vec::new();
-    let mut cell = String::new();
-    let mut escaped = false;
-    for character in line.trim_matches('|').chars() {
-        if escaped {
-            cell.push(character);
-            escaped = false;
-        } else if character == '\\' {
-            escaped = true;
-        } else if character == '|' {
-            cells.push(cell.trim().to_owned());
-            cell.clear();
-        } else {
-            cell.push(character);
+    let mut start = 0;
+    for (index, character) in line.char_indices() {
+        if character == '|' {
+            let preceding_slashes = line[..index]
+                .chars()
+                .rev()
+                .take_while(|character| *character == '\\')
+                .count();
+            if preceding_slashes % 2 == 0 {
+                cells.push(unescape_cell(line[start..index].trim()));
+                start = index + character.len_utf8();
+            }
         }
     }
-    if escaped {
-        cell.push('\\');
-    }
-    cells.push(cell.trim().to_owned());
+    cells.push(unescape_cell(line[start..].trim()));
     cells
+}
+
+fn unescape_cell(cell: &str) -> String {
+    let mut output = String::new();
+    let mut characters = cell.chars();
+    while let Some(character) = characters.next() {
+        if character == '\\' {
+            output.push(characters.next().unwrap_or('\\'));
+        } else {
+            output.push(character);
+        }
+    }
+    output
 }
 
 #[test]

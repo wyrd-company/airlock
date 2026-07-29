@@ -360,7 +360,7 @@ mod tests {
                 "{} should appear exactly once",
                 check.id
             );
-            assert!(document.contains(check.statement));
+            assert!(document.contains(&escape_table(check.statement)));
         }
     }
 
@@ -380,6 +380,26 @@ mod tests {
             .map(|(path, _)| PathBuf::from(path))
             .collect::<BTreeSet<_>>();
         assert_eq!(embedded, on_disk);
+    }
+
+    #[test]
+    fn hand_written_skill_files_do_not_restate_registry_rules() {
+        for (path, contents) in FILES {
+            if *path == "references/check-guidance.md" {
+                continue;
+            }
+            assert!(
+                !contents.contains("REPO-"),
+                "{path} contains a registry rule id"
+            );
+            for check in registry::CHECKS {
+                assert!(
+                    !contents.contains(check.statement),
+                    "{path} restates {}",
+                    check.id
+                );
+            }
+        }
     }
 
     #[test]
