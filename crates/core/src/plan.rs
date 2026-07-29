@@ -45,6 +45,25 @@ pub struct ProposedChange<'a> {
     pub detail: Option<&'a str>,
 }
 
+/// A rule the run could not decide.
+///
+/// It proposes nothing, because there is no observed gap to propose a change
+/// for. It is named anyway: an unanswered question is not a pass, and a plan
+/// that omitted it would be claiming to have looked where it had not.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UndecidedRule<'a> {
+    /// The rule that could not be decided.
+    pub rule: &'a str,
+    /// The severity the effective policy graded the rule at.
+    pub severity: &'a str,
+    /// Which of the three undecided statuses it ended in.
+    pub status: Status,
+    /// Whether this leaves the run incomplete, which is severity times status
+    /// rather than status alone. A rule the effective gate does not enforce is
+    /// still unanswered; it just does not stop the run.
+    pub blocks_completeness: bool,
+}
+
 /// An open gap airlock declares it cannot close, and why.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UnclosableGap<'a> {
@@ -68,13 +87,19 @@ pub struct Plan<'a> {
     pub proposed: Vec<ProposedChange<'a>>,
     /// Open gaps airlock declares it cannot close.
     pub unclosable: Vec<UnclosableGap<'a>>,
-    /// Whether the observation the plan is derived from was complete. An
-    /// incomplete run leaves rules undecided, and an undecided rule may be
-    /// hiding a change this plan does not name.
-    pub complete: bool,
-    /// Rules at a gating severity that ended undecided, so nothing can be
-    /// concluded about them.
-    pub undecided: Vec<&'a str>,
+    /// Every rule that ended undecided, whether or not it gates.
+    ///
+    /// All of them are reported. A non-gating undecided rule leaves the run
+    /// complete and still means airlock could not see whether that gap is
+    /// open, so a change this plan does not name may nevertheless be needed.
+    ///
+    /// A plan deliberately carries no `complete` field. Completeness is a
+    /// statement about the gate, not about what was answered, and holding both
+    /// invites reaching for the wrong one: the first version of this type did,
+    /// and silently dropped every non-gating undecided rule. Ask
+    /// [`Self::is_incomplete`] for the gate question and read this list for
+    /// the other.
+    pub undecided: Vec<UndecidedRule<'a>>,
 }
 
 impl<'a> Plan<'a> {
@@ -98,7 +123,15 @@ impl<'a> Plan<'a> {
 
         for finding in &report.findings {
             if finding.status.is_inconclusive() {
-                undecided.push(finding.rule.as_str());
+                undecided.push(UndecidedRule {
+                    rule: &finding.rule,
+                    severity: &finding.severity,
+                    status: finding.status,
+                    // The audit's own completeness predicate, so a plan and
+                    // the report it came from cannot disagree about which
+                    // questions stop the run.
+                    blocks_completeness: finding.blocks_completeness(report.policy.gate),
+                });
                 continue;
             }
             if !is_open_gap(finding.status) {
@@ -154,9 +187,18 @@ impl<'a> Plan<'a> {
         Self {
             proposed,
             unclosable,
-            complete: report.complete,
             undecided,
         }
+    }
+
+    /// Whether an undecided rule leaves the run incomplete.
+    ///
+    /// Derived from the same per-finding predicate the audit assembles a
+    /// report with, so a plan and the report it came from cannot disagree —
+    /// and so a plan cannot contradict the rules it just printed.
+    #[must_use]
+    pub fn is_incomplete(&self) -> bool {
+        self.undecided.iter().any(|rule| rule.blocks_completeness)
     }
 
     /// The proposed changes in one lane, in plan order.
@@ -320,8 +362,41 @@ mod tests {
             let report = report(vec![finding("REPO-GIT-04", status)]);
             let plan = Plan::derive(&report);
             assert!(plan.is_empty(), "{status:?} proposed a change");
-            assert_eq!(plan.undecided, vec!["REPO-GIT-04"], "{status:?}");
+            assert_eq!(plan.undecided.len(), 1, "{status:?}");
+            assert_eq!(plan.undecided[0].rule, "REPO-GIT-04", "{status:?}");
+            assert_eq!(plan.undecided[0].status, status);
+            assert!(
+                plan.undecided[0].blocks_completeness,
+                "{status:?} at blocking severity under a blocking gate stops the run"
+            );
         }
+    }
+
+    #[test]
+    fn a_non_gating_undecided_rule_is_still_named_though_the_run_stays_complete() {
+        // The regression this guards: `Report::complete` describes the gate,
+        // not what was answered. Keying the plan's undecided section on it
+        // dropped every rule the gate does not enforce, silently.
+        let mut ungated = finding("REPO-GIT-04", Status::Inconclusive);
+        ungated.severity = "observation".to_owned();
+        let report = report(vec![ungated]);
+        let plan = Plan::derive(&report);
+
+        assert!(
+            !plan.is_incomplete(),
+            "an undecided observation-severity rule leaves a blocking gate complete"
+        );
+        assert_eq!(
+            report.complete,
+            !plan.is_incomplete(),
+            "the plan and the report it came from must agree about the gate"
+        );
+        assert_eq!(plan.undecided.len(), 1, "it is still unanswered");
+        assert_eq!(plan.undecided[0].rule, "REPO-GIT-04");
+        assert!(
+            !plan.undecided[0].blocks_completeness,
+            "it does not gate, and the plan must say so rather than omit it"
+        );
     }
 
     #[test]
