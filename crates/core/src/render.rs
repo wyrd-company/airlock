@@ -176,11 +176,7 @@ pub fn agent_work_list_text(list: &AgentWorkList) -> String {
         );
     }
 
-    render_unsettled_group(
-        &mut out,
-        "needs a decision (never gates the agent lane)",
-        &list.needs_decision,
-    );
+    render_unsettled_group(&mut out, "needs a decision", &list.needs_decision);
     render_unsettled_group(&mut out, "unsettled questions", &list.unsettled);
     render_attention_group(&mut out, "manual judgment (never gates)", &list.manual);
     render_attention_group(&mut out, "suppressed debt (never gates)", &list.suppressed);
