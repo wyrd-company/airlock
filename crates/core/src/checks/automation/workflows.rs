@@ -445,26 +445,40 @@ pub(super) fn audit_uses_airlock_token(context: &AuditContext) -> Verdict {
         );
     };
 
-    let local_action_is_airlock = matches!(
-        context.yaml("action.yml"),
-        ParsedFile::Parsed(ref action)
-            if action.get("name").and_then(Yaml::as_str) == Some("Airlock audit")
-    );
-    let audit_steps: Vec<&Yaml> = document
+    let steps: Vec<&Yaml> = document
         .get("jobs")
         .and_then(Yaml::as_map)
         .map(|jobs| {
             jobs.iter()
                 .filter_map(|(_, job)| job.get("steps").and_then(Yaml::as_seq))
                 .flatten()
-                .filter(|step| {
-                    step.get("uses").and_then(Yaml::as_str).is_some_and(|uses| {
-                        (uses == "./" && local_action_is_airlock) || is_remote_root_action(uses)
-                    })
-                })
                 .collect()
         })
         .unwrap_or_default();
+    let has_local_action = steps.iter().any(|step| {
+        step.get("uses")
+            .and_then(Yaml::as_str)
+            .is_some_and(|uses| uses == "./")
+    });
+    let local_action_is_airlock = if has_local_action {
+        match context.yaml("action.yml") {
+            ParsedFile::Parsed(action) => {
+                action.get("name").and_then(Yaml::as_str) == Some("Airlock audit")
+            }
+            ParsedFile::Missing | ParsedFile::NotAFile(_) => false,
+            ParsedFile::Undecided(verdict) => return *verdict,
+        }
+    } else {
+        false
+    };
+    let audit_steps: Vec<&Yaml> = steps
+        .into_iter()
+        .filter(|step| {
+            step.get("uses").and_then(Yaml::as_str).is_some_and(|uses| {
+                (uses == "./" && local_action_is_airlock) || is_remote_airlock_action(uses)
+            })
+        })
+        .collect();
 
     if audit_steps.is_empty() {
         return Verdict::fail(
@@ -504,15 +518,11 @@ pub(super) fn audit_uses_airlock_token(context: &AuditContext) -> Verdict {
     }
 }
 
-fn is_remote_root_action(uses: &str) -> bool {
+fn is_remote_airlock_action(uses: &str) -> bool {
     let Some((repository, reference)) = uses.rsplit_once('@') else {
         return false;
     };
-    !reference.is_empty()
-        && repository.split('/').count() == 2
-        && repository
-            .split('/')
-            .all(|component| !component.is_empty() && component != "." && component != "..")
+    !reference.is_empty() && repository.eq_ignore_ascii_case("wyrd-company/airlock")
 }
 
 #[cfg(test)]
@@ -776,13 +786,33 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: example/airlock@0123456789abcdef0123456789abcdef01234567
+      - uses: wyrd-company/airlock@0123456789abcdef0123456789abcdef01234567
         env:
           AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}
 ";
         assert_eq!(
             verdict("REPO-CI-09", &[(".github/workflows/audit.yml", configured)]),
             Status::Pass
+        );
+    }
+
+    #[test]
+    fn checkout_with_airlock_token_is_not_the_airlock_action() {
+        let workflow = "\
+on: workflow_dispatch
+permissions: {}
+jobs:
+  audit:
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        env:
+          AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}
+";
+        assert_eq!(
+            verdict("REPO-CI-09", &[(".github/workflows/audit.yml", workflow)]),
+            Status::Fail
         );
     }
 
@@ -809,6 +839,56 @@ jobs:
                 ]
             ),
             Status::Fail
+        );
+    }
+
+    #[test]
+    fn a_truncated_tree_cannot_disprove_the_local_airlock_action() {
+        let workflow = "\
+on: workflow_dispatch
+permissions: {}
+jobs:
+  audit:
+    permissions:
+      contents: read
+    steps:
+      - uses: ./
+        env:
+          AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}
+";
+        let mut snapshot = snapshot(&[(".github/workflows/audit.yml", workflow)]);
+        snapshot.tree.truncated = true;
+        let workflows = workflows(&snapshot);
+        let policy = policy();
+        let context = context(&snapshot, &policy, workflows);
+        let verdict = evaluate(&rule("REPO-CI-09"), &context);
+        assert_eq!(verdict.status, Status::Inconclusive);
+        assert_eq!(verdict.evidence.unwrap().code, "tree_truncated");
+    }
+
+    #[test]
+    fn an_unparseable_local_action_is_inconclusive() {
+        let workflow = "\
+on: workflow_dispatch
+permissions: {}
+jobs:
+  audit:
+    permissions:
+      contents: read
+    steps:
+      - uses: ./
+        env:
+          AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}
+";
+        assert_eq!(
+            verdict(
+                "REPO-CI-09",
+                &[
+                    (".github/workflows/audit.yml", workflow),
+                    ("action.yml", "name: one\nname: two\n"),
+                ]
+            ),
+            Status::Inconclusive
         );
     }
 

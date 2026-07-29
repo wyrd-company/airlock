@@ -133,15 +133,9 @@ jobs:
       - name: Run dogfood audit when provisioned
         env:
           AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}
-        run: |
-          if [[ -n "$AIRLOCK_TOKEN" ]]; then
-            task dogfood
-          else
-            echo "AIRLOCK_TOKEN is not provisioned; skipping the dogfood audit."
-          fi
+        run: task dogfood:when-provisioned
 
 # Jobs are decomposed so a failure is legible on the pull request, and every job
 # invokes a task rather than a raw command so `task check` locally and CI cannot
-# drift apart. The dogfood job is the one exception to `task check` covering
-# everything CI runs: it needs a credential, and so does the pull request title
-# job need a pull request.
+# drift apart. The dogfood task needs a credential, and the pull request title
+# task needs a pull request.

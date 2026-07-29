@@ -100,6 +100,16 @@ tasks:
     cmds:
       - cargo run --quiet -p airlock-cli -- audit wyrd-company/airlock --format json
 
+  dogfood:when-provisioned:
+    desc: Run the dogfood audit when CI has its read-only credential
+    cmds:
+      - |
+        if [ -n "${AIRLOCK_TOKEN:-}" ]; then
+          task dogfood
+        else
+          echo "AIRLOCK_TOKEN is not provisioned; skipping the dogfood audit."
+        fi
+
   check:
     desc: Everything CI runs that needs no secret — run this before pushing
     cmds:
