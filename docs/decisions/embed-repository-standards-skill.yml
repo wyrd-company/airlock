@@ -27,6 +27,9 @@ decision-outcome:
     as a complete directory. Existing targets are refused by default and an
     explicit force option replaces, rather than merges, the tree so stale or
     locally modified files cannot masquerade as the emitted version.
+    Rule-by-rule inspection guidance remains hand-written in a separate
+    reference and is joined into the generated checklist without owning any
+    registry field.
 
 expected-outcomes:
   positive:

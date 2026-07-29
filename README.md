@@ -37,8 +37,10 @@ current directory.
 The generated `references/conformance.md` quotes the compiled registry version
 and digest. Its rule statements, severities, sections, and evaluation modes
 come from that registry; the remaining guidance and reference material is
-hand-written in Airlock. Command output also reminds operators to cite a rule
-id and its statement together, never the id alone.
+hand-written in Airlock. This includes the rule-by-rule inspection guidance in
+`references/check-guidance.md`, which is joined into the generated checklist
+without owning its evaluation modes. Command output also reminds operators to
+cite a rule id and its statement together, never the id alone.
 
 The minimum supported Rust version is 1.86.
 

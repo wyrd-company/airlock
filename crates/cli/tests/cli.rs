@@ -166,6 +166,8 @@ fn skill_emits_the_complete_offline_tree_and_refuses_existing_targets() {
     let conformance = std::fs::read_to_string(target.join("references/conformance.md")).unwrap();
     assert!(conformance.contains("REPO-CI-02"));
     assert!(conformance.contains("Workflow-level `permissions:` is set to `{}`"));
+    assert!(conformance.contains("Workflow contents and ruleset"));
+    assert!(target.join("references/check-guidance.md").is_file());
     assert!(target.join("references/topics.md").is_file());
     assert!(target.join("references/platform/rulesets.md").is_file());
     assert!(target.join("references/templates/taskfile.yml").is_file());

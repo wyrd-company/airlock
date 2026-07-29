@@ -14,6 +14,10 @@ use crate::registry::{self, Evaluation, Section};
 
 const FILES: &[(&str, &str)] = &[
     ("SKILL.md", include_str!("../skills/repository-standards/SKILL.md")),
+    (
+        "references/check-guidance.md",
+        include_str!("../skills/repository-standards/references/check-guidance.md"),
+    ),
     ("references/topics.md", include_str!("../skills/repository-standards/references/topics.md")),
     ("references/platform/README.md", include_str!("../skills/repository-standards/references/platform/README.md")),
     ("references/platform/custom-properties.md", include_str!("../skills/repository-standards/references/platform/custom-properties.md")),
@@ -152,18 +156,19 @@ pub fn conformance() -> String {
     for section in Section::ALL {
         let _ = write!(
             output,
-            "\n## {}\n\n| Id | Assertion | Severity | Evaluation |\n\
-             | --- | --- | --- | --- |\n",
+            "\n## {}\n\n| Id | Assertion | Severity | Evaluation | Guidance |\n\
+             | --- | --- | --- | --- | --- |\n",
             section_title(*section)
         );
         for check in registry::in_section(*section) {
             let _ = writeln!(
                 output,
-                "| `{}` | {} | {} | {} |",
+                "| `{}` | {} | {} | {} | {} |",
                 check.id,
                 escape_table(check.statement),
                 severity_title(check.severity.code()),
-                evaluation_title(check.evaluation)
+                evaluation_title(check.evaluation),
+                guidance(check.id)
             );
         }
     }
@@ -206,6 +211,20 @@ fn escape_table(value: &str) -> String {
     value.replace('|', "\\|")
 }
 
+fn guidance(id: &str) -> &'static str {
+    const DOCUMENT: &str =
+        include_str!("../skills/repository-standards/references/check-guidance.md");
+    DOCUMENT
+        .lines()
+        .find_map(|line| {
+            let mut cells = line.trim_matches('|').split('|').map(str::trim);
+            let candidate = cells.next()?.strip_prefix('`')?.strip_suffix('`')?;
+            let guidance = cells.next()?;
+            (candidate == id).then_some(guidance)
+        })
+        .unwrap_or_else(|| panic!("{id} has no hand-written check guidance"))
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
@@ -232,6 +251,17 @@ mod tests {
     fn embedded_paths_are_unique() {
         let paths = FILES.iter().map(|(path, _)| *path).collect::<BTreeSet<_>>();
         assert_eq!(paths.len(), FILES.len());
+    }
+
+    #[test]
+    fn every_rule_has_hand_written_guidance() {
+        for check in registry::CHECKS {
+            assert!(
+                !guidance(check.id).is_empty(),
+                "{} has no guidance",
+                check.id
+            );
+        }
     }
 
     #[test]

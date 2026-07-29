@@ -28,6 +28,11 @@ Airlock. A standalone copy in an agent skill directory is an installed working
 copy, not a second authority; refresh or replace it from the Airlock release
 that should govern the agent's work.
 
+`references/check-guidance.md` is the hand-written source for practical
+rule-by-rule inspection guidance. Airlock joins it to the registry projection
+when generating `references/conformance.md`; it does not define or override any
+registry-owned field.
+
 ## Scope
 
 Applies to public, non-fork repositories in `wyrd-company`, `boblangley`,
