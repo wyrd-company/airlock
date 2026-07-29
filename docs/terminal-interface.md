@@ -126,6 +126,10 @@ because an empty result cannot distinguish between them.
 
 ## Screens
 
+Two keys are live on every screen in every state: `t` switches theme and
+`ctrl-c` exits. Each screen's keymap below lists the keys it adds, and names
+any state in which one of those keys is not live and why.
+
 ### Sign-in
 
 **Purpose.** Obtain an authorization for this session through the device flow.
@@ -144,7 +148,8 @@ themes.
 The screen has five states:
 
 - **Requesting.** The code frame is drawn empty rather than absent, so nothing
-  shifts position when the code arrives. No keys are live.
+  shifts position when the code arrives. `r` and `q` are not live in this
+  state, because there is not yet a code to reissue or to encode.
 - **Awaiting approval.** The code, the address, the polling interval, the
   attempt number, and the code's remaining validity are shown.
 - **Expired.** The code lapsed without approval. A new code is issued in
@@ -158,8 +163,8 @@ The screen has five states:
   backoff and attempt number are shown rather than hidden. Approval already
   given is picked up when polling resumes.
 
-**Keymap.** `r` issue a new code · `q` show or hide the scan code · `t` theme ·
-`ctrl-c` exit.
+**Keymap.** `r` issue a new code · `q` show or hide the scan code. Both are
+live only once a device code exists.
 
 **Status line.** `no credential on disk · tty required`.
 
@@ -189,7 +194,7 @@ The credential in force is shown alongside: its source (GitHub App, device
 flow), the permissions in its grant, and the statement that its value is never
 displayed and never written to disk.
 
-**Keymap.** `↑↓` select · `↵` open · `t` theme · `ctrl-c` exit.
+**Keymap.** `↑↓` select · `↵` open.
 
 **Status line.** The installation count and the note that the list is the
 intersection of install and access.
@@ -229,7 +234,9 @@ it.
 - The status summary — every one of the eight statuses with its glyph, its
   count, and its lane, under the three lane headings `DECIDED · GATING`
   (counts toward the verdict), `DECIDED · INERT` (never gates), and
-  `UNDECIDED` (makes the run incomplete).
+  `UNDECIDED` (makes the run incomplete at a gating severity). The undecided
+  heading carries the qualifier, because an undecided result at a severity the
+  effective gate does not enforce leaves the run complete.
 - When a rule at a gating severity could not be evaluated, a blocker banner
   naming each such rule, its status, and why it could not be evaluated. The
   banner states that `complete` is false and that no verdict below it can be
@@ -248,9 +255,11 @@ its count and a one-line gloss of the work:
 3. **Needs a decision.** The repository has not declared what it is, so airlock
    cannot know what to apply.
 4. **Needs a judgment.** Rules a person must attest to.
-5. **Airlock could not answer.** The undecided lane. Blocks certification, and
-   the remedy often sits outside the repository — a plan change, a grant
-   change, a rule not yet built.
+5. **Airlock could not answer.** The undecided lane. Blocks certification where
+   the effective gate enforces the rule's severity, and the remedy often sits
+   outside the repository — a plan change, a grant change, a rule not yet
+   built. A row in this group that does not block says so on the row: it is
+   still an unanswered question, and it is not a pass.
 6. **Authorized but not aligned.** Suppressed failures. The policy permitted
    the failure; it did not close the gap, and the remediation is still on
    offer. This is standing debt and is never folded in with passing rules.
@@ -276,7 +285,8 @@ goes.
 
 Each row carries its rule id, its severity bar, its three status lanes with
 the glyph in the lane its status belongs to, its status name, its statement,
-and its section. The three-lane model is unchanged by grouping: grouping layers
+and the section the registry gives its rule. The three-lane model is unchanged
+by grouping: grouping layers
 on top of it, and every row still shows its status glyph in its lane. Nothing
 in the undecided lane reads as a pass, and no group heading implies that
 everything under it gates, or that nothing does.
@@ -322,9 +332,9 @@ it would take.
 and a gate note stating whether this finding gates the run and why. Then the
 rule's statement, followed by:
 
-- **Evidence.** `evidence.code`, `evidence.path`, `evidence.detail`, and the
-  section. A rule that could not be evaluated shows evidence as explicitly
-  absent, with the reason, rather than as blank.
+- **Evidence.** `evidence.code`, `evidence.path`, and `evidence.detail`. A rule
+  that could not be evaluated shows evidence as explicitly absent, with the
+  reason, rather than as blank.
 - **Error**, when the status is `error`. `error.cause`, `error.status`,
   `error.endpoint`, `error.request_id`, `error.message`,
   `accepted_permissions`, and `documentation_url`. The two 403s are separated
@@ -341,9 +351,11 @@ rule's statement, followed by:
   remediation and shows it: authorizing a failure does not delete the fix for
   it. A finding for which airlock declares no remediation shows the declared
   reason.
-- **Why this rule applies.** Severity, evaluation, and the run provenance:
-  airlock version, registry version, registry digest, schema version, audited
-  commit, and the time the settings were observed.
+- **Why this rule applies.** Severity, evaluation, the rule's section and the
+  capability that selected it — both read from
+  `effective_policy[].provenance` — and the run provenance: airlock version,
+  registry version, registry digest, schema version, audited commit, and the
+  time the settings were observed.
 - **Effect on the run.** A sentence stating in plain terms what this status at
   this severity does to `complete` and to `conformant`.
 
@@ -409,7 +421,7 @@ suppressions marked as policy-sourced rather than registry-sourced.
 A run provenance block repeats airlock's version, the registry version, the
 schema version, the audited commit, and the time the settings were observed.
 
-**Keymap.** `esc` back · `↑↓` move · `y` copy digest · `t` theme.
+**Keymap.** `esc` back · `↑↓` move · `y` copy digest.
 
 **Status line.** The registry version, the abbreviated digest, the rule count,
 and the section count.
@@ -451,7 +463,7 @@ name, its scope, when it was created, and the statement that its value is never
 displayed. It states that the credential exists solely to complete this
 bootstrap and that the flow is not conformant until it is gone.
 
-**Keymap.** `esc` back · `o` re-observe now · `t` theme.
+**Keymap.** `esc` back · `o` re-observe now.
 
 **Status line.** The current step of five, what it is waiting on, and that the
 position was re-observed on entry.
@@ -481,9 +493,13 @@ paraphrased into interface prose.
 
 Two vocabularies are adjacent and are not interchangeable:
 
-- A **section** is the rule's own grouping, emitted on every finding as
-  `section`. A **capability** is a policy-side named bundle of sections. The
-  interface labels a finding's grouping `section`.
+- A **section** is the rule's own grouping. It is not a field on a finding.
+  The interface resolves a rule's section from the compiled registry, which is
+  the same registry the run attests to with its digest, and the run's own
+  record of it is `effective_policy[].provenance`, formatted
+  `capability:{capability}/{section}`. A **capability** is a policy-side named
+  bundle of sections. The two are not interchangeable, and the interface
+  labels a rule's grouping `section`.
 - A finding's contextual `remediation.code` is snake_case and describes what
   this failure needs. A rule's declared `remediation_class.code` is
   lower-kebab and describes what the rule's gap always takes. The interface
