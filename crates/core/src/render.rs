@@ -6,6 +6,7 @@
 use std::fmt::Write as _;
 
 use crate::findings::{Report, Status};
+use crate::plan::{self, Plan};
 use crate::registry::{self, CheckDefinition};
 use crate::worklist::AgentWorkList;
 
@@ -254,6 +255,138 @@ fn render_work_group(
     }
 }
 
+/// Render, for a terminal, the changes a report implies.
+///
+/// The rendering says what it is: a display, computed from the observation
+/// above it and true only of that observation. Nothing reads it back. Aligning
+/// re-observes each rule as it reaches it, so a plan cannot go stale between
+/// being printed and being acted on — there is nothing to go stale.
+#[must_use]
+pub fn plan_text(report: &Report) -> String {
+    let plan = Plan::derive(report);
+    let mut out = String::new();
+
+    let _ = writeln!(
+        out,
+        "{} at {}",
+        report.repository.full_name,
+        short(&report.repository.audited_commit)
+    );
+    let _ = writeln!(
+        out,
+        "policy {} from {} (bundle {})",
+        report.policy.name,
+        report.policy.source,
+        short_digest(&report.policy.bundle_digest)
+    );
+    let _ = writeln!(
+        out,
+        "registry {} ({}), gate {}",
+        report.airlock.registry_version,
+        short_digest(&report.airlock.registry_digest),
+        report.policy.gate.code()
+    );
+    out.push('\n');
+    let _ = writeln!(
+        out,
+        "This is what airlock would change, as observed just now. It is a \
+         display,\nnot a work order: aligning re-observes each rule before it \
+         acts, and never\napplies a plan computed earlier."
+    );
+
+    if plan.is_empty() {
+        out.push('\n');
+        let _ = writeln!(
+            out,
+            "No change is proposed. Every rule the policy enabled either holds, \
+             does not\napply, or is waiting on a person's judgment; none named an \
+             open gap that\nairlock has an answer for."
+        );
+    }
+
+    for lane in plan::DISPLAY_ORDER {
+        let changes: Vec<_> = plan.in_lane(*lane).collect();
+        if changes.is_empty() {
+            continue;
+        }
+        out.push('\n');
+        let _ = writeln!(
+            out,
+            "{} ({}) — {}",
+            lane.code(),
+            changes.len(),
+            plan::lane_gloss(*lane)
+        );
+        for change in changes {
+            let _ = writeln!(
+                out,
+                "  {:<16} {:<13} {}",
+                change.rule, change.severity, change.code
+            );
+            let _ = writeln!(out, "      {}", change.change);
+            if let Some(detail) = change.detail {
+                let _ = writeln!(out, "      observed: {detail}");
+            }
+            let _ = writeln!(
+                out,
+                "      {}{}",
+                if change.reversible {
+                    "reversible"
+                } else {
+                    "not reversible — there is no undo for this one"
+                },
+                if change.authorized {
+                    ", and authorized by the policy: the failure was permitted, not closed"
+                } else {
+                    ""
+                }
+            );
+        }
+    }
+
+    if !plan.unclosable.is_empty() {
+        out.push('\n');
+        let _ = writeln!(
+            out,
+            "no remediation ({}) — airlock offers none; the only move left is a \
+             person's",
+            plan.unclosable.len()
+        );
+        for gap in &plan.unclosable {
+            let _ = writeln!(
+                out,
+                "  {:<16} {:<13} {}",
+                gap.rule,
+                gap.severity,
+                gap.status.code()
+            );
+            let _ = writeln!(out, "      {}", gap.reason);
+        }
+    }
+
+    out.push('\n');
+    if plan.complete {
+        let _ = writeln!(
+            out,
+            "The observation was complete, so this names every gap the policy \
+             asked about."
+        );
+    } else {
+        let _ = writeln!(
+            out,
+            "The observation was incomplete: {} rule(s) ended undecided, so this \
+             plan may\nbe missing changes. An unanswered question is not a clean \
+             repository.",
+            plan.undecided.len()
+        );
+        for rule in &plan.undecided {
+            let _ = writeln!(out, "  undecided: {rule}");
+        }
+    }
+
+    out
+}
+
 /// Render the check registry for a terminal.
 #[must_use]
 pub fn list_checks_text() -> String {
@@ -403,6 +536,38 @@ mod tests {
         }
         assert!(text.contains("1 fail"));
         assert!(text.contains("0 pass"));
+    }
+
+    #[test]
+    fn the_plan_names_the_change_its_code_and_its_reversibility() {
+        let text = plan_text(&report());
+        assert!(text.contains("add-license-file"));
+        assert!(text.contains("Add a `LICENSE` file"));
+        assert!(text.contains("not reversible"));
+        assert!(text.contains("deterministic-file (1)"));
+    }
+
+    #[test]
+    fn the_plan_says_it_is_a_display_and_not_a_stored_work_order() {
+        let text = plan_text(&report());
+        assert!(text.contains("display"));
+        assert!(text.contains("re-observes each rule before it"));
+        assert!(text.contains("never\napplies a plan computed earlier"));
+    }
+
+    #[test]
+    fn the_plan_reports_the_completeness_of_the_observation_it_came_from() {
+        let text = plan_text(&report());
+        assert!(text.contains("The observation was complete"));
+    }
+
+    #[test]
+    fn a_plan_with_nothing_to_propose_says_so_rather_than_rendering_empty() {
+        let mut clean = report();
+        clean.findings[0].status = Status::Pass;
+        let text = plan_text(&clean);
+        assert!(text.contains("No change is proposed"));
+        assert!(!text.contains("add-license-file"));
     }
 
     #[test]

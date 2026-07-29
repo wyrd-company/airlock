@@ -20,6 +20,7 @@ pub mod error;
 pub mod findings;
 pub mod github;
 pub mod limits;
+pub mod plan;
 pub mod policy;
 pub mod registry;
 pub mod remediation;

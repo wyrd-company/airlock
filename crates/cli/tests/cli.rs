@@ -269,6 +269,104 @@ async fn a_blocking_failure_exits_one() {
     assert!(lic01["remediation"]["detail"].is_string());
 }
 
+// ---------------------------------------------------------------------------
+// Plan
+// ---------------------------------------------------------------------------
+
+/// Run `airlock plan` against a fixture repository and return what it printed.
+async fn plan_text(repo: FakeRepo, policy: &str) -> String {
+    let server = support::start(&[repo]).await;
+    let config = TempDir::new().unwrap();
+    let policies = TempDir::new().unwrap();
+    let assertion = airlock(&server, &config)
+        .args([
+            "plan",
+            "wyrd-company/example",
+            "--policy",
+            &policy_path(&policies, policy),
+        ])
+        .assert()
+        // A plan is a display, never a gate: the repository below is
+        // nonconformant and `airlock audit` exits 1 on it.
+        .code(0);
+    String::from_utf8(assertion.get_output().stdout.clone()).expect("stdout is utf-8")
+}
+
+fn nonconformant_repo() -> FakeRepo {
+    FakeRepo::new("wyrd-company", "example").with_file(
+        "Cargo.toml",
+        "[package]\nname = \"example\"\nlicense = \"Apache-2.0\"\n",
+    )
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn plan_prints_the_change_each_open_gap_calls_for() {
+    let text = plan_text(nonconformant_repo(), LICENSING_POLICY).await;
+
+    assert!(text.contains("REPO-LIC-01"), "{text}");
+    assert!(
+        text.contains("add-license-file"),
+        "the plan joins on the per-rule remediation code: {text}"
+    );
+    assert!(text.contains("deterministic-file"), "{text}");
+    assert!(
+        text.contains("not reversible"),
+        "adding a licence cannot be undone by changing your mind: {text}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn plan_says_its_output_is_a_display_and_not_a_stored_work_order() {
+    let text = plan_text(nonconformant_repo(), LICENSING_POLICY).await;
+    assert!(text.contains("display"), "{text}");
+    assert!(text.contains("re-observes each rule"), "{text}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn plan_proposes_nothing_for_a_repository_with_no_open_gap() {
+    let repo = FakeRepo::new("wyrd-company", "example")
+        .with_file("LICENSE", "Apache License 2.0")
+        .with_file(
+            "Cargo.toml",
+            "[package]\nname = \"example\"\nlicense = \"Apache-2.0\"\n",
+        );
+    let text = plan_text(repo, LICENSING_POLICY).await;
+    assert!(text.contains("No change is proposed"), "{text}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn plan_refuses_a_credential_it_cannot_prove_read_only() {
+    let server = support::start(&[FakeRepo::new("wyrd-company", "example")]).await;
+    let config = TempDir::new().unwrap();
+    let policies = TempDir::new().unwrap();
+
+    // The plan reaches its observation through the same verified path the
+    // audit does, so a token airlock cannot enumerate is refused before the
+    // repository is read at all.
+    airlock(&server, &config)
+        .env("AIRLOCK_TOKEN", "github_pat_11ABCDEFG")
+        .args([
+            "plan",
+            "wyrd-company/example",
+            "--policy",
+            &policy_path(&policies, LICENSING_POLICY),
+        ])
+        .assert()
+        .code(2)
+        .stderr(contains("airlock auth login"));
+}
+
+#[test]
+fn plan_offers_no_output_format_because_nothing_consumes_a_plan() {
+    // A JSON plan would invite a pipeline to read it back, and a plan read
+    // back is a remembered observation. Machine consumers read the audit.
+    offline()
+        .args(["plan", "--help"])
+        .assert()
+        .success()
+        .stdout(contains("--format").not());
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn agent_work_is_json_by_default_and_reports_file_work() {
     let repo = FakeRepo::new("wyrd-company", "example").with_file(

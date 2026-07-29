@@ -57,6 +57,13 @@ enum Command {
     Audit(AuditArgs),
     /// List outstanding agent-lane work and check whether that lane is clear.
     AgentWork(AgentWorkArgs),
+    /// Print what airlock would change, without changing anything.
+    ///
+    /// A display, not a work order. It observes the repository with the same
+    /// read-only credential the audit uses, and prints the change each open
+    /// gap calls for. Nothing reads its output back: aligning re-observes
+    /// every rule before it acts, so there is no stored plan to apply.
+    Plan(PlanArgs),
     /// Manage the read-only credential airlock uses.
     Auth(AuthArgs),
 }
@@ -83,6 +90,74 @@ struct AgentWorkArgs {
 
     #[command(flatten)]
     repository: RepositoryArgs,
+}
+
+/// Arguments for `airlock plan`.
+///
+/// Deliberately [`RepositoryArgs`] minus `--format`, which is why it does not
+/// simply flatten it. The plan renders for a person to read and has no machine
+/// form: a JSON plan would invite a pipeline to consume it, and a consumed
+/// plan is a remembered observation. Machine consumers read the audit's
+/// findings document, or `airlock agent-work` for the agent lane — both carry
+/// the same `remediation_class` a plan is derived from.
+#[derive(Debug, Args)]
+struct PlanArgs {
+    /// Repository to plan for, as `owner/repo`.
+    #[arg(required_unless_present = "working_tree")]
+    target: Option<String>,
+
+    /// Policy source: `owner/repo:path[@ref]` or a local file path.
+    ///
+    /// Defaults to the audited owner's `.github` repository.
+    #[arg(long)]
+    policy: Option<String>,
+
+    /// Plan against a specific commit, branch, or tag.
+    #[arg(long = "ref", conflicts_with = "working_tree")]
+    reference: Option<String>,
+
+    /// Observe file-level rules from a local working tree instead of the
+    /// API tree.
+    #[arg(long)]
+    working_tree: Option<PathBuf>,
+
+    /// Read-only token value. Insecure: it appears in shell history and in
+    /// process listings. Prefer --token-file or --token-stdin.
+    #[arg(long, conflicts_with_all = ["token_file", "token_stdin"])]
+    token: Option<String>,
+
+    /// Read the token from a file.
+    #[arg(long, conflicts_with_all = ["token", "token_stdin"])]
+    token_file: Option<PathBuf>,
+
+    /// Read the token from standard input.
+    #[arg(long, conflicts_with_all = ["token", "token_file"])]
+    token_stdin: bool,
+
+    /// Configuration profile to use.
+    #[arg(long, default_value = DEFAULT_PROFILE)]
+    profile: String,
+}
+
+impl PlanArgs {
+    /// The observation these arguments ask for.
+    ///
+    /// The plan reaches its report through the same single path every other
+    /// read-only surface uses, which is what keeps "no headless surface can
+    /// write" a property of the binary rather than a convention.
+    fn repository(self) -> RepositoryArgs {
+        RepositoryArgs {
+            policy: self.policy,
+            reference: self.reference,
+            working_tree: self.working_tree,
+            // A plan has no machine form; see the type's documentation.
+            format: None,
+            token: self.token,
+            token_file: self.token_file,
+            token_stdin: self.token_stdin,
+            profile: self.profile,
+        }
+    }
 }
 
 #[derive(Debug, Args)]
@@ -239,6 +314,7 @@ async fn run(cli: Cli, interactive: bool) -> Result<u8> {
     match command {
         Command::Audit(args) => audit_command(args, interactive).await,
         Command::AgentWork(args) => agent_work_command(args, interactive).await,
+        Command::Plan(args) => plan_command(args).await,
         Command::Auth(AuthArgs {
             command: AuthCommand::Login(args),
         }) => login_command(&args).await,
@@ -313,6 +389,20 @@ async fn agent_work_command(args: AgentWorkArgs, interactive: bool) -> Result<u8
     }
 
     Ok(list.exit_code())
+}
+
+/// `airlock plan`: the same observation, rendered as the changes it implies.
+///
+/// It exits 0 whenever it could observe and render at all. The plan is a
+/// display, not a gate: `airlock audit` is the surface whose exit code carries
+/// the verdict, and a second gate answering the same question slightly
+/// differently is worse than no second gate.
+async fn plan_command(args: PlanArgs) -> Result<u8> {
+    let target = args.target.clone();
+    let report = repository_report(target.as_deref(), &args.repository()).await?;
+
+    print!("{}", render::plan_text(&report));
+    Ok(0)
 }
 
 fn render_report(report: &airlock_core::findings::Report, format: Format) -> Result<()> {
