@@ -83,7 +83,7 @@ pub enum Classification {
     /// Airlock declares a remediation for the rule.
     Remediation(RemediationDefinition),
     /// Airlock declares no remediation for the rule, and says why.
-    None {
+    NotRemediable {
         /// The rule the declaration is about.
         rule: &'static str,
         /// Why no remediation is offered.
@@ -97,7 +97,7 @@ impl Classification {
     pub const fn rule(&self) -> &'static str {
         match self {
             Classification::Remediation(definition) => definition.rule,
-            Classification::None { rule, .. } => rule,
+            Classification::NotRemediable { rule, .. } => rule,
         }
     }
 
@@ -106,7 +106,7 @@ impl Classification {
     pub const fn remediation(&self) -> Option<&RemediationDefinition> {
         match self {
             Classification::Remediation(definition) => Some(definition),
-            Classification::None { .. } => None,
+            Classification::NotRemediable { .. } => None,
         }
     }
 }
@@ -127,8 +127,8 @@ const fn remediation(
     })
 }
 
-const fn none(rule: &'static str, reason: &'static str) -> Classification {
-    Classification::None { rule, reason }
+const fn not_remediable(rule: &'static str, reason: &'static str) -> Classification {
+    Classification::NotRemediable { rule, reason }
 }
 
 /// Every rule's remediation classification, in registry order.
@@ -144,7 +144,7 @@ pub const CLASSIFICATIONS: &[Classification] = &[
         "Transfer the repository to the org its audience implies.",
         true,
     ),
-    none(
+    not_remediable(
         "REPO-ORG-02",
         "Satisfied by a human's considered judgment; there is no artifact to change.",
     ),
@@ -232,7 +232,7 @@ pub const CLASSIFICATIONS: &[Classification] = &[
         "Add the product family topic to the declared topics.",
         true,
     ),
-    none(
+    not_remediable(
         "REPO-META-09",
         "The fix is an edit to the organisation's topic registry, which lives outside the audited repository.",
     ),
@@ -551,15 +551,15 @@ pub const CLASSIFICATIONS: &[Classification] = &[
         "Turn off wikis, projects, and discussions that are not deliberately used.",
         true,
     ),
-    none(
+    not_remediable(
         "REPO-GIT-08",
         "Closing it means deleting and recreating published tags — history surgery airlock does not automate.",
     ),
-    none(
+    not_remediable(
         "REPO-GIT-09",
         "Closing it means re-tagging published releases — history surgery airlock does not automate.",
     ),
-    none(
+    not_remediable(
         "REPO-GIT-10",
         "Closing it means rewriting published history, which airlock does not automate.",
     ),
@@ -658,7 +658,7 @@ pub const CLASSIFICATIONS: &[Classification] = &[
         "add-title-check",
         "REPO-CI-08",
         Lane::DeterministicFile,
-        "Add the standard pull request title check.",
+        "Add the standard pull request title check workflow; marking it required is the rulesets' operator work.",
         true,
     ),
     remediation(
@@ -967,7 +967,7 @@ mod tests {
                     assert!(!definition.change.trim().is_empty(), "{}", definition.rule);
                     assert!(!definition.code.trim().is_empty(), "{}", definition.rule);
                 }
-                Classification::None { rule, reason } => {
+                Classification::NotRemediable { rule, reason } => {
                     assert!(!reason.trim().is_empty(), "{rule}");
                 }
             }

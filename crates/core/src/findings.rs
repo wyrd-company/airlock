@@ -238,9 +238,11 @@ pub struct RemediationClass {
 impl RemediationClass {
     /// The declared classification for a rule.
     ///
-    /// A rule the registry does not know yields the all-null shape; the
-    /// remediation model's coverage test keeps that unreachable for
-    /// registered rules.
+    /// A rule the registry does not know yields the shape with all five
+    /// fields null — distinguishable from a declared no-remediation, which
+    /// always carries `none_reason`. The remediation model's coverage test
+    /// keeps that shape unreachable for registered rules; synthetic rule ids
+    /// in tests are the only place it appears.
     #[must_use]
     pub fn for_rule(rule: &str) -> Self {
         match crate::remediation::classify(rule) {
@@ -251,7 +253,7 @@ impl RemediationClass {
                 reversible: Some(definition.reversible),
                 none_reason: None,
             },
-            Some(crate::remediation::Classification::None { reason, .. }) => Self {
+            Some(crate::remediation::Classification::NotRemediable { reason, .. }) => Self {
                 lane: None,
                 code: None,
                 change: None,
