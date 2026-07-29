@@ -63,6 +63,10 @@ enum Command {
 
 #[derive(Debug, Args)]
 struct AuditArgs {
+    /// Repository to audit, as `owner/repo`.
+    #[arg(required_unless_present_any = ["list_checks", "working_tree"])]
+    target: Option<String>,
+
     #[command(flatten)]
     repository: RepositoryArgs,
 
@@ -73,15 +77,16 @@ struct AuditArgs {
 
 #[derive(Debug, Args)]
 struct AgentWorkArgs {
+    /// Repository to inspect, as `owner/repo`.
+    #[arg(required_unless_present = "working_tree")]
+    target: Option<String>,
+
     #[command(flatten)]
     repository: RepositoryArgs,
 }
 
 #[derive(Debug, Args)]
 struct RepositoryArgs {
-    /// Repository to audit, as `owner/repo`.
-    target: Option<String>,
-
     /// Policy source: `owner/repo:path[@ref]` or a local file path.
     ///
     /// Defaults to the audited owner's `.github` repository.
@@ -288,14 +293,14 @@ async fn audit_command(args: AuditArgs, interactive: bool) -> Result<u8> {
         return Ok(0);
     }
 
-    let report = repository_report(&args.repository, "audit").await?;
+    let report = repository_report(args.target.as_deref(), &args.repository).await?;
     render_report(&report, format)?;
     Ok(report.exit_code())
 }
 
 async fn agent_work_command(args: AgentWorkArgs, interactive: bool) -> Result<u8> {
     let format = resolved_format(args.repository.format, interactive);
-    let report = repository_report(&args.repository, "agent-work").await?;
+    let report = repository_report(args.target.as_deref(), &args.repository).await?;
     let list = airlock_core::worklist::AgentWorkList::from_report(&report);
 
     match format {
@@ -322,24 +327,24 @@ fn render_report(report: &airlock_core::findings::Report, format: Format) -> Res
 }
 
 async fn repository_report(
+    target: Option<&str>,
     args: &RepositoryArgs,
-    command_name: &str,
 ) -> Result<airlock_core::findings::Report> {
     // A working tree with no repository target is a local-only audit: no
     // credential, no API, platform rules reported as not observed.
-    if args.target.is_none() {
+    if target.is_none() {
         let Some(root) = &args.working_tree else {
-            bail!("a repository is required. Name one as `airlock {command_name} <owner/repo>`.");
+            bail!("a repository or working tree is required.");
         };
         return local_audit(args, root).await;
     }
 
     // Both absent returned above. There is no invocation that reaches here
     // without a target.
-    let Some(target) = args.target.clone() else {
+    let Some(target) = target else {
         bail!("a repository is required.");
     };
-    let (owner, repo) = split_target(&target)?;
+    let (owner, repo) = split_target(target)?;
 
     let inputs = CredentialInputs {
         token: args.token.clone(),
@@ -623,7 +628,7 @@ mod tests {
             panic!("expected the audit command");
         };
         assert!(args.list_checks);
-        assert!(args.repository.target.is_none());
+        assert!(args.target.is_none());
     }
 
     #[test]

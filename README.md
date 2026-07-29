@@ -50,9 +50,14 @@ airlock agent-work wyrd-company/airlock --working-tree .
 Its `agent_lane` contains failed rules classified as `deterministic-file` or
 `judgment-file`, keyed by rule id and carrying the remediation code and the
 change it would make. `operator_deferred` separately identifies failed
-`operator-setting` rules and never gates the command. Both groups retain each
-finding's observation source, and the top-level `observation` block says
-whether file findings came from the API tree or the local working tree.
+`operator-setting` rules and failures that declare no remediation; neither
+gates the command. `needs_decision`, `unsettled`, `manual`, and `suppressed`
+keep the other unfinished or authorized-but-unaligned findings visible with
+their counts and identities. Undecided items say whether they gate and retain
+their evidence code, so a missing capability declaration is distinct from a
+retryable observation failure. Every group retains each finding's observation
+source, and the top-level `observation` block says whether file findings came
+from the API tree or the local working tree.
 
 This is a lane-scoped definition-of-done check, not an audit substitute or a
 repository conformance claim. A clear agent lane can coexist with operator

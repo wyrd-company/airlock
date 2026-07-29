@@ -359,6 +359,19 @@ pub struct Finding {
     pub error: Option<FindingError>,
 }
 
+impl Finding {
+    /// Whether this finding leaves the assertion undecided under `gate`.
+    ///
+    /// This is the single completeness predicate used when assembling an
+    /// audit and by projections that must identify the questions behind an
+    /// incomplete result.
+    #[must_use]
+    pub fn blocks_completeness(&self, gate: Gate) -> bool {
+        let severity = Severity::parse(&self.severity).unwrap_or(Severity::Observation);
+        gate.enforces(severity) && self.status.is_inconclusive()
+    }
+}
+
 /// Something the audit noticed about the policy or the repository's requests
 /// that is not about any one enabled rule.
 ///
@@ -641,13 +654,10 @@ impl Report {
         for finding in &findings {
             summary.record(finding.status);
             let severity = Severity::parse(&finding.severity).unwrap_or(Severity::Observation);
-            if !gate.enforces(severity) {
-                continue;
-            }
-            if finding.status.is_inconclusive() {
+            if finding.blocks_completeness(gate) {
                 complete = false;
             }
-            if finding.status == Status::Fail {
+            if gate.enforces(severity) && finding.status == Status::Fail {
                 conformant = false;
             }
         }

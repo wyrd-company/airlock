@@ -153,18 +153,81 @@ pub fn agent_work_list_text(list: &AgentWorkList) -> String {
     }
 
     render_work_group(&mut out, "agent work", &list.agent_lane);
-    render_work_group(
-        &mut out,
-        "operator deferred (never gates)",
-        &list.operator_deferred,
-    );
-
     let _ = writeln!(
         out,
-        "\nunsettled gating questions ({})",
-        list.unsettled.count
+        "\noperator deferred (never gates) ({})",
+        list.operator_deferred.count
     );
-    for item in &list.unsettled.items {
+    for item in &list.operator_deferred.items {
+        let work = match (&item.remediation_code, &item.change) {
+            (Some(code), Some(change)) => format!("{code} — {change}"),
+            _ => item
+                .none_reason
+                .clone()
+                .unwrap_or_else(|| "a person must settle this gap".to_owned()),
+        };
+        let _ = writeln!(
+            out,
+            "  {} [{}] {} (source: {})",
+            item.rule,
+            item.lane.as_deref().unwrap_or("needs-judgment"),
+            work,
+            item.source.as_deref().unwrap_or("not observed")
+        );
+    }
+
+    render_unsettled_group(
+        &mut out,
+        "needs a decision (never gates the agent lane)",
+        &list.needs_decision,
+    );
+    render_unsettled_group(&mut out, "unsettled questions", &list.unsettled);
+    render_attention_group(&mut out, "manual judgment (never gates)", &list.manual);
+    render_attention_group(&mut out, "suppressed debt (never gates)", &list.suppressed);
+
+    let gating_unsettled = list
+        .needs_decision
+        .items
+        .iter()
+        .chain(&list.unsettled.items)
+        .filter(|item| item.gating)
+        .count();
+    let _ = writeln!(out, "\nunsettled gating questions: {gating_unsettled}");
+    let _ = writeln!(
+        out,
+        "\n{} — this is not a repository conformance verdict",
+        list.outcome.code()
+    );
+    out
+}
+
+fn render_unsettled_group(
+    out: &mut String,
+    heading: &str,
+    group: &crate::worklist::WorkGroup<crate::worklist::UnsettledItem>,
+) {
+    let _ = writeln!(out, "\n{heading} ({})", group.count);
+    for item in &group.items {
+        let _ = writeln!(
+            out,
+            "  {} [{}] {} ({}, evidence: {}, source: {})",
+            item.rule,
+            item.severity,
+            item.status.code(),
+            if item.gating { "gating" } else { "non-gating" },
+            item.evidence_code.as_deref().unwrap_or("none"),
+            item.source.as_deref().unwrap_or("not observed")
+        );
+    }
+}
+
+fn render_attention_group(
+    out: &mut String,
+    heading: &str,
+    group: &crate::worklist::WorkGroup<crate::worklist::AttentionItem>,
+) {
+    let _ = writeln!(out, "\n{heading} ({})", group.count);
+    for item in &group.items {
         let _ = writeln!(
             out,
             "  {} [{}] {} (source: {})",
@@ -174,12 +237,6 @@ pub fn agent_work_list_text(list: &AgentWorkList) -> String {
             item.source.as_deref().unwrap_or("not observed")
         );
     }
-    let _ = writeln!(
-        out,
-        "\n{} — this is not a repository conformance verdict",
-        list.outcome.code()
-    );
-    out
 }
 
 fn render_work_group(

@@ -25,10 +25,13 @@ screen offers to edit a tracked file.
 
 The headless projection uses the same grouping boundary as the findings queue:
 failed `deterministic-file` and `judgment-file` remediations are agent work;
-failed `operator-setting` remediations are reported separately and never gate
-the agent lane. Undecided gate-relevant findings make the projection
-`could_not_settle`. Its clear outcome means only “the agent lane is clear,”
-never “the repository is aligned,” and its output retains the audit's
+failed `operator-setting` remediations and failures with no declared
+remediation are reported separately and never gate the agent lane. Capability
+decisions, other undecided findings, manual judgments, and suppressed debt
+remain separately counted and identified. Every undecided finding says whether
+the effective gate enforces it; enforced unanswered questions make the
+projection `could_not_settle`. Its clear outcome means only “the agent lane is
+clear,” never “the repository is aligned,” and its output retains the audit's
 per-finding and run-level observation sources.
 
 ## Authorization and the credential

@@ -68,12 +68,52 @@ pub struct WorkItem {
     pub source: Option<String>,
 }
 
-/// One gate-relevant question the audit did not settle.
+/// One failure whose remaining move belongs to a person.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct OperatorDeferredItem {
+    /// The rule id and stable key for this item.
+    pub rule: String,
+    /// The rule statement.
+    pub statement: String,
+    /// The effective severity.
+    pub severity: String,
+    /// The remediation join key, when a setting remediation exists.
+    pub remediation_code: Option<String>,
+    /// What the remediation would change, when one exists.
+    pub change: Option<String>,
+    /// The remediation lane, when one exists.
+    pub lane: Option<String>,
+    /// Why no remediation is offered, when that is the declaration.
+    pub none_reason: Option<String>,
+    /// What decided the finding.
+    pub source: Option<String>,
+}
+
+/// One question the audit did not settle.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct UnsettledItem {
     /// The rule id and stable key for this item.
     pub rule: String,
     /// The undecided status.
+    pub status: Status,
+    /// The effective severity.
+    pub severity: String,
+    /// Whether this unanswered question blocks completeness under the gate.
+    pub gating: bool,
+    /// The evidence classification, when one was available.
+    pub evidence_code: Option<String>,
+    /// What decided the finding, if anything did.
+    pub source: Option<String>,
+}
+
+/// One non-gating finding that remains relevant to a handoff.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AttentionItem {
+    /// The rule id and stable key for this item.
+    pub rule: String,
+    /// The rule statement.
+    pub statement: String,
+    /// The finding status.
     pub status: Status,
     /// The effective severity.
     pub severity: String,
@@ -116,10 +156,16 @@ pub struct AgentWorkList {
     pub policy: PolicyIdentity,
     /// Outstanding deterministic and judgment file changes.
     pub agent_lane: WorkGroup<WorkItem>,
-    /// Outstanding settings changes deferred to the operator.
-    pub operator_deferred: WorkGroup<WorkItem>,
-    /// Gate-relevant questions the audit could not settle.
+    /// Outstanding settings and no-remediation failures deferred to a person.
+    pub operator_deferred: WorkGroup<OperatorDeferredItem>,
+    /// Capability declarations a person must make before evaluation.
+    pub needs_decision: WorkGroup<UnsettledItem>,
+    /// Questions the audit could not settle, including non-gating ones.
     pub unsettled: WorkGroup<UnsettledItem>,
+    /// Manual judgments still awaiting a person.
+    pub manual: WorkGroup<AttentionItem>,
+    /// Authorized failures that remain standing debt.
+    pub suppressed: WorkGroup<AttentionItem>,
     /// The lane-scoped conclusion.
     pub outcome: Outcome,
 }
@@ -130,19 +176,45 @@ impl AgentWorkList {
     pub fn from_report(report: &Report) -> Self {
         let mut agent = Vec::new();
         let mut operator = Vec::new();
+        let mut decisions = Vec::new();
         let mut unsettled = Vec::new();
+        let mut manual = Vec::new();
+        let mut suppressed = Vec::new();
+        let mut classification_unsettled = false;
 
         for finding in &report.findings {
             if finding.status.is_inconclusive() {
-                let severity = crate::registry::Severity::parse(&finding.severity)
-                    .unwrap_or(crate::registry::Severity::Observation);
-                if report.policy.gate.enforces(severity) {
-                    unsettled.push(UnsettledItem {
-                        rule: finding.rule.clone(),
-                        status: finding.status,
-                        severity: finding.severity.clone(),
-                        source: finding.source.clone(),
-                    });
+                let item = UnsettledItem {
+                    rule: finding.rule.clone(),
+                    status: finding.status,
+                    severity: finding.severity.clone(),
+                    gating: finding.blocks_completeness(report.policy.gate),
+                    evidence_code: finding
+                        .evidence
+                        .as_ref()
+                        .map(|evidence| evidence.code.clone()),
+                    source: finding.source.clone(),
+                };
+                if item.evidence_code.as_deref() == Some("condition_undecided") {
+                    decisions.push(item);
+                } else {
+                    unsettled.push(item);
+                }
+                continue;
+            }
+
+            if matches!(finding.status, Status::Manual | Status::Suppressed) {
+                let item = AttentionItem {
+                    rule: finding.rule.clone(),
+                    statement: finding.statement.clone(),
+                    status: finding.status,
+                    severity: finding.severity.clone(),
+                    source: finding.source.clone(),
+                };
+                if finding.status == Status::Manual {
+                    manual.push(item);
+                } else {
+                    suppressed.push(item);
                 }
                 continue;
             }
@@ -152,11 +224,42 @@ impl AgentWorkList {
             }
 
             let class = &finding.remediation_class;
+            if class.lane.is_none() && class.none_reason.is_some() {
+                operator.push(OperatorDeferredItem {
+                    rule: finding.rule.clone(),
+                    statement: finding.statement.clone(),
+                    severity: finding.severity.clone(),
+                    remediation_code: None,
+                    change: None,
+                    lane: None,
+                    none_reason: class.none_reason.clone(),
+                    source: finding.source.clone(),
+                });
+                continue;
+            }
             let (Some(lane), Some(code), Some(change)) = (&class.lane, &class.code, &class.change)
             else {
+                classification_unsettled = true;
+                unsettled.push(UnsettledItem {
+                    rule: finding.rule.clone(),
+                    status: finding.status,
+                    severity: finding.severity.clone(),
+                    gating: true,
+                    evidence_code: Some("remediation_class_undecided".to_owned()),
+                    source: finding.source.clone(),
+                });
                 continue;
             };
             let Some(lane_kind) = Lane::parse(lane) else {
+                classification_unsettled = true;
+                unsettled.push(UnsettledItem {
+                    rule: finding.rule.clone(),
+                    status: finding.status,
+                    severity: finding.severity.clone(),
+                    gating: true,
+                    evidence_code: Some("remediation_lane_unknown".to_owned()),
+                    source: finding.source.clone(),
+                });
                 continue;
             };
             let item = WorkItem {
@@ -170,11 +273,20 @@ impl AgentWorkList {
             };
             match lane_kind {
                 Lane::DeterministicFile | Lane::JudgmentFile => agent.push(item),
-                Lane::OperatorSetting => operator.push(item),
+                Lane::OperatorSetting => operator.push(OperatorDeferredItem {
+                    rule: item.rule,
+                    statement: item.statement,
+                    severity: item.severity,
+                    remediation_code: Some(item.remediation_code),
+                    change: Some(item.change),
+                    lane: Some(item.lane),
+                    none_reason: None,
+                    source: item.source,
+                }),
             }
         }
 
-        let outcome = if !report.complete {
+        let outcome = if !report.complete || classification_unsettled {
             Outcome::CouldNotSettle
         } else if agent.is_empty() {
             Outcome::AgentLaneClear
@@ -191,7 +303,10 @@ impl AgentWorkList {
             policy: report.policy.clone(),
             agent_lane: WorkGroup::new(agent),
             operator_deferred: WorkGroup::new(operator),
+            needs_decision: WorkGroup::new(decisions),
             unsettled: WorkGroup::new(unsettled),
+            manual: WorkGroup::new(manual),
+            suppressed: WorkGroup::new(suppressed),
             outcome,
         }
     }
@@ -224,6 +339,10 @@ mod tests {
     }
 
     fn report(findings: Vec<Finding>) -> Report {
+        report_with_observation(findings, ObservationRecord::api())
+    }
+
+    fn report_with_observation(findings: Vec<Finding>, observation: ObservationRecord) -> Report {
         Report::assemble(
             AirlockIdentity::current("0.1.0"),
             AuditedRepository {
@@ -233,7 +352,7 @@ mod tests {
                 audited_commit: "a".repeat(40),
                 settings_observed_at: None,
             },
-            ObservationRecord::api(),
+            observation,
             PolicyIdentity {
                 name: "fixture".to_owned(),
                 source: "./policy.yml".to_owned(),
@@ -322,5 +441,102 @@ mod tests {
         assert_eq!(list.agent_lane.count, 1);
         assert_eq!(list.unsettled.count, 1);
         assert_eq!(list.unsettled.items[0].rule, "REPO-GIT-02");
+        assert!(list.unsettled.items[0].gating);
+    }
+
+    #[test]
+    fn declared_no_remediation_failures_are_deferred_to_the_operator() {
+        let list = AgentWorkList::from_report(&report(vec![finding(
+            "REPO-GIT-09",
+            Status::Fail,
+            "blocking",
+            Some("api"),
+        )]));
+
+        assert_eq!(list.outcome, Outcome::AgentLaneClear);
+        assert_eq!(list.operator_deferred.count, 1);
+        assert_eq!(list.operator_deferred.items[0].rule, "REPO-GIT-09");
+        assert!(list.operator_deferred.items[0].none_reason.is_some());
+    }
+
+    #[test]
+    fn an_unknown_failure_classification_cannot_report_clear() {
+        let list = AgentWorkList::from_report(&report(vec![finding(
+            "RULE-UNKNOWN",
+            Status::Fail,
+            "observation",
+            Some("api"),
+        )]));
+
+        assert_eq!(list.outcome, Outcome::CouldNotSettle);
+        assert_eq!(list.unsettled.count, 1);
+        assert_eq!(
+            list.unsettled.items[0].evidence_code.as_deref(),
+            Some("remediation_class_undecided")
+        );
+    }
+
+    #[test]
+    fn non_gating_unanswered_questions_remain_visible_without_gating() {
+        let list = AgentWorkList::from_report(&report(vec![finding(
+            "REPO-LIC-01",
+            Status::Inconclusive,
+            "observation",
+            None,
+        )]));
+
+        assert_eq!(list.outcome, Outcome::AgentLaneClear);
+        assert_eq!(list.unsettled.count, 1);
+        assert!(!list.unsettled.items[0].gating);
+    }
+
+    #[test]
+    fn capability_decisions_manual_judgments_and_suppressed_debt_are_distinct() {
+        let mut decision = finding(
+            "REPO-REL-01",
+            Status::Inconclusive,
+            "observation",
+            Some("working-tree"),
+        );
+        decision.evidence = Some(Evidence::new(
+            "condition_undecided",
+            "the capability could not be selected",
+        ));
+        let list = AgentWorkList::from_report(&report(vec![
+            decision,
+            finding("REPO-DOCS-05", Status::Manual, "blocking", None),
+            finding("REPO-LIC-01", Status::Suppressed, "blocking", Some("api")),
+        ]));
+
+        assert_eq!(list.needs_decision.count, 1);
+        assert_eq!(list.needs_decision.items[0].rule, "REPO-REL-01");
+        assert_eq!(list.manual.count, 1);
+        assert_eq!(list.manual.items[0].rule, "REPO-DOCS-05");
+        assert_eq!(list.suppressed.count, 1);
+        assert_eq!(list.suppressed.items[0].rule, "REPO-LIC-01");
+    }
+
+    #[test]
+    fn text_rendering_names_an_undetermined_working_tree() {
+        let list = AgentWorkList::from_report(&report_with_observation(
+            Vec::new(),
+            ObservationRecord {
+                file_source: "working-tree".to_owned(),
+                platform_source: None,
+                working_tree: Some(crate::findings::WorkingTreeObservation {
+                    root: "/workspace".to_owned(),
+                    head_commit: "b".repeat(40),
+                    dirty: None,
+                    includes_uncommitted: true,
+                    ignored_files_excluded: true,
+                    default_branch: "main".to_owned(),
+                    default_branch_observed: false,
+                }),
+            },
+        ));
+
+        let text = crate::render::agent_work_list_text(&list);
+        assert!(text.contains("files working-tree, platform not observed"));
+        assert!(text.contains("(undetermined, includes uncommitted files)"));
     }
 }

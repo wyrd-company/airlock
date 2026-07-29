@@ -62,6 +62,23 @@ fn policy_path(directory: &TempDir, body: &str) -> String {
     path.display().to_string()
 }
 
+fn git(root: &std::path::Path, args: &[&str]) {
+    let output = std::process::Command::new("git")
+        .current_dir(root)
+        .args(args)
+        .env("GIT_AUTHOR_NAME", "fixture")
+        .env("GIT_AUTHOR_EMAIL", "fixture@example.invalid")
+        .env("GIT_COMMITTER_NAME", "fixture")
+        .env("GIT_COMMITTER_EMAIL", "fixture@example.invalid")
+        .output()
+        .expect("git runs");
+    assert!(
+        output.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 fn json_output(output: &[u8]) -> Value {
     serde_json::from_slice(output).expect("stdout is one json document")
 }
@@ -130,6 +147,18 @@ fn help_lists_the_command_surface() {
         .stdout(contains("audit"))
         .stdout(contains("agent-work"))
         .stdout(contains("auth"));
+}
+
+#[test]
+fn repository_commands_without_a_target_are_usage_errors() {
+    for command in ["audit", "agent-work"] {
+        offline()
+            .arg(command)
+            .assert()
+            .code(2)
+            .stderr(contains("Usage:"))
+            .stderr(contains("<TARGET>"));
+    }
 }
 
 #[test]
@@ -277,6 +306,42 @@ async fn a_clear_agent_lane_is_not_a_repository_conformance_claim() {
     assert_eq!(list["outcome"], "agent_lane_clear");
     assert_eq!(list["agent_lane"]["count"], 0);
     assert!(list.get("conformant").is_none());
+}
+
+#[test]
+fn agent_work_reports_an_uncommitted_working_tree_as_its_source() {
+    let repository = TempDir::new().unwrap();
+    git(repository.path(), &["init", "-q", "-b", "main"]);
+    std::fs::write(
+        repository.path().join("Cargo.toml"),
+        "[package]\nname = \"fixture\"\nlicense = \"Apache-2.0\"\n",
+    )
+    .unwrap();
+    git(repository.path(), &["add", "Cargo.toml"]);
+    git(repository.path(), &["commit", "-q", "-m", "fixture"]);
+    std::fs::write(repository.path().join("uncommitted.txt"), "pending\n").unwrap();
+
+    let policies = TempDir::new().unwrap();
+    let assertion = offline()
+        .args([
+            "agent-work",
+            "--working-tree",
+            &repository.path().display().to_string(),
+            "--policy",
+            &policy_path(&policies, LICENSING_POLICY),
+        ])
+        .assert()
+        .code(1);
+    let list = json_output(&assertion.get_output().stdout);
+
+    assert_eq!(list["observation"]["file_source"], "working-tree");
+    assert_eq!(list["observation"]["platform_source"], Value::Null);
+    assert_eq!(list["observation"]["working_tree"]["dirty"], true);
+    assert_eq!(
+        list["observation"]["working_tree"]["includes_uncommitted"],
+        true
+    );
+    assert_eq!(list["agent_lane"]["items"][0]["source"], "working-tree");
 }
 
 #[tokio::test(flavor = "multi_thread")]
