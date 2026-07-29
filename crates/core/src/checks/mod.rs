@@ -463,7 +463,9 @@ pub fn evaluate(rule: &RuleInstance, context: &AuditContext) -> Verdict {
             status: Status::Manual,
             evidence: Some(Evidence::new(
                 "judgment_rule",
-                "this rule is a judgment call; airlock reports it for a human",
+                rule.def
+                    .evaluation_reason()
+                    .unwrap_or("this rule is a judgment call; airlock reports it for a human"),
             )),
             remediation: None,
             error: None,

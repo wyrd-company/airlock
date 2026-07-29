@@ -37,13 +37,17 @@ fn demo_tape(context: &AuditContext) -> Verdict {
         })
         .collect();
     if demos.is_empty() {
-        return Verdict::pass("no_demo_committed", "no committed demo.gif exists");
+        return Verdict::pass(
+            "no_demo_gif_committed",
+            "no committed file with basename `demo.gif` exists; other names and media are outside \
+             this mechanical proxy",
+        );
     }
 
     let missing = demos.iter().find(|demo| {
-        tape_candidates(&demo.path)
+        tape_directories(&demo.path)
             .iter()
-            .all(|candidate| !committed_file(context, candidate))
+            .all(|directory| !has_tape_under(context, directory))
     });
     let Some(missing) = missing else {
         return Verdict::pass(
@@ -67,31 +71,30 @@ fn demo_tape(context: &AuditContext) -> Verdict {
     )
 }
 
-fn tape_candidates(demo: &str) -> Vec<String> {
+fn tape_directories(demo: &str) -> Vec<&str> {
     let directory = demo.rsplit_once('/').map_or("", |(directory, _)| directory);
-    let mut candidates = vec![join(directory, "demo.tape")];
+    let mut directories = vec![directory];
     if let Some(parent) = directory
         .strip_suffix("/assets")
         .or_else(|| (directory == "assets").then_some(""))
     {
-        candidates.push(join(parent, "demo.tape"));
+        directories.push(parent);
     }
-    candidates
+    directories
 }
 
-fn join(directory: &str, file: &str) -> String {
-    if directory.is_empty() {
-        file.to_owned()
-    } else {
-        format!("{directory}/{file}")
-    }
-}
-
-fn committed_file(context: &AuditContext, path: &str) -> bool {
-    context
-        .snapshot
-        .entry(path)
-        .is_some_and(|entry| entry.kind.is_file())
+fn has_tape_under(context: &AuditContext, directory: &str) -> bool {
+    let prefix = (!directory.is_empty()).then(|| format!("{directory}/"));
+    context.snapshot.tree.entries.iter().any(|entry| {
+        entry.kind.is_file()
+            && prefix
+                .as_deref()
+                .is_none_or(|prefix| entry.path.starts_with(prefix))
+            && entry
+                .path
+                .rsplit_once('.')
+                .is_some_and(|(_, extension)| extension.eq_ignore_ascii_case("tape"))
+    })
 }
 
 #[cfg(test)]
@@ -123,6 +126,17 @@ mod tests {
             ("legacy/old.tape", "source"),
         ]);
         assert_eq!(fixture.verdict("REPO-README-06").status, Status::Fail);
+    }
+
+    #[test]
+    fn a_demo_accepts_named_tape_sources_in_its_directory() {
+        let fixture = CheckFixture::new(&[
+            ("demo/owl-reconstruction/demo.gif", "gif"),
+            ("demo/owl-reconstruction/01-first-pass.tape", "source"),
+            ("demo/owl-reconstruction/04-inspect.tape", "source"),
+            ("demo/owl-reconstruction/build-demo.sh", "script"),
+        ]);
+        assert_eq!(fixture.verdict("REPO-README-06").status, Status::Pass);
     }
 
     #[test]

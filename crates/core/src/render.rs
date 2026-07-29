@@ -164,6 +164,7 @@ fn check_json(check: &CheckDefinition) -> serde_json::Value {
         "severity": check.severity.code(),
         "section": check.section.code(),
         "evaluation": check.evaluation.code(),
+        "evaluation_reason": check.evaluation_reason(),
         "implemented": check.evaluation != registry::Evaluation::Unimplemented,
         "params": check.params,
     })

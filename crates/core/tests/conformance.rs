@@ -4,13 +4,13 @@
 //! `fixtures/conformance.md` is a committed copy of the authoritative
 //! checklist from the `repository-standards` skill. Every rule in it must
 //! appear in the registry with a byte-identical statement, the same severity,
-//! and the same section — and the registry must contain nothing else. Drift in
-//! either direction fails here rather than silently changing what an audit
-//! means.
+//! section, and evaluation mode — and the registry must contain nothing else.
+//! Drift in either direction fails here rather than silently changing what an
+//! audit means.
 
 use std::collections::BTreeMap;
 
-use airlock_core::registry::{Section, Severity, CHECKS};
+use airlock_core::registry::{Evaluation, Section, Severity, CHECKS};
 
 const CONFORMANCE: &str = include_str!("fixtures/conformance.md");
 
@@ -18,6 +18,8 @@ struct Rule {
     statement: String,
     severity: Severity,
     section: Section,
+    evaluation: Evaluation,
+    method: String,
 }
 
 fn section_for_heading(heading: &str) -> Option<Section> {
@@ -51,7 +53,7 @@ fn parse_checklist() -> BTreeMap<String, Rule> {
         }
 
         let cells: Vec<&str> = line.trim_matches('|').split('|').map(str::trim).collect();
-        if cells.len() < 3 {
+        if cells.len() < 4 {
             continue;
         }
         let Some(id) = cells[0]
@@ -66,6 +68,13 @@ fn parse_checklist() -> BTreeMap<String, Rule> {
 
         let severity = Severity::parse(&cells[2].replace('*', "").trim().to_lowercase())
             .unwrap_or_else(|| panic!("{id} has an unreadable severity: {}", cells[2]));
+        let evaluation = if cells[3].starts_with("Manual") {
+            Evaluation::Manual
+        } else if cells[3].starts_with("Unimplemented") {
+            Evaluation::Unimplemented
+        } else {
+            Evaluation::Mechanical
+        };
         let section = section.unwrap_or_else(|| panic!("{id} appears outside a known section"));
 
         rules.insert(
@@ -74,6 +83,8 @@ fn parse_checklist() -> BTreeMap<String, Rule> {
                 statement: cells[1].to_owned(),
                 severity,
                 section,
+                evaluation,
+                method: cells[3].to_owned(),
             },
         );
     }
@@ -92,7 +103,7 @@ fn the_checklist_fixture_parses() {
 }
 
 #[test]
-fn every_registered_statement_is_verbatim() {
+fn every_registered_rule_matches_the_checklist() {
     let rules = parse_checklist();
     for check in CHECKS {
         let rule = rules
@@ -112,6 +123,11 @@ fn every_registered_statement_is_verbatim() {
             check.section, rule.section,
             "{} section drifted from the checklist",
             check.id
+        );
+        assert_eq!(
+            check.evaluation, rule.evaluation,
+            "{} evaluation mode drifted from checklist method `{}`",
+            check.id, rule.method
         );
     }
 }

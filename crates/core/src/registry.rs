@@ -636,6 +636,9 @@ pub const CHECKS: &[CheckDefinition] = &[
         statement: "Where a demo exists, its `.tape` source is committed",
         severity: Severity::Required,
         section: Section::Readme,
+        // Mechanical scope: the committed-demo proxy is a regular file whose
+        // basename is `demo.gif`, matching the repository VHS convention.
+        // REPO-README-05 retains the judgment of what other media is a demo.
         evaluation: Evaluation::Mechanical,
         params: &[],
     },
@@ -1053,9 +1056,8 @@ pub const CHECKS: &[CheckDefinition] = &[
         severity: Severity::Observation,
         section: Section::Docs,
         // Manual: schema references may resolve outside the bounded repository
-        // snapshot, including remote schemas airlock cannot safely discover or
-        // enumerate. A general validator could therefore not prove this rule
-        // without claiming a false pass for artifacts it did not validate.
+        // snapshot. The registry-owned evaluation reason records why partial
+        // validation was rejected and is surfaced in listings and findings.
         evaluation: Evaluation::Manual,
         params: &[],
     },
@@ -1149,6 +1151,24 @@ pub fn in_section(section: Section) -> Vec<&'static CheckDefinition> {
 }
 
 impl CheckDefinition {
+    /// Why a non-mechanical evaluation mode is the honest boundary.
+    ///
+    /// This is registry data rather than only implementation commentary so
+    /// operators see the classification boundary in listings and findings.
+    #[must_use]
+    pub fn evaluation_reason(&self) -> Option<&'static str> {
+        match self.id {
+            "REPO-DOCS-05" => Some(
+                "Schema discovery can leave the bounded repository snapshot. Partial validation \
+                 of only in-snapshot schemas was rejected because a manual finding communicates \
+                 the whole-repository judgment consistently; mixing passes with inconclusive \
+                 results based on schema location would make identical artifact classes gate \
+                 differently.",
+            ),
+            _ => None,
+        }
+    }
+
     /// The repository state under which this check's statement applies.
     #[must_use]
     pub fn applicability(&self) -> Applicability {
@@ -1187,7 +1207,7 @@ impl CheckDefinition {
 /// The registry content digest.
 ///
 /// SHA-256 over the sorted `(id, statement, severity, evaluation,
-/// applicability)` tuples, so
+/// evaluation reason, applicability)` tuples, so
 /// two binaries that agree on the digest agree on what every rule means. It
 /// travels in every audit result.
 #[must_use]
@@ -1196,11 +1216,12 @@ pub fn digest() -> String {
         .iter()
         .map(|check| {
             format!(
-                "{}\u{1f}{}\u{1f}{}\u{1f}{}\u{1f}{}",
+                "{}\u{1f}{}\u{1f}{}\u{1f}{}\u{1f}{}\u{1f}{}",
                 check.id,
                 check.statement,
                 check.severity.code(),
                 check.evaluation.code(),
+                check.evaluation_reason().unwrap_or_default(),
                 check.applicability().code()
             )
         })

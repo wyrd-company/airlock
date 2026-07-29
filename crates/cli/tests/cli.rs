@@ -150,6 +150,12 @@ fn list_checks_reports_evaluation_modes_and_no_unimplemented_rules() {
     assert!(checks
         .iter()
         .any(|check| check["id"] == "REPO-DOCS-05" && check["evaluation"] == "manual"));
+    assert!(checks.iter().any(|check| {
+        check["id"] == "REPO-DOCS-05"
+            && check["evaluation_reason"]
+                .as_str()
+                .is_some_and(|reason| reason.contains("Partial validation"))
+    }));
     assert!(checks
         .iter()
         .any(|check| check["id"] == "REPO-README-06" && check["evaluation"] == "mechanical"));
@@ -237,6 +243,10 @@ checks:
     assert_eq!(report["outcome"], "conformant");
     assert_eq!(report["complete"], true);
     assert_eq!(finding(&report, "REPO-DOCS-05")["status"], "manual");
+    assert!(finding(&report, "REPO-DOCS-05")["evidence"]["detail"]
+        .as_str()
+        .unwrap()
+        .contains("Partial validation"));
     assert_eq!(report["summary"]["unimplemented"], 0);
 }
 
