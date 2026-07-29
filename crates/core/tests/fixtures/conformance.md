@@ -155,7 +155,7 @@ repository declares at least one release unit.
 | `REPO-DOCS-02` | Engineering artifacts sit in `docs/decisions/`, `docs/technical-designs/`, or `docs/spikes/` | Observation | Directory listing                        |
 | `REPO-DOCS-03` | Artifact filenames are lower-kebab slugs with no type prefix and no `id:` field              | Observation | File inspection                          |
 | `REPO-DOCS-04` | A tool publishing docs to `wyrd.foo` has `docs/docs.yml`                                     | Required    | File presence plus the recorded decision |
-| `REPO-DOCS-05` | Schema-bound YAML artifacts follow their schema where one exists                             | Observation | Schema validation                        |
+| `REPO-DOCS-05` | Schema-bound YAML artifacts follow their schema where one exists                             | Observation | Manual — schemas may resolve outside the bounded repository snapshot |
 
 ## Release
 

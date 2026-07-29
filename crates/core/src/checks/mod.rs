@@ -25,6 +25,7 @@ mod files;
 mod git;
 mod identity;
 mod licensing;
+mod readme;
 mod release;
 
 use crate::findings::{Evidence, FindingError, Remediation, Status};
@@ -607,6 +608,7 @@ fn run(rule: &RuleInstance, context: &AuditContext) -> Verdict {
     identity::run(id, rule, context)
         .or_else(|| licensing::run(id, rule, context))
         .or_else(|| files::run(id, rule, context))
+        .or_else(|| readme::run(id, rule, context))
         .or_else(|| git::run(id, rule, context))
         .or_else(|| automation::run(id, rule, context))
         .or_else(|| release::run(id, rule, context))
@@ -1017,12 +1019,12 @@ mod tests {
     }
 
     #[test]
-    fn an_unimplemented_rule_reports_unimplemented() {
+    fn a_manual_schema_validation_rule_reports_manual() {
         let snapshot = snapshot(&[]);
         let policy = policy();
         let context = context(&snapshot, &policy, Vec::new());
         let verdict = evaluate(&rule("REPO-DOCS-05"), &context);
-        assert_eq!(verdict.status, Status::Unimplemented);
+        assert_eq!(verdict.status, Status::Manual);
     }
 
     #[test]

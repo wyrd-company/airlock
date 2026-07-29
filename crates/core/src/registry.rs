@@ -24,7 +24,7 @@ use sha2::{Digest, Sha256};
 /// It moves when the set of rules, their statements, their default severities,
 /// evaluation modes, or applicability conditions change. Policies constrain it with
 /// `requires-registry`.
-pub const REGISTRY_VERSION: &str = "0.2.0";
+pub const REGISTRY_VERSION: &str = "0.3.0";
 
 /// A built-in condition that determines whether a check applies.
 ///
@@ -636,7 +636,7 @@ pub const CHECKS: &[CheckDefinition] = &[
         statement: "Where a demo exists, its `.tape` source is committed",
         severity: Severity::Required,
         section: Section::Readme,
-        evaluation: Evaluation::Unimplemented,
+        evaluation: Evaluation::Mechanical,
         params: &[],
     },
     CheckDefinition {
@@ -1052,7 +1052,11 @@ pub const CHECKS: &[CheckDefinition] = &[
         statement: "Schema-bound YAML artifacts follow their schema where one exists",
         severity: Severity::Observation,
         section: Section::Docs,
-        evaluation: Evaluation::Unimplemented,
+        // Manual: schema references may resolve outside the bounded repository
+        // snapshot, including remote schemas airlock cannot safely discover or
+        // enumerate. A general validator could therefore not prove this rule
+        // without claiming a false pass for artifacts it did not validate.
+        evaluation: Evaluation::Manual,
         params: &[],
     },
     CheckDefinition {

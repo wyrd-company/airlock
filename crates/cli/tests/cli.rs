@@ -146,7 +146,13 @@ fn list_checks_marks_manual_and_unimplemented_rules() {
         .filter(|check| check["evaluation"] == "unimplemented")
         .map(|check| check["id"].as_str().unwrap())
         .collect();
-    assert!(unimplemented.contains(&"REPO-DOCS-05"));
+    assert!(unimplemented.is_empty());
+    assert!(checks
+        .iter()
+        .any(|check| check["id"] == "REPO-DOCS-05" && check["evaluation"] == "manual"));
+    assert!(checks
+        .iter()
+        .any(|check| check["id"] == "REPO-README-06" && check["evaluation"] == "mechanical"));
     assert!(checks.iter().any(|check| check["evaluation"] == "manual"));
 }
 
@@ -212,11 +218,10 @@ async fn a_blocking_failure_exits_one() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn an_enabled_unimplemented_rule_makes_the_audit_incomplete() {
+async fn an_enabled_manual_rule_does_not_make_the_audit_incomplete() {
     let repo = FakeRepo::new("wyrd-company", "example").with_file("README.md", "# example");
 
-    // REPO-DOCS-05 is registered but not built. Raising it to blocking is
-    // exactly the case that must not be able to exit 0.
+    // Manual judgment never gates, even when policy re-grades the rule.
     let policy = "\
 version: 1
 name: test-policy
@@ -228,11 +233,11 @@ checks:
     severity: blocking
 ";
 
-    let report = audit_json(repo, policy, 2).await;
-    assert_eq!(report["outcome"], "incomplete");
-    assert_eq!(report["complete"], false);
-    assert_eq!(finding(&report, "REPO-DOCS-05")["status"], "unimplemented");
-    assert_eq!(report["summary"]["unimplemented"], 1);
+    let report = audit_json(repo, policy, 0).await;
+    assert_eq!(report["outcome"], "conformant");
+    assert_eq!(report["complete"], true);
+    assert_eq!(finding(&report, "REPO-DOCS-05")["status"], "manual");
+    assert_eq!(report["summary"]["unimplemented"], 0);
 }
 
 #[tokio::test(flavor = "multi_thread")]
