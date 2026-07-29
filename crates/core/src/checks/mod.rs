@@ -34,9 +34,9 @@ use crate::github::{
 use crate::limits::Limits;
 use crate::policy::{Condition, ResolvedPolicy, RuleInstance};
 use crate::registry::{Applicability, Evaluation};
-use crate::remediation::ActionGroup;
 use crate::snapshot::{FileState, RepoSnapshot};
 use crate::yaml::{self, Yaml};
+use crate::ActionGroup;
 
 pub(crate) struct MergeSetting {
     pub(crate) declared: &'static str,

@@ -1,5 +1,5 @@
 use super::*;
-use crate::remediation::ActionGroup;
+use crate::ActionGroup;
 
 pub(super) fn readable_workflows<'a>(
     context: &'a AuditContext<'_>,

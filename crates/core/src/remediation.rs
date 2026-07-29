@@ -20,6 +20,8 @@
 //! agree on what every rule means; they may still differ on how they would
 //! close it.
 
+use std::fmt::{self, Display};
+
 use serde::{Serialize, Serializer};
 
 /// A declared family of contextual actions that can address an observation.
@@ -27,7 +29,7 @@ use serde::{Serialize, Serializer};
 /// Action groups support display and cross-rule grouping. They are not the
 /// consumer join key for a rule's remediation: that identity and its delivery
 /// lane live on [`RemediationDefinition`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ActionGroup(&'static str);
 
 impl ActionGroup {
@@ -35,6 +37,12 @@ impl ActionGroup {
     #[must_use]
     pub const fn code(self) -> &'static str {
         self.0
+    }
+}
+
+impl Display for ActionGroup {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.code())
     }
 }
 
@@ -58,6 +66,11 @@ macro_rules! action_groups {
             /// Every declared action group.
             pub const ALL: &'static [Self] = &[$(Self::$name),+];
         }
+
+        #[cfg(test)]
+        const DECLARED_ACTION_GROUPS: &[(&str, ActionGroup)] = &[
+            $((stringify!($name), ActionGroup::$name)),+
+        ];
     };
 }
 
@@ -182,7 +195,7 @@ impl Lane {
 /// One rule's declared remediation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RemediationDefinition {
-    /// The stable remediation code, unique across the registry.
+    /// The per-rule consumer join key, unique across the registry.
     pub code: &'static str,
     /// The rule this remediation closes.
     pub rule: &'static str,
@@ -1032,6 +1045,31 @@ mod tests {
                 code.bytes()
                     .all(|byte| byte.is_ascii_lowercase() || byte == b'_'),
                 "{code}"
+            );
+        }
+    }
+
+    #[test]
+    fn every_declared_action_group_is_used_by_a_check() {
+        let check_sources = [
+            include_str!("checks/mod.rs"),
+            include_str!("checks/classification.rs"),
+            include_str!("checks/files.rs"),
+            include_str!("checks/git.rs"),
+            include_str!("checks/identity.rs"),
+            include_str!("checks/licensing.rs"),
+            include_str!("checks/release.rs"),
+            include_str!("checks/automation/delivery.rs"),
+            include_str!("checks/automation/hooks.rs"),
+            include_str!("checks/automation/taskfile.rs"),
+            include_str!("checks/automation/workflows.rs"),
+        ]
+        .join("\n");
+
+        for (constant, action_group) in DECLARED_ACTION_GROUPS {
+            assert!(
+                check_sources.contains(&format!("ActionGroup::{constant}")),
+                "{constant} ({action_group}) is declared but unused"
             );
         }
     }

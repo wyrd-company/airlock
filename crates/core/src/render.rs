@@ -187,7 +187,7 @@ mod tests {
         AirlockIdentity, AuditedRepository, Evidence, Finding, Gate, ObservationRecord,
         PolicyIdentity, Remediation, RemediationClass,
     };
-    use crate::remediation::ActionGroup;
+    use crate::ActionGroup;
 
     fn report() -> Report {
         Report::assemble(

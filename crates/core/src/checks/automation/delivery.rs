@@ -1,5 +1,5 @@
 use super::*;
-use crate::remediation::ActionGroup;
+use crate::ActionGroup;
 
 pub(super) fn cd<'a>(context: &'a AuditContext<'_>) -> Option<&'a Workflow> {
     context.workflow("cd.yml")

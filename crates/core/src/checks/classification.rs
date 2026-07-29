@@ -2,7 +2,7 @@
 
 use crate::findings::Remediation;
 use crate::policy::RuleInstance;
-use crate::remediation::ActionGroup;
+use crate::ActionGroup;
 
 use super::{repo_settings, AuditContext, Verdict};
 

@@ -29,3 +29,4 @@ pub mod worktree;
 pub mod yaml;
 
 pub use error::{Error, Result};
+pub use remediation::ActionGroup;

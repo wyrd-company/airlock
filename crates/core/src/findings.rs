@@ -16,7 +16,7 @@ use serde::Serialize;
 
 use crate::{
     registry::{Severity, REGISTRY_VERSION},
-    remediation::ActionGroup,
+    ActionGroup,
 };
 
 /// The version of the JSON document shape.

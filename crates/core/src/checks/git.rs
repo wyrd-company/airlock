@@ -2,7 +2,7 @@
 
 use crate::findings::Remediation;
 use crate::policy::RuleInstance;
-use crate::remediation::ActionGroup;
+use crate::ActionGroup;
 
 use super::{AuditContext, Verdict};
 
@@ -471,7 +471,7 @@ mod tests {
     use super::super::fixtures::*;
     use crate::findings::Status;
     use crate::github::{ApiError, BranchRule, CommitSummary, ErrorCause, Paged, Ruleset, TagRef};
-    use crate::remediation::ActionGroup;
+    use crate::ActionGroup;
     use serde_json::json;
 
     #[test]

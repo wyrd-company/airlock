@@ -2,8 +2,8 @@
 
 use crate::findings::Remediation;
 use crate::policy::RuleInstance;
-use crate::remediation::ActionGroup;
 use crate::snapshot::FileState;
+use crate::ActionGroup;
 
 use super::{presence, AuditContext, Verdict};
 

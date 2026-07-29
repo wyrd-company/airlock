@@ -2,8 +2,8 @@
 
 use crate::findings::Remediation;
 use crate::policy::RuleInstance;
-use crate::remediation::ActionGroup;
 use crate::yaml::Yaml;
+use crate::ActionGroup;
 
 use super::{AuditContext, ParsedFile, Verdict};
 

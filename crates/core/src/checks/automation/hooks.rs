@@ -1,5 +1,5 @@
 use super::*;
-use crate::remediation::ActionGroup;
+use crate::ActionGroup;
 
 pub(super) fn parse_lefthook(context: &AuditContext) -> Result<Yaml, Box<Verdict>> {
     match context.yaml(".config/lefthook.yml") {
