@@ -5,8 +5,7 @@ on:
     - cron: "17 6 * * 1"
   workflow_dispatch: {}
 
-permissions:
-  contents: read
+permissions: {}
 
 concurrency:
   group: audit
@@ -16,6 +15,8 @@ jobs:
   audit:
     name: Audit this repository
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:

@@ -57,3 +57,25 @@ AIRLOCK_BIN="$fake_airlock" \
   "$root/scripts/run-action.sh" >/dev/null
 rg -q '^outcome=incomplete$' "$missing_token_output"
 rg -q '^complete=false$' "$missing_token_output"
+
+first_output="$test_root/output-first-invocation"
+second_output="$test_root/output-second-invocation"
+for invocation in first second; do
+  AIRLOCK_TOKEN=fixture \
+    AIRLOCK_BIN="$fake_airlock" \
+    FAKE_STATUS=0 \
+    FAKE_OUTCOME=conformant \
+    FAKE_COMPLETE=true \
+    INPUT_REPOSITORY=example/repository \
+    INPUT_FORMAT=json \
+    INPUT_FAIL_ON_INCOMPLETE=true \
+    RUNNER_TEMP="$test_root" \
+    GITHUB_RUN_ID=123 \
+    GITHUB_RUN_ATTEMPT=1 \
+    GITHUB_ACTION="$invocation" \
+    GITHUB_OUTPUT="$test_root/output-$invocation-invocation" \
+    "$root/scripts/run-action.sh" >/dev/null
+done
+first_location=$(sed -n 's/^findings-location=//p' "$first_output")
+second_location=$(sed -n 's/^findings-location=//p' "$second_output")
+[[ "$first_location" != "$second_location" ]]

@@ -25,7 +25,9 @@ case "$fail_on_incomplete" in
     ;;
 esac
 
-findings_location="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/airlock-findings-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}.${extension}"
+invocation=${GITHUB_ACTION:-airlock}
+invocation=${invocation//[^[:alnum:]_.-]/_}
+findings_location="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/airlock-findings-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}-${invocation}.${extension}"
 
 finish_incomplete() {
   local message=$1
