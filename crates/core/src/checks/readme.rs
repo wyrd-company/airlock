@@ -2,6 +2,7 @@
 
 use crate::findings::Remediation;
 use crate::policy::RuleInstance;
+use crate::ActionGroup;
 
 use super::{AuditContext, Verdict};
 
@@ -67,7 +68,7 @@ fn demo_tape(context: &AuditContext) -> Verdict {
             "{} is committed without related `.tape` source",
             missing.path
         ),
-        Remediation::new("commit_tape_source", "Commit the demo's `.tape` source."),
+        Remediation::new(ActionGroup::ADD_FILE, "Commit the demo's `.tape` source."),
     )
 }
 
@@ -101,6 +102,7 @@ fn has_tape_under(context: &AuditContext, directory: &str) -> bool {
 mod tests {
     use super::super::fixtures::CheckFixture;
     use crate::findings::Status;
+    use crate::ActionGroup;
 
     #[test]
     fn a_repository_without_a_demo_passes() {
@@ -155,6 +157,10 @@ mod tests {
         let verdict = fixture.verdict("REPO-README-06");
         assert_eq!(verdict.status, Status::Fail);
         assert_eq!(verdict.evidence.unwrap().code, "tape_source_missing");
+        assert_eq!(
+            verdict.remediation.unwrap().action_group,
+            ActionGroup::ADD_FILE
+        );
     }
 
     #[test]
