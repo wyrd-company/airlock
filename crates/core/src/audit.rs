@@ -164,6 +164,7 @@ pub async fn run<G: GitHub>(
         options,
         Sources::api(),
         id,
+        SuppressionInput::Snapshot,
     )
 }
 
@@ -197,8 +198,7 @@ async fn run_mixed<G: GitHub>(
         bytes_read: 0,
         limits: options.limits,
     };
-    load_local_files(&mut snapshot, &facts, options.limits);
-    let workflow_paths = workflow_paths(&snapshot, options.limits.max_workflow_files);
+    let workflow_paths = load_local_files(&mut snapshot, &facts, options.limits);
     let workflows = parse_workflows(&snapshot, &workflow_paths.paths, options.limits);
 
     let platform = PlatformData {
@@ -230,6 +230,7 @@ async fn run_mixed<G: GitHub>(
         options,
         sources,
         id,
+        SuppressionInput::Committed(facts.head_file(".github/airlock.yml")),
     )
 }
 
@@ -290,8 +291,7 @@ pub fn run_local(
         bytes_read: 0,
         limits: options.limits,
     };
-    load_local_files(&mut snapshot, &facts, options.limits);
-    let workflow_paths = workflow_paths(&snapshot, options.limits.max_workflow_files);
+    let workflow_paths = load_local_files(&mut snapshot, &facts, options.limits);
     let workflows = parse_workflows(&snapshot, &workflow_paths.paths, options.limits);
 
     let platform = PlatformData {
@@ -319,6 +319,7 @@ pub fn run_local(
         options,
         sources,
         None,
+        SuppressionInput::Committed(facts.head_file(".github/airlock.yml")),
     )
 }
 
@@ -355,13 +356,13 @@ fn load_local_files(
     snapshot: &mut RepoSnapshot,
     facts: &crate::worktree::WorkingTreeFacts,
     limits: Limits,
-) {
+) -> WorkflowPaths {
     let workflow_paths = workflow_paths(snapshot, limits.max_workflow_files);
     let mut paths: Vec<String> = AUDITED_PATHS
         .iter()
         .map(|path| (*path).to_owned())
         .collect();
-    paths.extend(workflow_paths.paths);
+    paths.extend(workflow_paths.paths.clone());
     crate::worktree::load_files(
         facts,
         &paths,
@@ -380,6 +381,7 @@ fn load_local_files(
             &mut snapshot.bytes_read,
         );
     }
+    workflow_paths
 }
 
 fn not_observed_error(subject: &str) -> ApiError {
@@ -413,6 +415,7 @@ fn complete_run(
     options: &AuditOptions,
     sources: Sources,
     repository_id: Option<u64>,
+    suppressions: SuppressionInput,
 ) -> Result<Report> {
     let branch = snapshot.repository.default_branch.clone();
     let commit = snapshot.commit.clone();
@@ -428,7 +431,16 @@ fn complete_run(
         snapshot,
     };
 
-    let (requests, mut observations) = suppression_requests(&context, options.limits)?;
+    // Suppression is authorization, not observation. An API snapshot only
+    // holds committed content; a working tree holds whatever was just
+    // written, so working-tree runs read the request file from HEAD instead
+    // — an uncommitted suppression request suppresses nothing.
+    let request_text = match &suppressions {
+        SuppressionInput::Snapshot => context.text(".github/airlock.yml").map(ToOwned::to_owned),
+        SuppressionInput::Committed(text) => text.clone(),
+    };
+    let (requests, mut observations) =
+        suppression_requests(request_text.as_deref(), options.limits)?;
 
     let platform_unobserved = sources.platform.is_none();
     let mut findings = Vec::with_capacity(policy.rules.len());
@@ -596,14 +608,22 @@ fn parse_workflows(snapshot: &RepoSnapshot, paths: &[String], limits: Limits) ->
         .collect()
 }
 
+/// Where the suppression request file is read from.
+enum SuppressionInput {
+    /// The snapshot's own copy — for API sources, always committed content.
+    Snapshot,
+    /// The committed copy read from the working tree's HEAD.
+    Committed(Option<String>),
+}
+
 fn suppression_requests(
-    context: &AuditContext,
+    text: Option<&str>,
     limits: Limits,
 ) -> Result<(
     Vec<crate::policy::SuppressionRequest>,
     Vec<PolicyObservation>,
 )> {
-    let Some(text) = context.text(".github/airlock.yml") else {
+    let Some(text) = text else {
         return Ok((Vec::new(), Vec::new()));
     };
     let requests = parse_suppression_requests(text, &limits)?;

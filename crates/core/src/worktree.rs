@@ -24,6 +24,13 @@
 //!   honours gitignore semantics via the `ignore` crate. The binary never
 //!   shells out.
 //!
+//! - **Raw bytes, not filtered bytes.** Dirtiness and blob identities are
+//!   computed over on-disk content. A checkout whose attributes rewrite
+//!   content (CRLF normalisation off-Linux) can read as dirty and carry
+//!   different blob identities than the API would report for the same
+//!   logical content; nothing compares identities across sources, and
+//!   over-reporting dirt is the safe direction.
+//!
 //! Platform facts — settings, rulesets, tags, history — are never derived
 //! from a working tree. They stay with the API or are reported as not
 //! observed.
@@ -327,6 +334,23 @@ fn tracked_paths(repo: &gix::Repository) -> Vec<String> {
         })
         .map(|record| record.filepath.to_string())
         .collect()
+}
+
+impl WorkingTreeFacts {
+    /// The text of `path` as committed at HEAD, when it exists there.
+    ///
+    /// This deliberately bypasses the working tree: authorization-bearing
+    /// inputs (the suppression request file) are honoured only from
+    /// committed content, so an uncommitted edit cannot suppress a finding.
+    #[must_use]
+    pub fn head_file(&self, path: &str) -> Option<String> {
+        let repo = gix::open(&self.root).ok()?;
+        let commit = repo.head_commit().ok()?;
+        let tree = commit.tree().ok()?;
+        let entry = tree.lookup_entry_by_path(path).ok()??;
+        let object = entry.object().ok()?;
+        String::from_utf8(object.data.to_vec()).ok()
+    }
 }
 
 /// Read `paths` from the working tree into file states, under the same

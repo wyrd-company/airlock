@@ -483,3 +483,40 @@ async fn a_working_tree_without_git_is_refused_not_guessed_at() {
         "unexpected error: {error}"
     );
 }
+
+#[tokio::test]
+async fn an_uncommitted_suppression_request_suppresses_nothing() {
+    let repo = committed_repository();
+    let mut policy = full_policy();
+    policy.suppressions.allow_repo_requests = std::iter::once("REPO-FILE-14".to_owned()).collect();
+
+    // The request exists only in the working tree, never committed.
+    std::fs::write(
+        repo.path().join(".github/airlock.yml"),
+        "version: 1\nsuppress:\n  - rule: REPO-FILE-14\n    reason: we like CODEOWNERS\n",
+    )
+    .expect("write");
+
+    let report = audit::run_local(&policy, &options(), repo.path()).expect("the local audit runs");
+    let finding = report
+        .findings
+        .iter()
+        .find(|finding| finding.rule == "REPO-FILE-14")
+        .expect("REPO-FILE-14 is enabled");
+    assert_eq!(
+        finding.status,
+        Status::Fail,
+        "authorization comes from committed content, not the tree as it stands"
+    );
+
+    // Committed, the same request is honoured.
+    git(repo.path(), &["add", "-A"]);
+    git(repo.path(), &["commit", "-q", "-m", "request suppression"]);
+    let report = audit::run_local(&policy, &options(), repo.path()).expect("the local audit runs");
+    let finding = report
+        .findings
+        .iter()
+        .find(|finding| finding.rule == "REPO-FILE-14")
+        .expect("REPO-FILE-14 is enabled");
+    assert_eq!(finding.status, Status::Suppressed);
+}

@@ -97,6 +97,7 @@ The classification is not part of the registry digest. The digest attests what
 every rule means and how it is evaluated — the contract a policy binds to with
 `requires-registry`. Remediation is airlock's answer to a gap, and a better
 answer must not invalidate policy compatibility.
+
 ## Two observation sources
 
 File-level rules can be observed two ways; platform rules only one.
