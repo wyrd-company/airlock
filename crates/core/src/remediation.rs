@@ -267,8 +267,8 @@ pub const CLASSIFICATIONS: &[Classification] = &[
     remediation(
         "add-license-file",
         "REPO-LIC-01",
-        Lane::JudgmentFile,
-        "Add a `LICENSE` file carrying the licence the repository's category calls for.",
+        Lane::DeterministicFile,
+        "Add a `LICENSE` file carrying the default Apache-2.0 licence; a category-specific licence is REPO-LIC-02's judgment.",
         false,
     ),
     remediation(
@@ -351,8 +351,8 @@ pub const CLASSIFICATIONS: &[Classification] = &[
     remediation(
         "add-ci-workflow",
         "REPO-FILE-07",
-        Lane::JudgmentFile,
-        "Add a CI workflow triggered on pull request for this repository's ecosystem.",
+        Lane::DeterministicFile,
+        "Add the standard CI workflow: triggered on pull request, running `task check`.",
         true,
     ),
     remediation(
@@ -986,7 +986,7 @@ mod tests {
         let classification = classify("REPO-LIC-01").expect("REPO-LIC-01 is registered");
         let definition = classification.remediation().expect("has a remediation");
         assert_eq!(definition.code, "add-license-file");
-        assert_eq!(definition.lane, Lane::JudgmentFile);
+        assert_eq!(definition.lane, Lane::DeterministicFile);
         assert!(classify("REPO-NOPE-99").is_none());
     }
 }
