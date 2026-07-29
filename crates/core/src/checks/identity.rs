@@ -491,8 +491,9 @@ fn live_matches_declared(context: &AuditContext) -> Verdict {
             ),
             Remediation::new(
                 ActionGroup::RUN_ALIGN,
-                "Run `airlock align`, or fix the declared file. Drift means the declared and live \
-                 settings have not been aligned.",
+                "Use Airlock's operator terminal interface, or fix the declared file. Drift means \
+                 the declared and live settings have not been aligned; `airlock align-files` \
+                 cannot write repository settings.",
             ),
         )
     }

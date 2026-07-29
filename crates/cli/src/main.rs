@@ -425,7 +425,7 @@ struct PullRequestContext {
 struct AlignFilesOutput {
     schema_version: u32,
     operations: airlock_core::alignment::AuthorReport,
-    reobserved: Vec<ReobservedFinding>,
+    reobserved: Option<Vec<ReobservedFinding>>,
     pull_request: PullRequestContext,
     default_branch_observation: String,
 }
@@ -433,16 +433,38 @@ struct AlignFilesOutput {
 async fn align_files_command(args: AlignFilesArgs, interactive: bool) -> Result<u8> {
     let format = resolved_format(args.format, interactive);
     let repository = args.repository();
-    let before = repository_report(args.target.as_deref(), &repository).await?;
-    let pull_request = observe_pull_request(&args, before.repository.default_branch.as_str()).await;
-    let authored = match airlock_core::alignment::author(&args.working_tree, &before) {
+    let observed = repository_report_with_client(args.target.as_deref(), &repository).await?;
+    let pull_request = observe_pull_request(
+        args.target.as_deref(),
+        observed.report.repository.default_branch.as_str(),
+        observed.client.as_ref(),
+    )
+    .await;
+    let authored = match airlock_core::alignment::author(&args.working_tree, &observed.report) {
         Ok(report) => report,
         Err(airlock_core::Error::Alignment { message, report }) => {
+            let operations = serde_json::from_str(&report)
+                .context("cannot recover the file-alignment failure report")?;
+            let output = AlignFilesOutput {
+                schema_version: 1,
+                operations,
+                reobserved: None,
+                pull_request,
+                default_branch_observation: format!(
+                    "The default-branch observation for `{}` stays open until the pull request \
+                     merges.",
+                    observed.report.repository.default_branch
+                ),
+            };
             match format {
-                Format::Json => println!("{report}"),
+                Format::Json => println!(
+                    "{}",
+                    serde_json::to_string_pretty(&output)
+                        .context("cannot render the file-alignment failure document")?
+                ),
                 Format::Text => {
                     eprintln!("{message}");
-                    eprintln!("operations: {report}");
+                    render_alignment_text(&output);
                 }
             }
             return Ok(EXIT_OPERATIONAL);
@@ -472,7 +494,7 @@ async fn align_files_command(args: AlignFilesArgs, interactive: bool) -> Result<
     let output = AlignFilesOutput {
         schema_version: 1,
         operations: authored,
-        reobserved,
+        reobserved: Some(reobserved),
         pull_request,
         default_branch_observation: format!(
             "The default-branch observation for `{}` stays open until the pull request merges.",
@@ -512,13 +534,17 @@ fn render_alignment_text(output: &AlignFilesOutput) {
                 .unwrap_or_default()
         );
     }
-    for finding in &output.reobserved {
-        println!(
-            "re-observed {}: {} ({})",
-            finding.rule,
-            finding.status,
-            finding.source.as_deref().unwrap_or("not-observed")
-        );
+    if let Some(findings) = &output.reobserved {
+        for finding in findings {
+            println!(
+                "re-observed {}: {} ({})",
+                finding.rule,
+                finding.status,
+                finding.source.as_deref().unwrap_or("not-observed")
+            );
+        }
+    } else {
+        println!("re-observation: not run because authoring stopped after a path failure");
     }
     println!(
         "pull request: {} on `{}` — {}",
@@ -533,7 +559,11 @@ fn render_alignment_text(output: &AlignFilesOutput) {
     }
 }
 
-async fn observe_pull_request(args: &AlignFilesArgs, base: &str) -> PullRequestContext {
+async fn observe_pull_request(
+    target: Option<&str>,
+    base: &str,
+    client: Option<&RestClient>,
+) -> PullRequestContext {
     const BRANCH: &str = "airlock/align";
     let unknown = |detail: String| PullRequestContext {
         state: "unknown".to_owned(),
@@ -541,40 +571,15 @@ async fn observe_pull_request(args: &AlignFilesArgs, base: &str) -> PullRequestC
         detail,
         url: None,
     };
-    let Some(target) = args.target.as_deref() else {
+    let Some(target) = target else {
         return unknown("no API repository target or credential was supplied".to_owned());
     };
-    if args.token_stdin {
-        return unknown(
-            "the one-shot standard-input credential was consumed by the audit; pull-request \
-             context was not guessed"
-                .to_owned(),
-        );
-    }
     let Ok((owner, repo)) = split_target(target) else {
         return unknown("the repository target is invalid".to_owned());
     };
-    let inputs = CredentialInputs {
-        token: args.token.clone(),
-        token_file: args.token_file.clone(),
-        token_stdin: args.token_stdin,
-        profile: args.profile.clone(),
+    let Some(client) = client else {
+        return unknown("the verified read-only GitHub client is unavailable".to_owned());
     };
-    let Ok(config_path) = config::config_path() else {
-        return unknown("the credential configuration path could not be resolved".to_owned());
-    };
-    let Ok(credential) =
-        credential::resolve(&inputs, &config_path, &login_base(), AIRLOCK_SAFE_CLIENT_ID).await
-    else {
-        return unknown("the read-only credential could not be resolved".to_owned());
-    };
-    let Ok(client) = RestClient::new(credential.token.clone(), client_config(Limits::default()))
-    else {
-        return unknown("the read-only GitHub client could not be built".to_owned());
-    };
-    if auth::verify(&credential.token, &client).await.is_err() {
-        return unknown("the read-only credential could not be verified".to_owned());
-    }
     match client.open_pull_requests(owner, repo, BRANCH, base).await {
         Ok(pulls) if pulls.is_empty() => PullRequestContext {
             state: "none".to_owned(),
@@ -698,13 +703,28 @@ async fn repository_report(
     target: Option<&str>,
     args: &RepositoryArgs,
 ) -> Result<airlock_core::findings::Report> {
+    Ok(repository_report_with_client(target, args).await?.report)
+}
+
+struct RepositoryObservation {
+    report: airlock_core::findings::Report,
+    client: Option<RestClient>,
+}
+
+async fn repository_report_with_client(
+    target: Option<&str>,
+    args: &RepositoryArgs,
+) -> Result<RepositoryObservation> {
     // A working tree with no repository target is a local-only audit: no
     // credential, no API, platform rules reported as not observed.
     if target.is_none() {
         let Some(root) = &args.working_tree else {
             bail!("a repository or working tree is required.");
         };
-        return local_audit(args, root).await;
+        return Ok(RepositoryObservation {
+            report: local_audit(args, root).await?,
+            client: None,
+        });
     }
 
     // Both absent returned above. There is no invocation that reaches here
@@ -756,7 +776,10 @@ async fn repository_report(
     let report = audit::run(&client, owner, repo, &policy, &options, Some(&grant))
         .await
         .with_context(|| format!("cannot audit {owner}/{repo}"))?;
-    Ok(report)
+    Ok(RepositoryObservation {
+        report,
+        client: Some(client),
+    })
 }
 
 /// A local-only audit: file rules from the working tree, platform rules not

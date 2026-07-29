@@ -282,6 +282,10 @@ line-ending normalization. Each successful path is written through a temporary
 file and same-directory rename. A failure exits nonzero and includes every path
 already written and the path not written.
 
+When several findings claim the same file, one remediation owns that path for
+the run. The report tells the caller to commit that write and run the command
+again; the next observation, not a remembered finding, decides what remains.
+
 The JSON and text reports include path operations, rule ids, remediation
 codes, skipped reasons, post-write findings and their sources, judgment-lane
 delegations, and read-only pull-request context. The well-known delivery branch
@@ -291,10 +295,12 @@ repository is unchanged.
 
 Airlock stops before every git operation. The caller chooses commit
 granularity, stages and commits the reported paths, pushes `airlock/align`, and
-opens a draft pull request. Where `CODEOWNERS` exists, the caller requests the
-suggested reviewers; where it does not, the pull-request description says
-plainly that no CODEOWNERS reviewers were available. The caller does not open a
-duplicate when the report says an open pull request already exists.
+opens a draft pull request. Where `CODEOWNERS` exists, the caller derives and
+requests the applicable reviewers from that file; where it does not, the
+pull-request description says plainly that no CODEOWNERS reviewers were
+available. The command's read-only observation reports an existing pull
+request so the caller can suppress duplicates. Live caller-side duplicate
+suppression remains an integration responsibility.
 
 Judgment-file findings are not filled with boilerplate. The report hands their
 rule, remediation, evidence, and source to an agent. Emit task 82's embedded
@@ -309,10 +315,12 @@ same draft-pull-request review. Operator-setting findings never enter either
 file path: they require a person in the terminal interface because GitHub's
 `administration: write` permission is too broad to grant an agent.
 
-This uses the same pinned Airlock distribution documented under
-[GitHub Action](#github-action). A fleet workflow checks out one repository per
-matrix job and invokes this single-repository command; Airlock does not add a
-second multi-repository runner or aggregate fleet results.
+The CLI release used here should be pinned with the same released-version
+discipline documented under [GitHub Action](#github-action); the packaged
+audit Action does not invoke `align-files`. A fleet workflow installs the CLI,
+checks out one repository per matrix job, and invokes this single-repository
+command. Airlock does not add a second multi-repository runner or aggregate
+fleet results.
 
 The post-write working-tree result says what is true locally. The default
 branch remains unaligned until the pull request merges, so an API observation

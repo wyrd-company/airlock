@@ -10,18 +10,12 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::findings::{Finding, Report, Status};
 use crate::remediation::Lane;
-use crate::worktree::{self, WorkingTreeFacts};
+use crate::worktree::{self, WorkingTreeFacts, AUTHORIZATION_BEARING_PATHS};
 use crate::{Error, Result};
-
-/// Paths whose working-tree contents never authorize an audit decision.
-///
-/// Keep this explicit beside the writer: [`WorkingTreeFacts::head_file`] is
-/// the authority boundary and no author may cross it.
-const AUTHORIZATION_BEARING_PATHS: &[&str] = &[".github/airlock.yml"];
 
 const APACHE_2_LICENSE: &str = include_str!("../../../LICENSE");
 const EDITORCONFIG: &str = "\
@@ -37,6 +31,18 @@ trim_trailing_whitespace = true
 
 [*.md]
 trim_trailing_whitespace = false
+
+[*.{go,mod}]
+indent_style = tab
+
+[*.rs]
+indent_size = 4
+
+[*.py]
+indent_size = 4
+
+[Makefile]
+indent_style = tab
 ";
 const GITATTRIBUTES: &str = "* text=auto\n";
 const CI_WORKFLOW: &str = "\
@@ -78,7 +84,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
-      - uses: wyrd-company/airlock@bfe5533ec4b60059c457bb91a5b424926c33fe23 # 0.0.0
+      # Replace this placeholder with the full SHA of a released Airlock version.
+      - uses: wyrd-company/airlock@0123456789abcdef0123456789abcdef01234567 # 0.0.1
         env:
           AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}
 ";
@@ -121,7 +128,7 @@ const CHANGELOG: &str =
     "# Changelog\n\nAll notable changes to this release unit are documented here.\n";
 
 /// One path-level result.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct PathOperation {
     pub path: String,
     pub operation: String,
@@ -132,7 +139,7 @@ pub struct PathOperation {
 }
 
 /// A judgment-lane finding handed to an agent using the embedded skill.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct AgentDelegation {
     pub rule: String,
     pub remediation_code: String,
@@ -144,7 +151,7 @@ pub struct AgentDelegation {
 }
 
 /// The complete result of one authoring pass.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct AuthorReport {
     pub working_tree: String,
     pub dirty_before: Option<bool>,
@@ -174,6 +181,48 @@ enum OperationKind {
     Symlink(String),
     Remove,
     Skip(String),
+}
+
+#[derive(Debug, Clone)]
+enum AuthorResult {
+    Authored {
+        first: PlannedOperation,
+        additional: Vec<PlannedOperation>,
+    },
+    Skipped(PlannedOperation),
+}
+
+impl AuthorResult {
+    fn from_operations(
+        operations: Vec<PlannedOperation>,
+        fallback: PlannedOperation,
+        reason: impl Into<String>,
+    ) -> Self {
+        let mut operations = operations.into_iter();
+        let Some(first) = operations.next() else {
+            return Self::Skipped(PlannedOperation {
+                kind: OperationKind::Skip(reason.into()),
+                ..fallback
+            });
+        };
+        Self::Authored {
+            first,
+            additional: operations.collect(),
+        }
+    }
+
+    fn into_operations(self) -> Vec<PlannedOperation> {
+        match self {
+            Self::Authored {
+                first,
+                mut additional,
+            } => {
+                additional.insert(0, first);
+                additional
+            }
+            Self::Skipped(operation) => vec![operation],
+        }
+    }
 }
 
 /// Author deterministic failing findings into `root`.
@@ -317,7 +366,7 @@ fn plan_operations(
         let Some(code) = finding.remediation_class.code.as_deref() else {
             continue;
         };
-        for operation in author_for(code, finding, facts) {
+        for operation in author_for(code, finding, facts).into_operations() {
             if claimed.insert(operation.path.clone()) {
                 operations.push(operation);
             } else {
@@ -328,7 +377,9 @@ fn plan_operations(
                     remediation_code: code.to_owned(),
                     outcome: "skipped".to_owned(),
                     reason: Some(
-                        "another remediation in this run already owns the path".to_owned(),
+                        "another remediation in this run already owns the path; commit the \
+                         reported write, then re-run alignment to apply this remediation"
+                            .to_owned(),
                     ),
                 });
             }
@@ -337,14 +388,20 @@ fn plan_operations(
     operations
 }
 
-fn author_for(code: &str, finding: &Finding, facts: &WorkingTreeFacts) -> Vec<PlannedOperation> {
+fn author_for(code: &str, finding: &Finding, facts: &WorkingTreeFacts) -> AuthorResult {
     let operation = |path: &str, kind| PlannedOperation {
         path: path.to_owned(),
         kind,
         rule: finding.rule.clone(),
         code: code.to_owned(),
     };
-    match code {
+    let fallback_path = finding
+        .evidence
+        .as_ref()
+        .and_then(|evidence| evidence.path.as_deref())
+        .unwrap_or("(no path identified)");
+    let fallback = || operation(fallback_path, OperationKind::Skip(String::new()));
+    let operations = match code {
         "add-license-file" => vec![operation(
             "LICENSE",
             OperationKind::Write(APACHE_2_LICENSE.into()),
@@ -375,10 +432,22 @@ fn author_for(code: &str, finding: &Finding, facts: &WorkingTreeFacts) -> Vec<Pl
             ".config/lefthook.yml",
             OperationKind::Write(LEFTHOOK.into()),
         )],
-        "add-claude-symlink" => vec![operation(
-            "CLAUDE.md",
-            OperationKind::Symlink("AGENTS.md".to_owned()),
-        )],
+        "add-claude-symlink" => {
+            if facts.root.join("AGENTS.md").is_file() {
+                vec![operation(
+                    "CLAUDE.md",
+                    OperationKind::Symlink("AGENTS.md".to_owned()),
+                )]
+            } else {
+                vec![operation(
+                    "CLAUDE.md",
+                    OperationKind::Skip(
+                        "AGENTS.md is absent; refusing to create a dangling CLAUDE.md symlink"
+                            .to_owned(),
+                    ),
+                )]
+            }
+        }
         "remove-agent-harness-config" => forbidden_paths(facts)
             .into_iter()
             .map(|path| operation(&path, OperationKind::Remove))
@@ -427,7 +496,12 @@ fn author_for(code: &str, finding: &Finding, facts: &WorkingTreeFacts) -> Vec<Pl
             panic!("deterministic remediation `{code}` has no author dispatch")
         }
         _ => Vec::new(),
-    }
+    };
+    AuthorResult::from_operations(
+        operations,
+        fallback(),
+        format!("remediation `{code}` could not identify a safe authored operation"),
+    )
 }
 
 fn append_line_if_present(root: &Path, path: &str, line: &str) -> String {
@@ -469,19 +543,32 @@ fn yaml_transform_operation(
     let Some(text) = fs::read_to_string(facts.root.join(path)).ok() else {
         return Vec::new();
     };
-    let mut value: serde_norway::Value =
-        serde_norway::from_str(&text).unwrap_or(serde_norway::Value::Mapping(Default::default()));
-    let mapping = value
-        .as_mapping_mut()
-        .expect("the replacement value above is a mapping");
+    let Ok(mut value) = serde_norway::from_str::<serde_norway::Value>(&text) else {
+        return vec![PlannedOperation {
+            path: path.to_owned(),
+            kind: OperationKind::Skip("the YAML document could not be parsed".to_owned()),
+            rule: finding.rule.clone(),
+            code: code.to_owned(),
+        }];
+    };
+    let Some(mapping) = value.as_mapping_mut() else {
+        return vec![PlannedOperation {
+            path: path.to_owned(),
+            kind: OperationKind::Skip("the YAML document root is not a mapping".to_owned()),
+            rule: finding.rule.clone(),
+            code: code.to_owned(),
+        }];
+    };
     let key = serde_norway::Value::String;
-    match code {
+    let changed_keys: &[&str] = match code {
         "remove-visibility-field" => {
             mapping.remove(key("visibility".to_owned()));
+            &["visibility"]
         }
         "remove-custom-property-values" => {
             mapping.remove(key("custom-properties".to_owned()));
             mapping.remove(key("custom_properties".to_owned()));
+            &["custom-properties", "custom_properties"]
         }
         "declare-merge-settings" => {
             let mut merge = serde_norway::Mapping::new();
@@ -490,6 +577,7 @@ fn yaml_transform_operation(
             merge.insert(key("merge_commit".to_owned()), false.into());
             merge.insert(key("delete_branch_on_merge".to_owned()), true.into());
             mapping.insert(key("merge".to_owned()), serde_norway::Value::Mapping(merge));
+            &["merge"]
         }
         "remove-org-name-topics" => {
             if let Some(topics) = mapping
@@ -502,24 +590,86 @@ fn yaml_transform_operation(
                     })
                 });
             }
+            &["topics"]
         }
         "set-include-dirs" | "align-include-namespaces" => {
             // These transformations are structural and depend only on the
             // declared include path. Preserve the document when there are no
             // includes rather than inventing repository-specific tasks.
             align_taskfile_includes(mapping, code, &facts.root);
+            &["includes"]
         }
-        _ => {}
-    }
-    let Ok(contents) = serde_norway::to_string(&value) else {
-        return Vec::new();
+        _ => &[],
     };
+    let contents = patch_top_level_keys(&text, &value, changed_keys);
     vec![PlannedOperation {
         path: path.to_owned(),
         kind: OperationKind::Write(contents.into_bytes()),
         rule: finding.rule.clone(),
         code: code.to_owned(),
     }]
+}
+
+fn patch_top_level_keys(text: &str, value: &serde_norway::Value, keys: &[&str]) -> String {
+    let Some(mapping) = value.as_mapping() else {
+        return text.to_owned();
+    };
+    let mut result = text.to_owned();
+    for key in keys {
+        let replacement = mapping
+            .get(serde_norway::Value::String((*key).to_owned()))
+            .and_then(|entry| {
+                let mut single = serde_norway::Mapping::new();
+                single.insert(
+                    serde_norway::Value::String((*key).to_owned()),
+                    entry.clone(),
+                );
+                serde_norway::to_string(&serde_norway::Value::Mapping(single)).ok()
+            });
+        result = replace_top_level_block(&result, key, replacement.as_deref());
+    }
+    result
+}
+
+fn replace_top_level_block(text: &str, key: &str, replacement: Option<&str>) -> String {
+    let lines: Vec<&str> = text.split_inclusive('\n').collect();
+    let marker = format!("{key}:");
+    let start = lines.iter().position(|line| {
+        let bare = line.trim_end_matches(['\r', '\n']);
+        !bare.starts_with(char::is_whitespace)
+            && bare.strip_prefix(&marker).is_some_and(|tail| {
+                tail.is_empty() || tail.starts_with(' ') || tail.starts_with('\t')
+            })
+    });
+    let end = start.map(|start| {
+        lines
+            .iter()
+            .enumerate()
+            .skip(start + 1)
+            .find(|(_, line)| {
+                let bare = line.trim_end_matches(['\r', '\n']);
+                !bare.is_empty() && !bare.starts_with(char::is_whitespace)
+            })
+            .map_or(lines.len(), |(index, _)| index)
+    });
+    let insertion = replacement.unwrap_or("");
+    match (start, end) {
+        (Some(start), Some(end)) => {
+            let mut output = lines[..start].concat();
+            output.push_str(insertion);
+            output.push_str(&lines[end..].concat());
+            output
+        }
+        (None, _) if replacement.is_some() => {
+            let mut output = text.to_owned();
+            if !output.is_empty() && !output.ends_with('\n') {
+                output.push('\n');
+            }
+            output.push_str(insertion);
+            output
+        }
+        _ => text.to_owned(),
+    }
 }
 
 fn align_taskfile_includes(mapping: &mut serde_norway::Mapping, code: &str, root: &Path) {
@@ -679,18 +829,21 @@ fn pin_actions(text: &str) -> std::result::Result<Option<String>, String> {
     let mut lines = Vec::new();
     for line in text.lines() {
         let trimmed = line.trim_start();
-        let Some(value) = trimmed.strip_prefix("- uses:").map(str::trim) else {
+        let uses = trimmed
+            .strip_prefix("- uses:")
+            .or_else(|| trimmed.strip_prefix("uses:"));
+        let Some(value) = uses.map(str::trim) else {
             lines.push(line.to_owned());
             continue;
         };
         let value = value.split('#').next().unwrap_or(value).trim();
-        let Some((action, reference)) = value.rsplit_once('@') else {
-            return Err(format!("`{value}` has no action reference to pin"));
-        };
-        if action.starts_with("./") || action.starts_with("docker://") {
+        if value.starts_with("./") || value.starts_with("docker://") {
             lines.push(line.to_owned());
             continue;
         }
+        let Some((action, reference)) = value.rsplit_once('@') else {
+            return Err(format!("`{value}` has no action reference to pin"));
+        };
         if reference.len() == 40 && reference.bytes().all(|byte| byte.is_ascii_hexdigit()) {
             lines.push(line.to_owned());
             continue;
@@ -700,14 +853,20 @@ fn pin_actions(text: &str) -> std::result::Result<Option<String>, String> {
                 "`{action}` has no compiled-in reviewed pin; the path was left untouched"
             ));
         };
-        let indentation = &line[..line.len() - trimmed.len()];
-        lines.push(format!("{indentation}- uses: {action}@{sha} # {version}"));
+        let value_offset = line.find(value).unwrap_or(line.len());
+        lines.push(format!(
+            "{}{action}@{sha} # {version}",
+            &line[..value_offset]
+        ));
         changed = true;
     }
     Ok(changed.then(|| format!("{}\n", lines.join("\n"))))
 }
 
 fn transform_workflow(text: &str, code: &str) -> Option<String> {
+    if code == "supply-airlock-token" {
+        return supply_airlock_token(text);
+    }
     let mut value: serde_norway::Value = serde_norway::from_str(text).ok()?;
     let root = value.as_mapping_mut()?;
     let key = serde_norway::Value::String;
@@ -734,38 +893,6 @@ fn transform_workflow(text: &str, code: &str) -> Option<String> {
                 .ok()?,
             );
         }
-        "supply-airlock-token" => {
-            let jobs = root.get_mut(key("jobs".to_owned()))?.as_mapping_mut()?;
-            for job in jobs
-                .values_mut()
-                .filter_map(serde_norway::Value::as_mapping_mut)
-            {
-                let Some(steps) = job
-                    .get_mut(key("steps".to_owned()))
-                    .and_then(serde_norway::Value::as_sequence_mut)
-                else {
-                    continue;
-                };
-                for step in steps
-                    .iter_mut()
-                    .filter_map(serde_norway::Value::as_mapping_mut)
-                {
-                    let is_airlock = step
-                        .get(key("uses".to_owned()))
-                        .and_then(serde_norway::Value::as_str)
-                        .is_some_and(|uses| uses.contains("/airlock"));
-                    if is_airlock {
-                        let env = step
-                            .entry(key("env".to_owned()))
-                            .or_insert_with(|| serde_norway::Value::Mapping(Default::default()));
-                        env.as_mapping_mut()?.insert(
-                            key("AIRLOCK_TOKEN".to_owned()),
-                            "${{ secrets.AIRLOCK_TOKEN }}".into(),
-                        );
-                    }
-                }
-            }
-        }
         "add-tag-trigger" => add_push_trigger(root, "tags", "*"),
         "add-push-trigger" => add_push_trigger(root, "branches", "main"),
         "set-cd-concurrency" => {
@@ -777,7 +904,68 @@ fn transform_workflow(text: &str, code: &str) -> Option<String> {
         }
         _ => return None,
     }
-    serde_norway::to_string(&value).ok()
+    let changed = match code {
+        "add-pull-request-trigger" | "add-tag-trigger" | "add-push-trigger" => &["on"][..],
+        "empty-workflow-permissions" => &["permissions"][..],
+        "add-ci-concurrency-group" | "set-cd-concurrency" => &["concurrency"][..],
+        _ => return None,
+    };
+    Some(patch_top_level_keys(text, &value, changed))
+}
+
+fn supply_airlock_token(text: &str) -> Option<String> {
+    if text.contains("AIRLOCK_TOKEN:") {
+        return Some(text.to_owned());
+    }
+    let mut lines: Vec<String> = text.lines().map(ToOwned::to_owned).collect();
+    let uses_index = lines.iter().position(|line| {
+        line.trim_start()
+            .trim_start_matches("- ")
+            .strip_prefix("uses:")
+            .is_some_and(|uses| uses.contains("/airlock"))
+    })?;
+    let indentation = lines[uses_index].len() - lines[uses_index].trim_start().len();
+    let step_end = lines
+        .iter()
+        .enumerate()
+        .skip(uses_index + 1)
+        .find(|(_, line)| {
+            let trimmed = line.trim_start();
+            let indent = line.len() - trimmed.len();
+            indent <= indentation && trimmed.starts_with("- ")
+        })
+        .map_or(lines.len(), |(index, _)| index);
+    let env_index = lines
+        .iter()
+        .enumerate()
+        .take(step_end)
+        .skip(uses_index + 1)
+        .find(|(_, line)| {
+            let trimmed = line.trim_start();
+            let indent = line.len() - trimmed.len();
+            indent == indentation + 2 && trimmed.starts_with("env:")
+        })
+        .map(|(index, _)| index);
+    let insertion = if let Some(env_index) = env_index {
+        (
+            env_index + 1,
+            format!(
+                "{}AIRLOCK_TOKEN: ${{{{ secrets.AIRLOCK_TOKEN }}}}",
+                " ".repeat(indentation + 4)
+            ),
+        )
+    } else {
+        (
+            uses_index + 1,
+            format!(
+                "{}env:\n{}AIRLOCK_TOKEN: ${{{{ secrets.AIRLOCK_TOKEN }}}}",
+                " ".repeat(indentation + 2),
+                " ".repeat(indentation + 4)
+            ),
+        )
+    };
+    lines.insert(insertion.0, insertion.1);
+    Some(format!("{}\n", lines.join("\n")))
 }
 
 fn add_push_trigger(root: &mut serde_norway::Mapping, selector: &str, value: &str) {
@@ -968,7 +1156,11 @@ fn atomic_write(target: &Path, contents: &[u8]) -> std::io::Result<()> {
     }
     let staging = staging_path(target);
     fs::write(&staging, contents)?;
-    fs::rename(staging, target)
+    if let Err(error) = fs::rename(&staging, target) {
+        let _ = fs::remove_file(staging);
+        return Err(error);
+    }
+    Ok(())
 }
 
 #[cfg(unix)]
@@ -979,7 +1171,11 @@ fn atomic_symlink(target: &Path, destination: &str) -> std::io::Result<()> {
     }
     let staging = staging_path(target);
     symlink(destination, &staging)?;
-    fs::rename(staging, target)
+    if let Err(error) = fs::rename(&staging, target) {
+        let _ = fs::remove_file(staging);
+        return Err(error);
+    }
+    Ok(())
 }
 
 #[cfg(not(unix))]
@@ -1152,6 +1348,7 @@ mod tests {
             let directory = repository();
             let facts = worktree::read_facts(directory.path()).unwrap();
             assert!(author_for(definition.code, &finding.findings[0], &facts)
+                .into_operations()
                 .iter()
                 .all(|operation| !AUTHORIZATION_BEARING_PATHS.contains(&operation.path.as_str())));
         }
@@ -1211,8 +1408,89 @@ mod tests {
         let pinned = pin_actions(known).unwrap().unwrap();
         assert!(pinned.contains("actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4"));
 
+        let named = "steps:\n  - name: Checkout\n    uses: actions/checkout@v4\n";
+        let pinned = pin_actions(named).unwrap().unwrap();
+        assert!(pinned
+            .contains("    uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4"));
+
+        assert_eq!(
+            pin_actions("steps:\n  - uses: ./.github/actions/build\n").unwrap(),
+            None
+        );
+        assert_eq!(
+            pin_actions("steps:\n  - uses: docker://example.invalid/tool\n").unwrap(),
+            None
+        );
+
         let unknown = pin_actions("steps:\n  - uses: example/action@v1\n").unwrap_err();
         assert!(unknown.contains("no compiled-in reviewed pin"));
+    }
+
+    #[test]
+    fn non_mapping_yaml_and_empty_authors_are_reported_as_skipped() {
+        let directory = repository();
+        fs::create_dir_all(directory.path().join(".github")).unwrap();
+        fs::write(
+            directory.path().join(".github/repo-settings.yml"),
+            "# comments only\n",
+        )
+        .unwrap();
+        git(directory.path(), &["add", ".github/repo-settings.yml"]);
+        git(directory.path(), &["commit", "-q", "-m", "settings"]);
+
+        let result = author(directory.path(), &report("REPO-META-11")).unwrap();
+        assert_eq!(result.operations[0].outcome, "skipped");
+        assert!(result.operations[0]
+            .reason
+            .as_deref()
+            .unwrap()
+            .contains("root is not a mapping"));
+
+        let result = author(directory.path(), &report("REPO-REL-02")).unwrap();
+        assert_eq!(result.operations[0].outcome, "skipped");
+        assert!(result.operations[0]
+            .reason
+            .as_deref()
+            .unwrap()
+            .contains("could not identify"));
+    }
+
+    #[test]
+    fn yaml_edits_preserve_unaffected_comments_and_action_pin_comments() {
+        let workflow = "\
+# workflow comment
+name: CI
+jobs:
+  check:
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+";
+        let transformed = transform_workflow(workflow, "empty-workflow-permissions").unwrap();
+        assert!(transformed.contains("# workflow comment"));
+        assert!(transformed.contains("# v4"));
+        assert!(transformed.contains("permissions: {}"));
+    }
+
+    #[test]
+    fn audit_workflow_uses_an_explicit_unreleased_placeholder() {
+        assert!(AUDIT_WORKFLOW
+            .contains("wyrd-company/airlock@0123456789abcdef0123456789abcdef01234567 # 0.0.1"));
+        assert!(AUDIT_WORKFLOW.contains("Replace this placeholder"));
+        assert!(!AUDIT_WORKFLOW.contains("bfe5533"));
+    }
+
+    #[test]
+    fn claude_symlink_is_skipped_until_agents_exists() {
+        let directory = repository();
+        let result = author(directory.path(), &report("REPO-FILE-12")).unwrap();
+        assert_eq!(result.operations[0].outcome, "skipped");
+        assert!(result.operations[0]
+            .reason
+            .as_deref()
+            .unwrap()
+            .contains("dangling"));
+        assert!(!directory.path().join("CLAUDE.md").exists());
     }
 
     #[test]

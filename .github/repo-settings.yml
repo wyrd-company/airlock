@@ -1,5 +1,5 @@
 # Declared repository metadata. Applied to GitHub by an operator through
-# `airlock align`.
+# Airlock's terminal interface, never by `airlock align-files`.
 #
 # This file is the source of truth. Changing settings in the GitHub UI is
 # drift, not a change; the scheduled read-only audit detects the discrepancy.

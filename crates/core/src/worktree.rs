@@ -43,6 +43,12 @@ use crate::github::{EntryKind, Tree, TreeEntry};
 use crate::limits::Limits;
 use crate::snapshot::FileState;
 
+/// Files whose committed contents authorize how an audit is evaluated.
+///
+/// These paths are always read from HEAD, never from the mutable working tree.
+/// Any working-tree author must consume this same set and refuse to write it.
+pub const AUTHORIZATION_BEARING_PATHS: &[&str] = &[".github/airlock.yml"];
+
 /// What airlock observed about a working tree, before any file is read.
 #[derive(Debug, Clone)]
 pub struct WorkingTreeFacts {

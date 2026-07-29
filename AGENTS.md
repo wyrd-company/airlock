@@ -45,9 +45,10 @@ is the failure mode that makes an audit tool untrustworthy.
 ## What not to touch
 
 `.github/repo-settings.yml` is the source of truth for repository metadata and
-is applied by an operator through `airlock align`. Editing settings in the
-GitHub web interface is drift, not a change; the scheduled read-only audit
-detects the discrepancy.
+is applied by an operator through Airlock's terminal interface. `airlock
+align-files` cannot apply settings. Editing settings in the GitHub web
+interface is drift, not a change; the scheduled read-only audit detects the
+discrepancy.
 
 Version numbers are computed at release time from `.intentional/config.yml`. Do
 not hand-edit the version in `Cargo.toml` or write a release entry in

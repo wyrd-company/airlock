@@ -542,6 +542,41 @@ fn align_files_writes_then_reobserves_and_is_idempotent() {
     );
 }
 
+#[test]
+fn align_files_failure_uses_the_success_json_schema() {
+    let repository = TempDir::new().unwrap();
+    git(repository.path(), &["init", "-q", "-b", "main"]);
+    std::fs::create_dir(repository.path().join("LICENSE")).unwrap();
+    std::fs::write(repository.path().join("seed"), "seed\n").unwrap();
+    git(repository.path(), &["add", "seed"]);
+    git(repository.path(), &["commit", "-q", "-m", "fixture"]);
+    let policies = TempDir::new().unwrap();
+    let policy = policy_path(&policies, LICENSING_POLICY);
+    let root = repository.path().display().to_string();
+
+    let assertion = offline()
+        .args([
+            "align-files",
+            "--working-tree",
+            &root,
+            "--policy",
+            &policy,
+            "--format",
+            "json",
+        ])
+        .assert()
+        .code(2);
+    let output = json_output(&assertion.get_output().stdout);
+    assert_eq!(output["schema_version"], 1);
+    assert_eq!(
+        output["operations"]["operations"][0]["outcome"],
+        "not_written"
+    );
+    assert_eq!(output["reobserved"], Value::Null);
+    assert_eq!(output["pull_request"]["state"], "unknown");
+    assert!(output["default_branch_observation"].is_string());
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn an_enabled_manual_rule_does_not_make_the_audit_incomplete() {
     let repo = FakeRepo::new("wyrd-company", "example").with_file("README.md", "# example");
