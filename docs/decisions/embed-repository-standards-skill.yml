@@ -1,0 +1,38 @@
+$schema: https://refinery.systems/ontology/decision-record
+name: Embed the Repository Standards Skill
+
+relationships:
+  - implements:
+      - repository-standards-skill-distribution
+
+description: >-
+  The repository-standards skill and Airlock's compiled registry described the
+  same rules in separate hand-maintained artifacts. The standalone skill lived
+  in a host-mounted local Git repository with no remote, so it was neither
+  backed up nor shareable with adopters.
+
+considered-options:
+  1: Keep the standalone skill authoritative and test the registry for drift.
+  2: Embed a second hand-maintained skill copy in Airlock.
+  3: Embed the hand-written skill material in Airlock and generate its
+     conformance reference from the compiled registry.
+
+decision-outcome:
+  chosen-option: 3
+  justification: >-
+    Airlock gives the skill a durable home, release process, and offline
+    distribution path. Generating the conformance reference makes the registry
+    the only author of rule statements, severities, sections, and evaluation
+    modes, so divergence cannot be expressed. The multi-file skill is emitted
+    as a complete directory. Existing targets are refused by default and an
+    explicit force option replaces, rather than merges, the tree so stale or
+    locally modified files cannot masquerade as the emitted version.
+
+expected-outcomes:
+  positive:
+    - Every Airlock release carries matching audit behavior and agent guidance.
+    - Adopters can install the complete skill without a network or source checkout.
+    - The standalone local directory can be refreshed as a working copy from Airlock.
+  negative:
+    - Updating hand-written skill guidance now requires an Airlock release.
+    - Forced emission deliberately removes local changes beneath the target.

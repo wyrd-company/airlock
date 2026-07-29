@@ -66,6 +66,19 @@ enum Command {
     Plan(PlanArgs),
     /// Manage the read-only credential airlock uses.
     Auth(AuthArgs),
+    /// Write the embedded repository-standards skill to a directory.
+    Skill(SkillArgs),
+}
+
+#[derive(Debug, Args)]
+struct SkillArgs {
+    /// Directory to create.
+    #[arg(default_value = "repository-standards")]
+    target: PathBuf,
+
+    /// Replace an existing target directory and all of its contents.
+    #[arg(long)]
+    force: bool,
 }
 
 #[derive(Debug, Args)]
@@ -324,7 +337,21 @@ async fn run(cli: Cli, interactive: bool) -> Result<u8> {
         Command::Auth(AuthArgs {
             command: AuthCommand::Token(args),
         }) => token_command(&args).await,
+        Command::Skill(args) => skill_command(&args),
     }
+}
+
+fn skill_command(args: &SkillArgs) -> Result<u8> {
+    airlock_core::skill::emit(&args.target, args.force)
+        .with_context(|| format!("cannot write skill to {}", args.target.display()))?;
+    println!(
+        "Wrote repository-standards skill from registry {} ({}) to {}.\n\
+         Cite every rule by id and statement together; a rule id alone is not meaningful.",
+        airlock_core::registry::REGISTRY_VERSION,
+        airlock_core::registry::digest(),
+        args.target.display()
+    );
+    Ok(0)
 }
 
 fn api_base() -> String {

@@ -1,18 +1,12 @@
-//! The registry is a copy of the conformance checklist, and this is what keeps
-//! it one.
+//! The emitted conformance checklist is a projection of the registry.
 //!
-//! `fixtures/conformance.md` is a committed copy of the authoritative
-//! checklist from the `repository-standards` skill. Every rule in it must
-//! appear in the registry with a byte-identical statement, the same severity,
-//! section, and evaluation mode — and the registry must contain nothing else.
-//! Drift in either direction fails here rather than silently changing what an
-//! audit means.
+//! These tests parse that projection independently and prove the generated
+//! document retains every registry-owned field. There is no second checklist
+//! fixture whose rule prose can drift.
 
 use std::collections::BTreeMap;
 
 use airlock_core::registry::{Evaluation, Section, Severity, CHECKS};
-
-const CONFORMANCE: &str = include_str!("fixtures/conformance.md");
 
 struct Rule {
     statement: String,
@@ -40,10 +34,11 @@ fn section_for_heading(heading: &str) -> Option<Section> {
 
 /// Parse the checklist's rule tables.
 fn parse_checklist() -> BTreeMap<String, Rule> {
+    let conformance = airlock_core::skill::conformance();
     let mut rules = BTreeMap::new();
     let mut section = None;
 
-    for line in CONFORMANCE.lines() {
+    for line in conformance.lines() {
         if let Some(heading) = line.strip_prefix("## ") {
             section = section_for_heading(heading.trim());
             continue;
@@ -93,7 +88,7 @@ fn parse_checklist() -> BTreeMap<String, Rule> {
 }
 
 #[test]
-fn the_checklist_fixture_parses() {
+fn the_generated_checklist_parses() {
     let rules = parse_checklist();
     assert_eq!(
         rules.len(),

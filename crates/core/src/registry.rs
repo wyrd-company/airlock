@@ -11,9 +11,9 @@
 //! checks not yet written are registered as unimplemented so they are visibly
 //! absent rather than silently absent.
 //!
-//! The statements here are verbatim copies of the conformance checklist. A
-//! test in `tests/conformance.rs` parses a committed copy of that document and
-//! fails on any drift, in either direction.
+//! The repository-standards skill's conformance reference is generated from
+//! this registry. A test in `tests/conformance.rs` parses that projection and
+//! proves it preserves every registry-owned field.
 
 use std::fmt;
 
@@ -241,9 +241,9 @@ impl Observation {
 pub struct CheckDefinition {
     /// The check definition id, for example `REPO-LIC-01`.
     pub id: &'static str,
-    /// The check definition statement, verbatim from the conformance checklist.
+    /// The check definition statement.
     pub statement: &'static str,
-    /// The default severity, verbatim from the conformance checklist.
+    /// The default severity.
     pub severity: Severity,
     /// The section the rule belongs to.
     pub section: Section,

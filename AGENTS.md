@@ -10,10 +10,12 @@ Run `task check` before pushing; it is what CI runs. Everything else is in
 
 ## Constraints that are not negotiable
 
-**The audit never writes.** `airlock audit` and every headless surface hold no
+**The audit never writes.** `airlock audit` and every audit surface hold no
 mutating endpoint and refuse any credential that could write. The interactive
 align session alone may apply settings-level remediations — under an
 operator's device-flow grant held only in memory — and it never writes files.
+`airlock skill` only emits the embedded skill to an explicitly selected local
+directory; it never touches a repository or uses a credential.
 
 **The binary never shells out.** No `git`, no `gh`, no subprocess at all from
 `airlock` or anything it depends on. Airlock speaks the GitHub REST API
@@ -56,9 +58,10 @@ Do not replace a pin with a tag.
 
 ## Where things live
 
-The rules airlock checks come from the `repository-standards` conformance
-document, which is the source of truth for their wording and severity — the
-registry mirrors it, and drift is resolved in favour of the document.
+The compiled registry is the source of truth for rule ids, statements,
+severities, sections, and evaluation modes. `airlock skill` generates the
+`repository-standards` conformance reference from it; the rest of the embedded
+skill is hand-written guidance and supporting material.
 
 `docs/examples/` holds candidate copies of files that belong elsewhere — the
 organisation policy and its topic vocabulary live in `wyrd-company/.github`

@@ -19,6 +19,27 @@ Not yet published to any registry. Build from source:
 cargo install --git https://github.com/wyrd-company/airlock airlock-cli
 ```
 
+## Install the repository standards skill
+
+Airlock carries the complete `repository-standards` agent skill, including its
+platform references, topics vocabulary, and templates. Emit it directly into
+your agent skill directory:
+
+```bash
+airlock skill ~/.agents/skills/repository-standards
+```
+
+The target must not exist. Use `--force` only when you intend to replace the
+entire existing directory; Airlock never merges an emitted tree with local
+changes. With no target, the command writes `repository-standards` in the
+current directory.
+
+The generated `references/conformance.md` quotes the compiled registry version
+and digest. Its rule statements, severities, sections, and evaluation modes
+come from that registry; the remaining guidance and reference material is
+hand-written in Airlock. Command output also reminds operators to cite a rule
+id and its statement together, never the id alone.
+
 The minimum supported Rust version is 1.86.
 
 ## Quickstart

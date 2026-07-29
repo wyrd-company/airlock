@@ -146,7 +146,35 @@ fn help_lists_the_command_surface() {
         .success()
         .stdout(contains("audit"))
         .stdout(contains("agent-work"))
-        .stdout(contains("auth"));
+        .stdout(contains("auth"))
+        .stdout(contains("skill"));
+}
+
+#[test]
+fn skill_emits_the_complete_offline_tree_and_refuses_existing_targets() {
+    let temp = TempDir::new().unwrap();
+    let target = temp.path().join("repository-standards");
+
+    offline()
+        .args(["skill", target.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(contains("Cite every rule by id and statement together"))
+        .stdout(contains(airlock_core::registry::REGISTRY_VERSION))
+        .stdout(contains(airlock_core::registry::digest()));
+
+    let conformance = std::fs::read_to_string(target.join("references/conformance.md")).unwrap();
+    assert!(conformance.contains("REPO-CI-02"));
+    assert!(conformance.contains("Workflow-level `permissions:` is set to `{}`"));
+    assert!(target.join("references/topics.md").is_file());
+    assert!(target.join("references/platform/rulesets.md").is_file());
+    assert!(target.join("references/templates/taskfile.yml").is_file());
+
+    offline()
+        .args(["skill", target.to_str().unwrap()])
+        .assert()
+        .code(2)
+        .stderr(contains("pass --force to replace it"));
 }
 
 #[test]

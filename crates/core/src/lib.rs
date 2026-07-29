@@ -25,6 +25,7 @@ pub mod policy;
 pub mod registry;
 pub mod remediation;
 pub mod render;
+pub mod skill;
 pub mod snapshot;
 pub mod worklist;
 pub mod worktree;

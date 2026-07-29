@@ -1,0 +1,60 @@
+version: "3"
+
+# The same verb means the same thing in every repository.
+#
+#   build    produce the artifact          (where applicable)
+#   test     run the full test suite       (always)
+#   lint     static analysis, non-mutating (always)
+#   format   apply formatting, mutating    (always)
+#   check    everything CI runs            (always)
+#   dev      run locally with hot reload   (where applicable)
+#
+# Applicability of build and dev is an explicit decision, not a default.
+
+tasks:
+  default:
+    desc: List available tasks
+    cmds:
+      - task --list
+    silent: true
+
+  build:
+    desc: Produce the artifact
+    cmds:
+      - echo "TODO"
+
+  test:
+    desc: Run the full test suite
+    cmds:
+      - echo "TODO"
+
+  lint:
+    desc: Static analysis
+    cmds:
+      - echo "TODO"
+
+  format:
+    desc: Apply formatting
+    cmds:
+      - echo "TODO"
+
+  dev:
+    desc: Run locally with hot reload
+    cmds:
+      - echo "TODO"
+
+  check:
+    desc: Everything CI runs — the one command to run before pushing
+    cmds:
+      - task: lint
+      - task: test
+      - task: build
+
+# Monorepo composition. Every include sets dir: — by default an included task
+# runs in the ROOT directory, not its own, and that failure is silent.
+# The namespace is the release unit id from .intentional/config.yml.
+#
+# includes:
+#   design-system:
+#     taskfile: ./packages/design-system
+#     dir: ./packages/design-system
