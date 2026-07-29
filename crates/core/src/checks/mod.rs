@@ -34,6 +34,7 @@ use crate::github::{
 use crate::limits::Limits;
 use crate::policy::{Condition, ResolvedPolicy, RuleInstance};
 use crate::registry::{Applicability, Evaluation};
+use crate::remediation::ActionGroup;
 use crate::snapshot::{FileState, RepoSnapshot};
 use crate::yaml::{self, Yaml};
 
@@ -170,7 +171,7 @@ impl Verdict {
     pub fn from_api_error(error: &ApiError) -> Self {
         let remediation = match error.cause {
             crate::github::ErrorCause::Permission => Some(Remediation::new(
-                "grant_permission",
+                ActionGroup::GRANT_PERMISSION,
                 match &error.accepted_permissions {
                     Some(permissions) => format!(
                         "The credential lacks the permission {permissions} that {} requires.",
@@ -180,7 +181,7 @@ impl Verdict {
                 },
             )),
             crate::github::ErrorCause::PlanLimitation => Some(Remediation::new(
-                "plan_gate",
+                ActionGroup::PLAN_GATE,
                 format!(
                     "{} is gated by the account's GitHub plan, so airlock cannot read it.",
                     error.endpoint
@@ -473,7 +474,7 @@ pub fn evaluate(rule: &RuleInstance, context: &AuditContext) -> Verdict {
                 "this rule is registered but airlock does not evaluate it yet",
             )),
             remediation: Some(Remediation::new(
-                "disable_or_wait",
+                ActionGroup::DISABLE_OR_WAIT,
                 "Remove the rule from the policy or wait for airlock to implement it. An \
                  enabled rule airlock cannot evaluate makes the audit incomplete rather than \
                  quietly narrower.",
@@ -647,19 +648,25 @@ pub(crate) fn presence(context: &AuditContext, path: &str, subject: &str) -> Ver
             "file_missing",
             path,
             format!("{subject} is absent"),
-            Remediation::new("add_file", format!("Add {path}.")),
+            Remediation::new(ActionGroup::ADD_FILE, format!("Add {path}.")),
         ),
         FileState::Symlink { target } => Verdict::fail_at(
             "file_is_a_symlink",
             path,
             format!("{path} is a symlink to `{target}` rather than a file"),
-            Remediation::new("replace_symlink", format!("Make {path} a regular file.")),
+            Remediation::new(
+                ActionGroup::REPLACE_SYMLINK,
+                format!("Make {path} a regular file."),
+            ),
         ),
         FileState::NotAFile { kind, mode } => Verdict::fail_at(
             "path_is_not_a_file",
             path,
             format!("{path} is a {kind:?} (mode {mode}) rather than a file"),
-            Remediation::new("replace_entry", format!("Make {path} a regular file.")),
+            Remediation::new(
+                ActionGroup::REPLACE_ENTRY,
+                format!("Make {path} a regular file."),
+            ),
         ),
         FileState::OverBudget { size, limit } => Verdict::inconclusive(
             "file_over_budget",
@@ -682,7 +689,7 @@ pub(crate) fn repo_settings(context: &AuditContext) -> Result<Yaml, Box<Verdict>
             ".github/repo-settings.yml",
             "the declared settings file is absent, so nothing is declared",
             Remediation::new(
-                "add_file",
+                ActionGroup::ADD_FILE,
                 "Add .github/repo-settings.yml declaring the repository's metadata.",
             ),
         ))),
@@ -691,7 +698,7 @@ pub(crate) fn repo_settings(context: &AuditContext) -> Result<Yaml, Box<Verdict>
             ".github/repo-settings.yml",
             "the declared settings path is not a regular file",
             Remediation::new(
-                "replace_entry",
+                ActionGroup::REPLACE_ENTRY,
                 "Make .github/repo-settings.yml a regular file.",
             ),
         ))),

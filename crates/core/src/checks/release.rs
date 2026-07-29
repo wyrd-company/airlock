@@ -2,6 +2,7 @@
 
 use crate::findings::Remediation;
 use crate::policy::RuleInstance;
+use crate::remediation::ActionGroup;
 use crate::yaml::Yaml;
 
 use super::{AuditContext, ParsedFile, Verdict};
@@ -34,7 +35,7 @@ fn release_units_declared(context: &AuditContext) -> Verdict {
             ".intentional/config.yml",
             ".intentional/config.yml is absent, so no release units are declared",
             Remediation::new(
-                "declare_release_units",
+                ActionGroup::DECLARE_RELEASE_UNITS,
                 "Add .intentional/config.yml declaring the repository's release units.",
             ),
         ),
@@ -50,7 +51,7 @@ fn release_units_declared(context: &AuditContext) -> Verdict {
                     ".intentional/config.yml",
                     ".intentional/config.yml declares no release units",
                     Remediation::new(
-                        "declare_release_units",
+                        ActionGroup::DECLARE_RELEASE_UNITS,
                         "Declare at least one release unit.",
                     ),
                 )
@@ -93,7 +94,7 @@ fn changelog_per_unit(context: &AuditContext) -> Verdict {
             "changelog_missing",
             format!("{} absent", missing.join(", ")),
             Remediation::new(
-                "add_changelog",
+                ActionGroup::ADD_CHANGELOG,
                 "Add a CHANGELOG.md at each release unit's declared path.",
             ),
         )
@@ -131,7 +132,7 @@ fn no_root_aggregate_changelog(context: &AuditContext) -> Verdict {
             "a multi-unit repository declares a release unit at the root, so its root \
              CHANGELOG.md cannot be anything but an aggregate",
             Remediation::new(
-                "move_root_unit",
+                ActionGroup::MOVE_ROOT_UNIT,
                 "Give every release unit its own path below the root.",
             ),
         );
@@ -146,7 +147,7 @@ fn no_root_aggregate_changelog(context: &AuditContext) -> Verdict {
                 units.len()
             ),
             Remediation::new(
-                "remove_root_changelog",
+                ActionGroup::REMOVE_ROOT_CHANGELOG,
                 "Remove the root CHANGELOG.md; each release unit keeps its own.",
             ),
         )
@@ -206,7 +207,7 @@ fn release_is_dispatched(context: &AuditContext) -> Verdict {
             &workflow.path,
             gaps.join("; "),
             Remediation::new(
-                "dispatch_on_pinned_sha",
+                ActionGroup::DISPATCH_ON_PINNED_SHA,
                 "Make release a workflow_dispatch taking the source sha as an input.",
             ),
         )
@@ -260,7 +261,7 @@ fn no_publish_on_merge(context: &AuditContext) -> Verdict {
             "publishes_on_merge",
             offenders.join("; "),
             Remediation::new(
-                "dispatch_publication",
+                ActionGroup::DISPATCH_PUBLICATION,
                 "Publish from a dispatched workflow, never automatically on merge.",
             ),
         )

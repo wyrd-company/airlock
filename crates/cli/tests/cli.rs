@@ -202,6 +202,12 @@ async fn a_blocking_failure_exits_one() {
     let lic01 = finding(&report, "REPO-LIC-01");
     assert_eq!(lic01["status"], "fail");
     assert_eq!(lic01["evidence"]["code"], "file_missing");
+    assert_eq!(lic01["remediation"]["action_group"], "add_file");
+    assert!(lic01["remediation"].get("code").is_none());
+    assert_eq!(
+        lic01["remediation_class"]["code"], "add-license-file",
+        "consumers join on the per-rule remediation class"
+    );
     assert!(lic01["remediation"]["detail"].is_string());
 }
 
@@ -254,7 +260,7 @@ capabilities:
     assert_eq!(git02["error"]["cause"], "plan_limitation");
     assert_eq!(git02["error"]["status"], 403);
     assert_eq!(git02["error"]["request_id"], "FIXT:0001");
-    assert_eq!(git02["remediation"]["code"], "plan_gate");
+    assert_eq!(git02["remediation"]["action_group"], "plan_gate");
 }
 
 // ---------------------------------------------------------------------------

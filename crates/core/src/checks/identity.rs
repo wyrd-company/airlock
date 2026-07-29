@@ -2,6 +2,7 @@
 
 use crate::findings::Remediation;
 use crate::policy::RuleInstance;
+use crate::remediation::ActionGroup;
 use crate::yaml::Yaml;
 
 use super::{declared_topics, repo_settings, AuditContext, Verdict};
@@ -51,7 +52,7 @@ fn name_is_lower_kebab(context: &AuditContext) -> Verdict {
                     .join(", ")
             ),
             Remediation::new(
-                "rename_repository",
+                ActionGroup::RENAME_REPOSITORY,
                 format!("Rename the repository to lower-kebab-case; `{name}` is not."),
             ),
         )
@@ -69,7 +70,7 @@ fn description(context: &AuditContext) -> Result<String, Box<Verdict>> {
             ".github/repo-settings.yml",
             "the declared settings file has no non-empty `description`",
             Remediation::new(
-                "declare_description",
+                ActionGroup::DECLARE_DESCRIPTION,
                 "Add a one-sentence `description:` to .github/repo-settings.yml.",
             ),
         ))),
@@ -106,7 +107,7 @@ fn description_shape(context: &AuditContext) -> Verdict {
             ".github/repo-settings.yml",
             format!("the description is {length} characters, over the {MAX_CHARS} limit"),
             Remediation::new(
-                "shorten_description",
+                ActionGroup::SHORTEN_DESCRIPTION,
                 format!("Cut the description to {MAX_CHARS} characters or fewer."),
             ),
         );
@@ -123,7 +124,7 @@ fn description_shape(context: &AuditContext) -> Verdict {
             ".github/repo-settings.yml",
             format!("the description reads as {sentences} sentences"),
             Remediation::new(
-                "single_sentence_description",
+                ActionGroup::SINGLE_SENTENCE_DESCRIPTION,
                 "Reduce the description to one sentence.",
             ),
         );
@@ -146,7 +147,7 @@ fn topics(context: &AuditContext) -> Result<Vec<String>, Box<Verdict>> {
             ".github/repo-settings.yml",
             "the declared settings file has no `topics` list",
             Remediation::new(
-                "declare_topics",
+                ActionGroup::DECLARE_TOPICS,
                 "Add a `topics:` list to .github/repo-settings.yml.",
             ),
         ))
@@ -168,7 +169,7 @@ fn topic_count(rule: &RuleInstance, context: &AuditContext) -> Verdict {
                 topics.len()
             ),
             Remediation::new(
-                "adjust_topics",
+                ActionGroup::ADJUST_TOPICS,
                 format!("Declare between {minimum} and {maximum} topics."),
             ),
         )
@@ -233,7 +234,7 @@ fn topic_vocabulary(context: &AuditContext) -> Verdict {
             ".github/repo-settings.yml",
             format!("no declared topic is {}", missing.join(" or ")),
             Remediation::new(
-                "add_topic",
+                ActionGroup::ADD_TOPIC,
                 format!("Add a topic from the {} vocabulary.", missing.join(" and ")),
             ),
         )
@@ -290,7 +291,7 @@ fn topics_are_catalogued(context: &AuditContext) -> Verdict {
                     .join(", ")
             ),
             Remediation::new(
-                "catalogue_topic",
+                ActionGroup::CATALOGUE_TOPIC,
                 "Add the topic to the reference vocabulary, or use one already there.",
             ),
         )
@@ -335,7 +336,10 @@ fn no_org_topic(rule: &RuleInstance, context: &AuditContext) -> Verdict {
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
-            Remediation::new("remove_org_topic", "Remove the organisation-name topic."),
+            Remediation::new(
+                ActionGroup::REMOVE_ORG_TOPIC,
+                "Remove the organisation-name topic.",
+            ),
         )
     }
 }
@@ -348,7 +352,7 @@ fn merge_settings_declared(context: &AuditContext) -> Verdict {
             ".github/repo-settings.yml",
             "the declared settings file has no `merge` block",
             Remediation::new(
-                "declare_merge_settings",
+                ActionGroup::DECLARE_MERGE_SETTINGS,
                 "Declare squash and rebase enabled, merge commits disabled, and head branches \
                  auto-deleted.",
             ),
@@ -381,7 +385,7 @@ fn merge_settings_declared(context: &AuditContext) -> Verdict {
             ".github/repo-settings.yml",
             wrong.join("; "),
             Remediation::new(
-                "correct_merge_settings",
+                ActionGroup::CORRECT_MERGE_SETTINGS,
                 "Declare squash and rebase enabled, merge commits disabled, and head branches \
                  auto-deleted.",
             ),
@@ -397,7 +401,7 @@ fn no_visibility_declared(context: &AuditContext) -> Verdict {
             ".github/repo-settings.yml",
             "the declared settings file carries a `visibility` field",
             Remediation::new(
-                "remove_visibility",
+                ActionGroup::REMOVE_VISIBILITY,
                 "Remove `visibility` from .github/repo-settings.yml. Publishing a repository is \
                  unrecoverable and stays a deliberate manual act.",
             ),
@@ -486,7 +490,7 @@ fn live_matches_declared(context: &AuditContext) -> Verdict {
                 drift.join(", ")
             ),
             Remediation::new(
-                "run_reconcile",
+                ActionGroup::RUN_RECONCILE,
                 "Run the reconcile workflow, or fix the declared file. Drift means \
                  reconciliation is not running.",
             ),

@@ -2,6 +2,7 @@
 
 use crate::findings::Remediation;
 use crate::policy::RuleInstance;
+use crate::remediation::ActionGroup;
 
 use super::{presence, AuditContext, Verdict};
 
@@ -60,7 +61,7 @@ fn not_dual_licensed(context: &AuditContext) -> Verdict {
             "dual_licensed",
             evidence.join("; "),
             Remediation::new(
-                "choose_one_license",
+                ActionGroup::CHOOSE_ONE_LICENSE,
                 "Pick one licence. The dual MIT OR Apache-2.0 arrangement is a Rust ecosystem \
                  convention the standard does not follow.",
             ),
@@ -102,7 +103,7 @@ fn license_declared_in_metadata(context: &AuditContext) -> Verdict {
             "license_missing_from_metadata",
             format!("{} declares no licence", undeclared.join(", ")),
             Remediation::new(
-                "declare_license",
+                ActionGroup::DECLARE_LICENSE,
                 "Add the licence identifier to the package metadata.",
             ),
         )

@@ -187,6 +187,7 @@ mod tests {
         AirlockIdentity, AuditedRepository, Evidence, Finding, Gate, ObservationRecord,
         PolicyIdentity, Remediation, RemediationClass,
     };
+    use crate::remediation::ActionGroup;
 
     fn report() -> Report {
         Report::assemble(
@@ -221,7 +222,7 @@ mod tests {
                 severity: "blocking".to_owned(),
                 status: Status::Fail,
                 evidence: Some(Evidence::at("file_missing", "LICENSE", "LICENSE is absent")),
-                remediation: Some(Remediation::new("add_file", "Add LICENSE.")),
+                remediation: Some(Remediation::new(ActionGroup::ADD_FILE, "Add LICENSE.")),
                 remediation_class: RemediationClass::for_rule("REPO-LIC-01"),
                 suppression: None,
                 source: Some("api".to_owned()),

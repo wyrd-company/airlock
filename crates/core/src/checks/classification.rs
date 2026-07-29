@@ -2,6 +2,7 @@
 
 use crate::findings::Remediation;
 use crate::policy::RuleInstance;
+use crate::remediation::ActionGroup;
 
 use super::{repo_settings, AuditContext, Verdict};
 
@@ -40,7 +41,7 @@ fn no_declared_custom_properties(context: &AuditContext) -> Verdict {
             ".github/repo-settings.yml",
             format!("the declared settings file carries {}", declared.join(", ")),
             Remediation::new(
-                "remove_custom_properties",
+                ActionGroup::REMOVE_CUSTOM_PROPERTIES,
                 "Remove custom property values. Classification is set on the organisation, not \
                  claimed by the repository.",
             ),
@@ -88,7 +89,7 @@ fn no_workflow_writes_properties(context: &AuditContext) -> Verdict {
             "workflow_writes_properties",
             offenders.join("; "),
             Remediation::new(
-                "remove_property_writes",
+                ActionGroup::REMOVE_PROPERTY_WRITES,
                 "Set organisation custom properties from the organisation, not from a repository \
                  workflow.",
             ),

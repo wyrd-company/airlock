@@ -2,6 +2,7 @@
 
 use crate::findings::Remediation;
 use crate::policy::RuleInstance;
+use crate::remediation::ActionGroup;
 
 use super::{AuditContext, Verdict};
 
@@ -31,7 +32,7 @@ fn default_branch(context: &AuditContext) -> Verdict {
             "default_branch_is_not_main",
             format!("the default branch is `{branch}`"),
             Remediation::new(
-                "rename_default_branch",
+                ActionGroup::RENAME_DEFAULT_BRANCH,
                 "Rename the default branch to `main`.",
             ),
         )
@@ -69,7 +70,7 @@ fn org_ruleset_coverage(context: &AuditContext) -> Verdict {
             "no_org_ruleset",
             "no active organisation-sourced branch ruleset covers the repository",
             Remediation::new(
-                "apply_org_ruleset",
+                ActionGroup::APPLY_ORG_RULESET,
                 "Apply an organisation ruleset targeting the default branch. Rulesets are an \
                  organisation-side setting airlock cannot change.",
             ),
@@ -157,7 +158,7 @@ fn report_branch_gaps(branch: &str, gaps: Vec<String>) -> Verdict {
             "branch_rules_insufficient",
             format!("on `{branch}`: {}", gaps.join("; ")),
             Remediation::new(
-                "tighten_ruleset",
+                ActionGroup::TIGHTEN_RULESET,
                 "Update the ruleset to require pull requests, allow only squash and rebase, and \
                  require linear history.",
             ),
@@ -179,7 +180,7 @@ fn boolean_setting(
         Verdict::fail(
             code_fail,
             format!("{subject} is {actual}, expected {expected}"),
-            Remediation::new("change_repository_setting", remedy.to_owned()),
+            Remediation::new(ActionGroup::CHANGE_REPOSITORY_SETTING, remedy.to_owned()),
         )
     }
 }
@@ -287,7 +288,7 @@ fn tags_have_no_v_prefix(context: &AuditContext) -> Verdict {
             "v_prefixed_tags",
             format!("{} carry a `v` prefix", offenders.join(", ")),
             Remediation::new(
-                "retag_without_prefix",
+                ActionGroup::RETAG_WITHOUT_PREFIX,
                 "Tag releases without the `v` prefix.",
             ),
         )
@@ -348,7 +349,7 @@ fn multi_unit_tag_shape(context: &AuditContext) -> Verdict {
                 units.len()
             ),
             Remediation::new(
-                "scope_tags",
+                ActionGroup::SCOPE_TAGS,
                 "Tag each release unit as `@scope/name@version`.",
             ),
         )
@@ -383,7 +384,7 @@ fn no_merge_commits(rule: &RuleInstance, context: &AuditContext) -> Verdict {
                 merges[0]
             ),
             Remediation::new(
-                "rewrite_or_prevent_merges",
+                ActionGroup::REWRITE_OR_PREVENT_MERGES,
                 "Require linear history so merge commits cannot enter the default branch.",
             ),
         );
@@ -444,7 +445,7 @@ fn app_identity_conventions(context: &AuditContext) -> Verdict {
             "app_identity_conventions_broken",
             offenders.join("; "),
             Remediation::new(
-                "move_app_identity",
+                ActionGroup::MOVE_APP_IDENTITY,
                 "Store the app id as a variable named `<APP>_APP_ID` and only the private key as \
                  a secret named `<APP>_APP_PRIVATE_KEY`.",
             ),
@@ -470,6 +471,7 @@ mod tests {
     use super::super::fixtures::*;
     use crate::findings::Status;
     use crate::github::{ApiError, BranchRule, CommitSummary, ErrorCause, Paged, Ruleset, TagRef};
+    use crate::remediation::ActionGroup;
     use serde_json::json;
 
     #[test]
@@ -565,7 +567,10 @@ mod tests {
         });
         let verdict = evaluate(&rule("REPO-GIT-02"), &context);
         assert_eq!(verdict.status, Status::Error);
-        assert_eq!(verdict.remediation.unwrap().code, "plan_gate");
+        assert_eq!(
+            verdict.remediation.unwrap().action_group,
+            ActionGroup::PLAN_GATE
+        );
     }
 
     #[test]

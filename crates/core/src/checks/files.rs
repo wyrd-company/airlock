@@ -2,6 +2,7 @@
 
 use crate::findings::Remediation;
 use crate::policy::RuleInstance;
+use crate::remediation::ActionGroup;
 use crate::snapshot::FileState;
 
 use super::{presence, AuditContext, Verdict};
@@ -78,7 +79,7 @@ fn gitattributes(context: &AuditContext) -> Verdict {
             ".gitattributes",
             ".gitattributes does not normalise line endings",
             Remediation::new(
-                "normalise_line_endings",
+                ActionGroup::NORMALISE_LINE_ENDINGS,
                 "Add `* text=auto` to .gitattributes.",
             ),
         )
@@ -101,7 +102,7 @@ fn taskfile(context: &AuditContext) -> Verdict {
             found,
             format!("the taskfile is named `{found}` rather than `taskfile.yml`"),
             Remediation::new(
-                "rename_taskfile",
+                ActionGroup::RENAME_TASKFILE,
                 format!("Rename {found} to taskfile.yml."),
             ),
         );
@@ -133,7 +134,7 @@ fn ci_workflow(context: &AuditContext) -> Verdict {
             "ci_workflow_missing",
             "no workflow under .github/workflows/ triggers on pull_request",
             Remediation::new(
-                "add_ci_workflow",
+                ActionGroup::ADD_CI_WORKFLOW,
                 "Add a CI workflow triggered on pull_request.",
             ),
         ),
@@ -163,7 +164,7 @@ fn renovate(rule: &RuleInstance, context: &AuditContext) -> Verdict {
             ".github/renovate.json",
             ".github/renovate.json extends no preset",
             Remediation::new(
-                "extend_org_preset",
+                ActionGroup::EXTEND_ORG_PRESET,
                 "Extend the organisation's shared renovate preset.",
             ),
         );
@@ -183,7 +184,7 @@ fn renovate(rule: &RuleInstance, context: &AuditContext) -> Verdict {
                 extends.join(", ")
             ),
             Remediation::new(
-                "extend_org_preset",
+                ActionGroup::EXTEND_ORG_PRESET,
                 format!("Extend `{expected}` in .github/renovate.json."),
             ),
         ),
@@ -217,7 +218,10 @@ fn devcontainer(context: &AuditContext) -> Verdict {
             "directory_missing",
             ".devcontainer",
             ".devcontainer/ is absent",
-            Remediation::new("add_devcontainer", "Add a .devcontainer/ definition."),
+            Remediation::new(
+                ActionGroup::ADD_DEVCONTAINER,
+                "Add a .devcontainer/ definition.",
+            ),
         )
     }
 }
@@ -241,7 +245,7 @@ fn claude_symlink(context: &AuditContext) -> Verdict {
                     "CLAUDE.md",
                     format!("CLAUDE.md is a symlink to `{target}` rather than `AGENTS.md`"),
                     Remediation::new(
-                        "relink_claude_md",
+                        ActionGroup::RELINK_CLAUDE_MD,
                         "Point the CLAUDE.md symlink at AGENTS.md.",
                     ),
                 )
@@ -252,7 +256,7 @@ fn claude_symlink(context: &AuditContext) -> Verdict {
             "CLAUDE.md",
             "CLAUDE.md is a regular file rather than a symlink to AGENTS.md",
             Remediation::new(
-                "replace_with_symlink",
+                ActionGroup::REPLACE_WITH_SYMLINK,
                 "Replace CLAUDE.md with a symlink to AGENTS.md.",
             ),
         ),
@@ -260,7 +264,10 @@ fn claude_symlink(context: &AuditContext) -> Verdict {
             "file_missing",
             "CLAUDE.md",
             "CLAUDE.md is absent",
-            Remediation::new("add_symlink", "Add CLAUDE.md as a symlink to AGENTS.md."),
+            Remediation::new(
+                ActionGroup::ADD_SYMLINK,
+                "Add CLAUDE.md as a symlink to AGENTS.md.",
+            ),
         ),
         other => presence_fallback(context, "CLAUDE.md", other),
     }
@@ -332,7 +339,7 @@ fn no_harness_config(rule: &RuleInstance, context: &AuditContext) -> Verdict {
             "harness_config_committed",
             format!("{} is committed", found.join(", ")),
             Remediation::new(
-                "remove_harness_config",
+                ActionGroup::REMOVE_HARNESS_CONFIG,
                 "Remove the agent harness configuration; it belongs outside the repository.",
             ),
         )
@@ -366,7 +373,10 @@ fn no_codeowners(context: &AuditContext) -> Verdict {
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
-            Remediation::new("remove_codeowners", "Remove the CODEOWNERS file."),
+            Remediation::new(
+                ActionGroup::REMOVE_CODEOWNERS,
+                "Remove the CODEOWNERS file.",
+            ),
         )
     }
 }
@@ -393,7 +403,7 @@ fn reconcile_workflow(context: &AuditContext) -> Verdict {
             &workflow.path,
             format!("the reconcile workflow does not trigger on push to `{branch}`"),
             Remediation::new(
-                "trigger_on_default_branch",
+                ActionGroup::TRIGGER_ON_DEFAULT_BRANCH,
                 format!("Trigger the reconcile workflow on push to `{branch}`."),
             ),
         )

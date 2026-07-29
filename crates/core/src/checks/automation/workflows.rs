@@ -1,4 +1,5 @@
 use super::*;
+use crate::remediation::ActionGroup;
 
 pub(super) fn readable_workflows<'a>(
     context: &'a AuditContext<'_>,
@@ -40,7 +41,10 @@ pub(super) fn ci_on_pull_request(context: &AuditContext) -> Verdict {
         None => Verdict::fail(
             "ci_does_not_trigger_on_pull_request",
             "no workflow triggers on pull_request",
-            Remediation::new("trigger_on_pull_request", "Trigger CI on pull_request."),
+            Remediation::new(
+                ActionGroup::TRIGGER_ON_PULL_REQUEST,
+                "Trigger CI on pull_request.",
+            ),
         ),
     }
 }
@@ -77,7 +81,7 @@ pub(super) fn workflow_permissions_empty(context: &AuditContext) -> Verdict {
             "workflow_permissions_not_empty",
             offenders.join("; "),
             Remediation::new(
-                "default_deny_permissions",
+                ActionGroup::DEFAULT_DENY_PERMISSIONS,
                 "Set `permissions: {}` at workflow level and elevate per job.",
             ),
         )
@@ -111,7 +115,7 @@ pub(super) fn jobs_declare_permissions(context: &AuditContext) -> Verdict {
             "job_without_permissions",
             format!("{} declare no permissions", offenders.join(", ")),
             Remediation::new(
-                "declare_job_permissions",
+                ActionGroup::DECLARE_JOB_PERMISSIONS,
                 "Declare the minimum permissions on every job.",
             ),
         )
@@ -183,7 +187,7 @@ pub(super) fn actions_pinned(context: &AuditContext) -> Verdict {
             "action_not_pinned",
             offenders.join("; "),
             Remediation::new(
-                "pin_action",
+                ActionGroup::PIN_ACTION,
                 "Pin every action to a full commit sha and name the version it came from in a \
                  trailing comment, for example `# v4`.",
             ),
@@ -272,7 +276,7 @@ pub(super) fn no_pull_request_target(context: &AuditContext) -> Verdict {
             "pull_request_target_used",
             format!("{} uses pull_request_target", offenders.join(", ")),
             Remediation::new(
-                "remove_pull_request_target",
+                ActionGroup::REMOVE_PULL_REQUEST_TARGET,
                 "Replace pull_request_target with pull_request. It runs fork code with secrets.",
             ),
         )
@@ -291,7 +295,10 @@ pub(super) fn concurrency_covers_pull_requests(context: &AuditContext) -> Verdic
         return Verdict::fail(
             "no_pull_request_workflow",
             "no workflow triggers on pull_request, so no concurrency group covers pull requests",
-            Remediation::new("trigger_on_pull_request", "Trigger CI on pull_request."),
+            Remediation::new(
+                ActionGroup::TRIGGER_ON_PULL_REQUEST,
+                "Trigger CI on pull_request.",
+            ),
         );
     }
 
@@ -330,7 +337,7 @@ pub(super) fn concurrency_covers_pull_requests(context: &AuditContext) -> Verdic
             "concurrency_missing",
             offenders.join("; "),
             Remediation::new(
-                "add_concurrency",
+                ActionGroup::ADD_CONCURRENCY,
                 "Add a concurrency group with cancel-in-progress covering pull requests.",
             ),
         )
@@ -380,7 +387,7 @@ pub(super) fn jobs_invoke_tasks(context: &AuditContext) -> Verdict {
             "job_runs_raw_command",
             offenders.join("; "),
             Remediation::new(
-                "wrap_in_task",
+                ActionGroup::WRAP_IN_TASK,
                 "Move the command into taskfile.yml and invoke the task, so local and CI cannot \
                  drift apart.",
             ),
@@ -400,7 +407,7 @@ pub(super) fn pull_request_title_check(context: &AuditContext) -> Verdict {
             "no_title_check",
             "no workflow reads the pull request title to validate its format",
             Remediation::new(
-                "add_title_check",
+                ActionGroup::ADD_TITLE_CHECK,
                 "Add a job that validates the pull request title format, and require it in the \
                  ruleset.",
             ),
@@ -425,7 +432,7 @@ pub(super) fn reconcile_token_is_scoped(context: &AuditContext) -> Verdict {
             "no_reconcile_workflow",
             "there is no .github/workflows/reconcile-settings.yml to inspect",
             Remediation::new(
-                "add_reconcile_workflow",
+                ActionGroup::ADD_RECONCILE_WORKFLOW,
                 "Add the reconcile workflow that applies .github/repo-settings.yml.",
             ),
         );
@@ -459,7 +466,7 @@ pub(super) fn reconcile_token_is_scoped(context: &AuditContext) -> Verdict {
             "no_token_minting_step",
             format!("{} mints no scoped app token", workflow.path),
             Remediation::new(
-                "mint_scoped_token",
+                ActionGroup::MINT_SCOPED_TOKEN,
                 "Mint the token with `repositories:` naming this repository only.",
             ),
         );
@@ -495,7 +502,7 @@ pub(super) fn reconcile_token_is_scoped(context: &AuditContext) -> Verdict {
                     .join(", ")
             ),
             Remediation::new(
-                "scope_token",
+                ActionGroup::SCOPE_TOKEN,
                 "Set `repositories:` on the token-minting step so the token reaches one \
                  repository.",
             ),
