@@ -185,6 +185,7 @@ mod tests {
     use super::*;
     use crate::findings::{
         AirlockIdentity, AuditedRepository, Evidence, Finding, Gate, PolicyIdentity, Remediation,
+        RemediationClass,
     };
 
     fn report() -> Report {
@@ -220,6 +221,7 @@ mod tests {
                 status: Status::Fail,
                 evidence: Some(Evidence::at("file_missing", "LICENSE", "LICENSE is absent")),
                 remediation: Some(Remediation::new("add_file", "Add LICENSE.")),
+                remediation_class: RemediationClass::for_rule("REPO-LIC-01"),
                 suppression: None,
                 error: None,
             }],

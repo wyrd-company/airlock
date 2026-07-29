@@ -213,6 +213,62 @@ impl Remediation {
     }
 }
 
+/// The rule's declared remediation classification, from the remediation
+/// model.
+///
+/// This is registry-level data joined onto every finding: what closing the
+/// rule's gap takes, regardless of what this audit observed. Exactly one of
+/// `lane` and `none_reason` is set. The contextual [`Remediation`] on a
+/// failing finding says what to do here; this says what kind of work that is
+/// and who can do it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct RemediationClass {
+    /// The lane the remediation travels in, when there is one.
+    pub lane: Option<String>,
+    /// The stable remediation code, when there is one.
+    pub code: Option<String>,
+    /// What the remediation would change, when there is one.
+    pub change: Option<String>,
+    /// Whether the change can be undone, when there is a remediation.
+    pub reversible: Option<bool>,
+    /// Why no remediation is offered, when none is.
+    pub none_reason: Option<String>,
+}
+
+impl RemediationClass {
+    /// The declared classification for a rule.
+    ///
+    /// A rule the registry does not know yields the all-null shape; the
+    /// remediation model's coverage test keeps that unreachable for
+    /// registered rules.
+    #[must_use]
+    pub fn for_rule(rule: &str) -> Self {
+        match crate::remediation::classify(rule) {
+            Some(crate::remediation::Classification::Remediation(definition)) => Self {
+                lane: Some(definition.lane.code().to_owned()),
+                code: Some(definition.code.to_owned()),
+                change: Some(definition.change.to_owned()),
+                reversible: Some(definition.reversible),
+                none_reason: None,
+            },
+            Some(crate::remediation::Classification::None { reason, .. }) => Self {
+                lane: None,
+                code: None,
+                change: None,
+                reversible: None,
+                none_reason: Some((*reason).to_owned()),
+            },
+            None => Self {
+                lane: None,
+                code: None,
+                change: None,
+                reversible: None,
+                none_reason: None,
+            },
+        }
+    }
+}
+
 /// An API failure that prevented a rule from being evaluated.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct FindingError {
@@ -281,6 +337,8 @@ pub struct Finding {
     pub evidence: Option<Evidence>,
     /// What to do about it.
     pub remediation: Option<Remediation>,
+    /// What closing this rule's gap takes, from the remediation model.
+    pub remediation_class: RemediationClass,
     /// Why it does not count.
     pub suppression: Option<Suppression>,
     /// What stopped the evaluation.
@@ -561,6 +619,7 @@ mod tests {
             status,
             evidence: None,
             remediation: None,
+            remediation_class: RemediationClass::for_rule(rule),
             suppression: None,
             error: None,
         }

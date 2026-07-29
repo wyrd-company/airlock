@@ -22,6 +22,7 @@ pub mod github;
 pub mod limits;
 pub mod policy;
 pub mod registry;
+pub mod remediation;
 pub mod render;
 pub mod snapshot;
 pub mod yaml;

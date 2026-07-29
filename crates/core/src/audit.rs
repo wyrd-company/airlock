@@ -11,7 +11,8 @@ use crate::auth::VerifiedGrant;
 use crate::checks::{self, AuditContext, Workflow};
 use crate::findings::{
     AirlockIdentity, AuditedRepository, EffectiveRule, Finding, PolicyIdentity, PolicyObservation,
-    PolicyObservationCode, PolicySourceIdentity, Report, Status, Suppression, SuppressionSource,
+    PolicyObservationCode, PolicySourceIdentity, RemediationClass, Report, Status, Suppression,
+    SuppressionSource,
 };
 use crate::github::{ApiError, ErrorCause, GitHub};
 use crate::limits::Limits;
@@ -141,6 +142,7 @@ pub async fn run<G: GitHub>(
             status: verdict.status,
             evidence: verdict.evidence,
             remediation: verdict.remediation,
+            remediation_class: RemediationClass::for_rule(rule.def.id),
             suppression: None,
             error: verdict.error,
         };
@@ -438,6 +440,7 @@ mod tests {
             status: Status::Fail,
             evidence: None,
             remediation: None,
+            remediation_class: RemediationClass::for_rule(rule),
             suppression: None,
             error: None,
         }
