@@ -56,17 +56,23 @@ Sources: <https://api-docs.npmjs.com/> (Trust), and
 <https://docs.npmjs.com/trusted-publishers>.
 
 **Pre-publication configuration — no.** The API documentation states "Package
-MUST exist" for both the read and the write, and `POST .../trust` answers
-`404 Package not found` otherwise. The `createPackage` value in the config's
+MUST exist" for both the read and the write, and documents `404 Package not
+found` as the response to a `POST .../trust` naming a package that does not.
+That response is quoted from the documentation, not observed. The
+`createPackage` value in the config's
 permissions names an allowed action, not a pending publisher.
 *verified-by-doc.* Source: <https://api-docs.npmjs.com/> (Trust).
 
 **Bootstrap credential — an API exists but is not automatable.**
-`POST https://registry.npmjs.org/-/npm/v1/tokens` creates a granular token, but
-requires a session token, the account password in the request body, and an OTP
-header. Probed unauthenticated: `401`. Classic tokens were withdrawn in
-November 2025, so granular is the only kind and read-write tokens cap at 90
-days. *verified-by-doc, verified-by-probe.* Sources:
+The documentation specifies `POST https://registry.npmjs.org/-/npm/v1/tokens`
+for creating a granular token, and requires a session token, the account
+password in the request body, and an OTP header. No write method was issued
+against that endpoint; the probe was an unauthenticated `GET` on the same path,
+which returned `401` and establishes only that the token endpoints demand
+authentication. Classic tokens were withdrawn in November 2025, so granular is
+the only kind and read-write tokens cap at 90 days. *verified-by-doc* for the
+creation requirements, *verified-by-probe* only for the authentication gate.
+Sources:
 <https://api-docs.npmjs.com/> (Tokens),
 <https://docs.npmjs.com/about-access-tokens/>, and the withdrawal announcement
 at <https://github.blog/changelog/2025-11-05-npm-security-update-classic-token-creation-disabled-and-granular-token-changes>.
@@ -429,6 +435,18 @@ cross-repository write capability, judged on credential shape and scope.
   token. One community report, not reproduced.
 
 ## Probe log
+
+Every entry below is a `GET`, and every claim in this document about a write
+endpoint is quoted from documentation or a published specification rather than
+observed — wherever the text names a `POST` or `PUT`, no such request was made.
+
+One exception is recorded for completeness. During the initial research pass an
+unauthenticated `PUT` was sent to
+`pub.dev/api/packages/http/automated-publishing` to test whether the route
+existed. It was rejected at parse with `400 Malformed JSON payload`, carried no
+credential and no valid body, and changed nothing. It was not repeated, and the
+pub.dev conclusion rests on the route definitions and the `GET` probe below
+instead.
 
 Every probe below was read-only and was run on 2026-07-29. Unauthenticated
 requests carried the user agent
