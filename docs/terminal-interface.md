@@ -23,6 +23,20 @@ The interface never writes files. File-level gaps are closed by an agent
 working headlessly and arrive as pull requests for review. Nothing on any
 screen offers to edit a tracked file.
 
+The headless file path is itself split by the compiled remediation lane.
+`airlock align-files` authors `deterministic-file` changes into a supplied
+working tree and stops before staging or any other git operation.
+`judgment-file` findings go to an agent with the emitted repository-standards
+skill because correct prose and toolchain wiring are repository-specific.
+Both use the well-known `airlock/align` branch and arrive as draft pull
+requests. `operator-setting` findings remain here: the administration
+permission behind them is never granted to an agent.
+
+After authoring, the command re-observes the working tree. That local result
+does not resolve the default-branch finding: the API observation remains open
+until the pull request merges. Pull-request context is `open`, `none`, or
+`unknown`; unknown is never displayed as none.
+
 The headless projection uses the same grouping boundary as the findings queue:
 failed `deterministic-file` and `judgment-file` remediations are agent work;
 failed `operator-setting` remediations and failures with no declared

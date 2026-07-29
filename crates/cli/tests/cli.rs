@@ -482,6 +482,66 @@ fn agent_work_reports_an_uncommitted_working_tree_as_its_source() {
     assert_eq!(list["agent_lane"]["items"][0]["source"], "working-tree");
 }
 
+#[test]
+fn align_files_writes_then_reobserves_and_is_idempotent() {
+    let repository = TempDir::new().unwrap();
+    git(repository.path(), &["init", "-q", "-b", "main"]);
+    std::fs::write(repository.path().join("seed"), "seed\n").unwrap();
+    git(repository.path(), &["add", "seed"]);
+    git(repository.path(), &["commit", "-q", "-m", "fixture"]);
+    let policies = TempDir::new().unwrap();
+    let policy = policy_path(&policies, LICENSING_POLICY);
+    let root = repository.path().display().to_string();
+
+    let first = offline()
+        .args([
+            "align-files",
+            "--working-tree",
+            &root,
+            "--policy",
+            &policy,
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success();
+    let output = json_output(&first.get_output().stdout);
+    assert_eq!(output["operations"]["dirty_before"], false);
+    assert_eq!(output["operations"]["dirty_after"], true);
+    assert_eq!(output["operations"]["operations"][0]["path"], "LICENSE");
+    assert_eq!(
+        output["operations"]["operations"][0]["remediation_code"],
+        "add-license-file"
+    );
+    assert_eq!(output["operations"]["operations"][0]["outcome"], "written");
+    assert_eq!(output["reobserved"][0]["rule"], "REPO-LIC-01");
+    assert_eq!(output["reobserved"][0]["status"], "pass");
+    assert_eq!(output["reobserved"][0]["source"], "working-tree");
+    assert_eq!(output["pull_request"]["state"], "unknown");
+    assert!(output["default_branch_observation"]
+        .as_str()
+        .unwrap()
+        .contains("stays open"));
+
+    let second = offline()
+        .args([
+            "align-files",
+            "--working-tree",
+            &root,
+            "--policy",
+            &policy,
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success();
+    let output = json_output(&second.get_output().stdout);
+    assert_eq!(
+        output["operations"]["operations"].as_array().unwrap().len(),
+        0
+    );
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn an_enabled_manual_rule_does_not_make_the_audit_incomplete() {
     let repo = FakeRepo::new("wyrd-company", "example").with_file("README.md", "# example");

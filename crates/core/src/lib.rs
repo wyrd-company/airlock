@@ -13,6 +13,7 @@
 
 mod audited_repository;
 
+pub mod alignment;
 pub mod audit;
 pub mod auth;
 pub mod checks;

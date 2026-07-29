@@ -662,6 +662,50 @@ impl GitHub for RestClient {
         })
     }
 
+    async fn open_pull_requests(
+        &self,
+        owner: &str,
+        repo: &str,
+        head_branch: &str,
+        base_branch: &str,
+    ) -> ApiResult<Vec<crate::github::PullRequest>> {
+        let endpoint = format!("GET /repos/{owner}/{repo}/pulls");
+        let path = format!(
+            "/repos/{}/{}/pulls?state=open&head={}%3A{}&base={}&per_page=100",
+            encode_segment(owner),
+            encode_segment(repo),
+            encode_segment(owner),
+            encode_segment(head_branch),
+            encode_segment(base_branch)
+        );
+        let (value, _) = self.get_json(&endpoint, &path).await?;
+        let pulls = value
+            .as_array()
+            .ok_or_else(|| malformed(&endpoint, "pull-request response is not an array"))?;
+        pulls
+            .iter()
+            .map(|pull| {
+                Ok(crate::github::PullRequest {
+                    number: require_u64(&endpoint, pull, "number")?,
+                    url: require_string(&endpoint, pull, "html_url")?,
+                    head_branch: pull
+                        .get("head")
+                        .and_then(|head| head.get("ref"))
+                        .and_then(Value::as_str)
+                        .ok_or_else(|| malformed(&endpoint, "pull request has no head ref"))?
+                        .to_owned(),
+                    base_branch: pull
+                        .get("base")
+                        .and_then(|base| base.get("ref"))
+                        .and_then(Value::as_str)
+                        .ok_or_else(|| malformed(&endpoint, "pull request has no base ref"))?
+                        .to_owned(),
+                    draft: field_bool(pull, "draft"),
+                })
+            })
+            .collect()
+    }
+
     async fn topics(&self, owner: &str, repo: &str) -> ApiResult<Vec<String>> {
         let endpoint = format!("GET /repos/{owner}/{repo}/topics");
         let path = format!(

@@ -81,6 +81,35 @@ async fn a_permission_403_names_the_permission_the_endpoint_wanted() {
 }
 
 #[tokio::test]
+async fn open_pull_requests_are_observed_by_well_known_head_and_base() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/repos/owner/name/pulls"))
+        .and(query_param("state", "open"))
+        .and(query_param("head", "owner:airlock/align"))
+        .and(query_param("base", "main"))
+        .respond_with(
+            quota_headers(ResponseTemplate::new(200)).set_body_json(json!([{
+                "number": 42,
+                "html_url": "https://example.invalid/owner/name/pull/42",
+                "draft": true,
+                "head": {"ref": "airlock/align"},
+                "base": {"ref": "main"}
+            }])),
+        )
+        .mount(&server)
+        .await;
+
+    let pulls = client(&server)
+        .open_pull_requests("owner", "name", "airlock/align", "main")
+        .await
+        .unwrap();
+    assert_eq!(pulls.len(), 1);
+    assert_eq!(pulls[0].number, 42);
+    assert!(pulls[0].draft);
+}
+
+#[tokio::test]
 async fn a_plan_limitation_403_is_not_mistaken_for_a_permission_failure() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
