@@ -367,6 +367,22 @@ mod tests {
     }
 
     #[test]
+    fn an_unprocessable_entity_is_never_reported_as_a_permission_failure() {
+        // The trap: an organisation-secret endpoint answers 422 on a
+        // user-owned repository, because there is no owning organisation for
+        // the question to be about. That is the absence of an organisation,
+        // not the absence of a grant, and a grant is what an operator would go
+        // and widen if airlock said permission.
+        let response = response(
+            422,
+            &[("x-ratelimit-remaining", "4999")],
+            Some("Validation Failed"),
+        );
+        assert_ne!(classify(&response), ErrorCause::Permission);
+        assert_eq!(classify(&response), ErrorCause::UnknownAccess);
+    }
+
+    #[test]
     fn server_errors_are_transport_failures() {
         assert_eq!(classify(&response(502, &[], None)), ErrorCause::Transport);
     }

@@ -848,6 +848,12 @@ capabilities:
         ) -> crate::github::ApiResult<Vec<crate::github::Installation>> {
             Err(unreachable_call())
         }
+        async fn installation_repositories(
+            &self,
+            _installation_id: u64,
+        ) -> crate::github::ApiResult<crate::github::InstallationRepositories> {
+            Err(unreachable_call())
+        }
         async fn authenticated_user(
             &self,
         ) -> crate::github::ApiResult<crate::github::AuthenticatedUser> {

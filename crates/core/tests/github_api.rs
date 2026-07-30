@@ -4,7 +4,10 @@
 //! reaches `api.github.com`.
 
 use airlock_core::auth::{verify, TokenKind, AIRLOCK_SAFE_APP_ID, AIRLOCK_SAFE_APP_SLUG};
-use airlock_core::github::{ErrorCause, GitHub, OAuthScopeHeader, RestClient, RestClientConfig};
+use airlock_core::github::{
+    AccountKind, ErrorCause, GitHub, OAuthScopeHeader, RepositorySelection, RestClient,
+    RestClientConfig,
+};
 use airlock_core::limits::Limits;
 use serde_json::{json, Value};
 use std::time::Duration;
@@ -1167,5 +1170,278 @@ async fn a_response_that_never_arrives_is_abandoned_at_the_request_timeout() {
     assert!(
         started.elapsed() < Duration::from_secs(5),
         "the request should have been abandoned promptly"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// The installation catalogue the console selects from
+// ---------------------------------------------------------------------------
+
+fn scoped_installation(id: u64, account_type: &str, selection: &str) -> Value {
+    json!({
+        "id": id,
+        "app_id": AIRLOCK_SAFE_APP_ID,
+        "app_slug": AIRLOCK_SAFE_APP_SLUG,
+        "account": { "login": format!("account-{id}"), "type": account_type },
+        "repository_selection": selection,
+        "permissions": { "metadata": "read" },
+    })
+}
+
+async fn mount_installation_repos(server: &MockServer, id: u64, page: &str, body: Value) {
+    let route = format!("/user/installations/{id}/repos");
+    let mut template = quota_headers(ResponseTemplate::new(200)).set_body_json(body);
+    if page == "1" {
+        template = template.insert_header(
+            "link",
+            format!("<{}{route}?page=2>; rel=\"next\"", server.uri()).as_str(),
+        );
+    }
+    let mock = Mock::given(method("GET")).and(path(route));
+    let mock = if page == "1" {
+        mock.and(query_param_is_missing("page"))
+    } else {
+        mock.and(query_param("page", page))
+    };
+    mock.respond_with(template).mount(server).await;
+}
+
+fn listed_repository(owner: &str, name: &str, visibility: &str) -> Value {
+    json!({
+        "id": 41,
+        "full_name": format!("{owner}/{name}"),
+        "name": name,
+        "owner": { "login": owner },
+        "visibility": visibility,
+        "default_branch": "main",
+    })
+}
+
+#[tokio::test]
+async fn an_installation_reports_its_account_kind_and_its_repository_selection() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/user/installations"))
+        .respond_with(
+            quota_headers(ResponseTemplate::new(200)).set_body_json(json!({
+                "total_count": 3,
+                "installations": [
+                    scoped_installation(1, "Organization", "all"),
+                    scoped_installation(2, "User", "selected"),
+                    scoped_installation(3, "Enterprise", "something-new"),
+                ]
+            })),
+        )
+        .mount(&server)
+        .await;
+
+    let installations = client(&server).user_installations().await.unwrap();
+    assert_eq!(installations[0].account_kind, AccountKind::Organization);
+    assert_eq!(
+        installations[0].repository_selection,
+        RepositorySelection::All
+    );
+    assert_eq!(installations[1].account_kind, AccountKind::UserAccount);
+    assert_eq!(
+        installations[1].repository_selection,
+        RepositorySelection::Selected
+    );
+    // A kind airlock does not recognise is an unread kind, and is never
+    // rounded down to the commoner of the two it does recognise.
+    assert_eq!(installations[2].account_kind, AccountKind::Unrecognised);
+    assert_eq!(
+        installations[2].repository_selection,
+        RepositorySelection::Unrecognised
+    );
+}
+
+#[tokio::test]
+async fn an_installation_with_no_stated_kind_is_unrecognised_rather_than_a_user() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/user/installations"))
+        .respond_with(
+            quota_headers(ResponseTemplate::new(200)).set_body_json(json!({
+                "total_count": 1,
+                "installations": [installation(1, AIRLOCK_SAFE_APP_SLUG, &[("metadata", "read")])]
+            })),
+        )
+        .mount(&server)
+        .await;
+
+    let installations = client(&server).user_installations().await.unwrap();
+    assert_eq!(installations[0].account_kind, AccountKind::Unrecognised);
+    assert_eq!(
+        installations[0].repository_selection,
+        RepositorySelection::Unrecognised
+    );
+}
+
+#[tokio::test]
+async fn an_installations_repositories_are_listed_with_the_count_github_reports() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/user/installations/7/repos"))
+        .respond_with(
+            quota_headers(ResponseTemplate::new(200)).set_body_json(json!({
+                "total_count": 2,
+                "repositories": [
+                    listed_repository("acme-industries", "widget", "public"),
+                    listed_repository("acme-industries", "sprocket", "private"),
+                ]
+            })),
+        )
+        .mount(&server)
+        .await;
+
+    let listing = client(&server).installation_repositories(7).await.unwrap();
+    assert_eq!(listing.total_count, 2);
+    assert!(!listing.truncated);
+    assert_eq!(listing.repositories[0].full_name, "acme-industries/widget");
+    assert_eq!(listing.repositories[0].owner, "acme-industries");
+    assert_eq!(listing.repositories[0].visibility, "public");
+    assert_eq!(
+        listing.repositories[0].default_branch.as_deref(),
+        Some("main")
+    );
+    assert_eq!(listing.repositories[1].visibility, "private");
+}
+
+#[tokio::test]
+async fn a_repository_with_no_default_branch_reports_none_rather_than_a_name() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/user/installations/7/repos"))
+        .respond_with(
+            quota_headers(ResponseTemplate::new(200)).set_body_json(json!({
+                "total_count": 1,
+                "repositories": [{
+                    "id": 9,
+                    "full_name": "acme-industries/fresh",
+                    "name": "fresh",
+                    "owner": { "login": "acme-industries" },
+                    "visibility": "private",
+                }]
+            })),
+        )
+        .mount(&server)
+        .await;
+
+    let listing = client(&server).installation_repositories(7).await.unwrap();
+    assert_eq!(listing.repositories[0].default_branch, None);
+}
+
+#[tokio::test]
+async fn every_page_of_an_installations_repositories_is_walked() {
+    let server = MockServer::start().await;
+    mount_installation_repos(
+        &server,
+        7,
+        "1",
+        json!({
+            "total_count": 2,
+            "repositories": [listed_repository("acme-industries", "widget", "public")]
+        }),
+    )
+    .await;
+    mount_installation_repos(
+        &server,
+        7,
+        "2",
+        json!({
+            "total_count": 2,
+            "repositories": [listed_repository("acme-industries", "sprocket", "internal")]
+        }),
+    )
+    .await;
+
+    let listing = client(&server).installation_repositories(7).await.unwrap();
+    assert_eq!(listing.repositories.len(), 2);
+    assert!(!listing.truncated);
+    // The count is the first page's answer, not the sum of the pages.
+    assert_eq!(listing.total_count, 2);
+}
+
+#[tokio::test]
+async fn a_listing_that_runs_past_the_page_budget_says_it_is_a_prefix() {
+    let server = MockServer::start().await;
+    mount_installation_repos(
+        &server,
+        7,
+        "1",
+        json!({
+            "total_count": 400,
+            "repositories": [listed_repository("acme-industries", "widget", "public")]
+        }),
+    )
+    .await;
+
+    let listing = client_with_page_budget(&server, 1)
+        .installation_repositories(7)
+        .await
+        .unwrap();
+    assert!(
+        listing.truncated,
+        "a prefix that did not say so would let a screen conclude absence from it"
+    );
+    assert_eq!(listing.total_count, 400);
+    assert_eq!(listing.repositories.len(), 1);
+}
+
+#[tokio::test]
+async fn a_repository_airlock_cannot_read_is_a_malformed_response_rather_than_one_fewer() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/user/installations/7/repos"))
+        .respond_with(
+            quota_headers(ResponseTemplate::new(200)).set_body_json(json!({
+                "total_count": 1,
+                "repositories": [{ "id": 9, "owner": { "login": "acme-industries" } }]
+            })),
+        )
+        .mount(&server)
+        .await;
+
+    let error = client(&server)
+        .installation_repositories(7)
+        .await
+        .unwrap_err();
+    assert_eq!(error.cause, ErrorCause::Malformed);
+}
+
+#[tokio::test]
+async fn a_client_that_refuses_redirects_never_carries_its_credential_to_another_host() {
+    // The console's client holds a write-capable credential, so a redirect is
+    // the server choosing where that credential goes next.
+    let elsewhere = MockServer::start().await;
+    Mock::given(method("GET"))
+        .respond_with(
+            quota_headers(ResponseTemplate::new(200))
+                .set_body_json(json!({ "total_count": 0, "repositories": [] })),
+        )
+        .mount(&elsewhere)
+        .await;
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/user/installations/7/repos"))
+        .respond_with(ResponseTemplate::new(302).insert_header(
+            "location",
+            format!("{}/user/installations/7/repos", elsewhere.uri()).as_str(),
+        ))
+        .mount(&server)
+        .await;
+
+    let refusing = client_with(&server, RestClientConfig::default().refusing_redirects());
+    refusing
+        .installation_repositories(7)
+        .await
+        .expect_err("a redirect is not a listing");
+    assert!(
+        elsewhere
+            .received_requests()
+            .await
+            .unwrap_or_default()
+            .is_empty(),
+        "the client followed a redirect off the host it was pointed at"
     );
 }

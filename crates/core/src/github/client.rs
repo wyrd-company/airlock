@@ -16,8 +16,9 @@ use serde_json::Value;
 
 use super::classify::{self, all_headers, single_header, ErrorCause, Headers, Response};
 use super::{
-    ApiError, ApiResult, AuthenticatedUser, BranchRule, CommitSummary, EntryKind, GitHub,
-    Installation, OAuthScopeHeader, Paged, Repository, Ruleset, TagRef, Tree, TreeEntry,
+    AccountKind, ApiError, ApiResult, AuthenticatedUser, BranchRule, CommitSummary, EntryKind,
+    GitHub, Installation, InstallationRepositories, InstallationRepository, OAuthScopeHeader,
+    Paged, Repository, RepositorySelection, Ruleset, TagRef, Tree, TreeEntry,
 };
 use crate::limits::Limits;
 
@@ -76,6 +77,15 @@ pub struct RestClientConfig {
     pub max_rate_limit_retries: usize,
     /// The longest airlock will wait for a rate limit to reset, in seconds.
     pub max_rate_limit_wait_seconds: u64,
+    /// Whether a redirect may be followed.
+    ///
+    /// A redirect is the server choosing where the next request — and the
+    /// credential on it — goes. The read path follows them, because GitHub
+    /// answers a renamed repository with one and a read-only token going to a
+    /// GitHub host is the same token going to the same place. A client carrying
+    /// a write-capable credential sets this false: there, the host is the whole
+    /// of what the binding protects.
+    pub follow_redirects: bool,
 }
 
 impl Default for RestClientConfig {
@@ -102,6 +112,16 @@ impl RestClientConfig {
             audit_budget: limits.audit_budget,
             max_rate_limit_retries: 2,
             max_rate_limit_wait_seconds: 60,
+            follow_redirects: true,
+        }
+    }
+
+    /// The same configuration, refusing every redirect.
+    #[must_use]
+    pub fn refusing_redirects(self) -> Self {
+        Self {
+            follow_redirects: false,
+            ..self
         }
     }
 }
@@ -167,6 +187,11 @@ impl RestClient {
             // finishes the body hangs the audit forever.
             .connect_timeout(config.connect_timeout)
             .timeout(config.request_timeout)
+            .redirect(if config.follow_redirects {
+                reqwest::redirect::Policy::default()
+            } else {
+                reqwest::redirect::Policy::none()
+            })
             .build()
             .map_err(|error| ApiError::local(ErrorCause::Transport, "client", error.to_string()))?;
         let deadline = Instant::now() + config.audit_budget;
@@ -633,7 +658,49 @@ fn decode_installation(endpoint: &str, item: &Value) -> ApiResult<Installation> 
             .and_then(|account| account.get("login"))
             .and_then(Value::as_str)
             .map(ToOwned::to_owned),
+        // Read rather than required: an account type airlock does not
+        // recognise is an unread kind, and refusing the whole installation over
+        // it would hide an installation the operator can genuinely work in.
+        account_kind: AccountKind::from_api(
+            item.get("account")
+                .and_then(|account| account.get("type"))
+                .and_then(Value::as_str),
+        ),
+        repository_selection: RepositorySelection::from_api(
+            item.get("repository_selection").and_then(Value::as_str),
+        ),
         permissions,
+    })
+}
+
+fn decode_installation_repository(
+    endpoint: &str,
+    item: &Value,
+) -> ApiResult<InstallationRepository> {
+    let full_name = require_string(endpoint, item, "full_name")?;
+    Ok(InstallationRepository {
+        id: require_u64(endpoint, item, "id")?,
+        owner: item
+            .get("owner")
+            .and_then(|owner| owner.get("login"))
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned)
+            .or_else(|| full_name.split_once('/').map(|(owner, _)| owner.to_owned()))
+            .ok_or_else(|| {
+                malformed(endpoint, format!("repository `{full_name}` names no owner"))
+            })?,
+        name: require_string(endpoint, item, "name")?,
+        visibility: optional_string(item, "visibility").unwrap_or_else(|| {
+            if field_bool(item, "private") {
+                "private".to_owned()
+            } else {
+                "public".to_owned()
+            }
+        }),
+        // An empty repository has no default branch, which is a different fact
+        // from one airlock failed to read, and neither is a branch name.
+        default_branch: optional_string(item, "default_branch"),
+        full_name,
     })
 }
 
@@ -931,6 +998,53 @@ impl GitHub for RestClient {
             }
         }
         Ok(installations)
+    }
+
+    async fn installation_repositories(
+        &self,
+        installation_id: u64,
+    ) -> ApiResult<InstallationRepositories> {
+        let endpoint = "GET /user/installations/{installation_id}/repos".to_owned();
+        let mut url = format!(
+            "{}/user/installations/{installation_id}/repos?per_page=100",
+            self.config.base_url
+        );
+        let mut repositories = Vec::new();
+        // GitHub's own count, taken from the first page. A later page repeating
+        // a different one is not averaged or overwritten: the first answer is
+        // the one this listing is being read against.
+        let mut total_count = None;
+        for page in 0..self.config.max_pages {
+            let raw = self.get(&endpoint, &url).await?;
+            let value = parse_json(&endpoint, &raw.body)?;
+            if total_count.is_none() {
+                total_count = Some(require_u64(&endpoint, &value, "total_count")?);
+            }
+            for item in require_array(&endpoint, &value, "repositories")? {
+                repositories.push(decode_installation_repository(&endpoint, item)?);
+            }
+            match next_link(&endpoint, &raw)? {
+                Some(next) => url = next,
+                None => {
+                    return Ok(InstallationRepositories {
+                        total_count: total_count.unwrap_or(repositories.len() as u64),
+                        repositories,
+                        truncated: false,
+                    })
+                }
+            }
+            if page + 1 == self.config.max_pages {
+                break;
+            }
+        }
+        // A prefix rather than a refusal, and it says so. The selection screen
+        // can still work in what it saw; what it may not do is conclude that a
+        // repository it did not see is absent, and `truncated` is what stops it.
+        Ok(InstallationRepositories {
+            total_count: total_count.unwrap_or(repositories.len() as u64),
+            repositories,
+            truncated: true,
+        })
     }
 
     async fn authenticated_user(&self) -> ApiResult<AuthenticatedUser> {

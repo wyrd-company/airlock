@@ -231,6 +231,71 @@ pub struct Tree {
     pub truncated: bool,
 }
 
+/// What kind of account an installation sits on.
+///
+/// An organisation and a user account are not interchangeable: only the first
+/// has organisation-level settings at all, so an endpoint that reads one on the
+/// other answers 422 rather than answering a question about permission.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AccountKind {
+    /// An organisation.
+    Organization,
+    /// A personal account.
+    UserAccount,
+    /// GitHub named a type airlock does not recognise, or named none.
+    ///
+    /// Not a default: a kind airlock cannot read is an unread kind, and a row
+    /// that printed "user account" because it could not tell would be stating a
+    /// fact nobody observed.
+    Unrecognised,
+}
+
+impl AccountKind {
+    /// Read the kind from the `account.type` GitHub reported.
+    #[must_use]
+    pub fn from_api(value: Option<&str>) -> Self {
+        match value {
+            Some("Organization") => Self::Organization,
+            Some("User") => Self::UserAccount,
+            _ => Self::Unrecognised,
+        }
+    }
+
+    /// The kind as a screen names it.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Organization => "organization",
+            Self::UserAccount => "user account",
+            Self::Unrecognised => "kind not stated",
+        }
+    }
+}
+
+/// Whether an installation reaches every repository of its account.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RepositorySelection {
+    /// Every repository the account has, present and future.
+    All,
+    /// A chosen subset. A repository outside it is invisible to the
+    /// installation, and invisible is indistinguishable from absent.
+    Selected,
+    /// GitHub named a selection airlock does not recognise, or named none.
+    Unrecognised,
+}
+
+impl RepositorySelection {
+    /// Read the selection from the `repository_selection` GitHub reported.
+    #[must_use]
+    pub fn from_api(value: Option<&str>) -> Self {
+        match value {
+            Some("all") => Self::All,
+            Some("selected") => Self::Selected,
+            _ => Self::Unrecognised,
+        }
+    }
+}
+
 /// A GitHub App installation the credential can see.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Installation {
@@ -242,8 +307,52 @@ pub struct Installation {
     pub app_slug: String,
     /// The account the app is installed on.
     pub account: Option<String>,
+    /// What kind of account that is.
+    pub account_kind: AccountKind,
+    /// Whether the installation reaches every repository of that account.
+    pub repository_selection: RepositorySelection,
     /// The permission map GitHub attests for this installation.
     pub permissions: BTreeMap<String, String>,
+}
+
+/// A repository one installation reaches.
+///
+/// Deliberately smaller than [`Repository`]: this is the selection listing, and
+/// a listing that decoded the whole settings snapshot would fail on a field no
+/// selection screen reads.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstallationRepository {
+    /// The numeric repository id.
+    pub id: u64,
+    /// `owner/name`.
+    pub full_name: String,
+    /// The owner login.
+    pub owner: String,
+    /// The repository name.
+    pub name: String,
+    /// `public`, `private`, or `internal`.
+    pub visibility: String,
+    /// The default branch, when the repository has one.
+    ///
+    /// An empty repository has no branch at all, and `None` says that rather
+    /// than naming a branch that does not exist.
+    pub default_branch: Option<String>,
+}
+
+/// What one installation's repository listing said.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstallationRepositories {
+    /// The repositories airlock collected.
+    pub repositories: Vec<InstallationRepository>,
+    /// The count GitHub reported for the installation.
+    ///
+    /// Carried separately from the collected length because they answer
+    /// different questions: a listing airlock could not walk to the end has
+    /// fewer items than the count, and a screen that showed only the length
+    /// would report a budget as a fact about the account.
+    pub total_count: u64,
+    /// True when the walk stopped at the page budget rather than the last page.
+    pub truncated: bool,
 }
 
 /// The authenticated user, plus the scope header that came back with them.
@@ -411,6 +520,16 @@ pub trait GitHub {
 
     /// List every installation the credential can see, across every page.
     async fn user_installations(&self) -> ApiResult<Vec<Installation>>;
+
+    /// List the repositories one installation reaches, across every page.
+    ///
+    /// This is the only listing that answers what an installation's repository
+    /// selection actually covers, and that answer is what separates a
+    /// repository scoped out of an installation from one that does not exist.
+    async fn installation_repositories(
+        &self,
+        installation_id: u64,
+    ) -> ApiResult<InstallationRepositories>;
 
     /// Fetch the authenticated user and the scope header GitHub returned.
     async fn authenticated_user(&self) -> ApiResult<AuthenticatedUser>;

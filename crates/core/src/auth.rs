@@ -755,6 +755,8 @@ mod tests {
             app_id: 1,
             app_slug: AIRLOCK_SAFE_APP_SLUG.to_owned(),
             account: Some("owner".to_owned()),
+            account_kind: crate::github::AccountKind::Organization,
+            repository_selection: crate::github::RepositorySelection::All,
             permissions: [
                 ("metadata".to_owned(), "read".to_owned()),
                 ("checks".to_owned(), "write".to_owned()),
