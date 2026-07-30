@@ -13,6 +13,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use base64::Engine as _;
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 use serde_json::Value;
+use zeroize::Zeroize as _;
 
 use super::classify::{self, all_headers, single_header, ErrorCause, Headers, Response};
 use super::{
@@ -132,6 +133,12 @@ pub struct RestClient {
     token: String,
     config: RestClientConfig,
     deadline: Instant,
+}
+
+impl Drop for RestClient {
+    fn drop(&mut self) {
+        self.token.zeroize();
+    }
 }
 
 impl std::fmt::Debug for RestClient {

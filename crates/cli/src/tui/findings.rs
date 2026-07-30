@@ -394,6 +394,12 @@ pub struct Row {
     /// together, and no second path exists by which a server-supplied string
     /// could reach a cell.
     pub detail: Detail,
+    /// The compiled remediation code, when one is declared.
+    pub remediation: Option<String>,
+    /// What the compiled remediation would change.
+    pub change: Option<String>,
+    /// Whether a later operation can reverse it.
+    pub reversible: Option<bool>,
 }
 
 impl Row {
@@ -632,6 +638,17 @@ fn row(
         delivery: deliveries.get(&finding.rule),
         note: note_of(finding, group, gate, severity),
         detail: Detail::of(finding, effective_policy),
+        remediation: finding
+            .remediation_class
+            .code
+            .as_ref()
+            .map(|value| sanitize(value, RULE_LIMIT)),
+        change: finding
+            .remediation_class
+            .change
+            .as_ref()
+            .map(|value| sanitize(value, REASON_LIMIT)),
+        reversible: finding.remediation_class.reversible,
     }
 }
 
@@ -2504,6 +2521,9 @@ mod tests {
                 &finding("REPO-DOCS-05", Severity::Required, Status::Fail),
                 &[],
             ),
+            remediation: None,
+            change: None,
+            reversible: None,
         }
     }
 

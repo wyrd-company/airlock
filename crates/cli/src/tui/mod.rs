@@ -14,6 +14,7 @@ mod lane;
 mod organizations;
 mod panel;
 mod policy;
+mod remediation;
 mod repositories;
 mod screen;
 mod sign_in;
@@ -33,6 +34,9 @@ use self::app::{App, Flow};
 use self::theme::ColorMode;
 use crate::admin::catalogue::{self, Reading};
 use crate::admin::flow::{Authorizing, Report};
+use crate::admin::remediation::{
+    Request as WorkerRequest, Response as WorkerResponse, Target, Working,
+};
 use crate::admin::session::SessionCredential;
 use crate::admin::text::{self, CAUSE_LIMIT};
 
@@ -97,6 +101,7 @@ fn drive(app: &mut App, session: &mut terminal::Session, authorizing: &Authorizi
     // the only client built from it, so the token is spent at the boundary
     // rather than carried around by anything that draws.
     let mut reading: Option<Reading> = None;
+    let mut working: Option<Working> = None;
     let mut last = Instant::now();
     loop {
         session
@@ -145,6 +150,13 @@ fn drive(app: &mut App, session: &mut terminal::Session, authorizing: &Authorizi
                             CAUSE_LIMIT,
                         ))),
                     }
+                    match Working::start(&session, env!("CARGO_PKG_VERSION")) {
+                        Ok(started) => working = Some(started),
+                        Err(error) => app.operation_failed(text::sanitize(
+                            &format!("cannot start the remediation worker: {error:#}"),
+                            CAUSE_LIMIT,
+                        )),
+                    }
                     credential = Some(session);
                 }
                 Report::Progress(progress) => app.report(progress),
@@ -156,6 +168,77 @@ fn drive(app: &mut App, session: &mut terminal::Session, authorizing: &Authorizi
         if let Some(worker) = reading.as_ref() {
             while let Some(read) = worker.next_report(Duration::ZERO) {
                 app.catalogue_read(read);
+            }
+        }
+
+        if let (Some(worker), Some(observe)) = (working.as_ref(), app.take_observation_request()) {
+            if let Err(error) = worker.request(WorkerRequest::Observe(Target {
+                owner: observe.owner,
+                repo: observe.name,
+            })) {
+                app.operation_failed(text::sanitize(&format!("{error:#}"), CAUSE_LIMIT));
+            }
+        }
+        if let (Some(worker), Some(request)) = (working.as_ref(), app.take_remediation_request()) {
+            let target = Target {
+                owner: request.owner,
+                repo: request.repo,
+            };
+            let work = if request.items.len() == 1 {
+                let item = request.items.into_iter().next().expect("one item");
+                WorkerRequest::Apply {
+                    target,
+                    rule: item.rule,
+                    remediation: item.remediation,
+                }
+            } else {
+                WorkerRequest::ApplyGroup {
+                    target,
+                    requests: request
+                        .items
+                        .into_iter()
+                        .map(|item| (item.rule, item.remediation))
+                        .collect(),
+                }
+            };
+            if let Err(error) = worker.request(work) {
+                app.operation_failed(text::sanitize(&format!("{error:#}"), CAUSE_LIMIT));
+            }
+        }
+        if let Some(worker) = working.as_ref() {
+            while let Some(response) = worker.next_response() {
+                match response {
+                    WorkerResponse::Observed { target, report } => {
+                        let observe = catalogue::Observe {
+                            owner: target.owner,
+                            name: target.repo,
+                        };
+                        app.observed(&observe, "this session", report.outcome.code());
+                        app.observed_run(&report, &Default::default());
+                    }
+                    WorkerResponse::Applied { target, transcript } => {
+                        app.remediation_complete(transcript);
+                        if let Err(error) = worker.request(WorkerRequest::Observe(target)) {
+                            app.operation_failed(text::sanitize(
+                                &format!("{error:#}"),
+                                CAUSE_LIMIT,
+                            ));
+                        }
+                    }
+                    WorkerResponse::GroupApplied {
+                        target,
+                        transcripts,
+                    } => {
+                        app.remediation_group_complete(transcripts);
+                        if let Err(error) = worker.request(WorkerRequest::Observe(target)) {
+                            app.operation_failed(text::sanitize(
+                                &format!("{error:#}"),
+                                CAUSE_LIMIT,
+                            ));
+                        }
+                    }
+                    WorkerResponse::Failed(cause) => app.operation_failed(cause),
+                }
             }
         }
 

@@ -288,9 +288,8 @@ after it.
 Every registered rule declares, as compiled-in data, what closing its gap
 takes. Each finding carries that declaration in `remediation_class`: a stable
 code, what the change would be, whether it is reversible, and the lane it
-travels in — or `none_reason` when airlock offers no remediation. Airlock
-itself never performs any of them; the classification tells the consumer who
-can.
+travels in — or `none_reason` when airlock offers no remediation. The
+classification tells the consumer who can act and through which surface.
 
 | Lane                 | What it means                                                                                              | Who does the work                    |
 | -------------------- | ---------------------------------------------------------------------------------------------------------- | ------------------------------------ |
@@ -339,6 +338,28 @@ there is no observed gap to propose a change for.
 `airlock plan` exits 0 whenever it could observe and render at all. It is not a
 second gate; `airlock audit` is the surface whose exit code carries the
 verdict.
+
+## Closing settings gaps
+
+The interactive terminal session is the only surface that holds the
+write-capable Airlock Admin credential. Opening a repository performs a fresh
+full observation. Applying a settings remediation then observes that rule
+again immediately before the request and once more afterwards. The transcript
+reports the request as one step, but derives pass or fail only from the final
+observation. An accepted request that leaves the setting unchanged remains a
+failure in the queue.
+
+The confirmation names the rule, remediation code, exact change, and
+reversibility before any request is sent. Input-free settings of the same kind
+can share one confirmation, but each retains its own pre-observation, request,
+post-observation, and transcript. Transfers, repository names, and ruleset
+choices are confirmed singly from values the session has freshly observed or
+the operator has explicitly entered. Airlock never guesses a target.
+
+GitHub does not reveal secret values. A credential rename that would need to
+create a new secret therefore remains in the queue and says that a person must
+supply the value; the session never silently overwrites one. No settings flow
+writes a repository file.
 
 ## Closing file gaps
 

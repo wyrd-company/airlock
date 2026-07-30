@@ -37,6 +37,7 @@ use super::findings;
 use super::organizations;
 use super::panel;
 use super::policy;
+use super::remediation;
 use super::repositories::{self, Filter};
 use super::screen::{Key, Screen, INPUT_KEYS};
 use super::sign_in;
@@ -83,6 +84,7 @@ pub struct App {
     observations: Observations,
     /// The observation the last `↵` on a repository asked for.
     requested: Option<Observe>,
+    pending_observation: Option<Observe>,
     /// The run the findings screen draws, once one has been observed.
     ///
     /// A read model rather than the audit document: it is built at one
@@ -113,6 +115,8 @@ pub struct App {
     /// A key the screen lists and that does nothing on this row says why rather
     /// than silently doing nothing.
     note: Option<String>,
+    remediation: remediation::State,
+    pending_remediation: Option<remediation::Request>,
 }
 
 impl App {
@@ -132,6 +136,7 @@ impl App {
             filter: Filter::default(),
             observations: Observations::default(),
             requested: None,
+            pending_observation: None,
             queue: None,
             findings: findings::State::default(),
             detail: panel::Scroll::default(),
@@ -139,6 +144,8 @@ impl App {
             inspection: panel::Scroll::default(),
             reobserve: None,
             note: None,
+            remediation: remediation::State::default(),
+            pending_remediation: None,
         }
     }
 
@@ -174,6 +181,34 @@ impl App {
     #[must_use]
     pub const fn requested(&self) -> Option<&Observe> {
         self.requested.as_ref()
+    }
+
+    /// Take the fresh repository observation request exactly once.
+    pub fn take_observation_request(&mut self) -> Option<Observe> {
+        self.pending_observation.take()
+    }
+
+    /// Take a confirmed remediation exactly once.
+    pub fn take_remediation_request(&mut self) -> Option<remediation::Request> {
+        self.pending_remediation.take()
+    }
+
+    /// Close the remediation screen with the post-write observation.
+    pub fn remediation_complete(&mut self, transcript: crate::admin::remediation::Transcript) {
+        self.remediation.complete(transcript);
+    }
+
+    /// Close a bulk confirmation with one post-write transcript per rule.
+    pub fn remediation_group_complete(
+        &mut self,
+        transcripts: Vec<crate::admin::remediation::Transcript>,
+    ) {
+        self.remediation.complete_group(transcripts);
+    }
+
+    /// Show a sanitized operational failure in the status line.
+    pub fn operation_failed(&mut self, cause: String) {
+        self.note = Some(cause);
     }
 
     /// Take a run onto the findings screen.
@@ -286,6 +321,10 @@ impl App {
                 return flow;
             }
         }
+        if self.screen == Screen::Remediation && matches!(event.code, KeyCode::Enter) {
+            self.pending_remediation = self.remediation.take_confirmation();
+            return Flow::Continue;
+        }
         match event.code {
             KeyCode::Char('t') => self.theme = self.theme.toggled(),
             KeyCode::Enter => return self.forward(),
@@ -296,6 +335,9 @@ impl App {
                 if let Some(previous) = self.screen.back() {
                     self.screen = previous;
                 }
+            }
+            KeyCode::Char('a') if self.screen.remediation_reachable() => {
+                self.open_remediation();
             }
             KeyCode::Char('p') if self.screen == Screen::Findings => {
                 self.screen = Screen::PolicyInspector;
@@ -331,12 +373,16 @@ impl App {
     /// the footer lists and that silently does nothing is a key the operator
     /// presses again.
     fn working(&mut self, code: KeyCode) -> Option<Flow> {
-        if matches!(code, KeyCode::Char('a')) {
-            let settings = self.focused_row().is_some_and(|row| {
+        if matches!(code, KeyCode::Char('a' | 'A')) {
+            let row_is_settings = self.focused_row().is_some_and(|row| {
                 row.group == findings::Group::Settings && row.status == Status::Fail
             });
-            if settings {
-                self.screen = Screen::Remediation;
+            if row_is_settings {
+                if code == KeyCode::Char('A') {
+                    self.open_remediation_group();
+                } else {
+                    self.open_remediation();
+                }
             } else {
                 self.note = Some(findings::inert_apply());
             }
@@ -477,6 +523,92 @@ impl App {
         findings::focused_row(queue, &entries, self.findings.selected())
     }
 
+    fn open_remediation(&mut self) {
+        let Some(row) = self.focused_row().cloned() else {
+            self.screen = Screen::Remediation;
+            return;
+        };
+        let target = self.requested.clone().or_else(|| {
+            let (owner, name) = self.queue.as_deref()?.repository.split_once('/')?;
+            Some(Observe {
+                owner: owner.to_owned(),
+                name: name.to_owned(),
+            })
+        });
+        let Some(target) = target else {
+            self.note = Some("the repository must be re-observed before applying".to_owned());
+            return;
+        };
+        let (Some(code), Some(change), Some(reversible)) =
+            (row.remediation, row.change, row.reversible)
+        else {
+            self.note = Some("this rule declares no settings remediation".to_owned());
+            return;
+        };
+        self.remediation = remediation::State::confirm(
+            target.owner,
+            target.name,
+            vec![remediation::Item {
+                rule: row.rule,
+                remediation: code,
+                change,
+                reversible,
+            }],
+        );
+        self.screen = Screen::Remediation;
+    }
+
+    fn open_remediation_group(&mut self) {
+        let Some(focused) = self.focused_row() else {
+            return;
+        };
+        if focused
+            .remediation
+            .as_deref()
+            .and_then(crate::admin::remediation::Action::for_code)
+            .is_none()
+        {
+            self.note =
+                Some("bulk is unavailable because this remediation takes an input".to_owned());
+            return;
+        }
+        let target = self.requested.clone().or_else(|| {
+            let (owner, name) = self.queue.as_deref()?.repository.split_once('/')?;
+            Some(Observe {
+                owner: owner.to_owned(),
+                name: name.to_owned(),
+            })
+        });
+        let Some(target) = target else {
+            self.note = Some("the repository must be re-observed before applying".to_owned());
+            return;
+        };
+        let Some(queue) = self.queue.as_deref() else {
+            return;
+        };
+        let items: Vec<remediation::Item> = queue
+            .rows
+            .iter()
+            .filter(|row| row.group == findings::Group::Settings && row.status == Status::Fail)
+            .filter_map(|row| {
+                let code = row.remediation.clone()?;
+                crate::admin::remediation::Action::for_code(&code)?;
+                Some(remediation::Item {
+                    rule: row.rule.clone(),
+                    remediation: code,
+                    change: row.change.clone()?,
+                    reversible: row.reversible?,
+                })
+            })
+            .collect();
+        if items.len() < 2 {
+            self.note = Some("no other open input-free remediation has the same kind".to_owned());
+            return;
+        }
+        self.remediation = remediation::State::confirm(target.owner, target.name, items);
+        self.screen = Screen::Remediation;
+    }
+
     /// Keys while the repository filter is open.
     fn filtering(&mut self, code: KeyCode) -> Flow {
         match code {
@@ -534,7 +666,9 @@ impl App {
     /// travels with it, so no prior verdict can shorten or steer what follows.
     fn observe(&mut self) -> Flow {
         if let Some(row) = self.visible_rows().get(self.repository) {
-            self.requested = Some(row.observe());
+            let request = row.observe();
+            self.requested = Some(request.clone());
+            self.pending_observation = Some(request);
             self.screen = Screen::Findings;
         }
         Flow::Continue
@@ -788,6 +922,7 @@ impl App {
                 || chrome::status_text(Screen::PolicyInspector),
                 policy::status,
             ),
+            Screen::Remediation => self.remediation.status().to_owned(),
             other => chrome::status_text(other),
         }
     }
@@ -832,6 +967,9 @@ impl App {
                 || policy::nothing_observed(styles, width as usize),
                 |inspector| policy::body(styles, width, height, inspector, &self.inspection),
             );
+        }
+        if self.screen == Screen::Remediation {
+            return remediation::body(styles, width as usize, &self.remediation);
         }
         let width = width as usize;
         let mut lines = vec![Line::from(Span::styled(

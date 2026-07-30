@@ -159,6 +159,7 @@ impl Screen {
                 key!("\u{21b5}", "finding detail"),
                 key!("f", "filter"),
                 key!("a", "apply"),
+                key!("A", "bulk apply"),
                 key!("l", "flat list"),
                 key!("p", "policy inspector"),
                 key!("b", "publishing bootstrap"),
