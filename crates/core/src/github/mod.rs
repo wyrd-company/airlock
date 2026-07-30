@@ -146,14 +146,14 @@ pub struct Repository {
     pub description: Option<String>,
     /// SPDX identifier of the detected license, if any.
     pub license_spdx: Option<String>,
-    /// Whether merge commits are allowed.
-    pub allow_merge_commit: bool,
-    /// Whether squash merges are allowed.
-    pub allow_squash_merge: bool,
-    /// Whether rebase merges are allowed.
-    pub allow_rebase_merge: bool,
-    /// Whether head branches are deleted on merge.
-    pub delete_branch_on_merge: bool,
+    /// Whether merge commits are allowed, when disclosed to the credential.
+    pub allow_merge_commit: Option<bool>,
+    /// Whether squash merges are allowed, when disclosed to the credential.
+    pub allow_squash_merge: Option<bool>,
+    /// Whether rebase merges are allowed, when disclosed to the credential.
+    pub allow_rebase_merge: Option<bool>,
+    /// Whether head branches are deleted on merge, when disclosed to the credential.
+    pub delete_branch_on_merge: Option<bool>,
     /// Whether the wiki is enabled.
     pub has_wiki: bool,
     /// Whether projects are enabled.

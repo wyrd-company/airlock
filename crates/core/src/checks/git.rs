@@ -167,13 +167,20 @@ fn report_branch_gaps(branch: &str, gaps: Vec<String>) -> Verdict {
 }
 
 fn boolean_setting(
-    actual: bool,
+    actual: Option<bool>,
     expected: bool,
     code_pass: &str,
     code_fail: &str,
     subject: &str,
     remedy: &str,
 ) -> Verdict {
+    let Some(actual) = actual else {
+        return Verdict::inconclusive(
+            "merge_settings_unavailable",
+            "this credential cannot verify merge settings; run the interactive airlock session to verify and align them.",
+        );
+    };
+
     if actual == expected {
         Verdict::pass(code_pass, format!("{subject} is {actual}"))
     } else {
@@ -619,12 +626,31 @@ mod tests {
             evaluate(&rule("REPO-GIT-04"), &fixture.context()).status,
             Status::Pass
         );
-        fixture.snapshot.repository.allow_merge_commit = true;
-        fixture.snapshot.repository.allow_squash_merge = false;
-        fixture.snapshot.repository.delete_branch_on_merge = false;
+        fixture.snapshot.repository.allow_merge_commit = Some(true);
+        fixture.snapshot.repository.allow_squash_merge = Some(false);
+        fixture.snapshot.repository.delete_branch_on_merge = Some(false);
         let context = fixture.context();
         for id in ["REPO-GIT-04", "REPO-GIT-05", "REPO-GIT-06"] {
             assert_eq!(evaluate(&rule(id), &context).status, Status::Fail, "{id}");
+        }
+    }
+
+    #[test]
+    fn undisclosed_merge_settings_make_all_merge_setting_rules_inconclusive() {
+        let mut fixture = CheckFixture::new(&[]);
+        fixture.snapshot.repository.allow_merge_commit = None;
+        fixture.snapshot.repository.allow_squash_merge = None;
+        fixture.snapshot.repository.delete_branch_on_merge = None;
+        let context = fixture.context();
+
+        for id in ["REPO-GIT-04", "REPO-GIT-05", "REPO-GIT-06"] {
+            let verdict = evaluate(&rule(id), &context);
+            assert_eq!(verdict.status, Status::Inconclusive, "{id}");
+            assert_eq!(
+                verdict.evidence.expect("inconclusive evidence").code,
+                "merge_settings_unavailable",
+                "{id}"
+            );
         }
     }
 

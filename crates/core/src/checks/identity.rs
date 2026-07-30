@@ -436,6 +436,12 @@ fn live_matches_declared(context: &AuditContext) -> Verdict {
         ];
         for (key, live_value) in live_values {
             if let Some(declared) = merge.get(key).and_then(Yaml::as_bool) {
+                let Some(live_value) = live_value else {
+                    return Verdict::inconclusive(
+                        "merge_settings_unavailable",
+                        "this credential cannot verify merge settings; run the interactive airlock session to verify and align them.",
+                    );
+                };
                 if declared != live_value {
                     drift.push(format!("merge.{key}"));
                 }
@@ -529,6 +535,24 @@ features:
         let policy = policy();
         let context = context(&snapshot, &policy, Vec::new());
         evaluate(&rule(id), &context).status
+    }
+
+    #[test]
+    fn declared_merge_settings_are_inconclusive_when_live_values_are_undisclosed() {
+        let mut snapshot = snapshot(&[(".github/repo-settings.yml", SETTINGS)]);
+        snapshot.repository.allow_merge_commit = None;
+        snapshot.repository.allow_squash_merge = None;
+        snapshot.repository.allow_rebase_merge = None;
+        snapshot.repository.delete_branch_on_merge = None;
+        let policy = policy();
+        let context = context(&snapshot, &policy, Vec::new());
+
+        let verdict = evaluate(&rule("REPO-META-13"), &context);
+        assert_eq!(verdict.status, Status::Inconclusive);
+        assert_eq!(
+            verdict.evidence.expect("inconclusive evidence").code,
+            "merge_settings_unavailable"
+        );
     }
 
     #[test]

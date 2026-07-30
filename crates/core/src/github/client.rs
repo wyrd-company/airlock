@@ -449,6 +449,10 @@ fn field_bool(value: &Value, name: &str) -> bool {
     value.get(name).and_then(Value::as_bool).unwrap_or(false)
 }
 
+fn optional_bool(value: &Value, name: &str) -> Option<bool> {
+    value.get(name).and_then(Value::as_bool)
+}
+
 fn optional_string(value: &Value, name: &str) -> Option<String> {
     value
         .get(name)
@@ -650,10 +654,11 @@ impl GitHub for RestClient {
                 .and_then(|license| license.get("spdx_id"))
                 .and_then(Value::as_str)
                 .map(ToOwned::to_owned),
-            allow_merge_commit: field_bool(&value, "allow_merge_commit"),
-            allow_squash_merge: field_bool(&value, "allow_squash_merge"),
-            allow_rebase_merge: field_bool(&value, "allow_rebase_merge"),
-            delete_branch_on_merge: field_bool(&value, "delete_branch_on_merge"),
+            // GitHub withholds merge settings from credentials without contents:write.
+            allow_merge_commit: optional_bool(&value, "allow_merge_commit"),
+            allow_squash_merge: optional_bool(&value, "allow_squash_merge"),
+            allow_rebase_merge: optional_bool(&value, "allow_rebase_merge"),
+            delete_branch_on_merge: optional_bool(&value, "delete_branch_on_merge"),
             has_wiki: field_bool(&value, "has_wiki"),
             has_projects: field_bool(&value, "has_projects"),
             has_discussions: field_bool(&value, "has_discussions"),

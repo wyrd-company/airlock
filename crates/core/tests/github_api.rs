@@ -258,11 +258,36 @@ async fn a_repository_snapshot_reads_settings_and_the_observation_time() {
     assert_eq!(repository.id, 42);
     assert_eq!(repository.default_branch, "main");
     assert_eq!(repository.license_spdx.as_deref(), Some("Apache-2.0"));
-    assert!(!repository.allow_merge_commit);
+    assert_eq!(repository.allow_merge_commit, Some(false));
     assert_eq!(
         repository.observed_at.as_deref(),
         Some("Mon, 27 Jul 2026 12:00:00 GMT")
     );
+}
+
+#[tokio::test]
+async fn a_repository_snapshot_preserves_undisclosed_merge_settings() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/repos/owner/name"))
+        .respond_with(
+            quota_headers(ResponseTemplate::new(200)).set_body_json(json!({
+                "id": 42,
+                "name": "name",
+                "full_name": "owner/name",
+                "owner": { "login": "owner" },
+                "default_branch": "main",
+                "visibility": "public"
+            })),
+        )
+        .mount(&server)
+        .await;
+
+    let repository = client(&server).repository("owner", "name").await.unwrap();
+    assert_eq!(repository.allow_merge_commit, None);
+    assert_eq!(repository.allow_squash_merge, None);
+    assert_eq!(repository.allow_rebase_merge, None);
+    assert_eq!(repository.delete_branch_on_merge, None);
 }
 
 #[tokio::test]

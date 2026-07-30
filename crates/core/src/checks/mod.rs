@@ -45,7 +45,7 @@ pub(crate) struct MergeSetting {
 }
 
 impl MergeSetting {
-    pub(crate) fn live(&self, repository: &Repository) -> bool {
+    pub(crate) fn live(&self, repository: &Repository) -> Option<bool> {
         match self.declared {
             "squash" => repository.allow_squash_merge,
             "rebase" => repository.allow_rebase_merge,
@@ -917,10 +917,10 @@ pub(crate) mod fixtures {
             visibility: "public".to_owned(),
             description: Some("A thing.".to_owned()),
             license_spdx: Some("Apache-2.0".to_owned()),
-            allow_merge_commit: false,
-            allow_squash_merge: true,
-            allow_rebase_merge: true,
-            delete_branch_on_merge: true,
+            allow_merge_commit: Some(false),
+            allow_squash_merge: Some(true),
+            allow_rebase_merge: Some(true),
+            delete_branch_on_merge: Some(true),
             has_wiki: false,
             has_projects: false,
             has_discussions: false,
