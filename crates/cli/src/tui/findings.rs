@@ -1446,13 +1446,15 @@ fn scroll(
 /// it — there is no GitHub here to give it anything else.
 #[cfg(test)]
 pub mod fixture {
+    use std::collections::BTreeMap;
+
     use super::{Deliveries, Delivery};
     use airlock_core::findings::{
-        AirlockIdentity, AuditedRepository, Evidence, Finding, FindingError, Gate,
-        ObservationRecord, PolicyIdentity, RemediationClass, Report, Status, Suppression,
-        SuppressionSource,
+        AirlockIdentity, AuditedRepository, EffectiveRule, Evidence, Finding, FindingError, Gate,
+        ObservationRecord, PolicyIdentity, PolicySourceIdentity, RemediationClass, Report, Status,
+        Suppression, SuppressionSource,
     };
-    use airlock_core::registry::Severity;
+    use airlock_core::registry::{self, Severity};
 
     /// One finding, with the registry's own classification joined onto it.
     #[must_use]
@@ -1472,8 +1474,32 @@ pub mod fixture {
     }
 
     /// A run over one repository, under one gate.
+    ///
+    /// The effective policy is derived from the findings rather than left
+    /// empty, because a real run always carries one: a rule was asked about
+    /// because a capability selected it, and a fixture without that record
+    /// would make every screen that reads it look emptier than any run is.
     #[must_use]
     pub fn report(gate: Gate, findings: Vec<Finding>) -> Report {
+        let mut effective_policy: Vec<EffectiveRule> = Vec::new();
+        for finding in &findings {
+            if effective_policy
+                .iter()
+                .any(|entry| entry.rule == finding.rule)
+            {
+                continue;
+            }
+            effective_policy.push(EffectiveRule {
+                rule: finding.rule.clone(),
+                severity: finding.severity.clone(),
+                params: BTreeMap::new(),
+                provenance: format!(
+                    "capability:base/{}",
+                    registry::find(&finding.rule)
+                        .map_or("unregistered", |check| check.section.code())
+                ),
+            });
+        }
         Report::assemble(
             AirlockIdentity::current("0.0.0"),
             AuditedRepository {
@@ -1485,14 +1511,20 @@ pub mod fixture {
             },
             ObservationRecord::api(),
             PolicyIdentity {
-                name: "wyrd".to_owned(),
+                name: "policy".to_owned(),
                 source: "./policy.yml".to_owned(),
                 commit: None,
-                sources: Vec::new(),
+                sources: vec![PolicySourceIdentity {
+                    name: "standards".to_owned(),
+                    source: "acme-industries/.github:standards.yml".to_owned(),
+                    commit: Some("b".repeat(40)),
+                    blob_sha: Some("c".repeat(40)),
+                    content_digest: "sha256:2".to_owned(),
+                }],
                 bundle_digest: "sha256:0".to_owned(),
                 gate,
             },
-            Vec::new(),
+            effective_policy,
             Vec::new(),
             findings,
         )

@@ -13,6 +13,7 @@ mod findings;
 mod lane;
 mod organizations;
 mod panel;
+mod policy;
 mod repositories;
 mod screen;
 mod sign_in;

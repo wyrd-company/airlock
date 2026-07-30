@@ -1,19 +1,19 @@
 policy-inspector-80x24-dark · 80x24 · theme dark · colour
 --- text ---
 AIRLOCK 0.0.0  …dings › policy inspector  no credential stored · theme t · dark 
-POLICY INSPECTOR                                                                
-Show the effective policy — every rule the run asked about, and where each one  
-came from.                                                                      
+NO POLICY OBSERVED                                                              
+would show    every rule the run asked about, the registry digest and what it   
+              proves, where the rules came from, and the run's provenance.      
+empty because the effective policy is a property of a run, and no repository has
+              been observed in this session.                                    
+next          press esc to return to the queue, and observe a repository.       
                                                                                 
-NOTHING OBSERVED YET                                                            
-would show      every rule the run asked about, the registry digest, and where  
-                each rule came from                                             
-empty because   this build is the interface shell. It draws the frame, the      
-                status vocabulary, and the navigation between screens. No       
-                authorization is requested and no repository is observed, so    
-                there is nothing for this region to hold.                       
-next            navigate with ↵ and esc to read the frame on every screen, press
-                t to compare the palettes, and ctrl-c to leave.                 
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
                                                                                 
                                                                                 
                                                                                 
@@ -26,19 +26,12 @@ esc back · ↑↓ move · y copy digest · t theme · ctrl-c exit
 no repository observed · this shell renders the frame only · tty required       
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-ccccccccccccccccdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-eeeeeeeeeeeeeeeeeeeedddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-ffffffffffffffffggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggdd
-ffffffffffffffffgggggggggggggggggggddddddddddddddddddddddddddddddddddddddddddddd
-ffffffffffffffffggggggggggggggggggggggggggggggggggggggggggggggggggggggggggdddddd
-ffffffffffffffffgggggggggggggggggggggggggggggggggggggggggggggggggggggggggddddddd
-ffffffffffffffffggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggdddd
-ffffffffffffffffgggggggggggggggggggggggggggggggggggggggggddddddddddddddddddddddd
-ffffffffffffffffgggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
-ffffffffffffffffgggggggggggggggggggggggggggggggggggggggggggggggddddddddddddddddd
+ccccccccccccccccccdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+eeeeeeeeeeeeeefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffddd
+eeeeeeeeeeeeeeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffdddddd
+eeeeeeeeeeeeeeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+eeeeeeeeeeeeeeffffffffffffffffffffffffffffffdddddddddddddddddddddddddddddddddddd
+eeeeeeeeeeeeeefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
@@ -47,14 +40,21 @@ dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-cccdggggfffccdggggfffcdgggggggggggfffcdgggggfffccccccdggggdddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+gggdffffeeeggdffffeeegdfffffffffffeeegdfffffeeeggggggdffffdddddddddddddddddddddd
 hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh
 --- legend ---
 a fg=#CBD3DD bg=#14181D BOLD
 b fg=#CBD3DD bg=#14181D
-c fg=#E8B84B bg=#0B0D10 BOLD
+c fg=#CBD3DD bg=#0B0D10 BOLD
 d fg=#CBD3DD bg=#0B0D10
-e fg=#CBD3DD bg=#0B0D10 BOLD
-f fg=#4C5661 bg=#0B0D10
-g fg=#79838F bg=#0B0D10
+e fg=#4C5661 bg=#0B0D10
+f fg=#79838F bg=#0B0D10
+g fg=#E8B84B bg=#0B0D10 BOLD
 h fg=#79838F bg=#101419

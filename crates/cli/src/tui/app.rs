@@ -36,6 +36,7 @@ use super::detail;
 use super::findings;
 use super::organizations;
 use super::panel;
+use super::policy;
 use super::repositories::{self, Filter};
 use super::screen::{Key, Screen, INPUT_KEYS};
 use super::sign_in;
@@ -92,6 +93,15 @@ pub struct App {
     findings: findings::State,
     /// Where the operator is in a finding's reading.
     detail: panel::Scroll,
+    /// The effective policy the run ran under.
+    ///
+    /// A second read model built from the same run at the same instant, held to
+    /// the same rule as the first: the audit document is never retained
+    /// anywhere this type draws from, so no server-supplied string has a path
+    /// to a cell.
+    inspector: Option<Box<policy::Inspector>>,
+    /// Where the operator is in the effective policy.
+    inspection: panel::Scroll,
     /// The rule `o` last asked to be re-observed.
     ///
     /// The request, not a result. What a re-observation concluded is shown when
@@ -125,6 +135,8 @@ impl App {
             queue: None,
             findings: findings::State::default(),
             detail: panel::Scroll::default(),
+            inspector: None,
+            inspection: panel::Scroll::default(),
             reobserve: None,
             note: None,
         }
@@ -180,6 +192,8 @@ impl App {
         self.queue = Some(Box::new(findings::Queue::of(report, deliveries)));
         self.findings = findings::State::default();
         self.detail = panel::Scroll::default();
+        self.inspector = Some(Box::new(policy::Inspector::of(report)));
+        self.inspection = panel::Scroll::default();
         self.reobserve = None;
         self.note = None;
     }
@@ -267,6 +281,11 @@ impl App {
                 return flow;
             }
         }
+        if self.screen == Screen::PolicyInspector {
+            if let Some(flow) = self.inspecting(event.code) {
+                return flow;
+            }
+        }
         match event.code {
             KeyCode::Char('t') => self.theme = self.theme.toggled(),
             KeyCode::Enter => return self.forward(),
@@ -280,6 +299,7 @@ impl App {
             }
             KeyCode::Char('p') if self.screen == Screen::Findings => {
                 self.screen = Screen::PolicyInspector;
+                self.inspection.rewind();
             }
             KeyCode::Char('b') if self.screen == Screen::Findings => {
                 self.screen = Screen::PublishingBootstrap;
@@ -397,6 +417,32 @@ impl App {
                     }
                     None => {
                         self.note = Some(detail::nothing_to_act_on());
+                        Flow::Continue
+                    }
+                })
+            }
+            _ => return None,
+        }
+        Some(Flow::Continue)
+    }
+
+    /// Keys the policy inspector takes for itself.
+    ///
+    /// The digest, the sources, the provenance, and the table are one reading,
+    /// so the arrows move a window over all of it rather than selecting inside
+    /// one part of it.
+    fn inspecting(&mut self, code: KeyCode) -> Option<Flow> {
+        match code {
+            KeyCode::Up => self.inspection.by(-1),
+            KeyCode::Down => self.inspection.by(1),
+            KeyCode::Char('y') => {
+                return Some(match self.inspector.as_deref() {
+                    Some(inspector) => {
+                        self.note = Some(policy::copied());
+                        Flow::Copy(inspector.provenance.registry_digest.clone())
+                    }
+                    None => {
+                        self.note = Some(policy::nothing_to_copy());
                         Flow::Continue
                     }
                 })
@@ -732,6 +778,10 @@ impl App {
                 || chrome::status_text(Screen::FindingDetail),
                 detail::status,
             ),
+            Screen::PolicyInspector => self.inspector.as_deref().map_or_else(
+                || chrome::status_text(Screen::PolicyInspector),
+                policy::status,
+            ),
             other => chrome::status_text(other),
         }
     }
@@ -770,6 +820,12 @@ impl App {
                 return detail::body(styles, width, height, row, &queue.provenance, &self.detail);
             }
             return detail::nothing_selected(styles, width as usize);
+        }
+        if self.screen == Screen::PolicyInspector {
+            return self.inspector.as_deref().map_or_else(
+                || policy::nothing_observed(styles, width as usize),
+                |inspector| policy::body(styles, width, height, inspector, &self.inspection),
+            );
         }
         let width = width as usize;
         let mut lines = vec![Line::from(Span::styled(
