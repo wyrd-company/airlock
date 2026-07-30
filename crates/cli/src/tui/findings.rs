@@ -61,6 +61,9 @@ const STATUS_WIDTH: usize = 14;
 /// The width the section is printed in. `classification` is the longest.
 const SECTION_WIDTH: usize = 15;
 
+/// The fewest columns worth giving a section before it gives way entirely.
+const SECTION_STUB: usize = 4;
+
 /// The blockers named in the banner before the rest are withheld with a count.
 ///
 /// The narrower reading names fewer, because at the floor the banner is
@@ -72,6 +75,15 @@ const BLOCKERS_SHOWN_TIGHT: usize = 2;
 
 /// The fewest rows the queue is ever given, whatever the head costs.
 const QUEUE_FLOOR: usize = 3;
+
+/// Where the lane strip ends and the rule id begins.
+///
+/// The two-line reading's second line starts here, so the section and the row's
+/// own fact sit under the rule they are about rather than under the statement.
+const MARKS: usize = UNFOCUSED.len() + 2 + 4 + LANES_WIDTH + 1;
+
+/// Everything a row spends before its section, on the line the statement is on.
+const SPENT: usize = MARKS + RULE_WIDTH + STATUS_WIDTH;
 
 /// One of the eight groups the queue is ordered into.
 ///
@@ -829,7 +841,7 @@ pub fn body(
     let entries = entries(queue, state);
     let heights: Vec<usize> = entries
         .iter()
-        .map(|entry| entry_height(entry, density))
+        .map(|entry| entry_height(queue, entry, width, density))
         .collect();
     let room = (height as usize)
         .saturating_sub(head.len() + 1)
@@ -857,14 +869,26 @@ pub fn body(
 /// row's note are load-bearing, and eliding a statement to nothing to keep them
 /// on one line would leave a row that says what kind of rule it is without
 /// saying what the rule is.
-const fn entry_height(entry: &Entry, density: Density) -> usize {
+fn entry_height(queue: &Queue, entry: &Entry, width: usize, density: Density) -> usize {
     match entry {
         Entry::Heading(_) => 1,
-        Entry::Row(_) => match density {
-            Density::Full => 1,
-            Density::Tight => 2,
-        },
+        Entry::Row(index) => queue
+            .rows
+            .get(*index)
+            .map_or(1, |row| usize::from(!one_line(row, width, density)) + 1),
     }
+}
+
+/// Whether the row's whole reading fits on one line.
+///
+/// One line where the width carries everything, two where it does not — and
+/// what decides that is the row's own fact, because the fact is the one field
+/// that is never shortened. A row whose fact will not fit beside the statement
+/// takes the second line rather than withholding a fact the same terminal could
+/// have shown, which is what keeps a wider screen from ever showing less of a
+/// fact than a narrower one across the change of reading.
+fn one_line(row: &Row, width: usize, density: Density) -> bool {
+    density == Density::Full && tail_of(row).chars().count() <= width.saturating_sub(SPENT)
 }
 
 /// The slice of the queue that fits, with the focused entry always inside it.
@@ -1262,66 +1286,59 @@ fn row_lines(
         format!("{:<STATUS_WIDTH$}", row.status.code()),
         styles.of(Role::Status(row.status)),
     ));
-    // Where the lane strip ends and the rule id begins. The narrow reading's
-    // second line starts here, so the section and the row's own fact sit under
-    // the rule they are about rather than under the statement.
-    let marks = UNFOCUSED.len() + 2 + 4 + LANES_WIDTH + 1;
-    let spent = marks + RULE_WIDTH + STATUS_WIDTH;
-    match density {
-        Density::Full => {
-            // The fact is allocated out of everything the row has left, before
-            // the section takes its column, for the same reason the narrow
-            // reading does it: a wider terminal must never show less of a fact
-            // than a narrower one. Reserving the section first would withhold a
-            // fact at the reference that the floor prints whole.
-            let room = width.saturating_sub(spent);
-            let fact = fact(row, room);
-            let taken = fact.as_ref().map_or(0, |fact| fact.chars().count());
-            let section = SECTION_WIDTH.min(room.saturating_sub(taken));
-            spans.push(Span::styled(
-                format!(
-                    "{:<section$}",
-                    fit(&row.section, section.saturating_sub(1)),
-                    section = section
-                ),
-                styles.of(Role::Faint),
-            ));
-            spans.push(Span::styled(
-                detail(fact, &row.statement, room - section),
-                styles.of(Role::Dim),
-            ));
-            vec![Line::from(spans)]
-        }
-        Density::Tight => {
-            let room = width.saturating_sub(spent);
-            spans.push(Span::styled(
-                fit(&row.statement, room),
-                styles.of(Role::Dim),
-            ));
-            // The fact is allocated first and the section takes what is left,
-            // because the fact is what the group exists to carry. Neither is
-            // half-printed: the fact is whole or it is the notice that it was
-            // withheld, and the section is elided the way every bounded field
-            // on this screen is.
-            let room = width.saturating_sub(marks);
-            let tail = match fact(row, room) {
-                None => fit(&row.section, room),
-                Some(fact) => {
-                    let left = room.saturating_sub(fact.chars().count() + 3);
-                    if left == 0 {
-                        fact
-                    } else {
-                        format!("{} \u{b7} {fact}", fit(&row.section, left))
-                    }
-                }
-            };
-            let second = format!("{:<marks$}{tail}", "", marks = marks);
-            vec![
-                Line::from(spans),
-                Line::from(Span::styled(second, styles.of(Role::Faint))),
-            ]
-        }
+    let room = width.saturating_sub(SPENT);
+    if one_line(row, width, density) {
+        // The fact is allocated out of everything the row has left, before the
+        // section takes its column: the section is bounded registry vocabulary
+        // and elides the way every bounded field here does, and the fact is
+        // what the group exists to carry.
+        let fact = fact(row, room);
+        let taken = fact.as_ref().map_or(0, |fact| fact.chars().count());
+        let section = SECTION_WIDTH.min(room.saturating_sub(taken));
+        spans.push(Span::styled(
+            format!(
+                "{:<section$}",
+                fit(&row.section, section.saturating_sub(1)),
+                section = section
+            ),
+            styles.of(Role::Faint),
+        ));
+        spans.push(Span::styled(
+            detail(fact, &row.statement, room - section),
+            styles.of(Role::Dim),
+        ));
+        return vec![Line::from(spans)];
     }
+    spans.push(Span::styled(
+        fit(&row.statement, room),
+        styles.of(Role::Dim),
+    ));
+    // The second line, where the fact has the whole width less the marks. It is
+    // allocated first and the section takes what is left. Neither is
+    // half-printed: the fact is whole or it is the notice that it was withheld.
+    let room = width.saturating_sub(MARKS);
+    let tail = match fact(row, room) {
+        None => fit(&row.section, room),
+        Some(fact) => {
+            let left = room.saturating_sub(fact.chars().count() + 3);
+            // A section cut to a character and an ellipsis tells a reader
+            // nothing and reads as a fault, so below that it gives way
+            // altogether. It is bounded registry vocabulary and the finding
+            // detail carries it; the fact is what the row cannot lose.
+            if left < SECTION_STUB {
+                fact
+            } else {
+                format!("{} \u{b7} {fact}", fit(&row.section, left))
+            }
+        }
+    };
+    vec![
+        Line::from(spans),
+        Line::from(Span::styled(
+            format!("{:<MARKS$}{tail}", ""),
+            styles.of(Role::Faint),
+        )),
+    ]
 }
 
 /// What a row says after its section: its own fact, then its statement.
@@ -1551,11 +1568,13 @@ pub mod fixture {
         )
     }
 
-    /// A failure whose declared reason is longer than any row can carry.
+    /// A failure whose declared reason is longer than the floor can carry.
     ///
-    /// Contrived, and deliberately so: the reason a rule declares is prose the
-    /// registry writes, and this is the width at which a row has no reading of
-    /// it to give.
+    /// Contrived, and deliberately so: it is the length at which the two widths
+    /// disagree. The floor has no reading of it to give and withholds it; the
+    /// reference takes a second line and carries it whole. That is the
+    /// monotonic rule in one run — widening a terminal adds the fact, and never
+    /// takes one away.
     #[must_use]
     pub fn long_fact() -> Report {
         let mut unremediable = finding("REPO-DOCS-05", Severity::Required, Status::Fail);
@@ -1565,9 +1584,8 @@ pub mod fixture {
             change: None,
             reversible: None,
             none_reason: Some(
-                "the correct content depends on judgments about this repository that \
-                 airlock cannot make on its behalf, so the remaining move is a person's \
-                 and the declared reason is carried in full rather than summarised"
+                "the choice of licence is the maintainer's, and airlock will not make \
+                 it for them"
                     .to_owned(),
             ),
         };
@@ -1606,7 +1624,7 @@ mod tests {
         condition_undecided, file_failure, finding, report, settings_failure, suppressed,
     };
     use super::*;
-    use crate::tui::chrome::{FLOOR_WIDTH, REFERENCE_WIDTH};
+    use crate::tui::chrome::{FLOOR_HEIGHT, FLOOR_WIDTH, REFERENCE_HEIGHT, REFERENCE_WIDTH};
     use crate::tui::theme::{ColorMode, Theme};
     use airlock_core::findings::{Evidence, FindingError, RemediationClass};
 
@@ -2288,21 +2306,25 @@ mod tests {
             .find(|row| row.group == Group::Judgment)
             .expect("the failure with no declared remediation");
         let reason = row.note.clone().expect("the declared reason");
-        // Long enough that neither reading has room for it, which is the case
-        // the rule is about.
-        assert!(reason.chars().count() > 120, "{reason}");
-        for width in [120u16, 80] {
-            let rendered = rendered(&queue, &State::default(), width, 40);
-            assert!(rendered.contains("fact withheld"), "at {width}: {rendered}");
-            let opening: String = reason.chars().take(40).collect();
-            assert!(
-                !rendered.contains(&opening),
-                "a fact was half printed at {width}: {rendered}"
-            );
-            // And the row still says which rule it is about, and its section.
-            assert!(rendered.contains("REPO-DOCS-05"), "at {width}");
-            assert!(rendered.contains("docs"), "at {width}");
-        }
+
+        // The floor has no reading of it to give, so it says so and prints no
+        // part of it.
+        let floor = rendered(&queue, &State::default(), FLOOR_WIDTH, FLOOR_HEIGHT);
+        assert!(floor.contains("fact withheld"), "{floor}");
+        let opening: String = reason.chars().take(40).collect();
+        assert!(
+            !floor.contains(&opening),
+            "a fact was half printed: {floor}"
+        );
+        assert!(floor.contains("REPO-DOCS-05"), "{floor}");
+        assert!(floor.contains("docs"), "{floor}");
+
+        // The reference carries the same fact whole, which is the direction the
+        // rule runs in: widening a terminal adds a fact and never takes one
+        // away.
+        let reference = rendered(&queue, &State::default(), REFERENCE_WIDTH, REFERENCE_HEIGHT);
+        assert!(reference.contains(&reason), "{reference}");
+        assert!(!reference.contains("fact withheld"), "{reference}");
     }
 
     /// A row carrying a fact of a chosen length, and nothing else unusual.
@@ -2332,38 +2354,69 @@ mod tests {
 
     #[test]
     fn a_wider_screen_never_shows_less_of_a_fact_than_a_narrower_one() {
-        // The two readings allocate differently, and the one thing that must
-        // hold across them is monotonicity: widening a terminal can add a fact
-        // to a row and can never take one away. A section column reserved
-        // before the fact is what breaks this, and it is what this asserts is
-        // not happening.
-        for length in 1..=90usize {
+        // The property, over the whole range rather than at two chosen widths.
+        // Every width from the floor to well past the reference is swept, so
+        // the change of reading at 100 columns is one of the adjacent pairs
+        // rather than something the endpoints stepped over, and every fact
+        // length spanning both boundaries is tried. Widening a terminal may add
+        // a fact to a row; it may never take one away.
+        for length in 0..=140usize {
             let fact = "f".repeat(length);
             let row = carrying(&fact);
-            let floor = drawn(&row, FLOOR_WIDTH).contains(&fact);
-            let reference = drawn(&row, REFERENCE_WIDTH).contains(&fact);
-            assert!(
-                !floor || reference,
-                "a fact of {length} characters is whole at {FLOOR_WIDTH} and \
-                 withheld at {REFERENCE_WIDTH}"
-            );
+            let mut shown_at: Option<u16> = None;
+            for width in FLOOR_WIDTH..=REFERENCE_WIDTH + 20 {
+                let whole = length == 0 || drawn(&row, width).contains(&fact);
+                match (shown_at, whole) {
+                    (None, true) => shown_at = Some(width),
+                    (Some(first), false) => panic!(
+                        "a fact of {length} characters is whole at {first} \
+                         columns and withheld at {width}"
+                    ),
+                    _ => {}
+                }
+            }
         }
     }
 
     #[test]
-    fn each_reading_carries_a_fact_up_to_the_room_it_actually_has() {
-        // The boundary, stated rather than implied: everything the row spends
-        // before the fact, and nothing else, is what decides where a fact stops
-        // fitting. Both readings spend the same marks, so both boundaries are
-        // the width less what stands to the left of the fact.
-        let marks = UNFOCUSED.len() + 2 + 4 + LANES_WIDTH + 1;
-        for (width, room) in [
-            (FLOOR_WIDTH, FLOOR_WIDTH as usize - marks),
-            (
-                REFERENCE_WIDTH,
-                REFERENCE_WIDTH as usize - (marks + RULE_WIDTH + STATUS_WIDTH),
-            ),
+    fn a_row_takes_a_second_line_rather_than_withhold_a_fact_the_width_could_carry() {
+        // What holds the property across the change of reading. The one-line
+        // reading has less room for a fact than the two-line one at every
+        // width, so a row whose fact does not fit beside its statement takes
+        // the second line instead of withholding a fact the same terminal could
+        // have shown.
+        let width = REFERENCE_WIDTH as usize;
+        let beside = "f".repeat(width - SPENT);
+        assert!(one_line(&carrying(&beside), width, Density::Full));
+        let over = "f".repeat(width - SPENT + 1);
+        assert!(!one_line(&carrying(&over), width, Density::Full));
+        let rendered = drawn(&carrying(&over), REFERENCE_WIDTH);
+        assert!(rendered.contains(&over), "{rendered}");
+        // And the queue budgets for the line it actually draws.
+        let queue = Queue::of(&super::fixture::mixed(), &Deliveries::default());
+        for (width, density) in [
+            (FLOOR_WIDTH as usize, Density::Tight),
+            (REFERENCE_WIDTH as usize, Density::Full),
         ] {
+            for (index, row) in queue.rows.iter().enumerate() {
+                assert_eq!(
+                    entry_height(&queue, &Entry::Row(index), width, density),
+                    row_lines(styles(), width, row, false, density).len(),
+                    "{} at {width}",
+                    row.rule
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_fact_is_carried_up_to_the_room_the_row_actually_has() {
+        // The boundary, stated rather than implied: a row's fact has the width
+        // less what stands to the left of it on the line it can always fall
+        // back to. Both readings spend the same marks, so one boundary serves
+        // every width.
+        for width in [FLOOR_WIDTH, REFERENCE_WIDTH] {
+            let room = width as usize - MARKS;
             let fits = "f".repeat(room);
             assert!(
                 drawn(&carrying(&fits), width).contains(&fits),

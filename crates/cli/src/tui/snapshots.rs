@@ -641,20 +641,29 @@ fn queues() -> Vec<Case> {
             });
         }
     }
-    // A declared reason longer than any row can carry, at the width where the
-    // rule bites: the fact is withheld with a notice rather than half printed,
-    // and the row still says which rule it is about.
-    cases.push(Case {
-        name: "findings-withheld-fact-80x24-dark",
-        screen: Screen::Findings,
-        theme: Theme::Dark,
-        color: ColorMode::Color,
-        width: FLOOR_WIDTH,
-        height: FLOOR_HEIGHT,
-        flow: None,
-        selection: None,
-        run: Some(Run::of(fixture::long_fact())),
-    });
+    // A declared reason longer than the floor can carry, at both widths. The
+    // floor withholds it with a notice rather than half printing it; the
+    // reference takes a second line and carries it whole. The pair is the
+    // monotonic rule as a reading rather than as an assertion: widening a
+    // terminal adds the fact and never takes one away.
+    for (width, height) in [
+        (REFERENCE_WIDTH, REFERENCE_HEIGHT),
+        (FLOOR_WIDTH, FLOOR_HEIGHT),
+    ] {
+        cases.push(Case {
+            name: Box::leak(
+                format!("findings-withheld-fact-{}-dark", size_slug(width)).into_boxed_str(),
+            ),
+            screen: Screen::Findings,
+            theme: Theme::Dark,
+            color: ColorMode::Color,
+            width,
+            height,
+            flow: None,
+            selection: None,
+            run: Some(Run::of(fixture::long_fact())),
+        });
+    }
     cases
 }
 
