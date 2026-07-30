@@ -595,6 +595,51 @@ mod tests {
     }
 
     #[test]
+    fn the_shared_provenance_block_carries_its_facts_whole_and_safe() {
+        // The block is shared with the finding detail, which promises to carry
+        // what it shows whole. A bound applied where it is built would break
+        // that promise for both screens at once, so it is asserted from both.
+        let report = fixture::hostile();
+        let inspector = Inspector::of(&report);
+        for width in [REFERENCE_WIDTH, FLOOR_WIDTH] {
+            let block = text(
+                &inspector
+                    .provenance
+                    .lines(styles(), width as usize, LABEL_WIDTH),
+            );
+            let stripped = block.replace(' ', "");
+            for (label, value) in inspector.provenance.fields() {
+                assert!(
+                    stripped.contains(&crate::admin::text::drawable(&value).replace(' ', "")),
+                    "{label} was shortened at {width}"
+                );
+            }
+            assert!(!block.contains('\u{2026}'), "at {width}: {block}");
+            for refused in ['\u{1b}', '\u{202e}', '\u{200b}'] {
+                assert!(!block.contains(refused), "{refused:?} at {width}");
+            }
+            assert!(block.contains('\u{fffd}'), "at {width}");
+        }
+    }
+
+    #[test]
+    fn the_abbreviated_digest_is_the_one_place_the_screen_shortens_on_purpose() {
+        // The status line has one row and abbreviates the digest to fit it. It
+        // is not the defect the block avoids: it is marked as an abbreviation,
+        // and the whole digest is above it on the screen.
+        let report = fixture::hostile();
+        let inspector = Inspector::of(&report);
+        assert!(status(&inspector).contains('\u{2026}'));
+        assert!(inspector.abbreviated_digest().ends_with('\u{2026}'));
+        assert!(
+            text(&regions(styles(), REFERENCE_WIDTH as usize, &inspector))
+                .replace(' ', "")
+                .contains(&inspector.provenance.registry_digest.replace(' ', "")),
+            "the whole digest is on the screen the abbreviation summarises"
+        );
+    }
+
+    #[test]
     fn policy_sourced_material_is_marked_as_such_rather_than_given_a_blob() {
         let report = fixture::mixed();
         let inspector = Inspector::of(&report);

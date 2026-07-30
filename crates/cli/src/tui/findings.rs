@@ -1746,6 +1746,16 @@ pub mod fixture {
         for entry in &mut report.effective_policy {
             entry.provenance = long("provenance");
         }
+        // The run's own provenance is server-supplied too, and it is shared by
+        // both screens that promise to carry what they show whole. It is seeded
+        // here so a bound reintroduced anywhere on that path is caught by the
+        // same fixture rather than by the next review.
+        report.airlock.version = long("airlock-version");
+        report.airlock.registry_version = long("registry-version");
+        report.airlock.registry_digest = long("registry-digest");
+        report.repository.audited_commit = long("audited-commit");
+        report.repository.settings_observed_at = Some(long("settings-observed"));
+        report.repository.full_name = long("repository-name");
         report
     }
 

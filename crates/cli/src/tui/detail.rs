@@ -1249,6 +1249,16 @@ mod tests {
                         finding.rule
                     );
                 }
+                // The run's provenance is drawn on this screen too, and it is
+                // shared with the inspector: a bound anywhere on that path
+                // shortens a fact both screens promised to carry whole.
+                for (label, value) in queue.provenance.fields() {
+                    assert!(
+                        rendered.contains(&expected(&value)),
+                        "{} at {width} lost the run provenance field {label}",
+                        finding.rule
+                    );
+                }
                 assert!(
                     !rendered.contains('\u{2026}'),
                     "{} at {width} elided something",
@@ -1256,6 +1266,37 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn the_hostile_fixture_sits_past_every_bound_the_interface_has_ever_had() {
+        // A test that asserts a boundary is never crossed proves nothing unless
+        // its fixture sits past the boundary. The bounds this interface has
+        // used are 24, 200, 300, and 400 characters; every server-supplied
+        // value here is past all of them, on the finding and on the run alike.
+        let report = fixture::hostile();
+        let queue = queue(&report);
+        let mut checked = 0;
+        for finding in &report.findings {
+            for value in supplied(finding) {
+                assert!(value.chars().count() > 400, "{}", value.chars().count());
+                checked += 1;
+            }
+        }
+        for (label, value) in queue.provenance.fields() {
+            // The schema version is a number the binary wrote, not a string a
+            // server supplied, so it is the one field with nothing to prove.
+            if label == "schema" {
+                continue;
+            }
+            assert!(
+                value.chars().count() > 400,
+                "{label} is only {} characters",
+                value.chars().count()
+            );
+            checked += 1;
+        }
+        assert!(checked > 20, "the fixture covers {checked} values");
     }
 
     #[test]

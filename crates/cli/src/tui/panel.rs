@@ -14,19 +14,13 @@ use airlock_core::findings::Report;
 
 use crate::admin::identity::WriteIdentity;
 use crate::admin::sign_in::Density;
-use crate::admin::text::sanitize;
+use crate::admin::text::drawable;
 
 use super::chrome::wrap;
 use super::theme::{Role, Styles};
 
 /// The column a labelled field's value starts in.
 pub const LABEL_WIDTH: usize = 14;
-
-/// The most a provenance value may be.
-///
-/// Generous, because a digest is 71 columns and a commit is 40, and the point
-/// of the block is that both are readable in full.
-const PROVENANCE_LIMIT: usize = 200;
 
 /// The width below which prose is written tightly.
 ///
@@ -161,19 +155,27 @@ pub struct Provenance {
 
 impl Provenance {
     /// Take the provenance off a run.
+    ///
+    /// Made safe and not shortened. Both screens that print this block promise
+    /// to carry what they show whole, and a block bounded here would break that
+    /// promise before either of them saw the value — silently, because an
+    /// ellipsis looks like a value that happened to end. Where a column needs a
+    /// length, the column imposes it when it draws: the block itself wraps, and
+    /// the inspector's status line abbreviates the digest deliberately and
+    /// marks that it did.
     #[must_use]
     pub fn of(report: &Report) -> Self {
         Self {
-            airlock_version: sanitize(&report.airlock.version, PROVENANCE_LIMIT),
-            registry_version: sanitize(&report.airlock.registry_version, PROVENANCE_LIMIT),
-            registry_digest: sanitize(&report.airlock.registry_digest, PROVENANCE_LIMIT),
+            airlock_version: drawable(&report.airlock.version),
+            registry_version: drawable(&report.airlock.registry_version),
+            registry_digest: drawable(&report.airlock.registry_digest),
             schema_version: report.schema_version,
-            audited_commit: sanitize(&report.repository.audited_commit, PROVENANCE_LIMIT),
+            audited_commit: drawable(&report.repository.audited_commit),
             settings_observed_at: report
                 .repository
                 .settings_observed_at
                 .as_ref()
-                .map(|at| sanitize(at, PROVENANCE_LIMIT)),
+                .map(|at| drawable(at)),
         }
     }
 
