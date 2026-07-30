@@ -1004,9 +1004,9 @@ impl GitHub for RestClient {
         &self,
         installation_id: u64,
     ) -> ApiResult<InstallationRepositories> {
-        let endpoint = "GET /user/installations/{installation_id}/repos".to_owned();
+        let endpoint = "GET /user/installations/{installation_id}/repositories".to_owned();
         let mut url = format!(
-            "{}/user/installations/{installation_id}/repos?per_page=100",
+            "{}/user/installations/{installation_id}/repositories?per_page=100",
             self.config.base_url
         );
         let mut repositories = Vec::new();

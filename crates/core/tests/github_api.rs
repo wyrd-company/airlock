@@ -1189,7 +1189,7 @@ fn scoped_installation(id: u64, account_type: &str, selection: &str) -> Value {
 }
 
 async fn mount_installation_repos(server: &MockServer, id: u64, page: &str, body: Value) {
-    let route = format!("/user/installations/{id}/repos");
+    let route = format!("/user/installations/{id}/repositories");
     let mut template = quota_headers(ResponseTemplate::new(200)).set_body_json(body);
     if page == "1" {
         template = template.insert_header(
@@ -1281,10 +1281,10 @@ async fn an_installation_with_no_stated_kind_is_unrecognised_rather_than_a_user(
 async fn an_installations_repositories_are_listed_with_the_count_github_reports() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/user/installations/7/repos"))
         .respond_with(
             quota_headers(ResponseTemplate::new(200)).set_body_json(json!({
                 "total_count": 2,
+                "repository_selection": "selected",
                 "repositories": [
                     listed_repository("acme-industries", "widget", "public"),
                     listed_repository("acme-industries", "sprocket", "private"),
@@ -1295,6 +1295,13 @@ async fn an_installations_repositories_are_listed_with_the_count_github_reports(
         .await;
 
     let listing = client(&server).installation_repositories(7).await.unwrap();
+    let requests = server.received_requests().await.unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(
+        requests[0].url.path(),
+        "/user/installations/7/repositories",
+        "the request path must match GitHub's documented endpoint literally"
+    );
     assert_eq!(listing.total_count, 2);
     assert!(!listing.truncated);
     assert_eq!(listing.repositories[0].full_name, "acme-industries/widget");
@@ -1311,7 +1318,7 @@ async fn an_installations_repositories_are_listed_with_the_count_github_reports(
 async fn a_repository_with_no_default_branch_reports_none_rather_than_a_name() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/user/installations/7/repos"))
+        .and(path("/user/installations/7/repositories"))
         .respond_with(
             quota_headers(ResponseTemplate::new(200)).set_body_json(json!({
                 "total_count": 1,
@@ -1392,7 +1399,7 @@ async fn a_listing_that_runs_past_the_page_budget_says_it_is_a_prefix() {
 async fn a_repository_airlock_cannot_read_is_a_malformed_response_rather_than_one_fewer() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/user/installations/7/repos"))
+        .and(path("/user/installations/7/repositories"))
         .respond_with(
             quota_headers(ResponseTemplate::new(200)).set_body_json(json!({
                 "total_count": 1,
@@ -1423,10 +1430,10 @@ async fn a_client_that_refuses_redirects_never_carries_its_credential_to_another
         .await;
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/user/installations/7/repos"))
+        .and(path("/user/installations/7/repositories"))
         .respond_with(ResponseTemplate::new(302).insert_header(
             "location",
-            format!("{}/user/installations/7/repos", elsewhere.uri()).as_str(),
+            format!("{}/user/installations/7/repositories", elsewhere.uri()).as_str(),
         ))
         .mount(&server)
         .await;
