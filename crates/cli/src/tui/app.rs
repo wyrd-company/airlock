@@ -407,9 +407,6 @@ impl App {
                     self.screen = previous;
                 }
             }
-            KeyCode::Char('a') if self.screen.remediation_reachable() => {
-                self.open_remediation();
-            }
             KeyCode::Char('p') if self.screen == Screen::Findings => {
                 self.screen = Screen::PolicyInspector;
                 self.inspection.rewind();
@@ -512,13 +509,7 @@ impl App {
             // The transcript is reachable only where there is a settings-level
             // change to carry out. Elsewhere the status line says why rather
             // than the key silently doing nothing.
-            KeyCode::Char('a') => {
-                if self.applicable() {
-                    self.screen = Screen::Remediation;
-                } else {
-                    self.note = Some(findings::inert_apply());
-                }
-            }
+            KeyCode::Char('a') => self.open_remediation(),
             KeyCode::Char('o') => match rule {
                 Some(rule) => {
                     self.note = Some(detail::reobserving(&rule));
@@ -569,24 +560,6 @@ impl App {
         Some(Flow::Continue)
     }
 
-    /// Whether the focused finding has a settings-level change to carry out.
-    ///
-    /// Both halves of the specification's condition are required, and they are
-    /// separate facts on separate fields. A remediation must be on offer, which
-    /// is the contextual `remediation` this run produced; and its declared lane
-    /// must be the one this interface may act in, which is the rule-level
-    /// classification. A rule classified `operator-setting` that this run
-    /// offered no remedy for has nothing for a transcript to carry out, and a
-    /// file-level gap leaves as a pull request that nothing here offers to
-    /// author.
-    fn applicable(&self) -> bool {
-        self.focused_row().is_some_and(|row| {
-            row.status == Status::Fail
-                && row.detail.remediation.on_offer()
-                && row.detail.remediation.class_lane.as_deref() == Some("operator-setting")
-        })
-    }
-
     /// The row the queue's focus is on, when it is on one.
     fn focused_row(&self) -> Option<&findings::Row> {
         let queue = self.queue.as_deref()?;
@@ -596,10 +569,13 @@ impl App {
 
     fn open_remediation(&mut self) {
         let Some(row) = self.focused_row().cloned() else {
-            self.screen = Screen::Remediation;
+            self.note = Some(findings::inert_apply());
             return;
         };
-        if row.group != findings::Group::Settings || row.status != Status::Fail {
+        if row.group != findings::Group::Settings
+            || row.status != Status::Fail
+            || row.detail.remediation.code.is_none()
+        {
             self.note = Some(findings::inert_apply());
             return;
         }
@@ -1255,17 +1231,6 @@ fn bulk_items(
         .collect()
 }
 
-impl Screen {
-    /// Whether `a` reaches the remediation transcript from here.
-    ///
-    /// The findings screen is not on this list: there, `a` is a property of the
-    /// focused row rather than of the screen, and it is answered before this is
-    /// ever asked.
-    const fn remediation_reachable(self) -> bool {
-        matches!(self, Screen::FindingDetail)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1276,6 +1241,17 @@ mod tests {
 
     fn press(app: &mut App, code: KeyCode) -> Flow {
         app.handle_key(KeyEvent::new(code, KeyModifiers::NONE))
+    }
+
+    fn selected_remediation_rule(app: &App) -> &str {
+        let request = match &app.remediation {
+            remediation::State::Input { request }
+            | remediation::State::Confirm { request }
+            | remediation::State::Applying { request }
+            | remediation::State::Complete { request, .. } => request,
+            remediation::State::Empty => panic!("the remediation was not populated"),
+        };
+        &request.items[0].rule
     }
 
     fn issued() -> crate::admin::flow::Issued {
@@ -1393,6 +1369,41 @@ mod tests {
         assert_eq!(app.screen(), Screen::FindingDetail);
         press(&mut app, KeyCode::Char('a'));
         assert_eq!(app.screen(), Screen::Remediation);
+        assert_eq!(selected_remediation_rule(&app), "REPO-GIT-01");
+    }
+
+    #[test]
+    fn detail_apply_replaces_a_stale_confirmation_with_the_focused_rule() {
+        use airlock_core::findings::Remediation;
+        use airlock_core::remediation::ActionGroup;
+
+        let mut second =
+            findings::fixture::finding("REPO-GIT-04", Severity::Blocking, Status::Fail);
+        second.remediation = Some(Remediation::new(
+            ActionGroup::CORRECT_MERGE_SETTINGS,
+            "Disable merge commits.",
+        ));
+        let mut app = app();
+        app.observed_run(
+            &findings::fixture::report(
+                airlock_core::findings::Gate::Required,
+                vec![findings::fixture::settings_failure(), second],
+            ),
+            &findings::Deliveries::default(),
+        );
+        app.screen = Screen::Findings;
+
+        press(&mut app, KeyCode::Down);
+        press(&mut app, KeyCode::Char('a'));
+        assert_eq!(selected_remediation_rule(&app), "REPO-GIT-01");
+        press(&mut app, KeyCode::Esc);
+        press(&mut app, KeyCode::Down);
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(app.screen(), Screen::FindingDetail);
+        press(&mut app, KeyCode::Char('a'));
+
+        assert_eq!(app.screen(), Screen::Remediation);
+        assert_eq!(selected_remediation_rule(&app), "REPO-GIT-04");
     }
 
     #[test]
