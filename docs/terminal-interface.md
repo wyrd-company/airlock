@@ -429,11 +429,14 @@ view. The filter does not narrow it: an address is only predictable if every
 rule has one.
 
 **Keymap.** `↑↓`/`j`/`k` move · `space` collapse or expand the focused group ·
-`↵` finding detail · `f` filter · `a` apply, on group 1 rows only · `l` flat
-list by rule id · `p` policy inspector · `b` publishing bootstrap · `esc` back.
+`↵` finding detail · `f` filter · `a` apply the focused remediation, on group
+1 rows only · `A` apply its same-kind, input-free group · `l` flat list by rule
+id · `p` policy inspector · `b` publishing bootstrap · `esc` back.
 
-`a` is inert on every row outside group 1, and the status line says why rather
-than the key silently doing nothing.
+`a` and `A` are inert on every row outside group 1, and the status line says
+why rather than the key silently doing nothing. `A` is also inert when the
+focused remediation takes an input or no other open remediation has the same
+kind.
 
 **Status line.** The verdict, `complete` as a separate boolean, the rule count,
 the registry version, and the gate in force.
@@ -510,6 +513,48 @@ time. The transcript ends with a re-observation of the rule and reports what
 airlock then sees. Status follows observation, never the request's success: a
 change that was accepted and did not close the gap is reported as still
 failing, and says why.
+
+**Inputs.** Most settings-level remediations name their entire change
+themselves; the confirmation is the only input. A remediation that cannot
+derive its target takes it here, before the confirmation, and the confirmation
+then names the operator's chosen value verbatim. Three input surfaces exist,
+and no remediation defines a fourth:
+
+- **A choice from observed data.** Attaching organization rulesets selects from
+  the rulesets observed on the organization on entry, re-observed and never
+  remembered; where none matches, the offered creation carries the
+  policy-derived body, shown in full in the confirmation, and nothing here
+  authors a ruleset from typed text. Transferring a repository selects its
+  destination from the reachable installations — the same list the
+  Organizations screen shows — and never from typed text. An empty choice list
+  follows the Emptiness rule: it states what would have populated it and what
+  to do next, and the remediation is not applicable from this session until it
+  is non-empty.
+- **A text target.** A rename takes its new name in a focused text input,
+  prefilled with the derived candidate where one exists — the kebab-case of
+  the current name, the undotted form, the family-prefixed form. While the
+  input holds focus, printable keys are text, `esc` cancels, and `t` is not
+  live as the theme toggle, exactly as the repository filter behaves. A
+  candidate is validated before it is offered for confirmation: it must be a
+  name GitHub accepts, and it must itself satisfy the rule being remediated —
+  airlock does not apply a fix it can already observe failing.
+- **A secret value.** No remediation in this interface takes one. Where closing
+  a gap requires re-entering a secret's value — a secret rename creates the
+  new name, and the old value cannot be read back — the screen states that
+  plainly, states that the value must be supplied by a person, and leaves the
+  remediation in the queue with that reason.
+
+**Ceremony scales with reversibility.** A reversible setting confirms once,
+naming what will change. A transfer is not undone from here — reversing it
+requires an admin of the destination — so its confirmation additionally
+requires the repository's name typed in full, and a transfer is never part of
+a bulk confirmation.
+
+**Bulk.** A bulk confirmation covers a group of same-kind remediations none of
+which takes an input. Each rule in the group keeps its own transcript lines and
+its own re-observation; bulk is one consent, never one observation. A
+remediation that takes an input is confirmed singly, because the input is the
+confirmation's substance.
 
 The screen states the boundary plainly: file-level gaps leave as a pull
 request. They are proposed for review and are never written to the default
