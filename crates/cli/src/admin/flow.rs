@@ -53,6 +53,22 @@ const LOGIN_URL_OVERRIDE: &str = "AIRLOCK_GITHUB_LOGIN_URL";
 /// immediate, so a wedged worker cannot hold the terminal instead.
 const SHUTDOWN_BUDGET: Duration = Duration::from_secs(2);
 
+/// The origin airlock sent its own device-flow request to.
+///
+/// This is what an address in the response has to match before a scan code will
+/// encode it. It is derived from the base airlock actually used rather than
+/// stated separately, so the two cannot drift: whatever host the request went
+/// to is the only host a scanner can be pointed at.
+///
+/// An origin that cannot be read serialises to `null`, which matches no address
+/// — the check fails closed, because a scan code is followed without being read.
+#[must_use]
+pub fn login_origin() -> String {
+    url::Url::parse(&login_base())
+        .map(|url| url.origin().ascii_serialization())
+        .unwrap_or_default()
+}
+
 /// Where the device flow talks to.
 #[must_use]
 pub fn login_base() -> String {
@@ -767,6 +783,14 @@ mod tests {
         ] {
             assert!(!is_loopback(refused), "{refused}");
         }
+    }
+
+    #[test]
+    fn the_origin_a_scan_code_is_held_to_is_the_one_the_request_went_to() {
+        // No override is set in this process, so the origin is GitHub's — and
+        // it is read from the base rather than written down twice.
+        assert_eq!(login_origin(), "https://github.com");
+        assert_eq!(login_base(), GITHUB_LOGIN_BASE);
     }
 
     #[test]

@@ -15,7 +15,7 @@ use ratatui::text::{Line, Span};
 use crate::admin::identity::{self, WriteIdentity};
 use crate::admin::scan::{self, ScanCode};
 use crate::admin::sign_in::{humanize, Density, SignIn};
-use crate::admin::text;
+use crate::admin::{flow, text};
 
 use super::chrome::wrap;
 use super::theme::{Role, Styles};
@@ -32,7 +32,13 @@ const SCAN_GUTTER: usize = 2;
 /// The narrowest text column worth keeping beside a scan code.
 const TEXT_MINIMUM: usize = 60;
 
-/// The width at which the scan code sits alongside the device code.
+/// The width at which the scan code for the expected address sits alongside the
+/// device code.
+///
+/// The budget the specification states, and the threshold the prose density is
+/// keyed off. The layout itself measures the symbol it is about to draw rather
+/// than trusting this: the symbol grows with the address, and a constant would
+/// be right until the day the address changed.
 pub const ALONGSIDE_WIDTH: usize = TEXT_MINIMUM + SCAN_GUTTER + SCAN_COLUMNS;
 
 /// The light field a scan code paints for itself.
@@ -90,14 +96,26 @@ enum Withheld {
     NoCode,
     /// The operator hid it.
     Hidden,
-    /// The terminal is too narrow for it to sit alongside.
-    TooNarrow(usize),
-    /// The terminal is too short for all of it.
-    TooShort(usize),
+    /// The terminal is too narrow for it to sit alongside: the columns it
+    /// needs beside a readable text column, and the columns there are.
+    TooNarrow {
+        /// What the whole layout would take.
+        needed: usize,
+        /// What the terminal has.
+        have: usize,
+    },
+    /// The terminal is too short for all of it: the rows it needs, and the rows
+    /// left to give it.
+    TooShort {
+        /// What the symbol takes.
+        needed: usize,
+        /// What is left.
+        have: usize,
+    },
     /// Colour is off, and the code paints its own field in colour.
     NoColor,
-    /// The address is not one a browser would open, or would not encode.
-    Unencodable,
+    /// The address is not at the origin airlock asked, or would not encode.
+    Elsewhere,
 }
 
 impl Withheld {
@@ -111,22 +129,22 @@ impl Withheld {
                     .to_owned()
             }
             Self::Hidden => "hidden. The address above is the whole of what it encodes.".to_owned(),
-            Self::TooNarrow(width) if tight => {
-                format!("withheld: needs {ALONGSIDE_WIDTH} columns, this has {width}.")
+            Self::TooNarrow { needed, have } if tight => {
+                format!("withheld: needs {needed} columns, this has {have}.")
             }
-            Self::TooNarrow(width) => format!(
-                "withheld: it needs {SCAN_COLUMNS} columns beside a readable text column, \
-                 which is {ALONGSIDE_WIDTH} in all, and this terminal has {width}. A \
-                 partly drawn scan code is never rendered, because a code that cannot be \
-                 scanned is worse than an address you type."
+            Self::TooNarrow { needed, have } => format!(
+                "withheld: it needs {} columns beside a readable text column, which is \
+                 {needed} in all, and this terminal has {have}. A partly drawn scan code \
+                 is never rendered, because a code that cannot be scanned is worse than \
+                 an address you type.",
+                needed - TEXT_MINIMUM - SCAN_GUTTER
             ),
-            Self::TooShort(rows) if tight => {
-                format!("withheld: it needs {} rows and has {rows}.", lines_needed())
+            Self::TooShort { needed, have } if tight => {
+                format!("withheld: it needs {needed} rows and has {have}.")
             }
-            Self::TooShort(rows) => format!(
-                "withheld: it needs {} rows and this screen has {rows} left to give it. \
-                 It is withheld rather than cut off, for the same reason.",
-                lines_needed()
+            Self::TooShort { needed, have } => format!(
+                "withheld: it needs {needed} rows and this screen has {have} left to give \
+                 it. It is withheld rather than cut off, for the same reason."
             ),
             Self::NoColor if tight => {
                 "withheld: it paints its own field in colour, and NO_COLOR is in force.".to_owned()
@@ -137,11 +155,12 @@ impl Withheld {
                  whole of what it encodes."
                     .to_owned()
             }
-            Self::Unencodable => {
-                "withheld: the address above is not one a browser would open, so there \
-                 is nothing safe to encode. Read it before you act on it."
-                    .to_owned()
-            }
+            Self::Elsewhere => format!(
+                "withheld: the address above is not at {}, which is where airlock asked. \
+                 A scan code is followed without being read, so airlock will not point \
+                 one somewhere the response chose. Read the address before you act on it.",
+                flow::login_origin()
+            ),
         }
     }
 }
@@ -159,11 +178,6 @@ const fn density(width: usize) -> Density {
     } else {
         Density::Full
     }
-}
-
-/// How many text rows a scan code needs.
-fn lines_needed() -> usize {
-    SCAN_COLUMNS.div_ceil(2)
 }
 
 /// The sign-in screen: the flow's state, and where the scan code is drawn.
@@ -234,16 +248,22 @@ impl Screen {
         let width = width as usize;
         let density = density(width);
         let placement = self.placement(styles, width, height as usize);
-        let text_width = match placement {
-            Ok(Placement::Alongside) => width.saturating_sub(SCAN_COLUMNS + SCAN_GUTTER),
+        // Measured from the symbol that will actually be drawn, not from the
+        // budget. The symbol grows with the address, and a layout that assumed
+        // one size would push a wider one off the edge — which is the clipping
+        // the withholding rule exists to prevent.
+        let text_width = match &placement {
+            Ok(Placement::Alongside(code)) => width.saturating_sub(code.columns() + SCAN_GUTTER),
             _ => width,
         };
         let mut lines = self.text(styles, text_width, density, &placement);
-        match placement {
-            Ok(Placement::Alongside) => self.overlay(styles, &mut lines, text_width + SCAN_GUTTER),
-            Ok(Placement::Below) => {
+        match &placement {
+            Ok(Placement::Alongside(code)) => {
+                self.overlay(styles, &mut lines, code, text_width + SCAN_GUTTER);
+            }
+            Ok(Placement::Below(code)) => {
                 lines.push(Line::default());
-                lines.extend(self.scan_lines(styles));
+                lines.extend(paint(code, styles));
             }
             Err(_) => {}
         }
@@ -271,9 +291,10 @@ impl Screen {
         if !styles.colored() {
             return Err(Withheld::NoColor);
         }
-        if self.encoded().is_none() {
-            return Err(Withheld::Unencodable);
-        }
+        let Some(code) = self.encoded() else {
+            return Err(Withheld::Elsewhere);
+        };
+        let (rows, columns) = (code.lines(), code.columns());
         match self.scan {
             ScanMode::Below => {
                 // Measured against the text as it will actually be drawn, at
@@ -281,28 +302,35 @@ impl Screen {
                 let text = self
                     .text(styles, width, density(width), &Err(Withheld::Hidden))
                     .len();
-                let room = height.saturating_sub(text + 1);
-                if room < lines_needed() {
-                    return Err(Withheld::TooShort(room));
+                let have = height.saturating_sub(text + 1);
+                if have < rows {
+                    return Err(Withheld::TooShort { needed: rows, have });
                 }
-                Ok(Placement::Below)
+                Ok(Placement::Below(code))
             }
-            _ if height < lines_needed() => Err(Withheld::TooShort(height)),
-            _ if width >= ALONGSIDE_WIDTH => Ok(Placement::Alongside),
-            _ => Err(Withheld::TooNarrow(width)),
+            _ if height < rows => Err(Withheld::TooShort {
+                needed: rows,
+                have: height,
+            }),
+            _ if width >= TEXT_MINIMUM + SCAN_GUTTER + columns => Ok(Placement::Alongside(code)),
+            _ => Err(Withheld::TooNarrow {
+                needed: TEXT_MINIMUM + SCAN_GUTTER + columns,
+                have: width,
+            }),
         }
     }
 
-    /// The scan code for the address on screen, where there is one worth
-    /// encoding.
+    /// The scan code for the address on screen, where there is one that may be
+    /// encoded.
     ///
-    /// The address is checked for shape as well as for characters. A scanner
-    /// that followed a code airlock drew would go wherever it pointed, so a
-    /// value that is not a web address is printed and not encoded: reading it
-    /// is the operator's, and following it is not something this screen offers.
+    /// The address is checked for origin as well as for characters. A scan code
+    /// is followed without being read, so encoding an address only because a
+    /// response carried it would hand the destination to whoever wrote the
+    /// response. It is encoded only when it sits at the origin airlock sent its
+    /// own request to; otherwise it is printed as text and the screen says why.
     fn encoded(&self) -> Option<ScanCode> {
         let address = &self.state.code()?.verification_uri;
-        if !text::is_web_address(address) {
+        if !text::is_at_origin(address, &flow::login_origin()) {
             return None;
         }
         ScanCode::encode(address).ok()
@@ -310,8 +338,14 @@ impl Screen {
 
     /// Paint the scan code into the right-hand columns of the lines already
     /// built, padding each to the column it starts in.
-    fn overlay(&self, styles: Styles, lines: &mut Vec<Line<'static>>, column: usize) {
-        let scan = self.scan_lines(styles);
+    fn overlay(
+        &self,
+        styles: Styles,
+        lines: &mut Vec<Line<'static>>,
+        code: &ScanCode,
+        column: usize,
+    ) {
+        let scan = paint(code, styles);
         while lines.len() < scan.len() {
             lines.push(Line::default());
         }
@@ -327,33 +361,6 @@ impl Screen {
             ));
             line.spans.extend(painted.spans);
         }
-    }
-
-    fn scan_lines(&self, styles: Styles) -> Vec<Line<'static>> {
-        let Some(code) = self.encoded() else {
-            return Vec::new();
-        };
-        let _ = styles;
-        (0..code.lines())
-            .map(|line| {
-                Line::from(
-                    code.row(line)
-                        .into_iter()
-                        .map(|cell| {
-                            // Both halves are painted explicitly. Neither
-                            // inherits the terminal background, which is what
-                            // makes the code scan identically on both palettes.
-                            Span::styled(
-                                scan::glyph(),
-                                Style::default()
-                                    .fg(if cell.upper_dark { MODULE } else { FIELD })
-                                    .bg(if cell.lower_dark { MODULE } else { FIELD }),
-                            )
-                        })
-                        .collect::<Vec<_>>(),
-                )
-            })
-            .collect()
     }
 
     fn text(
@@ -515,10 +522,12 @@ impl Screen {
             SignIn::Requesting { .. } | SignIn::Expired | SignIn::Denied => {}
         }
         let scan = match placement {
-            Ok(Placement::Alongside) => "drawn beside the code. It encodes the address only, \
-                 because the device flow offers no address that carries the code."
+            Ok(Placement::Alongside(_)) => "drawn beside the code. It encodes the address \
+                 only, because the device flow offers no address that carries the code."
                 .to_owned(),
-            Ok(Placement::Below) => "drawn below the code. It encodes the address only.".to_owned(),
+            Ok(Placement::Below(_)) => {
+                "drawn below the code. It encodes the address only.".to_owned()
+            }
             Err(reason) => reason.statement(density),
         };
         // At the floor the offer rides on the same line rather than taking one
@@ -618,13 +627,41 @@ impl Screen {
     }
 }
 
-/// Where a scan code was drawn.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Where a scan code was drawn, and the symbol that was drawn there.
+///
+/// The symbol is carried rather than re-encoded, so the size the layout was
+/// decided against and the size that is painted are the same one.
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum Placement {
     /// Beside the device code.
-    Alongside,
+    Alongside(ScanCode),
     /// Under it.
-    Below,
+    Below(ScanCode),
+}
+
+/// Draw a scan code, painting both halves of every cell.
+///
+/// Neither half inherits the terminal background, which is what makes the code
+/// scan identically on both palettes.
+fn paint(code: &ScanCode, styles: Styles) -> Vec<Line<'static>> {
+    let _ = styles;
+    (0..code.lines())
+        .map(|line| {
+            Line::from(
+                code.row(line)
+                    .into_iter()
+                    .map(|cell| {
+                        Span::styled(
+                            scan::glyph(),
+                            Style::default()
+                                .fg(if cell.upper_dark { MODULE } else { FIELD })
+                                .bg(if cell.lower_dark { MODULE } else { FIELD }),
+                        )
+                    })
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .collect()
 }
 
 fn paragraph(text: &str, styles: Styles, role: Role, width: usize) -> Vec<Line<'static>> {
@@ -638,6 +675,7 @@ fn paragraph(text: &str, styles: Styles, role: Role, width: usize) -> Vec<Line<'
 mod tests {
     use super::*;
     use crate::admin::flow::Issued;
+    use crate::admin::scan::ScanCode;
     use crate::admin::sign_in::Reason;
     use crate::tui::chrome::{FLOOR_WIDTH, REFERENCE_WIDTH};
     use crate::tui::theme::{ColorMode, Theme};
@@ -913,23 +951,91 @@ mod tests {
         }
     }
 
-    #[test]
-    fn an_address_a_browser_would_not_open_is_never_encoded() {
+    /// A screen holding a given address.
+    fn screen_at(verification_uri: &str) -> Screen {
         let mut screen = Screen::default();
         screen.state_mut().code_issued(&Issued {
             user_code: "WDJB-MJHT".to_owned(),
-            verification_uri: "javascript:alert(1)".to_owned(),
+            verification_uri: verification_uri.to_owned(),
             expires_in: std::time::Duration::from_secs(900),
             interval: std::time::Duration::from_secs(5),
         });
-        let text = flat(&screen, styles(), REFERENCE_WIDTH, 35);
-        assert!(text.contains("not one a browser would open"), "{text}");
-        assert!(
-            !rendered(&screen, styles(), REFERENCE_WIDTH, 35).contains(scan::glyph()),
-            "a scanner must not be pointed somewhere a server chose"
-        );
-        // The address itself is still printed: reading it is the operator's.
-        assert!(text.contains("javascript:alert(1)"), "{text}");
+        screen
+    }
+
+    #[test]
+    fn an_address_the_server_chose_is_printed_and_never_encoded() {
+        // The regression: a well-formed https host is still a destination
+        // somebody else picked, and a scan code is followed without being read.
+        // Looking like a link was never the test; being where airlock asked is.
+        for hostile in [
+            "https://attacker.example",
+            "https://attacker.example/login/device",
+            "https://github.com.attacker.example/login/device",
+            "https://github.com@attacker.example/login/device",
+            "http://github.com/login/device",
+            "javascript:alert(1)",
+        ] {
+            let screen = screen_at(hostile);
+            let text = flat(&screen, styles(), REFERENCE_WIDTH, 35);
+            assert!(
+                text.contains("is not at https://github.com, which is where airlock asked"),
+                "{hostile}: {text}"
+            );
+            assert!(
+                !rendered(&screen, styles(), REFERENCE_WIDTH, 35).contains(scan::glyph()),
+                "{hostile}: a scanner was pointed somewhere the response chose"
+            );
+            // The address itself is still printed: reading it is the
+            // operator's, and hiding it would not help them.
+            assert!(text.contains(hostile), "{hostile}: {text}");
+        }
+    }
+
+    #[test]
+    fn an_address_at_the_origin_airlock_asked_is_still_encoded() {
+        // The other half: the check must not have closed the door on the real
+        // address, including a path GitHub is free to change. The longer of the
+        // two needs a bigger symbol, which is why the layout measures what it is
+        // about to draw rather than trusting the budget.
+        for expected in [
+            "https://github.com/login/device",
+            "https://github.com/login/device/somewhere-else",
+        ] {
+            let code = ScanCode::encode(expected).expect("the address encodes");
+            let drawn = rendered(&screen_at(expected), styles(), 160, 40);
+            let rows: Vec<&str> = drawn
+                .lines()
+                .filter(|line| line.contains(scan::glyph()))
+                .collect();
+            assert_eq!(rows.len(), code.lines(), "{expected}: all of it, or none");
+            for row in rows {
+                assert_eq!(
+                    row.matches(scan::glyph()).count(),
+                    code.columns(),
+                    "{expected}: a row was cut"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_wider_symbol_still_fits_the_terminal_it_is_drawn_in() {
+        // The symbol grows with the address. If the layout kept assuming the
+        // expected one's width, a longer address would push every row it sits
+        // beside past the edge — the clipping the withholding rule exists to
+        // prevent, arriving by the back door.
+        let long = "https://github.com/login/device/a-rather-longer-path-than-today";
+        for width in [REFERENCE_WIDTH, 160, FLOOR_WIDTH] {
+            for line in screen_at(long).body(styles(), width, 40) {
+                let printed: usize = line
+                    .spans
+                    .iter()
+                    .map(|span| span.content.chars().count())
+                    .sum();
+                assert!(printed <= width as usize, "at {width}: {printed} columns");
+            }
+        }
     }
 
     #[test]

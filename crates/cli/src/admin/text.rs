@@ -81,33 +81,78 @@ pub fn sanitize(text: &str, limit: usize) -> String {
     out
 }
 
-/// Whether an address is one a browser would open.
+/// Whether an address is at the origin airlock asked, and so is safe to encode.
 ///
-/// The scan code exists to save the operator typing this, so a scanner that
-/// followed it would go wherever it points. Encoding a string only because a
-/// server sent it would make that a redirect somebody else chooses, so an
-/// address that is not an `http` or `https` URL is not encoded at all — it is
-/// still printed, as the text it is, which is what a suspicious operator needs
-/// to see.
+/// The rule is not that the address looks like a link. It is that the server
+/// does not get to choose where the scanner sends the operator. A scan code is
+/// followed without being read — that is the whole of what it is for — so
+/// encoding an address only because a response carried it would hand the
+/// destination to whoever wrote the response. `https://attacker.example` is a
+/// perfectly well-formed web address, and that is exactly why looking like one
+/// is not the test.
+///
+/// So the address must sit at the origin airlock sent its own request to:
+/// GitHub in a shipped run, and the validated loopback origin when the suite
+/// has pointed the flow at its own server. Anything else is printed as the text
+/// it is — which is what a suspicious operator needs to see — and never encoded.
+///
+/// The comparison is on origin rather than on the whole address. A path is
+/// GitHub's to change and a host is not, and an attacker who can already choose
+/// a path on `github.com` has not gained anything a scan code adds.
 #[must_use]
-pub fn is_web_address(text: &str) -> bool {
-    url::Url::parse(text)
-        .is_ok_and(|url| matches!(url.scheme(), "http" | "https") && url.host().is_some())
+pub fn is_at_origin(address: &str, expected_origin: &str) -> bool {
+    if expected_origin.is_empty() {
+        return false;
+    }
+    url::Url::parse(address).is_ok_and(|url| {
+        matches!(url.scheme(), "http" | "https")
+            // `Origin::ascii_serialization` is scheme, host, and port, with the
+            // host normalised, so `GitHub.com` and a default port compare equal
+            // and `github.com.attacker.example` does not.
+            && url.origin().ascii_serialization() == expected_origin
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// GitHub's origin, which is what a shipped run expects.
+    const GITHUB: &str = "https://github.com";
+
     #[test]
-    fn only_a_web_address_is_worth_encoding() {
+    fn only_an_address_at_the_expected_origin_is_encodable() {
         for address in [
             "https://github.com/login/device",
-            "http://127.0.0.1:8080/login/device",
+            // A path GitHub may change, and a case and a default port the
+            // parser normalises away.
+            "https://github.com/login/device/other",
+            "https://GitHub.com/login/device",
+            "https://github.com:443/login/device",
         ] {
-            assert!(is_web_address(address), "{address}");
+            assert!(is_at_origin(address, GITHUB), "{address}");
         }
+    }
+
+    #[test]
+    fn a_host_the_server_chose_is_never_encodable() {
+        // The finding: a well-formed web address is still a destination
+        // somebody else picked, and a scan code is followed without being read.
         for refused in [
+            "https://attacker.example",
+            "https://attacker.example/login/device",
+            // The near misses, which are the ones a reader would not catch.
+            "https://github.com.attacker.example/login/device",
+            "https://attacker.example/https://github.com/login/device",
+            "https://github.com@attacker.example/login/device",
+            "https://user:pass@attacker.example/login/device",
+            "https://githubb.com/login/device",
+            "https://raw.github.com/login/device",
+            // The same host over a scheme airlock did not use.
+            "http://github.com/login/device",
+            // A port that is not the origin's.
+            "https://github.com:8443/login/device",
+            // Not a web address at all.
             "javascript:alert(1)",
             "file:///etc/passwd",
             "data:text/html,<script>",
@@ -115,8 +160,31 @@ mod tests {
             "not an address at all",
             "",
         ] {
-            assert!(!is_web_address(refused), "{refused}");
+            assert!(!is_at_origin(refused, GITHUB), "{refused}");
         }
+    }
+
+    #[test]
+    fn the_loopback_origin_the_suite_uses_is_expected_on_its_own_terms() {
+        // The test profile points the flow at its own server, and the address
+        // that server hands back is then the expected one — but only that one.
+        let loopback = "http://127.0.0.1:8080";
+        assert!(is_at_origin("http://127.0.0.1:8080/login/device", loopback));
+        assert!(!is_at_origin("https://github.com/login/device", loopback));
+        assert!(!is_at_origin(
+            "http://127.0.0.1:9090/login/device",
+            loopback
+        ));
+        assert!(!is_at_origin("https://attacker.example", loopback));
+    }
+
+    #[test]
+    fn an_expected_origin_that_could_not_be_read_encodes_nothing() {
+        // Fail closed. An origin airlock cannot state is not one it can hold a
+        // response to, and a scan code is the thing that would be followed
+        // unread.
+        assert!(!is_at_origin("https://github.com/login/device", ""));
+        assert!(!is_at_origin("https://github.com/login/device", "null"));
     }
 
     #[test]

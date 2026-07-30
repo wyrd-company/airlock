@@ -260,6 +260,29 @@ fn every_server_supplied_string_leaves_the_worker_sanitized() {
     );
 }
 
+/// Tripwire: a scan code is only ever drawn for the origin airlock asked.
+///
+/// A scan code is followed without being read, so the destination must not be
+/// the server's to choose. The check is `text::is_at_origin` against
+/// `flow::login_origin`, and this asserts the screen still makes it — a
+/// predicate that only asked whether the address looked like a link would pass
+/// every test about characters and still point a scanner at another host.
+#[test]
+fn a_scan_code_is_encoded_only_for_the_origin_airlock_asked() {
+    let screen =
+        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/tui/sign_in.rs"))
+            .expect("the sign-in screen has a source file");
+    let shipped = shipped_only(&screen);
+    assert!(
+        shipped.contains("text::is_at_origin(address, &flow::login_origin())"),
+        "the scan code no longer checks the address's origin"
+    );
+    assert!(
+        !shipped.contains("is_web_address"),
+        "the scan code is back to asking only whether the address looks like a link"
+    );
+}
+
 /// Proof: read out of the type's own declaration.
 #[test]
 fn the_session_credential_cannot_be_printed_or_copied() {

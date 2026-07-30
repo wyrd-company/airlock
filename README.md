@@ -623,6 +623,10 @@ it follows:
   error text are sanitized where they leave the network worker: control
   characters, escape sequences, and bidirectional overrides are replaced, and
   lengths are bounded.
+- **A scan code never points anywhere the response chose.** A scan code is
+  followed without being read, so one is drawn only for an address at the origin
+  airlock sent its own request to. Any other address is printed as the text it
+  is, and the screen says why it was not encoded.
 - **There is no subcommand and no flag** that acquires it, and none that
   mutates. `--yes` exists on nothing.
 
