@@ -41,6 +41,12 @@ pub enum Action {
     EnableHeadBranchAutoDelete,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BulkKind {
+    RepositorySettings,
+    DefaultBranchRef,
+}
+
 impl Action {
     #[must_use]
     pub const fn code(self) -> &'static str {
@@ -49,6 +55,16 @@ impl Action {
             Self::DisableMergeCommits => "disable-merge-commits",
             Self::EnableSquashMerge => "enable-squash-merge",
             Self::EnableHeadBranchAutoDelete => "enable-head-branch-auto-delete",
+        }
+    }
+
+    #[must_use]
+    pub const fn bulk_kind(self) -> BulkKind {
+        match self {
+            Self::DefaultBranchMain => BulkKind::DefaultBranchRef,
+            Self::DisableMergeCommits
+            | Self::EnableSquashMerge
+            | Self::EnableHeadBranchAutoDelete => BulkKind::RepositorySettings,
         }
     }
     /// Resolve the compiled remediation code to an executable action.

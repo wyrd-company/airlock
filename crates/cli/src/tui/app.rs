@@ -706,25 +706,7 @@ impl App {
         let Some(queue) = self.queue.as_deref() else {
             return;
         };
-        let items: Vec<remediation::Item> = queue
-            .rows
-            .iter()
-            .filter(|row| row.group == findings::Group::Settings && row.status == Status::Fail)
-            .filter_map(|row| {
-                let code = row.remediation.clone()?;
-                if bulk_kind(&code) != focused_kind {
-                    return None;
-                }
-                crate::admin::remediation::Action::for_code(&code)?;
-                Some(remediation::Item {
-                    rule: row.rule.clone(),
-                    remediation: code,
-                    change: row.change.clone()?,
-                    reversible: row.reversible?,
-                    input: remediation::Input::None,
-                })
-            })
-            .collect();
+        let items = bulk_items(queue, focused_kind.expect("checked above"));
         if items.len() < 2 {
             self.note = Some("no other open input-free remediation has the same kind".to_owned());
             return;
@@ -1244,13 +1226,33 @@ impl App {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum BulkKind {
-    InputFreeSettings,
+fn bulk_kind(code: &str) -> Option<crate::admin::remediation::BulkKind> {
+    crate::admin::remediation::Action::for_code(code).map(|action| action.bulk_kind())
 }
 
-fn bulk_kind(code: &str) -> Option<BulkKind> {
-    crate::admin::remediation::Action::for_code(code).map(|_| BulkKind::InputFreeSettings)
+fn bulk_items(
+    queue: &findings::Queue,
+    kind: crate::admin::remediation::BulkKind,
+) -> Vec<remediation::Item> {
+    queue
+        .rows
+        .iter()
+        .filter(|row| row.group == findings::Group::Settings && row.status == Status::Fail)
+        .filter_map(|row| {
+            let code = row.remediation.clone()?;
+            if bulk_kind(&code) != Some(kind) {
+                return None;
+            }
+            crate::admin::remediation::Action::for_code(&code)?;
+            Some(remediation::Item {
+                rule: row.rule.clone(),
+                remediation: code,
+                change: row.change.clone()?,
+                reversible: row.reversible?,
+                input: remediation::Input::None,
+            })
+        })
+        .collect()
 }
 
 impl Screen {
@@ -2180,6 +2182,51 @@ mod tests {
         focus(&mut app, findings::Group::Settings);
         press(&mut app, KeyCode::Char('a'));
         assert_eq!(app.screen(), Screen::Remediation);
+    }
+
+    #[test]
+    fn merge_settings_bulk_never_contains_the_default_branch_ref() {
+        let mut app = observed();
+        let queue = app.queue.as_deref_mut().expect("an observed queue");
+        let template = queue
+            .rows
+            .iter()
+            .find(|row| row.group == findings::Group::Settings)
+            .expect("a settings row")
+            .clone();
+        queue.rows = [
+            "set-default-branch-main",
+            "disable-merge-commits",
+            "enable-squash-merge",
+            "enable-head-branch-auto-delete",
+        ]
+        .into_iter()
+        .map(|code| {
+            let mut row = template.clone();
+            row.rule = format!("REPO-SAMPLE-{code}");
+            row.status = Status::Fail;
+            row.remediation = Some(code.to_owned());
+            row.change = Some(code.to_owned());
+            row.reversible = Some(true);
+            row
+        })
+        .collect();
+        let items = bulk_items(
+            queue,
+            crate::admin::remediation::BulkKind::RepositorySettings,
+        );
+        assert!(
+            items.len() >= 2,
+            "the fixture must exercise a bulk settings confirmation"
+        );
+        assert!(items
+            .iter()
+            .all(|item| item.remediation != "set-default-branch-main"));
+        assert!(items.iter().all(|item| {
+            crate::admin::remediation::Action::for_code(&item.remediation).is_some_and(|action| {
+                action.bulk_kind() == crate::admin::remediation::BulkKind::RepositorySettings
+            })
+        }));
     }
 
     #[test]
