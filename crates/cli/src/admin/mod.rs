@@ -19,6 +19,7 @@
 //! property. The two paths share the device flow, which is the one source the
 //! write path is permitted, and nothing else.
 
+pub mod catalogue;
 pub mod flow;
 pub mod identity;
 pub mod scan;

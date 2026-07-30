@@ -133,8 +133,11 @@ fn a_test_build_is_bound_to_the_test_identity_and_not_to_the_shipped_one() {
 /// Tripwire: the write path names no credential-bearing environment variable.
 #[test]
 fn the_write_path_names_no_credential_environment_variable() {
-    // The one exception is the OAuth host override, which is read here and is
-    // honoured only for a loopback address — asserted where it is written.
+    // The one exception is flow.rs, which reads the two host overrides — the
+    // OAuth host and the API root — and honours each only for a loopback
+    // address. Both live there rather than beside their callers so that the
+    // write path reads the environment in exactly one file, which is what the
+    // exemption below is narrow enough to keep true.
     for (name, source) in write_path_sources() {
         let shipped = shipped_only(&source);
         for forbidden in [

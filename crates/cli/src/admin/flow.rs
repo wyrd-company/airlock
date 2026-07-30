@@ -46,6 +46,15 @@ use super::text::{self, ADDRESS_LIMIT, CAUSE_LIMIT, CODE_LIMIT};
 /// machine.
 const LOGIN_URL_OVERRIDE: &str = "AIRLOCK_GITHUB_LOGIN_URL";
 
+/// Overrides the GitHub API root, on exactly the same terms.
+///
+/// The catalogue read is made with the write credential, so an override that
+/// could name any host would be a way to send that credential to one. It lives
+/// beside the login override rather than beside its caller so that the write
+/// path reads the environment in one file, which is a property the suite
+/// asserts rather than a habit it hopes for.
+const API_URL_OVERRIDE: &str = "AIRLOCK_API_URL";
+
 /// How long the worker is given to notice that the session has gone.
 ///
 /// Every await on it is selecting against the request channel, so it returns as
@@ -67,6 +76,15 @@ pub fn login_origin() -> String {
     url::Url::parse(&login_base())
         .map(|url| url.origin().ascii_serialization())
         .unwrap_or_default()
+}
+
+/// Where the console's own API reads go.
+#[must_use]
+pub fn api_base() -> String {
+    match std::env::var(API_URL_OVERRIDE) {
+        Ok(value) if is_loopback(&value) => value,
+        _ => airlock_core::github::RestClientConfig::default().base_url,
+    }
 }
 
 /// Where the device flow talks to.
@@ -92,7 +110,7 @@ pub fn login_base() -> String {
 /// .example` merely begins with one; and nothing in the path or the query,
 /// because this value is concatenated with a path and a base carrying its own
 /// would not mean what it reads as.
-fn is_loopback(base: &str) -> bool {
+pub(super) fn is_loopback(base: &str) -> bool {
     let Ok(url) = url::Url::parse(base) else {
         return false;
     };
@@ -839,6 +857,15 @@ mod tests {
         ] {
             assert!(!is_loopback(refused), "{refused}");
         }
+    }
+
+    #[test]
+    fn the_api_root_override_is_honoured_only_for_this_machine() {
+        // No override is set in this process, so the base is GitHub's — and the
+        // decision the override is made of is the loopback test above.
+        assert_eq!(api_base(), "https://api.github.com");
+        assert!(is_loopback("http://127.0.0.1:8080"));
+        assert!(!is_loopback("https://api.github.com.attacker.example"));
     }
 
     #[test]

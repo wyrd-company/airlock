@@ -31,6 +31,13 @@ pub const ADDRESS_LIMIT: usize = 200;
 /// The most a reported cause may be.
 pub const CAUSE_LIMIT: usize = 300;
 
+/// The most an account or repository name may be.
+///
+/// GitHub's own bounds are 39 characters for a login and 100 for a repository
+/// name. The bound is theirs plus room, and its point is only that a name
+/// cannot become a paragraph on a row that has one line for it.
+pub const NAME_LIMIT: usize = 120;
+
 /// Whether a character may be drawn.
 ///
 /// The refused set is everything that is not text: the C0 controls including
