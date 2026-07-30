@@ -420,6 +420,7 @@ fn live_matches_declared(context: &AuditContext) -> Verdict {
     let live = &context.snapshot.repository;
 
     let mut drift = Vec::new();
+    let mut merge_settings_undisclosed = false;
 
     if let Some(declared) = settings.get("description").and_then(Yaml::as_str) {
         if live.description.as_deref().unwrap_or_default() != declared {
@@ -436,14 +437,12 @@ fn live_matches_declared(context: &AuditContext) -> Verdict {
         ];
         for (key, live_value) in live_values {
             if let Some(declared) = merge.get(key).and_then(Yaml::as_bool) {
-                let Some(live_value) = live_value else {
-                    return Verdict::inconclusive(
-                        "merge_settings_unavailable",
-                        "this credential cannot verify merge settings; run the interactive airlock session to verify and align them.",
-                    );
-                };
-                if declared != live_value {
-                    drift.push(format!("merge.{key}"));
+                match live_value {
+                    Some(live_value) if declared != live_value => {
+                        drift.push(format!("merge.{key}"));
+                    }
+                    None => merge_settings_undisclosed = true,
+                    Some(_) => {}
                 }
             }
         }
@@ -480,16 +479,8 @@ fn live_matches_declared(context: &AuditContext) -> Verdict {
         }
     }
 
-    if drift.is_empty() {
-        Verdict::pass(
-            "live_matches_declared",
-            format!(
-                "live metadata matches the declared file (observed {})",
-                live.observed_at.as_deref().unwrap_or("at audit time")
-            ),
-        )
-    } else {
-        Verdict::fail(
+    if !drift.is_empty() {
+        return Verdict::fail(
             "live_drifts_from_declared",
             format!(
                 "live metadata differs from the declared file in {}",
@@ -501,8 +492,20 @@ fn live_matches_declared(context: &AuditContext) -> Verdict {
                  the declared and live settings have not been aligned; `airlock align-files` \
                  cannot write repository settings.",
             ),
-        )
+        );
     }
+
+    if merge_settings_undisclosed {
+        return super::merge_settings_unavailable("the declared merge settings");
+    }
+
+    Verdict::pass(
+        "live_matches_declared",
+        format!(
+            "live metadata matches the declared file (observed {})",
+            live.observed_at.as_deref().unwrap_or("at audit time")
+        ),
+    )
 }
 
 #[cfg(test)]
@@ -540,10 +543,16 @@ features:
     #[test]
     fn declared_merge_settings_are_inconclusive_when_live_values_are_undisclosed() {
         let mut snapshot = snapshot(&[(".github/repo-settings.yml", SETTINGS)]);
+        snapshot.repository.description = Some("A tool that audits repositories.".to_owned());
         snapshot.repository.allow_merge_commit = None;
         snapshot.repository.allow_squash_merge = None;
         snapshot.repository.allow_rebase_merge = None;
         snapshot.repository.delete_branch_on_merge = None;
+        snapshot.topics = Ok(vec![
+            "cli".to_owned(),
+            "github".to_owned(),
+            "rust".to_owned(),
+        ]);
         let policy = policy();
         let context = context(&snapshot, &policy, Vec::new());
 
@@ -551,7 +560,31 @@ features:
         assert_eq!(verdict.status, Status::Inconclusive);
         assert_eq!(
             verdict.evidence.expect("inconclusive evidence").code,
-            "merge_settings_unavailable"
+            super::super::MERGE_SETTINGS_UNAVAILABLE
+        );
+    }
+
+    #[test]
+    fn observed_metadata_drift_wins_over_undisclosed_merge_settings() {
+        let mut snapshot = snapshot(&[(".github/repo-settings.yml", SETTINGS)]);
+        snapshot.repository.description = Some("Something else entirely.".to_owned());
+        snapshot.repository.allow_merge_commit = None;
+        snapshot.repository.allow_squash_merge = None;
+        snapshot.repository.allow_rebase_merge = None;
+        snapshot.repository.delete_branch_on_merge = None;
+        snapshot.topics = Ok(vec![
+            "cli".to_owned(),
+            "github".to_owned(),
+            "rust".to_owned(),
+        ]);
+        let policy = policy();
+        let context = context(&snapshot, &policy, Vec::new());
+
+        let verdict = evaluate(&rule("REPO-META-13"), &context);
+        assert_eq!(verdict.status, Status::Fail);
+        assert_eq!(
+            verdict.evidence.expect("failure evidence").detail,
+            "live metadata differs from the declared file in description"
         );
     }
 

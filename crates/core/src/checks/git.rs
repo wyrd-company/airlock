@@ -172,13 +172,11 @@ fn boolean_setting(
     code_pass: &str,
     code_fail: &str,
     subject: &str,
+    unavailable_subject: &str,
     remedy: &str,
 ) -> Verdict {
     let Some(actual) = actual else {
-        return Verdict::inconclusive(
-            "merge_settings_unavailable",
-            "this credential cannot verify merge settings; run the interactive airlock session to verify and align them.",
-        );
+        return super::merge_settings_unavailable(unavailable_subject);
     };
 
     if actual == expected {
@@ -200,6 +198,7 @@ fn merge_commits_disabled(context: &AuditContext) -> Verdict {
         "merge_commits_disabled",
         "merge_commits_enabled",
         "merge commits allowed",
+        "the merge-commit setting",
         "Disable merge commits on the repository.",
     )
 }
@@ -212,6 +211,7 @@ fn squash_enabled(context: &AuditContext) -> Verdict {
         "squash_enabled",
         "squash_disabled",
         "squash merge allowed",
+        "the squash-merge setting",
         "Enable squash merging on the repository.",
     )
 }
@@ -224,6 +224,7 @@ fn auto_delete_enabled(context: &AuditContext) -> Verdict {
         "auto_delete_enabled",
         "auto_delete_disabled",
         "auto-delete head branch on merge",
+        "the auto-delete head branch setting",
         "Enable auto-delete of head branches on merge.",
     )
 }
@@ -646,10 +647,21 @@ mod tests {
         for id in ["REPO-GIT-04", "REPO-GIT-05", "REPO-GIT-06"] {
             let verdict = evaluate(&rule(id), &context);
             assert_eq!(verdict.status, Status::Inconclusive, "{id}");
+            let evidence = verdict.evidence.expect("inconclusive evidence");
             assert_eq!(
-                verdict.evidence.expect("inconclusive evidence").code,
-                "merge_settings_unavailable",
+                evidence.code,
+                super::super::MERGE_SETTINGS_UNAVAILABLE,
                 "{id}"
+            );
+            assert!(
+                evidence.detail.contains(match id {
+                    "REPO-GIT-04" => "merge-commit",
+                    "REPO-GIT-05" => "squash-merge",
+                    "REPO-GIT-06" => "auto-delete head branch",
+                    _ => unreachable!(),
+                }),
+                "{id}: {}",
+                evidence.detail
             );
         }
     }

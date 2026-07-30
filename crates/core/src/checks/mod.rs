@@ -713,6 +713,19 @@ pub(crate) fn repo_settings(context: &AuditContext) -> Result<Yaml, Box<Verdict>
 /// understand.
 pub(crate) const MALFORMED_DECLARATION: &str = "malformed_declaration";
 
+/// The stable evidence code for merge settings the credential could not observe.
+pub(crate) const MERGE_SETTINGS_UNAVAILABLE: &str = "merge_settings_unavailable";
+
+pub(crate) fn merge_settings_unavailable(subject: &str) -> Verdict {
+    Verdict::inconclusive(
+        MERGE_SETTINGS_UNAVAILABLE,
+        format!(
+            "{subject} cannot be verified with this credential; run the interactive airlock \
+             session to verify and align it"
+        ),
+    )
+}
+
 /// Collect a sequence of strings, refusing one that is not entirely strings.
 ///
 /// This is the audited-repository counterpart of the GitHub client's strict
