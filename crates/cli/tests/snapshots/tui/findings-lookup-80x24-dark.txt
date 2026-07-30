@@ -1,0 +1,71 @@
+findings-lookup-80x24-dark · 80x24 · theme dark · colour
+--- text ---
+AIRLOCK 0.0.0  … repositories › findings  no credential stored · theme t · dark 
+RUN INCOMPLETE  complete is false, and no verdict below it can be certified     
+  ▢ REPO-CI-02     unimplemented registered and enabled, not yet evaluated      
+  ◑ REPO-REL-04    inconclusive  condition_undecided: the repository has not de…
+VERDICT  ◑ incomplete   ALIGNED 2 of 9                                          
+  complete    false  2 rules at a gating severity ended undecided because this …
+  conformant  false  2 rules at a gating severity ended in fail                 
+  unanswered  1      ended admin-only and are still undecided, so this verdict …
+DECIDED · GATING    ✓ pass 1 · ✗ fail 2                                         
+DECIDED · INERT     ◆ manual 1 · ⊘ suppressed 1 · ○ skipped 1                   
+UNDECIDED                                                                       
+  ▢ unimplemented 1 · ◑ inconclusive 1 · ◍ admin-only 1 · ! error 0             
+  makes the run incomplete at a gating severity, unless the fact requires admin…
+LOOKUP  every finding, ordered by rule id — the predictable address for every r…
+showing       all 9 shown, never narrowed · gate required · l returns           
+▸ ▌ ███       │ ▢ │ REPO-CI-02     unimplemented the condition REPO-CI-02 states
+                    automation                                                  
+    ███     ⊘ │   │ REPO-CI-02     suppressed    the condition REPO-CI-02 states
+                    automation · still on offer: Set workflow-level `permission…
+  ▌ ███  ✗    │   │ REPO-GIT-01    fail          the condition REPO-GIT-01 stat…
+                    git                                                         
+0 above · 6 below · working set 9 of 9 · ↑↓ moves through the rest              
+↑↓/j/k move · space collapse or expand · ↵ finding detail · f filter · 7 more…  
+incomplete · complete false · 9 rules · registry 0.4.0 · gate required          
+--- style keys ---
+aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+ccccccccccccccccdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeefffffffffffffffffffffffffffffffffffffffffdddddd
+gggggggggggggggggggggggggggggggggfffffffffffffffffffffffffffffffffffffffffffffff
+hhhhhhhhhiiiiiiiiiiiijjjkkkkkkkkkkkkkkdddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddfffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+dddddddddddddddddddddffffffffffffffffffffffffffffffffffffffffffddddddddddddddddd
+lllllllllllllllllllllfffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+mmmmmmmmmmmmmmmmmmmmdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+mmmmmmmmmmmmmmmmmmmmdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+mmmmmmmmmddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn
+hhhhhhhhjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj
+jjjjjjjjjjjjjjfffffffffffffffffffffffffffffffffffffffffffffffffffffffddddddddddd
+oopdddddddddddqeeeqdhhhhhhhhhhhhhhheeeeeeeeeeeeeefffffffffffffffffffffffffffffff
+jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjdddddddddddddddddddddddddddddddddddddddddddddddddd
+oopddddddddrrrqdddqddddddddddddddddrrrrrrrrrrrrrrfffffffffffffffffffffffffffffff
+jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj
+oopdddddpppdddqdddqddddddddddddddddppppppppppppppfffffffffffffffffffffffffffffff
+jjjjjjjjjjjjjjjjjjjjjjjddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnndddddddddddddd
+oooooodffffjjjooooodffffffffffffffffffjjjodffffffffffffffjjjodffffffjjjnnnnnnndd
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss
+--- legend ---
+a fg=#CBD3DD bg=#14181D BOLD
+b fg=#CBD3DD bg=#14181D
+c fg=#E8843A bg=#0B0D10 BOLD
+d fg=#CBD3DD bg=#0B0D10
+e fg=#B79A5A bg=#0B0D10
+f fg=#79838F bg=#0B0D10
+g fg=#D9A441 bg=#0B0D10
+h fg=#CBD3DD bg=#0B0D10 BOLD
+i fg=#D9A441 bg=#0B0D10 BOLD
+j fg=#4C5661 bg=#0B0D10
+k fg=#5FB98A bg=#0B0D10 BOLD
+l fg=#4FA5A5 bg=#0B0D10
+m fg=#79838F bg=#0B0D10 BOLD
+n fg=#4C5661 bg=#0B0D10 ITALIC
+o fg=#E8B84B bg=#0B0D10 BOLD
+p fg=#E05C58 bg=#0B0D10
+q fg=#232A33 bg=#0B0D10
+r fg=#A886D8 bg=#0B0D10
+s fg=#79838F bg=#101419

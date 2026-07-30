@@ -46,6 +46,39 @@ struct Case {
     flow: Option<SignIn>,
     /// The catalogue to open on, where the case is a selection screen.
     selection: Option<Selection>,
+    /// The run to open on, where the case is the findings screen.
+    run: Option<Run>,
+}
+
+/// A run the findings screen draws, and where the operator has moved inside it.
+///
+/// Reached by pressing the keys rather than by setting the state, so a recorded
+/// screen is one the interface can actually be driven to.
+#[derive(Clone)]
+struct Run {
+    report: airlock_core::findings::Report,
+    deliveries: super::findings::Deliveries,
+    /// How many times `↓` has been pressed.
+    moved: usize,
+    /// The keys pressed after moving.
+    keys: &'static str,
+}
+
+impl Run {
+    fn of(report: airlock_core::findings::Report) -> Self {
+        Self {
+            report,
+            deliveries: super::findings::fixture::deliveries(),
+            moved: 0,
+            keys: "",
+        }
+    }
+
+    const fn driven(mut self, moved: usize, keys: &'static str) -> Self {
+        self.moved = moved;
+        self.keys = keys;
+        self
+    }
 }
 
 /// A catalogue, and where the operator has moved to inside it.
@@ -190,6 +223,18 @@ fn render(case: &Case) -> String {
             for character in selection.filter.chars() {
                 press(KeyCode::Char(character));
             }
+        }
+    }
+    if let Some(run) = case.run.clone() {
+        app.observed_run(&run.report, &run.deliveries);
+        let mut press = |code| {
+            app.handle_key(KeyEvent::new(code, KeyModifiers::NONE));
+        };
+        for _ in 0..run.moved {
+            press(KeyCode::Down);
+        }
+        for character in run.keys.chars() {
+            press(KeyCode::Char(character));
         }
     }
     let app = app;
@@ -344,6 +389,7 @@ fn cases() -> Vec<Case> {
                 height,
                 flow: None,
                 selection: None,
+                run: None,
             });
         }
     }
@@ -366,6 +412,7 @@ fn cases() -> Vec<Case> {
                 height,
                 flow: Some(state.clone()),
                 selection: None,
+                run: None,
             });
         }
     }
@@ -385,6 +432,7 @@ fn cases() -> Vec<Case> {
         height: REFERENCE_HEIGHT,
         flow: Some(awaiting.clone()),
         selection: None,
+        run: None,
     });
     cases.push(Case {
         name: "sign-in-awaiting-120x40-no-color",
@@ -395,6 +443,7 @@ fn cases() -> Vec<Case> {
         height: REFERENCE_HEIGHT,
         flow: Some(awaiting),
         selection: None,
+        run: None,
     });
     for screen in [Screen::SignIn, Screen::Findings] {
         for (width, height) in [
@@ -412,6 +461,7 @@ fn cases() -> Vec<Case> {
                 height,
                 flow: None,
                 selection: None,
+                run: None,
             });
             cases.push(Case {
                 name: Box::leak(
@@ -424,6 +474,7 @@ fn cases() -> Vec<Case> {
                 height,
                 flow: None,
                 selection: None,
+                run: None,
             });
         }
     }
@@ -509,6 +560,84 @@ fn cases() -> Vec<Case> {
                 height,
                 flow: None,
                 selection: Some(selection),
+                run: None,
+            });
+        }
+    }
+    cases.extend(queues());
+    cases
+}
+
+/// The findings screen with a run on it.
+///
+/// The work queue is the screen the whole interface exists for, so every
+/// reading the definition of done names is recorded: both sizes, both palettes,
+/// no colour at all, a run that fell short, a repository with nothing left to
+/// close, a group collapsed and a group expanded, and the flat lookup view.
+#[cfg_attr(feature = "test-identity", allow(dead_code))]
+fn queues() -> Vec<Case> {
+    use super::findings::fixture;
+
+    let mut cases = Vec::new();
+    // The default reading, in both palettes and without colour, at both sizes.
+    for (theme, color, slug) in [
+        (Theme::Dark, ColorMode::Color, "dark"),
+        (Theme::Light, ColorMode::Color, "light"),
+        (Theme::Dark, ColorMode::NoColor, "no-color"),
+    ] {
+        for (width, height) in [
+            (REFERENCE_WIDTH, REFERENCE_HEIGHT),
+            (FLOOR_WIDTH, FLOOR_HEIGHT),
+        ] {
+            cases.push(Case {
+                name: Box::leak(
+                    format!("findings-queue-{}-{slug}", size_slug(width)).into_boxed_str(),
+                ),
+                screen: Screen::Findings,
+                theme,
+                color,
+                width,
+                height,
+                flow: None,
+                selection: None,
+                run: Some(Run::of(fixture::mixed())),
+            });
+        }
+    }
+    // The readings that differ by what the run held or where the operator
+    // moved. The aligned group opens collapsed, so expanding it is a keystroke
+    // on the last heading in the queue.
+    for (name, run) in [
+        ("findings-incomplete", Run::of(fixture::incomplete())),
+        ("findings-aligned", Run::of(fixture::aligned())),
+        (
+            "findings-collapsed",
+            Run::of(fixture::mixed()).driven(0, " "),
+        ),
+        (
+            "findings-expanded",
+            Run::of(fixture::mixed()).driven(14, " "),
+        ),
+        (
+            "findings-filtered",
+            Run::of(fixture::mixed()).driven(0, "f"),
+        ),
+        ("findings-lookup", Run::of(fixture::mixed()).driven(0, "l")),
+    ] {
+        for (width, height) in [
+            (REFERENCE_WIDTH, REFERENCE_HEIGHT),
+            (FLOOR_WIDTH, FLOOR_HEIGHT),
+        ] {
+            cases.push(Case {
+                name: Box::leak(format!("{name}-{}-dark", size_slug(width)).into_boxed_str()),
+                screen: Screen::Findings,
+                theme: Theme::Dark,
+                color: ColorMode::Color,
+                width,
+                height,
+                flow: None,
+                selection: None,
+                run: Some(run.clone()),
             });
         }
     }
@@ -540,6 +669,7 @@ fn a_test_build_names_the_test_identity_on_the_screen() {
         height: REFERENCE_HEIGHT,
         flow: None,
         selection: None,
+        run: None,
     });
     assert!(rendered.contains("Airlock Test"), "{rendered}");
     assert!(!rendered.contains("Airlock Admin"), "{rendered}");
@@ -574,6 +704,12 @@ fn the_reading_is_the_same_text_in_both_palettes_and_without_colour() {
                     moved: 0,
                     filter: "",
                 });
+            // The findings screen is compared with a run on it as well as
+            // empty: it is the screen that carries the most meaning in colour,
+            // and a queue is where a palette could quietly become the thing
+            // carrying a group.
+            let run =
+                (screen == Screen::Findings).then(|| Run::of(super::findings::fixture::mixed()));
             let case = |theme, color| Case {
                 name: "comparison",
                 screen,
@@ -583,6 +719,7 @@ fn the_reading_is_the_same_text_in_both_palettes_and_without_colour() {
                 height,
                 flow: None,
                 selection: selection.clone(),
+                run: run.clone(),
             };
             let dark = reading(&case(Theme::Dark, ColorMode::Color));
             let light = reading(&case(Theme::Light, ColorMode::Color));
@@ -603,6 +740,7 @@ fn awaiting_case(theme: Theme, color: ColorMode) -> Case {
         width: REFERENCE_WIDTH,
         height: REFERENCE_HEIGHT,
         selection: None,
+        run: None,
         flow: flows()
             .into_iter()
             .find(|(name, _)| *name == "awaiting")
@@ -643,6 +781,7 @@ fn the_two_palettes_never_paint_a_screen_the_same_way() {
             height: REFERENCE_HEIGHT,
             flow: None,
             selection: None,
+            run: None,
         };
         assert_ne!(
             legend(&case(Theme::Dark)),
@@ -668,6 +807,7 @@ fn no_color_emits_no_colour_at_all() {
                 height,
                 flow: None,
                 selection: None,
+                run: None,
             });
             for entry in &entries {
                 assert!(
@@ -692,6 +832,7 @@ fn the_whole_vocabulary_is_legible_at_the_floor_without_colour() {
         height: FLOOR_HEIGHT,
         flow: None,
         selection: None,
+        run: None,
     });
     for status in airlock_core::findings::Status::ALL {
         assert!(
@@ -716,6 +857,7 @@ fn a_terminal_under_the_floor_is_told_so_rather_than_drawn_into() {
         height: 20,
         flow: None,
         selection: None,
+        run: None,
     });
     assert!(rendered.contains("TERMINAL TOO SMALL"), "{rendered}");
     assert!(!rendered.contains("STATUS VOCABULARY"), "{rendered}");
