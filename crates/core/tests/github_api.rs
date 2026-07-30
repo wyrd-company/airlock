@@ -350,19 +350,19 @@ async fn a_blob_is_decoded_from_base64() {
 }
 
 #[tokio::test]
-async fn an_ambiguous_tag_listing_404_does_not_become_an_empty_list() {
+async fn a_repository_without_tags_answers_an_empty_list_rather_than_failing() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/repos/owner/name/git/refs/tags"))
-        .respond_with(
-            quota_headers(ResponseTemplate::new(404))
-                .set_body_json(json!({ "message": "Not Found" })),
-        )
+        .and(path("/repos/owner/name/git/matching-refs/tags/"))
+        .respond_with(quota_headers(ResponseTemplate::new(200)).set_body_json(json!([])))
         .mount(&server)
         .await;
 
-    let error = client(&server).tags("owner", "name").await.unwrap_err();
-    assert_eq!(error.cause, ErrorCause::NotFound);
+    assert!(client(&server)
+        .tags("owner", "name")
+        .await
+        .unwrap()
+        .is_empty());
 }
 
 #[tokio::test]
@@ -691,7 +691,7 @@ async fn a_tag_listing_stopped_at_the_page_budget_says_so() {
     let server = MockServer::start().await;
     mount_two_pages(
         &server,
-        "/repos/owner/name/git/refs/tags",
+        "/repos/owner/name/git/matching-refs/tags/",
         json!([{ "ref": "refs/tags/1.0.0", "object": { "sha": "a" } }]),
         // The `v`-prefixed tag lives on the page a one-page budget never sees.
         json!([{ "ref": "refs/tags/v2.0.0", "object": { "sha": "b" } }]),
@@ -761,7 +761,10 @@ async fn a_branch_rule_listing_stopped_at_the_page_budget_says_so() {
     mount_two_pages(
         &server,
         "/repos/owner/name/rules/branches/main",
-        json!([{ "type": "pull_request", "parameters": {} }]),
+        json!([{
+            "type": "pull_request",
+            "parameters": { "allowed_merge_methods": ["squash", "rebase"] }
+        }]),
         json!([{ "type": "required_linear_history", "parameters": {} }]),
     )
     .await;
@@ -970,34 +973,36 @@ async fn absent_ruleset_verdict_fields_fail_the_listing() {
 }
 
 #[tokio::test]
-async fn a_pull_request_rule_without_parameters_fails_the_listing() {
-    let server = MockServer::start().await;
-    Mock::given(method("GET"))
-        .and(path("/repos/owner/name/rules/branches/main"))
-        .respond_with(
-            quota_headers(ResponseTemplate::new(200)).set_body_json(json!([
-                {
-                    "type": "pull_request",
-                    "ruleset_source_type": "Organization"
-                }
-            ])),
-        )
-        .mount(&server)
-        .await;
+async fn a_pull_request_rule_without_merge_method_evidence_fails_the_listing() {
+    for parameters in [None, Some(json!({})), Some(Value::Null)] {
+        let server = MockServer::start().await;
+        let mut rule = json!({
+            "type": "pull_request",
+            "ruleset_source_type": "Organization"
+        });
+        if let Some(parameters) = parameters {
+            rule["parameters"] = parameters;
+        }
+        Mock::given(method("GET"))
+            .and(path("/repos/owner/name/rules/branches/main"))
+            .respond_with(quota_headers(ResponseTemplate::new(200)).set_body_json(json!([rule])))
+            .mount(&server)
+            .await;
 
-    let error = client(&server)
-        .branch_rules("owner", "name", "main")
-        .await
-        .unwrap_err();
-    assert_eq!(error.cause, ErrorCause::Malformed);
-    assert!(error.to_string().contains("parameters"));
+        let error = client(&server)
+            .branch_rules("owner", "name", "main")
+            .await
+            .unwrap_err();
+        assert_eq!(error.cause, ErrorCause::Malformed);
+        assert!(error.to_string().contains("allowed_merge_methods"));
+    }
 }
 
 #[tokio::test]
 async fn a_malformed_tag_fails_the_listing() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/repos/owner/name/git/refs/tags"))
+        .and(path("/repos/owner/name/git/matching-refs/tags/"))
         .respond_with(
             quota_headers(ResponseTemplate::new(200)).set_body_json(json!([
                 { "ref": "refs/tags/1.0.0", "object": { "sha": "a" } },

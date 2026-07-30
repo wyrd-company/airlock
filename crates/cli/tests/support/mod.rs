@@ -265,7 +265,7 @@ impl FakeRepo {
             .collect();
         mount(
             server,
-            &format!("{prefix}/git/refs/tags"),
+            &format!("{prefix}/git/matching-refs/tags/"),
             Response::Ok(Value::Array(tags)),
         )
         .await;

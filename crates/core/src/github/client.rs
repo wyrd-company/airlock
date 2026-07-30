@@ -573,28 +573,33 @@ fn decode_ruleset(endpoint: &str, item: &Value) -> ApiResult<Ruleset> {
     Ok(Ruleset {
         id: require_u64(endpoint, item, "id")?,
         name: require_string(endpoint, item, "name")?,
-        target: Some(require_string(endpoint, item, "target")?),
-        source_type: Some(require_string(endpoint, item, "source_type")?),
+        target: require_string(endpoint, item, "target")?,
+        source_type: require_string(endpoint, item, "source_type")?,
         source: optional_string(item, "source"),
-        enforcement: Some(require_string(endpoint, item, "enforcement")?),
+        enforcement: require_string(endpoint, item, "enforcement")?,
     })
 }
 
 fn decode_branch_rule(endpoint: &str, item: &Value) -> ApiResult<BranchRule> {
     let rule_type = require_string(endpoint, item, "type")?;
     let parameters = match item.get("parameters") {
-        Some(parameters) => parameters.clone(),
-        None if rule_type == "pull_request" => {
+        Some(Value::Object(parameters))
+            if rule_type != "pull_request" || parameters.contains_key("allowed_merge_methods") =>
+        {
+            Value::Object(parameters.clone())
+        }
+        Some(parameters) if rule_type != "pull_request" => parameters.clone(),
+        _ if rule_type == "pull_request" => {
             return Err(malformed(
                 endpoint,
-                "the pull request rule is missing the field `parameters`",
+                "the pull request rule is missing the parameter `allowed_merge_methods`",
             ))
         }
         None => Value::Null,
+        Some(_) => unreachable!("the pull request case returned above"),
     };
     Ok(BranchRule {
         rule_type,
-        source_type: optional_string(item, "ruleset_source_type"),
         parameters,
     })
 }
@@ -818,9 +823,9 @@ impl GitHub for RestClient {
     }
 
     async fn tags(&self, owner: &str, repo: &str) -> ApiResult<Paged<TagRef>> {
-        let endpoint = format!("GET /repos/{owner}/{repo}/git/refs/tags");
+        let endpoint = format!("GET /repos/{owner}/{repo}/git/matching-refs/tags/");
         let path = format!(
-            "/repos/{}/{}/git/refs/tags?per_page=100",
+            "/repos/{}/{}/git/matching-refs/tags/?per_page=100",
             encode_segment(owner),
             encode_segment(repo)
         );
@@ -1155,26 +1160,16 @@ mod tests {
     }
 
     #[test]
-    fn a_pull_request_rule_without_parameters_is_malformed() {
-        let rule = serde_json::json!({ "type": "pull_request" });
-        let error = decode_branch_rule("GET /rules", &rule).unwrap_err();
-        assert_eq!(error.cause, ErrorCause::Malformed);
-        assert!(error.to_string().contains("parameters"));
-    }
-
-    #[test]
-    fn branch_rule_source_type_uses_the_branch_rules_payload_name() {
-        let rule = serde_json::json!({
-            "type": "required_linear_history",
-            "ruleset_source_type": "Organization"
-        });
-        assert_eq!(
-            decode_branch_rule("GET /rules", &rule)
-                .unwrap()
-                .source_type
-                .as_deref(),
-            Some("Organization")
-        );
+    fn a_pull_request_rule_without_merge_method_parameters_is_malformed() {
+        for parameters in [None, Some(serde_json::json!({})), Some(Value::Null)] {
+            let mut rule = serde_json::json!({ "type": "pull_request" });
+            if let Some(parameters) = parameters {
+                rule["parameters"] = parameters;
+            }
+            let error = decode_branch_rule("GET /rules", &rule).unwrap_err();
+            assert_eq!(error.cause, ErrorCause::Malformed);
+            assert!(error.to_string().contains("allowed_merge_methods"));
+        }
     }
 
     #[test]

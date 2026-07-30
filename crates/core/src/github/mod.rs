@@ -317,13 +317,13 @@ pub struct Ruleset {
     /// The ruleset name.
     pub name: String,
     /// `branch` or `tag`.
-    pub target: Option<String>,
+    pub target: String,
     /// `Repository` or `Organization`.
-    pub source_type: Option<String>,
+    pub source_type: String,
     /// The account or repository the ruleset comes from.
     pub source: Option<String>,
     /// `active`, `evaluate`, or `disabled`.
-    pub enforcement: Option<String>,
+    pub enforcement: String,
 }
 
 /// One effective rule on a branch.
@@ -331,8 +331,6 @@ pub struct Ruleset {
 pub struct BranchRule {
     /// The rule type, for example `pull_request`.
     pub rule_type: String,
-    /// Where the rule comes from.
-    pub source_type: Option<String>,
     /// The rule parameters, verbatim.
     pub parameters: serde_json::Value,
 }
