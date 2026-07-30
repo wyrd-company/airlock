@@ -1096,6 +1096,31 @@ fn remediation_input_and_result_frames_match_recordings() {
         let floor_name = Box::leak(name.replace("120x40", "80x24").into_boxed_str());
         check_remediation(floor_name, FLOOR_WIDTH, FLOOR_HEIGHT, state);
     }
+    let mut creation = State::confirm(
+        "generic-owner".to_owned(),
+        "sample-repository".to_owned(),
+        vec![item(
+            "attach-org-rulesets",
+            Input::Choice {
+                values: vec!["create — Airlock default branch".to_owned()],
+                selected: 0,
+                empty: String::new(),
+            },
+        )],
+    );
+    assert!(creation.input_key(KeyCode::Enter));
+    check_remediation(
+        "remediation-ruleset-confirm-120x40-dark",
+        REFERENCE_WIDTH,
+        REFERENCE_HEIGHT,
+        creation.clone(),
+    );
+    check_remediation(
+        "remediation-ruleset-confirm-80x24-dark",
+        FLOOR_WIDTH,
+        FLOOR_HEIGHT,
+        creation,
+    );
 
     let mut complete = State::confirm(
         "generic-owner".to_owned(),

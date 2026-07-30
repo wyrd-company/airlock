@@ -454,7 +454,7 @@ pub fn body(styles: Styles, width: usize, state: &State) -> Vec<Line<'static>> {
         },
         State::Confirm { request } => {
             for item in &request.items {
-                for line in confirmed_input(item, &request.repo) {
+                for line in confirmed_input(item, &request.repo, width) {
                     lines.push(Line::from(line));
                 }
             }
@@ -494,7 +494,7 @@ pub fn body(styles: Styles, width: usize, state: &State) -> Vec<Line<'static>> {
     lines
 }
 
-fn confirmed_input(item: &Item, repository: &str) -> Vec<String> {
+fn confirmed_input(item: &Item, repository: &str, width: usize) -> Vec<String> {
     match &item.input {
         Input::None => Vec::new(),
         Input::Text { draft, .. } => vec![format!("selected        {draft}")],
@@ -506,13 +506,18 @@ fn confirmed_input(item: &Item, repository: &str) -> Vec<String> {
             };
             let mut lines = vec![format!("selected        {value}")];
             if item.remediation == "attach-org-rulesets" && value.starts_with("create ") {
-                lines.push("ruleset body    {".to_owned());
-                lines.extend(
-                    ruleset_preview(repository)
-                        .lines()
-                        .map(|line| format!("                  {line}")),
-                );
-                lines.push("                }".to_owned());
+                for (index, part) in wrap(
+                    &ruleset_preview(repository),
+                    width.saturating_sub(16).max(1),
+                )
+                .into_iter()
+                .enumerate()
+                {
+                    lines.push(format!(
+                        "{:<16}{part}",
+                        if index == 0 { "ruleset body" } else { "" }
+                    ));
+                }
             }
             lines
         }
@@ -545,7 +550,7 @@ fn confirmed_input(item: &Item, repository: &str) -> Vec<String> {
 }
 
 fn ruleset_preview(repository: &str) -> String {
-    serde_json::to_string_pretty(&crate::admin::remediation::ruleset_body(Some(repository)))
+    serde_json::to_string(&crate::admin::remediation::ruleset_body(Some(repository)))
         .expect("the compiled ruleset body serializes")
 }
 

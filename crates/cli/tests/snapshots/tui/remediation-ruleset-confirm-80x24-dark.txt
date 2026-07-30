@@ -1,0 +1,60 @@
+remediation-ruleset-confirm-80x24-dark · 80x24 · theme dark · colour
+--- text ---
+AIRLOCK 0.0.0  …› findings › remediation  no credential stored · theme t · dark 
+SETTINGS REMEDIATION                                                            
+repository      generic-owner/sample-repository                                 
+rules           1                                                               
+REPO-SAMPLE-01 · attach-org-rulesets · Apply the observed settings change. · rev
+                                                                                
+selected        create — Airlock default branch                                 
+ruleset body    {"conditions":{"repository_name":{"exclude":[],"include":["sampl
+                e-repository"],"protected":false}},"enforcement":"active","name"
+                :"Airlock default                                               
+                branch","rules":[{"parameters":{"allowed_merge_methods":["squash
+                ","rebase"],"dismiss_stale_reviews_on_push":false,"require_code_
+                owner_review":false,"require_last_push_approval":false,"required
+                _approving_review_count":0,"required_review_thread_resolution":f
+                alse},"type":"pull_request"},{"type":"required_linear_history"}]
+                ,"target":"branch"}                                             
+Press enter to confirm. No request has been made.                               
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+esc back · ↵ next in queue · u undo · o re-observe · t theme · ctrl-c exit      
+confirmation required · re-observes before and after                            
+--- style keys ---
+aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+ccccccccccccccccccccdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+eeeeeeeeeeeeeeeedddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+eeeeeeeeeeeeeeeedddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+fffffffffffffffffffffffffffffffffffffffffffffffffddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+cccdggggeeecdgggggggggggggeeecdggggeeecdggggggggggeeecdgggggeeeccccccdggggdddddd
+hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh
+--- legend ---
+a fg=#CBD3DD bg=#14181D BOLD
+b fg=#CBD3DD bg=#14181D
+c fg=#E8B84B bg=#0B0D10 BOLD
+d fg=#CBD3DD bg=#0B0D10
+e fg=#4C5661 bg=#0B0D10
+f fg=#CBD3DD bg=#0B0D10 BOLD
+g fg=#79838F bg=#0B0D10
+h fg=#79838F bg=#101419
