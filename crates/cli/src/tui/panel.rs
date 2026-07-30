@@ -8,14 +8,29 @@
 
 use ratatui::text::{Line, Span};
 
+use airlock_core::findings::Report;
+
 use crate::admin::identity::WriteIdentity;
 use crate::admin::sign_in::Density;
+use crate::admin::text::sanitize;
 
 use super::chrome::wrap;
 use super::theme::{Role, Styles};
 
 /// The column a labelled field's value starts in.
 pub const LABEL_WIDTH: usize = 14;
+
+/// The most a provenance value may be.
+///
+/// Generous, because a digest is 71 columns and a commit is 40, and the point
+/// of the block is that both are readable in full.
+const PROVENANCE_LIMIT: usize = 200;
+
+/// How much of a digest the status lines quote.
+///
+/// Enough to tell two registries apart at a glance, and never enough to be
+/// mistaken for the digest itself — which is why the abbreviation is marked.
+const DIGEST_PREFIX: usize = 8;
 
 /// The width below which prose is written tightly.
 ///
@@ -31,6 +46,106 @@ pub const fn density(width: usize) -> Density {
         Density::Tight
     } else {
         Density::Full
+    }
+}
+
+/// A region heading, drawn the one way every region draws one.
+#[must_use]
+pub fn heading(styles: Styles, text: &'static str) -> Line<'static> {
+    Line::from(Span::styled(text, styles.bold(Role::Text)))
+}
+
+/// The run's provenance: what produced this reading, and what it was of.
+///
+/// Two screens print it and neither may print a different account of the same
+/// run, so it is built once, from the run, at the boundary that builds
+/// everything else the interface draws — which is where a string the run did
+/// not write itself is made safe.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Provenance {
+    /// The version of airlock that produced the run.
+    pub airlock_version: String,
+    /// The registry version the run attests to.
+    pub registry_version: String,
+    /// The digest over the compiled registry.
+    pub registry_digest: String,
+    /// The version of the findings schema the run emitted.
+    pub schema_version: u32,
+    /// The commit the audit was of.
+    pub audited_commit: String,
+    /// When the settings were observed, where the observation established it.
+    pub settings_observed_at: Option<String>,
+}
+
+impl Provenance {
+    /// Take the provenance off a run.
+    #[must_use]
+    pub fn of(report: &Report) -> Self {
+        Self {
+            airlock_version: sanitize(&report.airlock.version, PROVENANCE_LIMIT),
+            registry_version: sanitize(&report.airlock.registry_version, PROVENANCE_LIMIT),
+            registry_digest: sanitize(&report.airlock.registry_digest, PROVENANCE_LIMIT),
+            schema_version: report.schema_version,
+            audited_commit: sanitize(&report.repository.audited_commit, PROVENANCE_LIMIT),
+            settings_observed_at: report
+                .repository
+                .settings_observed_at
+                .as_ref()
+                .map(|at| sanitize(at, PROVENANCE_LIMIT)),
+        }
+    }
+
+    /// The block, in the order both screens print it.
+    ///
+    /// The observation time is stated as unestablished rather than left blank
+    /// where the run did not carry one: a missing time and a time of nothing
+    /// are two different facts, and only one of them is true.
+    #[must_use]
+    pub fn fields(&self) -> Vec<(&'static str, String)> {
+        vec![
+            ("airlock", self.airlock_version.clone()),
+            ("registry", self.registry_version.clone()),
+            ("digest", self.registry_digest.clone()),
+            ("schema", self.schema_version.to_string()),
+            ("commit", self.audited_commit.clone()),
+            (
+                "observed",
+                self.settings_observed_at.clone().unwrap_or_else(|| {
+                    "not established \u{2014} this observation did not record when the \
+                     settings were read"
+                        .to_owned()
+                }),
+            ),
+        ]
+    }
+
+    /// The block as lines, under its heading.
+    #[must_use]
+    pub fn lines(&self, styles: Styles, width: usize) -> Vec<Line<'static>> {
+        let mut lines = vec![heading(styles, "RUN PROVENANCE")];
+        for (label, value) in self.fields() {
+            lines.extend(field(styles, label, &value, width));
+        }
+        lines
+    }
+
+    /// The digest as a status line quotes it: enough to tell two apart, marked
+    /// so it is never read as the digest itself.
+    #[must_use]
+    pub fn abbreviated_digest(&self) -> String {
+        let (algorithm, value) = self
+            .registry_digest
+            .split_once(':')
+            .unwrap_or(("", self.registry_digest.as_str()));
+        if value.chars().count() <= DIGEST_PREFIX {
+            return self.registry_digest.clone();
+        }
+        let head: String = value.chars().take(DIGEST_PREFIX).collect();
+        if algorithm.is_empty() {
+            format!("{head}\u{2026}")
+        } else {
+            format!("{algorithm}:{head}\u{2026}")
+        }
     }
 }
 
@@ -180,6 +295,37 @@ mod tests {
             assert!(start <= selected && selected < end, "{selected}");
             assert_eq!(end - start, 5);
         }
+    }
+
+    #[test]
+    fn the_provenance_block_states_every_fact_the_run_carries() {
+        let report = crate::tui::findings::fixture::mixed();
+        let provenance = Provenance::of(&report);
+        let rendered = text(&provenance.lines(styles(), 120));
+        assert!(rendered.contains(&provenance.airlock_version));
+        assert!(rendered.contains(&provenance.registry_digest));
+        assert!(rendered.contains(&provenance.audited_commit));
+        assert!(rendered.contains(&provenance.schema_version.to_string()));
+    }
+
+    #[test]
+    fn an_unestablished_observation_time_is_stated_rather_than_left_blank() {
+        let mut report = crate::tui::findings::fixture::mixed();
+        report.repository.settings_observed_at = None;
+        let rendered = text(&Provenance::of(&report).lines(styles(), 120));
+        assert!(rendered.contains("not established"), "{rendered}");
+    }
+
+    #[test]
+    fn an_abbreviated_digest_is_marked_as_one_and_keeps_its_algorithm() {
+        let mut report = crate::tui::findings::fixture::mixed();
+        report.airlock.registry_digest = format!("sha256:{}", "a".repeat(64));
+        let provenance = Provenance::of(&report);
+        assert_eq!(provenance.abbreviated_digest(), "sha256:aaaaaaaa\u{2026}");
+        // Short enough to be whole is printed whole: a mark that said
+        // something was dropped when nothing was would be a lie.
+        report.airlock.registry_digest = "sha256:abcd".to_owned();
+        assert_eq!(Provenance::of(&report).abbreviated_digest(), "sha256:abcd");
     }
 
     #[test]
