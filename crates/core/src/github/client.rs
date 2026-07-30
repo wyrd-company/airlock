@@ -449,6 +449,10 @@ fn field_bool(value: &Value, name: &str) -> bool {
     value.get(name).and_then(Value::as_bool).unwrap_or(false)
 }
 
+fn optional_bool(value: &Value, name: &str) -> Option<bool> {
+    value.get(name).and_then(Value::as_bool)
+}
+
 fn optional_string(value: &Value, name: &str) -> Option<String> {
     value
         .get(name)
@@ -650,16 +654,63 @@ impl GitHub for RestClient {
                 .and_then(|license| license.get("spdx_id"))
                 .and_then(Value::as_str)
                 .map(ToOwned::to_owned),
-            allow_merge_commit: field_bool(&value, "allow_merge_commit"),
-            allow_squash_merge: field_bool(&value, "allow_squash_merge"),
-            allow_rebase_merge: field_bool(&value, "allow_rebase_merge"),
-            delete_branch_on_merge: field_bool(&value, "delete_branch_on_merge"),
+            // GitHub requires contents:write to disclose merge settings;
+            // administration:read does not expose them (empirically verified).
+            // Absence therefore means this credential cannot observe the fields.
+            allow_merge_commit: optional_bool(&value, "allow_merge_commit"),
+            allow_squash_merge: optional_bool(&value, "allow_squash_merge"),
+            allow_rebase_merge: optional_bool(&value, "allow_rebase_merge"),
+            delete_branch_on_merge: optional_bool(&value, "delete_branch_on_merge"),
             has_wiki: field_bool(&value, "has_wiki"),
             has_projects: field_bool(&value, "has_projects"),
             has_discussions: field_bool(&value, "has_discussions"),
             has_issues: field_bool(&value, "has_issues"),
             observed_at: raw.single("date").map(ToOwned::to_owned),
         })
+    }
+
+    async fn open_pull_requests(
+        &self,
+        owner: &str,
+        repo: &str,
+        head_branch: &str,
+        base_branch: &str,
+    ) -> ApiResult<Vec<crate::github::PullRequest>> {
+        let endpoint = format!("GET /repos/{owner}/{repo}/pulls");
+        let path = format!(
+            "/repos/{}/{}/pulls?state=open&head={}%3A{}&base={}&per_page=100",
+            encode_segment(owner),
+            encode_segment(repo),
+            encode_segment(owner),
+            encode_segment(head_branch),
+            encode_segment(base_branch)
+        );
+        let (value, _) = self.get_json(&endpoint, &path).await?;
+        let pulls = value
+            .as_array()
+            .ok_or_else(|| malformed(&endpoint, "pull-request response is not an array"))?;
+        pulls
+            .iter()
+            .map(|pull| {
+                Ok(crate::github::PullRequest {
+                    number: require_u64(&endpoint, pull, "number")?,
+                    url: require_string(&endpoint, pull, "html_url")?,
+                    head_branch: pull
+                        .get("head")
+                        .and_then(|head| head.get("ref"))
+                        .and_then(Value::as_str)
+                        .ok_or_else(|| malformed(&endpoint, "pull request has no head ref"))?
+                        .to_owned(),
+                    base_branch: pull
+                        .get("base")
+                        .and_then(|base| base.get("ref"))
+                        .and_then(Value::as_str)
+                        .ok_or_else(|| malformed(&endpoint, "pull request has no base ref"))?
+                        .to_owned(),
+                    draft: field_bool(pull, "draft"),
+                })
+            })
+            .collect()
     }
 
     async fn topics(&self, owner: &str, repo: &str) -> ApiResult<Vec<String>> {

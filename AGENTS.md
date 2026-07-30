@@ -10,13 +10,19 @@ Run `task check` before pushing; it is what CI runs. Everything else is in
 
 ## Constraints that are not negotiable
 
-**No writes, ever.** No endpoint that mutates, no credential that could.
+**The audit never writes.** `airlock audit` and every audit surface hold no
+mutating endpoint and refuse any credential that could write. The interactive
+align session alone may apply settings-level remediations — under an
+operator's device-flow grant held only in memory — and it never writes files.
+`airlock skill` only emits the embedded skill to an explicitly selected local
+directory; it never touches a repository or uses a credential.
 
 **The binary never shells out.** No `git`, no `gh`, no subprocess at all from
 `airlock` or anything it depends on. Airlock speaks the GitHub REST API
-directly. This is a rule about the binary, not about the repository:
-`.github/workflows/reconcile-settings.yml` uses `gh` deliberately, because a
-workflow holding a scoped token is exactly where a write belongs.
+directly. This is a rule about the binary, not repository automation in
+general: the composite Action in `action.yml` invokes Cargo and
+`scripts/run-action.sh` while the Airlock binary remains subprocess-free. No
+workflow receives automated settings-write authority.
 
 **No ambient credentials.** `GH_TOKEN`, `GITHUB_TOKEN`, the `gh` credential
 store, and git credential helpers are off limits as sources and must not be
@@ -39,8 +45,10 @@ is the failure mode that makes an audit tool untrustworthy.
 ## What not to touch
 
 `.github/repo-settings.yml` is the source of truth for repository metadata and
-is applied by `.github/workflows/reconcile-settings.yml`. Editing settings in
-the GitHub web interface is not a change; the next reconcile reverts it.
+is applied by an operator through Airlock's terminal interface. `airlock
+align-files` cannot apply settings. Editing settings in the GitHub web
+interface is drift, not a change; the scheduled read-only audit detects the
+discrepancy.
 
 Version numbers are computed at release time from `.intentional/config.yml`. Do
 not hand-edit the version in `Cargo.toml` or write a release entry in
@@ -51,13 +59,18 @@ Do not replace a pin with a tag.
 
 ## Where things live
 
-The rules airlock checks come from the `repository-standards` conformance
-document, which is the source of truth for their wording and severity — the
-registry mirrors it, and drift is resolved in favour of the document.
+The compiled registry is the source of truth for rule ids, statements,
+severities, sections, and evaluation modes. `airlock skill` generates the
+`repository-standards` conformance reference from it; the rest of the embedded
+skill is hand-written guidance and supporting material.
 
 `docs/examples/` holds candidate copies of files that belong elsewhere — the
 organisation policy and its topic vocabulary live in `wyrd-company/.github`
 once an operator moves them. An integration test compiles the candidate policy
 against the compiled registry, so it cannot rot in place.
+
+`action.yml` defines the adopter-facing composite Action.
+`scripts/run-action.sh` adapts the CLI exit and findings contracts to GitHub
+Actions; `scripts/test-action.sh` pins that adapter behavior.
 
 Wider design context lives in memory and in the kanban task, not here.

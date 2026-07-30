@@ -1,0 +1,75 @@
+name: CI
+
+# pull_request, never pull_request_target. pull_request_target runs fork code
+# with secrets and write access — the most exploited GitHub Actions vulnerability.
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+# Default deny. Elevate per job, to the minimum that job needs.
+permissions: {}
+
+# Stop a contributor's rapid pushes from saturating the runners.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@0000000000000000000000000000000000000000 # v4 — resolve and pin
+        with:
+          persist-credentials: false
+      - uses: go-task/setup-task@0000000000000000000000000000000000000000 # v3 — resolve and pin
+      - run: task lint
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@0000000000000000000000000000000000000000 # v4 — resolve and pin
+        with:
+          persist-credentials: false
+      - uses: go-task/setup-task@0000000000000000000000000000000000000000 # v3 — resolve and pin
+      - run: task test
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@0000000000000000000000000000000000000000 # v4 — resolve and pin
+        with:
+          persist-credentials: false
+      - uses: go-task/setup-task@0000000000000000000000000000000000000000 # v3 — resolve and pin
+      - run: task build
+
+  # Squash merge means the pull request title becomes the commit on main.
+  # The title is load-bearing history, so it carries a required check.
+  pr-title:
+    name: Pull request title
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@0000000000000000000000000000000000000000 # v4 — resolve and pin
+        with:
+          persist-credentials: false
+      - uses: go-task/setup-task@0000000000000000000000000000000000000000 # v3 — resolve and pin
+      - env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: task lint:commit-msg -- "$PR_TITLE"
+
+# Jobs are decomposed so a failure is legible on the pull request, and every job
+# invokes a task rather than a raw command so `task check` locally and CI cannot
+# drift apart.

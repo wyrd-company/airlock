@@ -1,0 +1,24 @@
+# Normalize line endings in the repository; check out native on each platform.
+* text=auto
+
+# Files that must keep LF regardless of platform.
+*.sh text eol=lf
+*.fish text eol=lf
+taskfile.yml text eol=lf
+
+# Generated output. Collapsed in pull request diffs, excluded from language stats.
+# Adjust the paths to the repository; delete the section if nothing is generated.
+generated/** linguist-generated=true
+dist/** linguist-generated=true
+
+# Lockfiles are authored by tooling, not by hand.
+package-lock.json linguist-generated=true
+pnpm-lock.yaml linguist-generated=true
+Cargo.lock linguist-generated=true
+go.sum linguist-generated=true
+
+# Binary assets.
+*.png binary
+*.jpg binary
+*.gif binary
+*.woff2 binary

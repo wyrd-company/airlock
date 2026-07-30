@@ -1,0 +1,15 @@
+# Blank issues are disabled so the issue tracker does not quietly become a
+# work tracker. Bug reports and ideas are the only two things that belong here.
+blank_issues_enabled: false
+
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/security/advisories
+    about: >-
+      Use the repository's Security tab and choose "Report a vulnerability".
+      Never report one in a public issue.
+  - name: Questions about installing or using this
+    url: https://github.com
+    about: >-
+      Read the README and docs/ first. Replace this URL with the project's
+      documentation site, or delete this entry.

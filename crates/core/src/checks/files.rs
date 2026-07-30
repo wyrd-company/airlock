@@ -3,6 +3,7 @@
 use crate::findings::Remediation;
 use crate::policy::RuleInstance;
 use crate::snapshot::FileState;
+use crate::ActionGroup;
 
 use super::{presence, AuditContext, Verdict};
 
@@ -40,7 +41,7 @@ pub(crate) fn run(id: &str, rule: &RuleInstance, context: &AuditContext) -> Opti
             ".github/repo-settings.yml",
             ".github/repo-settings.yml",
         ),
-        "REPO-FILE-17" => reconcile_workflow(context),
+        "REPO-FILE-17" => audit_workflow(context),
         _ => return None,
     })
 }
@@ -78,7 +79,7 @@ fn gitattributes(context: &AuditContext) -> Verdict {
             ".gitattributes",
             ".gitattributes does not normalise line endings",
             Remediation::new(
-                "normalise_line_endings",
+                ActionGroup::NORMALISE_LINE_ENDINGS,
                 "Add `* text=auto` to .gitattributes.",
             ),
         )
@@ -101,7 +102,7 @@ fn taskfile(context: &AuditContext) -> Verdict {
             found,
             format!("the taskfile is named `{found}` rather than `taskfile.yml`"),
             Remediation::new(
-                "rename_taskfile",
+                ActionGroup::RENAME_TASKFILE,
                 format!("Rename {found} to taskfile.yml."),
             ),
         );
@@ -133,7 +134,7 @@ fn ci_workflow(context: &AuditContext) -> Verdict {
             "ci_workflow_missing",
             "no workflow under .github/workflows/ triggers on pull_request",
             Remediation::new(
-                "add_ci_workflow",
+                ActionGroup::ADD_CI_WORKFLOW,
                 "Add a CI workflow triggered on pull_request.",
             ),
         ),
@@ -163,7 +164,7 @@ fn renovate(rule: &RuleInstance, context: &AuditContext) -> Verdict {
             ".github/renovate.json",
             ".github/renovate.json extends no preset",
             Remediation::new(
-                "extend_org_preset",
+                ActionGroup::EXTEND_ORG_PRESET,
                 "Extend the organisation's shared renovate preset.",
             ),
         );
@@ -183,7 +184,7 @@ fn renovate(rule: &RuleInstance, context: &AuditContext) -> Verdict {
                 extends.join(", ")
             ),
             Remediation::new(
-                "extend_org_preset",
+                ActionGroup::EXTEND_ORG_PRESET,
                 format!("Extend `{expected}` in .github/renovate.json."),
             ),
         ),
@@ -217,7 +218,10 @@ fn devcontainer(context: &AuditContext) -> Verdict {
             "directory_missing",
             ".devcontainer",
             ".devcontainer/ is absent",
-            Remediation::new("add_devcontainer", "Add a .devcontainer/ definition."),
+            Remediation::new(
+                ActionGroup::ADD_DEVCONTAINER,
+                "Add a .devcontainer/ definition.",
+            ),
         )
     }
 }
@@ -241,7 +245,7 @@ fn claude_symlink(context: &AuditContext) -> Verdict {
                     "CLAUDE.md",
                     format!("CLAUDE.md is a symlink to `{target}` rather than `AGENTS.md`"),
                     Remediation::new(
-                        "relink_claude_md",
+                        ActionGroup::RELINK_CLAUDE_MD,
                         "Point the CLAUDE.md symlink at AGENTS.md.",
                     ),
                 )
@@ -252,7 +256,7 @@ fn claude_symlink(context: &AuditContext) -> Verdict {
             "CLAUDE.md",
             "CLAUDE.md is a regular file rather than a symlink to AGENTS.md",
             Remediation::new(
-                "replace_with_symlink",
+                ActionGroup::REPLACE_WITH_SYMLINK,
                 "Replace CLAUDE.md with a symlink to AGENTS.md.",
             ),
         ),
@@ -260,7 +264,10 @@ fn claude_symlink(context: &AuditContext) -> Verdict {
             "file_missing",
             "CLAUDE.md",
             "CLAUDE.md is absent",
-            Remediation::new("add_symlink", "Add CLAUDE.md as a symlink to AGENTS.md."),
+            Remediation::new(
+                ActionGroup::ADD_SYMLINK,
+                "Add CLAUDE.md as a symlink to AGENTS.md.",
+            ),
         ),
         other => presence_fallback(context, "CLAUDE.md", other),
     }
@@ -332,7 +339,7 @@ fn no_harness_config(rule: &RuleInstance, context: &AuditContext) -> Verdict {
             "harness_config_committed",
             format!("{} is committed", found.join(", ")),
             Remediation::new(
-                "remove_harness_config",
+                ActionGroup::REMOVE_HARNESS_CONFIG,
                 "Remove the agent harness configuration; it belongs outside the repository.",
             ),
         )
@@ -366,35 +373,44 @@ fn no_codeowners(context: &AuditContext) -> Verdict {
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
-            Remediation::new("remove_codeowners", "Remove the CODEOWNERS file."),
+            Remediation::new(
+                ActionGroup::REMOVE_CODEOWNERS,
+                "Remove the CODEOWNERS file.",
+            ),
         )
     }
 }
 
-fn reconcile_workflow(context: &AuditContext) -> Verdict {
-    let Some(workflow) = context.workflow("reconcile-settings.yml") else {
+fn audit_workflow(context: &AuditContext) -> Verdict {
+    let Some(workflow) = context.workflow("audit.yml") else {
         return presence(
             context,
-            ".github/workflows/reconcile-settings.yml",
-            ".github/workflows/reconcile-settings.yml",
+            ".github/workflows/audit.yml",
+            ".github/workflows/audit.yml",
         );
     };
-    let branch = &context.snapshot.repository.default_branch;
-    let pushes_to_branch = try_verdict!(workflow.pushes_to(branch));
-    if pushes_to_branch {
+    let scheduled = try_verdict!(workflow.has_trigger("schedule"));
+    let on_demand = try_verdict!(workflow.has_trigger("workflow_dispatch"));
+    if scheduled && on_demand {
         Verdict::pass_at(
-            "reconcile_triggers_on_default_branch",
+            "audit_is_scheduled_and_on_demand",
             &workflow.path,
-            format!("the reconcile workflow triggers on push to `{branch}`"),
+            "the audit workflow triggers on a schedule and through workflow_dispatch",
         )
     } else {
+        let missing = match (scheduled, on_demand) {
+            (false, false) => "schedule and workflow_dispatch",
+            (false, true) => "schedule",
+            (true, false) => "workflow_dispatch",
+            (true, true) => unreachable!(),
+        };
         Verdict::fail_at(
-            "reconcile_trigger_wrong",
+            "audit_trigger_missing",
             &workflow.path,
-            format!("the reconcile workflow does not trigger on push to `{branch}`"),
+            format!("the audit workflow does not trigger on {missing}"),
             Remediation::new(
-                "trigger_on_default_branch",
-                format!("Trigger the reconcile workflow on push to `{branch}`."),
+                ActionGroup::ADD_AUDIT_WORKFLOW,
+                "Use the standard audit workflow with schedule and workflow_dispatch triggers.",
             ),
         )
     }
@@ -596,13 +612,13 @@ mod tests {
     }
 
     #[test]
-    fn the_reconcile_workflow_must_trigger_on_the_default_branch() {
+    fn the_audit_workflow_must_be_scheduled_and_on_demand() {
         assert_eq!(
             verdict(
                 "REPO-FILE-17",
                 &[(
-                    ".github/workflows/reconcile-settings.yml",
-                    "on:\n  push:\n    branches: [main]\njobs: {}\n"
+                    ".github/workflows/audit.yml",
+                    "on:\n  schedule:\n    - cron: '0 0 * * 1'\n  workflow_dispatch: {}\njobs: {}\n"
                 )]
             ),
             Status::Pass
@@ -611,8 +627,8 @@ mod tests {
             verdict(
                 "REPO-FILE-17",
                 &[(
-                    ".github/workflows/reconcile-settings.yml",
-                    "on:\n  workflow_dispatch: {}\njobs: {}\n"
+                    ".github/workflows/audit.yml",
+                    "on:\n  schedule:\n    - cron: '0 0 * * 1'\njobs: {}\n"
                 )]
             ),
             Status::Fail

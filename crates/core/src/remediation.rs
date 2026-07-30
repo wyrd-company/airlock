@@ -20,6 +20,134 @@
 //! agree on what every rule means; they may still differ on how they would
 //! close it.
 
+use std::fmt::{self, Display};
+
+use serde::{Serialize, Serializer};
+
+/// A declared family of contextual actions that can address an observation.
+///
+/// Action groups support display and cross-rule grouping. They are not the
+/// consumer join key for a rule's remediation: that identity and its delivery
+/// lane live on [`RemediationDefinition`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ActionGroup(&'static str);
+
+impl ActionGroup {
+    /// The stable machine-readable name.
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        self.0
+    }
+}
+
+impl Display for ActionGroup {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.code())
+    }
+}
+
+impl Serialize for ActionGroup {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(self.code())
+    }
+}
+
+macro_rules! action_groups {
+    ($($name:ident => $code:literal),+ $(,)?) => {
+        impl ActionGroup {
+            $(
+                #[doc = concat!("The `", $code, "` action group.")]
+                pub const $name: Self = Self($code);
+            )+
+
+            /// Every declared action group.
+            pub const ALL: &'static [Self] = &[$(Self::$name),+];
+        }
+
+        #[cfg(test)]
+        const DECLARED_ACTION_GROUPS: &[(&str, ActionGroup)] = &[
+            $((stringify!($name), ActionGroup::$name)),+
+        ];
+    };
+}
+
+action_groups! {
+    ADD_CD_CONCURRENCY => "add_cd_concurrency",
+    ADD_CHANGELOG => "add_changelog",
+    ADD_CI_WORKFLOW => "add_ci_workflow",
+    ADD_COMMIT_MSG => "add_commit_msg",
+    ADD_CONCURRENCY => "add_concurrency",
+    ADD_DEVCONTAINER => "add_devcontainer",
+    ADD_FILE => "add_file",
+    ADD_LEFTHOOK => "add_lefthook",
+    ADD_PRE_COMMIT => "add_pre_commit",
+    ADD_AUDIT_WORKFLOW => "add_audit_workflow",
+    ADD_SYMLINK => "add_symlink",
+    ADD_TASKFILE => "add_taskfile",
+    ADD_TITLE_CHECK => "add_title_check",
+    ADD_TOPIC => "add_topic",
+    ADD_UNIT_TASKFILE => "add_unit_taskfile",
+    ADJUST_TOPICS => "adjust_topics",
+    ALIGN_INCLUDE_NAMESPACES => "align_include_namespaces",
+    APPLY_ORG_RULESET => "apply_org_ruleset",
+    CATALOGUE_TOPIC => "catalogue_topic",
+    CHANGE_REPOSITORY_SETTING => "change_repository_setting",
+    CHOOSE_ONE_LICENSE => "choose_one_license",
+    COMPLETE_PRE_COMMIT => "complete_pre_commit",
+    CORRECT_MERGE_SETTINGS => "correct_merge_settings",
+    CORRECT_TAG_PATTERN => "correct_tag_pattern",
+    DECLARE_DESCRIPTION => "declare_description",
+    DECLARE_JOB_PERMISSIONS => "declare_job_permissions",
+    DECLARE_LICENSE => "declare_license",
+    DECLARE_MERGE_SETTINGS => "declare_merge_settings",
+    DECLARE_RELEASE_UNITS => "declare_release_units",
+    DECLARE_TOPICS => "declare_topics",
+    DEFAULT_DENY_PERMISSIONS => "default_deny_permissions",
+    DEFINE_TASKS => "define_tasks",
+    DISABLE_OR_WAIT => "disable_or_wait",
+    DISPATCH_ON_PINNED_SHA => "dispatch_on_pinned_sha",
+    DISPATCH_PUBLICATION => "dispatch_publication",
+    DO_NOT_CANCEL_DELIVERY => "do_not_cancel_delivery",
+    EXTEND_ORG_PRESET => "extend_org_preset",
+    GRANT_PERMISSION => "grant_permission",
+    LIGHTEN_PRE_PUSH => "lighten_pre_push",
+    MOVE_APP_IDENTITY => "move_app_identity",
+    MOVE_ROOT_UNIT => "move_root_unit",
+    NORMALISE_LINE_ENDINGS => "normalise_line_endings",
+    PIN_ACTION => "pin_action",
+    PLAN_GATE => "plan_gate",
+    RELINK_CLAUDE_MD => "relink_claude_md",
+    REMOVE_CODEOWNERS => "remove_codeowners",
+    REMOVE_CUSTOM_PROPERTIES => "remove_custom_properties",
+    REMOVE_HARNESS_CONFIG => "remove_harness_config",
+    REMOVE_ORG_TOPIC => "remove_org_topic",
+    REMOVE_PROPERTY_WRITES => "remove_property_writes",
+    REMOVE_PULL_REQUEST_TARGET => "remove_pull_request_target",
+    REMOVE_ROOT_CHANGELOG => "remove_root_changelog",
+    REMOVE_VISIBILITY => "remove_visibility",
+    RENAME_DEFAULT_BRANCH => "rename_default_branch",
+    RENAME_REPOSITORY => "rename_repository",
+    RENAME_TASKFILE => "rename_taskfile",
+    REPLACE_ENTRY => "replace_entry",
+    REPLACE_SYMLINK => "replace_symlink",
+    REPLACE_WITH_SYMLINK => "replace_with_symlink",
+    RETAG_WITHOUT_PREFIX => "retag_without_prefix",
+    REWRITE_OR_PREVENT_MERGES => "rewrite_or_prevent_merges",
+    RUN_ALIGN => "run_align",
+    SCOPE_TAGS => "scope_tags",
+    SUPPLY_AIRLOCK_TOKEN => "supply_airlock_token",
+    SET_INCLUDE_DIR => "set_include_dir",
+    SHORTEN_DESCRIPTION => "shorten_description",
+    SINGLE_SENTENCE_DESCRIPTION => "single_sentence_description",
+    SPLIT_RELEASE_FROM_DELIVERY => "split_release_from_delivery",
+    TIGHTEN_RULESET => "tighten_ruleset",
+    TRIGGER_ON_PULL_REQUEST => "trigger_on_pull_request",
+    WRAP_IN_TASK => "wrap_in_task",
+}
+
 /// The lane a remediation travels in: who can perform it, and through what
 /// surface.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -65,7 +193,7 @@ impl Lane {
 /// One rule's declared remediation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RemediationDefinition {
-    /// The stable remediation code, unique across the registry.
+    /// The per-rule consumer join key, unique across the registry.
     pub code: &'static str,
     /// The rule this remediation closes.
     pub rule: &'static str,
@@ -258,10 +386,10 @@ pub const CLASSIFICATIONS: &[Classification] = &[
         true,
     ),
     remediation(
-        "reconcile-live-settings",
+        "align-live-settings",
         "REPO-META-13",
         Lane::OperatorSetting,
-        "Reconcile live GitHub metadata to the declared file.",
+        "Align live GitHub metadata to the declared file.",
         true,
     ),
     remediation(
@@ -370,10 +498,10 @@ pub const CLASSIFICATIONS: &[Classification] = &[
         true,
     ),
     remediation(
-        "add-reconcile-workflow",
+        "add-audit-workflow",
         "REPO-FILE-17",
         Lane::DeterministicFile,
-        "Add the standard `.github/workflows/reconcile-settings.yml`.",
+        "Add the standard scheduled, on-demand `.github/workflows/audit.yml`.",
         true,
     ),
     remediation(
@@ -662,17 +790,17 @@ pub const CLASSIFICATIONS: &[Classification] = &[
         true,
     ),
     remediation(
-        "scope-reconcile-token",
+        "supply-airlock-token",
         "REPO-CI-09",
         Lane::DeterministicFile,
-        "Scope the reconcile workflow's token request to a single repository.",
+        "Supply `secrets.AIRLOCK_TOKEN` to the local audit action as `AIRLOCK_TOKEN`.",
         true,
     ),
     remediation(
-        "confine-settings-writes-to-reconcile",
+        "remove-workflow-settings-writes",
         "REPO-CI-10",
         Lane::JudgmentFile,
-        "Remove settings mutations from every workflow except reconcile.",
+        "Remove repository-settings mutations from every workflow.",
         true,
     ),
     remediation(
@@ -900,6 +1028,49 @@ mod tests {
     use super::*;
     use crate::registry::{self, Evaluation, CHECKS};
     use std::collections::BTreeSet;
+
+    #[test]
+    fn action_group_codes_are_unique_and_lower_snake() {
+        let codes: Vec<&str> = ActionGroup::ALL
+            .iter()
+            .map(|action_group| action_group.code())
+            .collect();
+        let unique: BTreeSet<&str> = codes.iter().copied().collect();
+
+        assert_eq!(codes.len(), unique.len());
+        for code in codes {
+            assert!(
+                code.bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte == b'_'),
+                "{code}"
+            );
+        }
+    }
+
+    #[test]
+    fn every_declared_action_group_is_used_by_a_check() {
+        let check_sources = [
+            include_str!("checks/mod.rs"),
+            include_str!("checks/classification.rs"),
+            include_str!("checks/files.rs"),
+            include_str!("checks/git.rs"),
+            include_str!("checks/identity.rs"),
+            include_str!("checks/licensing.rs"),
+            include_str!("checks/release.rs"),
+            include_str!("checks/automation/delivery.rs"),
+            include_str!("checks/automation/hooks.rs"),
+            include_str!("checks/automation/taskfile.rs"),
+            include_str!("checks/automation/workflows.rs"),
+        ]
+        .join("\n");
+
+        for (constant, action_group) in DECLARED_ACTION_GROUPS {
+            assert!(
+                check_sources.contains(&format!("ActionGroup::{constant}")),
+                "{constant} ({action_group}) is declared but unused"
+            );
+        }
+    }
 
     #[test]
     fn every_rule_is_classified_and_nothing_else_is() {

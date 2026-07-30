@@ -13,6 +13,7 @@
 
 mod audited_repository;
 
+pub mod alignment;
 pub mod audit;
 pub mod auth;
 pub mod checks;
@@ -20,12 +21,16 @@ pub mod error;
 pub mod findings;
 pub mod github;
 pub mod limits;
+pub mod plan;
 pub mod policy;
 pub mod registry;
 pub mod remediation;
 pub mod render;
+pub mod skill;
 pub mod snapshot;
+pub mod worklist;
 pub mod worktree;
 pub mod yaml;
 
 pub use error::{Error, Result};
+pub use remediation::ActionGroup;

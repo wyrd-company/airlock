@@ -14,7 +14,10 @@ use std::collections::BTreeMap;
 
 use serde::Serialize;
 
-use crate::registry::{Severity, REGISTRY_VERSION};
+use crate::{
+    registry::{Severity, REGISTRY_VERSION},
+    ActionGroup,
+};
 
 /// The version of the JSON document shape.
 pub const SCHEMA_VERSION: u32 = 1;
@@ -194,10 +197,13 @@ impl Evidence {
 }
 
 /// What to do about a failure.
+///
+/// The action group supports display and cross-rule grouping. The rule-level
+/// join key and delivery lane live on [`RemediationClass`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Remediation {
-    /// A stable code naming the remedy.
-    pub code: String,
+    /// The declared family of actions this contextual remedy belongs to.
+    pub action_group: ActionGroup,
     /// Human-readable detail.
     pub detail: String,
 }
@@ -205,9 +211,9 @@ pub struct Remediation {
 impl Remediation {
     /// Build a remediation.
     #[must_use]
-    pub fn new(code: impl Into<String>, detail: impl Into<String>) -> Self {
+    pub fn new(action_group: ActionGroup, detail: impl Into<String>) -> Self {
         Self {
-            code: code.into(),
+            action_group,
             detail: detail.into(),
         }
     }
@@ -225,7 +231,7 @@ impl Remediation {
 pub struct RemediationClass {
     /// The lane the remediation travels in, when there is one.
     pub lane: Option<String>,
-    /// The stable remediation code, when there is one.
+    /// The per-rule consumer join key, when there is one.
     pub code: Option<String>,
     /// What the remediation would change, when there is one.
     pub change: Option<String>,
@@ -351,6 +357,19 @@ pub struct Finding {
     pub source: Option<String>,
     /// What stopped the evaluation.
     pub error: Option<FindingError>,
+}
+
+impl Finding {
+    /// Whether this finding leaves the assertion undecided under `gate`.
+    ///
+    /// This is the single completeness predicate used when assembling an
+    /// audit and by projections that must identify the questions behind an
+    /// incomplete result.
+    #[must_use]
+    pub fn blocks_completeness(&self, gate: Gate) -> bool {
+        let severity = Severity::parse(&self.severity).unwrap_or(Severity::Observation);
+        gate.enforces(severity) && self.status.is_inconclusive()
+    }
 }
 
 /// Something the audit noticed about the policy or the repository's requests
@@ -635,13 +654,10 @@ impl Report {
         for finding in &findings {
             summary.record(finding.status);
             let severity = Severity::parse(&finding.severity).unwrap_or(Severity::Observation);
-            if !gate.enforces(severity) {
-                continue;
-            }
-            if finding.status.is_inconclusive() {
+            if finding.blocks_completeness(gate) {
                 complete = false;
             }
-            if finding.status == Status::Fail {
+            if gate.enforces(severity) && finding.status == Status::Fail {
                 conformant = false;
             }
         }

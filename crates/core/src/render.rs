@@ -5,8 +5,11 @@
 
 use std::fmt::Write as _;
 
-use crate::findings::{Report, Status};
+use crate::findings::{RemediationClass, Report, Status};
+use crate::plan::{self, Plan};
 use crate::registry::{self, CheckDefinition};
+use crate::remediation::{self, Classification};
+use crate::worklist::AgentWorkList;
 
 /// Render an audit report for a terminal.
 #[must_use]
@@ -119,6 +122,299 @@ pub fn report_text(report: &Report) -> String {
     out
 }
 
+/// Render the agent-lane definition-of-done result for a terminal.
+#[must_use]
+pub fn agent_work_list_text(list: &AgentWorkList) -> String {
+    let mut out = String::new();
+    let _ = writeln!(
+        out,
+        "{} at {} — agent lane only; not repository conformance",
+        list.repository.full_name,
+        short(&list.repository.audited_commit)
+    );
+    let _ = writeln!(
+        out,
+        "sources: files {}, platform {}",
+        list.observation.file_source,
+        list.observation
+            .platform_source
+            .as_deref()
+            .unwrap_or("not observed")
+    );
+    if let Some(tree) = &list.observation.working_tree {
+        let dirtiness = tree.dirty.map_or(
+            "undetermined",
+            |dirty| if dirty { "dirty" } else { "clean" },
+        );
+        let _ = writeln!(
+            out,
+            "working tree: {} at {} ({dirtiness}, includes uncommitted files)",
+            tree.root,
+            short(&tree.head_commit)
+        );
+    }
+
+    render_work_group(&mut out, "agent work", &list.agent_lane);
+    let _ = writeln!(
+        out,
+        "\noperator deferred (never gates) ({})",
+        list.operator_deferred.count
+    );
+    for item in &list.operator_deferred.items {
+        let work = match (&item.remediation_code, &item.change) {
+            (Some(code), Some(change)) => format!("{code} — {change}"),
+            _ => item
+                .none_reason
+                .clone()
+                .unwrap_or_else(|| "a person must settle this gap".to_owned()),
+        };
+        let _ = writeln!(
+            out,
+            "  {} [{}] {} (source: {})",
+            item.rule,
+            item.lane.as_deref().unwrap_or("needs-judgment"),
+            work,
+            item.source.as_deref().unwrap_or("not observed")
+        );
+    }
+
+    render_unsettled_group(&mut out, "needs a decision", &list.needs_decision);
+    render_unsettled_group(&mut out, "unsettled questions", &list.unsettled);
+    render_attention_group(&mut out, "manual judgment (never gates)", &list.manual);
+    render_attention_group(&mut out, "suppressed debt (never gates)", &list.suppressed);
+
+    let gating_unsettled = list
+        .needs_decision
+        .items
+        .iter()
+        .chain(&list.unsettled.items)
+        .filter(|item| item.gating)
+        .count();
+    let _ = writeln!(out, "\nunsettled gating questions: {gating_unsettled}");
+    let _ = writeln!(
+        out,
+        "\n{} — this is not a repository conformance verdict",
+        list.outcome.code()
+    );
+    out
+}
+
+fn render_unsettled_group(
+    out: &mut String,
+    heading: &str,
+    group: &crate::worklist::WorkGroup<crate::worklist::UnsettledItem>,
+) {
+    let _ = writeln!(out, "\n{heading} ({})", group.count);
+    for item in &group.items {
+        let _ = writeln!(
+            out,
+            "  {} [{}] {} ({}, evidence: {}, source: {})",
+            item.rule,
+            item.severity,
+            item.status.code(),
+            if item.gating { "gating" } else { "non-gating" },
+            item.evidence_code.as_deref().unwrap_or("none"),
+            item.source.as_deref().unwrap_or("not observed")
+        );
+    }
+}
+
+fn render_attention_group(
+    out: &mut String,
+    heading: &str,
+    group: &crate::worklist::WorkGroup<crate::worklist::AttentionItem>,
+) {
+    let _ = writeln!(out, "\n{heading} ({})", group.count);
+    for item in &group.items {
+        let _ = writeln!(
+            out,
+            "  {} [{}] {} (source: {})",
+            item.rule,
+            item.severity,
+            item.status.code(),
+            item.source.as_deref().unwrap_or("not observed")
+        );
+    }
+}
+
+fn render_work_group(
+    out: &mut String,
+    heading: &str,
+    group: &crate::worklist::WorkGroup<crate::worklist::WorkItem>,
+) {
+    let _ = writeln!(out, "\n{heading} ({})", group.count);
+    for item in &group.items {
+        let _ = writeln!(
+            out,
+            "  {} [{}] {} — {} (source: {})",
+            item.rule,
+            item.lane,
+            item.remediation_code,
+            item.change,
+            item.source.as_deref().unwrap_or("not observed")
+        );
+    }
+}
+
+/// Render, for a terminal, the changes a report implies.
+///
+/// The rendering says what it is: a display, computed from the observation
+/// above it and true only of that observation. Nothing reads it back. Aligning
+/// re-observes each rule as it reaches it, so a plan cannot go stale between
+/// being printed and being acted on — there is nothing to go stale.
+#[must_use]
+pub fn plan_text(report: &Report) -> String {
+    let plan = Plan::derive(report);
+    let mut out = String::new();
+
+    let _ = writeln!(
+        out,
+        "{} at {}",
+        report.repository.full_name,
+        short(&report.repository.audited_commit)
+    );
+    let _ = writeln!(
+        out,
+        "policy {} from {} (bundle {})",
+        report.policy.name,
+        report.policy.source,
+        short_digest(&report.policy.bundle_digest)
+    );
+    let _ = writeln!(
+        out,
+        "registry {} ({}), gate {}",
+        report.airlock.registry_version,
+        short_digest(&report.airlock.registry_digest),
+        report.policy.gate.code()
+    );
+    out.push('\n');
+    let _ = writeln!(
+        out,
+        "This is what airlock would change, as observed just now. It is a \
+         display,\nnot a work order: aligning re-observes each rule before it \
+         acts, and never\napplies a plan computed earlier."
+    );
+
+    if plan.is_empty() {
+        out.push('\n');
+        let _ = writeln!(
+            out,
+            "No change is proposed. Every rule the policy enabled either holds, \
+             does not\napply, or is waiting on a person's judgment; none named an \
+             open gap that\nairlock has an answer for."
+        );
+    }
+
+    for lane in plan::DISPLAY_ORDER {
+        let changes: Vec<_> = plan.in_lane(*lane).collect();
+        if changes.is_empty() {
+            continue;
+        }
+        out.push('\n');
+        let _ = writeln!(
+            out,
+            "{} ({}) — {}",
+            lane.code(),
+            changes.len(),
+            plan::lane_gloss(*lane)
+        );
+        for change in changes {
+            let _ = writeln!(
+                out,
+                "  {:<16} {:<13} {}",
+                change.rule, change.severity, change.code
+            );
+            let _ = writeln!(out, "      {}", change.change);
+            if let Some(detail) = change.detail {
+                let _ = writeln!(out, "      observed: {detail}");
+            }
+            let _ = writeln!(
+                out,
+                "      {}{}",
+                if change.reversible {
+                    "reversible"
+                } else {
+                    "not reversible — there is no undo for this one"
+                },
+                if change.authorized {
+                    ", and authorized by the policy: the failure was permitted, not closed"
+                } else {
+                    ""
+                }
+            );
+        }
+    }
+
+    if !plan.unclosable.is_empty() {
+        out.push('\n');
+        let _ = writeln!(
+            out,
+            "no remediation ({}) — airlock offers none; the only move left is a \
+             person's",
+            plan.unclosable.len()
+        );
+        for gap in &plan.unclosable {
+            let _ = writeln!(
+                out,
+                "  {:<16} {:<13} {}",
+                gap.rule,
+                gap.severity,
+                gap.status.code()
+            );
+            let _ = writeln!(out, "      {}", gap.reason);
+        }
+    }
+
+    // Undecided rules are named whenever there are any. Completeness is a
+    // statement about the gate, not about what was answered: a rule the
+    // effective gate does not enforce can end undecided and leave the run
+    // complete. Keying this on `complete` would drop those rules silently,
+    // and a plan that omits a rule it could not see is claiming to have
+    // looked where it had not.
+    out.push('\n');
+    if plan.undecided.is_empty() {
+        let _ = writeln!(
+            out,
+            "Every rule the policy asked about was decided, so this names every \
+             gap it\nfound."
+        );
+    } else {
+        let _ = writeln!(
+            out,
+            "{} rule(s) ended undecided, so this plan may be missing changes. An\n\
+             unanswered question is not a clean repository.",
+            plan.undecided.len()
+        );
+        for rule in &plan.undecided {
+            let _ = writeln!(
+                out,
+                "  undecided: {:<16} {:<13} {:<14} {}",
+                rule.rule,
+                rule.severity,
+                rule.status.code(),
+                if rule.blocks_completeness {
+                    "makes the run incomplete"
+                } else {
+                    "does not gate, and is still not a pass"
+                }
+            );
+        }
+        let _ = writeln!(
+            out,
+            "{}",
+            if plan.is_incomplete() {
+                "At least one is graded at a severity the effective gate enforces, so \
+                 the\nrun is incomplete and no verdict below it can be certified."
+            } else {
+                "None of them is graded at a severity the effective gate enforces, so \
+                 the\nrun is still complete."
+            }
+        );
+    }
+
+    out
+}
+
 /// Render the check registry for a terminal.
 #[must_use]
 pub fn list_checks_text() -> String {
@@ -141,6 +437,32 @@ pub fn list_checks_text() -> String {
                 check.evaluation.code(),
                 check.statement
             );
+            // The declared remediation is printed with the rule so an adopter
+            // can read what airlock would do to their repository before
+            // running it against one. It is read from the same table the
+            // findings document quotes, so the catalogue cannot drift from
+            // what a run reports.
+            match remediation::classify(check.id) {
+                Some(Classification::Remediation(definition)) => {
+                    let _ = writeln!(
+                        out,
+                        "  {:<16} → {} [{}, {}] {}",
+                        "",
+                        definition.code,
+                        definition.lane.code(),
+                        if definition.reversible {
+                            "reversible"
+                        } else {
+                            "not reversible"
+                        },
+                        definition.change
+                    );
+                }
+                Some(Classification::NotRemediable { reason, .. }) => {
+                    let _ = writeln!(out, "  {:<16} → no remediation: {reason}", "");
+                }
+                None => {}
+            }
         }
         let _ = writeln!(out);
     }
@@ -163,7 +485,9 @@ fn check_json(check: &CheckDefinition) -> serde_json::Value {
         "statement": check.statement,
         "severity": check.severity.code(),
         "section": check.section.code(),
+        "remediation_class": RemediationClass::for_rule(check.id),
         "evaluation": check.evaluation.code(),
+        "evaluation_reason": check.evaluation_reason(),
         "implemented": check.evaluation != registry::Evaluation::Unimplemented,
         "params": check.params,
     })
@@ -187,6 +511,7 @@ mod tests {
         AirlockIdentity, AuditedRepository, Evidence, Finding, Gate, ObservationRecord,
         PolicyIdentity, Remediation, RemediationClass,
     };
+    use crate::ActionGroup;
 
     fn report() -> Report {
         Report::assemble(
@@ -221,7 +546,7 @@ mod tests {
                 severity: "blocking".to_owned(),
                 status: Status::Fail,
                 evidence: Some(Evidence::at("file_missing", "LICENSE", "LICENSE is absent")),
-                remediation: Some(Remediation::new("add_file", "Add LICENSE.")),
+                remediation: Some(Remediation::new(ActionGroup::ADD_FILE, "Add LICENSE.")),
                 remediation_class: RemediationClass::for_rule("REPO-LIC-01"),
                 suppression: None,
                 source: Some("api".to_owned()),
@@ -269,10 +594,141 @@ mod tests {
     }
 
     #[test]
+    fn the_plan_names_the_change_its_code_and_its_reversibility() {
+        let text = plan_text(&report());
+        assert!(text.contains("add-license-file"));
+        assert!(text.contains("Add a `LICENSE` file"));
+        assert!(text.contains("not reversible"));
+        assert!(text.contains("deterministic-file (1)"));
+    }
+
+    #[test]
+    fn the_plan_says_it_is_a_display_and_not_a_stored_work_order() {
+        let text = plan_text(&report());
+        assert!(text.contains("display"));
+        assert!(text.contains("re-observes each rule before it"));
+        assert!(text.contains("never\napplies a plan computed earlier"));
+    }
+
+    #[test]
+    fn the_plan_reports_the_completeness_of_the_observation_it_came_from() {
+        let text = plan_text(&report());
+        assert!(text.contains("Every rule the policy asked about was decided"));
+    }
+
+    #[test]
+    fn the_plan_names_an_undecided_rule_even_when_the_run_stays_complete() {
+        let mut ungated = report();
+        ungated.findings[0].status = Status::Inconclusive;
+        ungated.findings[0].severity = "observation".to_owned();
+        let text = plan_text(&ungated);
+
+        assert!(
+            text.contains("undecided: REPO-LIC-01"),
+            "a non-gating undecided rule must still be named: {text}"
+        );
+        assert!(
+            text.contains("does not gate, and is still not a pass"),
+            "{text}"
+        );
+        assert!(
+            !text.contains("Every rule the policy asked about was decided"),
+            "the plan must not claim everything was decided: {text}"
+        );
+    }
+
+    #[test]
+    fn the_plan_says_when_an_undecided_rule_stops_the_run() {
+        let mut gated = report();
+        gated.findings[0].status = Status::Error;
+        let text = plan_text(&gated);
+
+        assert!(text.contains("undecided: REPO-LIC-01"), "{text}");
+        assert!(text.contains("makes the run incomplete"), "{text}");
+        assert!(
+            text.contains("no verdict below it can be certified"),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn a_plan_with_nothing_to_propose_says_so_rather_than_rendering_empty() {
+        let mut clean = report();
+        clean.findings[0].status = Status::Pass;
+        let text = plan_text(&clean);
+        assert!(text.contains("No change is proposed"));
+        assert!(!text.contains("add-license-file"));
+    }
+
+    #[test]
     fn every_registered_check_appears_in_the_listing() {
         let text = list_checks_text();
         for check in registry::CHECKS {
             assert!(text.contains(check.id), "{} is missing", check.id);
+        }
+    }
+
+    #[test]
+    fn the_listing_says_what_closing_every_rule_would_take() {
+        let text = list_checks_text();
+        for classification in crate::remediation::CLASSIFICATIONS {
+            match classification {
+                Classification::Remediation(definition) => {
+                    assert!(
+                        text.contains(definition.code),
+                        "{} is listed without its remediation code",
+                        definition.rule
+                    );
+                    assert!(
+                        text.contains(definition.lane.code()),
+                        "{} is listed without its lane",
+                        definition.rule
+                    );
+                }
+                Classification::NotRemediable { rule, reason } => {
+                    assert!(
+                        text.contains(reason),
+                        "{rule} is listed without the reason airlock offers no remediation"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_json_listing_publishes_the_remediation_model_verbatim() {
+        // Compared against the model itself, not against the helper the
+        // listing is built with — comparing the listing to a second call of
+        // its own builder would pass even if both stopped saying anything.
+        // That the listing agrees with a real *run* is proved in
+        // `tests/remediation_catalogue.rs`, which audits a repository.
+        let json = list_checks_json();
+        let listed: std::collections::BTreeMap<&str, &serde_json::Value> = json["checks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|check| (check["id"].as_str().unwrap(), &check["remediation_class"]))
+            .collect();
+
+        assert_eq!(listed.len(), crate::remediation::CLASSIFICATIONS.len());
+        for classification in crate::remediation::CLASSIFICATIONS {
+            let rule = classification.rule();
+            let entry = listed
+                .get(rule)
+                .unwrap_or_else(|| panic!("{rule} is missing from the listing"));
+            match classification {
+                Classification::Remediation(definition) => {
+                    assert_eq!(entry["code"], definition.code, "{rule}");
+                    assert_eq!(entry["lane"], definition.lane.code(), "{rule}");
+                    assert_eq!(entry["change"], definition.change, "{rule}");
+                    assert_eq!(entry["reversible"], definition.reversible, "{rule}");
+                    assert!(entry["none_reason"].is_null(), "{rule}");
+                }
+                Classification::NotRemediable { reason, .. } => {
+                    assert_eq!(entry["none_reason"], *reason, "{rule}");
+                    assert!(entry["code"].is_null(), "{rule}");
+                }
+            }
         }
     }
 

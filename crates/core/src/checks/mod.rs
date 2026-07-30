@@ -25,6 +25,7 @@ mod files;
 mod git;
 mod identity;
 mod licensing;
+mod readme;
 mod release;
 
 use crate::findings::{Evidence, FindingError, Remediation, Status};
@@ -36,6 +37,7 @@ use crate::policy::{Condition, ResolvedPolicy, RuleInstance};
 use crate::registry::{Applicability, Evaluation};
 use crate::snapshot::{FileState, RepoSnapshot};
 use crate::yaml::{self, Yaml};
+use crate::ActionGroup;
 
 pub(crate) struct MergeSetting {
     pub(crate) declared: &'static str,
@@ -43,7 +45,7 @@ pub(crate) struct MergeSetting {
 }
 
 impl MergeSetting {
-    pub(crate) fn live(&self, repository: &Repository) -> bool {
+    pub(crate) fn live(&self, repository: &Repository) -> Option<bool> {
         match self.declared {
             "squash" => repository.allow_squash_merge,
             "rebase" => repository.allow_rebase_merge,
@@ -170,7 +172,7 @@ impl Verdict {
     pub fn from_api_error(error: &ApiError) -> Self {
         let remediation = match error.cause {
             crate::github::ErrorCause::Permission => Some(Remediation::new(
-                "grant_permission",
+                ActionGroup::GRANT_PERMISSION,
                 match &error.accepted_permissions {
                     Some(permissions) => format!(
                         "The credential lacks the permission {permissions} that {} requires.",
@@ -180,7 +182,7 @@ impl Verdict {
                 },
             )),
             crate::github::ErrorCause::PlanLimitation => Some(Remediation::new(
-                "plan_gate",
+                ActionGroup::PLAN_GATE,
                 format!(
                     "{} is gated by the account's GitHub plan, so airlock cannot read it.",
                     error.endpoint
@@ -461,7 +463,9 @@ pub fn evaluate(rule: &RuleInstance, context: &AuditContext) -> Verdict {
             status: Status::Manual,
             evidence: Some(Evidence::new(
                 "judgment_rule",
-                "this rule is a judgment call; airlock reports it for a human",
+                rule.def
+                    .evaluation_reason()
+                    .unwrap_or("this rule is a judgment call; airlock reports it for a human"),
             )),
             remediation: None,
             error: None,
@@ -473,7 +477,7 @@ pub fn evaluate(rule: &RuleInstance, context: &AuditContext) -> Verdict {
                 "this rule is registered but airlock does not evaluate it yet",
             )),
             remediation: Some(Remediation::new(
-                "disable_or_wait",
+                ActionGroup::DISABLE_OR_WAIT,
                 "Remove the rule from the policy or wait for airlock to implement it. An \
                  enabled rule airlock cannot evaluate makes the audit incomplete rather than \
                  quietly narrower.",
@@ -606,6 +610,7 @@ fn run(rule: &RuleInstance, context: &AuditContext) -> Verdict {
     identity::run(id, rule, context)
         .or_else(|| licensing::run(id, rule, context))
         .or_else(|| files::run(id, rule, context))
+        .or_else(|| readme::run(id, rule, context))
         .or_else(|| git::run(id, rule, context))
         .or_else(|| automation::run(id, rule, context))
         .or_else(|| release::run(id, rule, context))
@@ -647,19 +652,25 @@ pub(crate) fn presence(context: &AuditContext, path: &str, subject: &str) -> Ver
             "file_missing",
             path,
             format!("{subject} is absent"),
-            Remediation::new("add_file", format!("Add {path}.")),
+            Remediation::new(ActionGroup::ADD_FILE, format!("Add {path}.")),
         ),
         FileState::Symlink { target } => Verdict::fail_at(
             "file_is_a_symlink",
             path,
             format!("{path} is a symlink to `{target}` rather than a file"),
-            Remediation::new("replace_symlink", format!("Make {path} a regular file.")),
+            Remediation::new(
+                ActionGroup::REPLACE_SYMLINK,
+                format!("Make {path} a regular file."),
+            ),
         ),
         FileState::NotAFile { kind, mode } => Verdict::fail_at(
             "path_is_not_a_file",
             path,
             format!("{path} is a {kind:?} (mode {mode}) rather than a file"),
-            Remediation::new("replace_entry", format!("Make {path} a regular file.")),
+            Remediation::new(
+                ActionGroup::REPLACE_ENTRY,
+                format!("Make {path} a regular file."),
+            ),
         ),
         FileState::OverBudget { size, limit } => Verdict::inconclusive(
             "file_over_budget",
@@ -682,7 +693,7 @@ pub(crate) fn repo_settings(context: &AuditContext) -> Result<Yaml, Box<Verdict>
             ".github/repo-settings.yml",
             "the declared settings file is absent, so nothing is declared",
             Remediation::new(
-                "add_file",
+                ActionGroup::ADD_FILE,
                 "Add .github/repo-settings.yml declaring the repository's metadata.",
             ),
         ))),
@@ -691,7 +702,7 @@ pub(crate) fn repo_settings(context: &AuditContext) -> Result<Yaml, Box<Verdict>
             ".github/repo-settings.yml",
             "the declared settings path is not a regular file",
             Remediation::new(
-                "replace_entry",
+                ActionGroup::REPLACE_ENTRY,
                 "Make .github/repo-settings.yml a regular file.",
             ),
         ))),
@@ -701,6 +712,19 @@ pub(crate) fn repo_settings(context: &AuditContext) -> Result<Yaml, Box<Verdict>
 /// The stable evidence code for a declaration airlock could read but not
 /// understand.
 pub(crate) const MALFORMED_DECLARATION: &str = "malformed_declaration";
+
+/// The stable evidence code for merge settings the credential could not observe.
+pub(crate) const MERGE_SETTINGS_UNAVAILABLE: &str = "merge_settings_unavailable";
+
+pub(crate) fn merge_settings_unavailable(subject: &str) -> Verdict {
+    Verdict::inconclusive(
+        MERGE_SETTINGS_UNAVAILABLE,
+        format!(
+            "{subject} cannot be verified with this credential; run the interactive airlock \
+             session to verify and align it"
+        ),
+    )
+}
 
 /// Collect a sequence of strings, refusing one that is not entirely strings.
 ///
@@ -906,10 +930,10 @@ pub(crate) mod fixtures {
             visibility: "public".to_owned(),
             description: Some("A thing.".to_owned()),
             license_spdx: Some("Apache-2.0".to_owned()),
-            allow_merge_commit: false,
-            allow_squash_merge: true,
-            allow_rebase_merge: true,
-            delete_branch_on_merge: true,
+            allow_merge_commit: Some(false),
+            allow_squash_merge: Some(true),
+            allow_rebase_merge: Some(true),
+            delete_branch_on_merge: Some(true),
             has_wiki: false,
             has_projects: false,
             has_discussions: false,
@@ -1010,12 +1034,12 @@ mod tests {
     }
 
     #[test]
-    fn an_unimplemented_rule_reports_unimplemented() {
+    fn a_manual_schema_validation_rule_reports_manual() {
         let snapshot = snapshot(&[]);
         let policy = policy();
         let context = context(&snapshot, &policy, Vec::new());
         let verdict = evaluate(&rule("REPO-DOCS-05"), &context);
-        assert_eq!(verdict.status, Status::Unimplemented);
+        assert_eq!(verdict.status, Status::Manual);
     }
 
     #[test]

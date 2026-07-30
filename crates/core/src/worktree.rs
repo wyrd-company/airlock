@@ -43,6 +43,12 @@ use crate::github::{EntryKind, Tree, TreeEntry};
 use crate::limits::Limits;
 use crate::snapshot::FileState;
 
+/// Files whose committed contents authorize how an audit is evaluated.
+///
+/// These paths are always read from HEAD, never from the mutable working tree.
+/// Any working-tree author must consume this same set and refuse to write it.
+pub const AUTHORIZATION_BEARING_PATHS: &[&str] = &[".github/airlock.yml"];
+
 /// What airlock observed about a working tree, before any file is read.
 #[derive(Debug, Clone)]
 pub struct WorkingTreeFacts {
@@ -337,6 +343,41 @@ fn tracked_paths(repo: &gix::Repository) -> Vec<String> {
 }
 
 impl WorkingTreeFacts {
+    /// Whether one path differs from its representation at HEAD.
+    ///
+    /// Raw bytes are compared deliberately. Attribute-driven CRLF conversion
+    /// therefore counts as a local modification and the alignment writer
+    /// skips the path instead of normalising it behind the caller's back.
+    #[must_use]
+    pub fn path_modified_from_head(&self, path: &str) -> bool {
+        let on_disk = self.root.join(path);
+        let disk = std::fs::symlink_metadata(&on_disk)
+            .ok()
+            .and_then(|metadata| {
+                if metadata.file_type().is_symlink() {
+                    std::fs::read_link(&on_disk)
+                        .ok()
+                        .map(|target| target.to_string_lossy().as_bytes().to_vec())
+                } else if metadata.file_type().is_file() {
+                    std::fs::read(&on_disk).ok()
+                } else {
+                    None
+                }
+            });
+        let repo = match gix::open(&self.root) {
+            Ok(repo) => repo,
+            Err(_) => return true,
+        };
+        let head = repo
+            .head_commit()
+            .ok()
+            .and_then(|commit| commit.tree().ok())
+            .and_then(|tree| tree.lookup_entry_by_path(path).ok().flatten())
+            .and_then(|entry| entry.object().ok())
+            .map(|object| object.data.to_vec());
+        disk != head
+    }
+
     /// The text of `path` as committed at HEAD, when it exists there.
     ///
     /// This deliberately bypasses the working tree: authorization-bearing

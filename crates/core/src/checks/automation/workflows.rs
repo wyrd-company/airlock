@@ -1,4 +1,5 @@
 use super::*;
+use crate::ActionGroup;
 
 pub(super) fn readable_workflows<'a>(
     context: &'a AuditContext<'_>,
@@ -40,7 +41,10 @@ pub(super) fn ci_on_pull_request(context: &AuditContext) -> Verdict {
         None => Verdict::fail(
             "ci_does_not_trigger_on_pull_request",
             "no workflow triggers on pull_request",
-            Remediation::new("trigger_on_pull_request", "Trigger CI on pull_request."),
+            Remediation::new(
+                ActionGroup::TRIGGER_ON_PULL_REQUEST,
+                "Trigger CI on pull_request.",
+            ),
         ),
     }
 }
@@ -77,7 +81,7 @@ pub(super) fn workflow_permissions_empty(context: &AuditContext) -> Verdict {
             "workflow_permissions_not_empty",
             offenders.join("; "),
             Remediation::new(
-                "default_deny_permissions",
+                ActionGroup::DEFAULT_DENY_PERMISSIONS,
                 "Set `permissions: {}` at workflow level and elevate per job.",
             ),
         )
@@ -111,7 +115,7 @@ pub(super) fn jobs_declare_permissions(context: &AuditContext) -> Verdict {
             "job_without_permissions",
             format!("{} declare no permissions", offenders.join(", ")),
             Remediation::new(
-                "declare_job_permissions",
+                ActionGroup::DECLARE_JOB_PERMISSIONS,
                 "Declare the minimum permissions on every job.",
             ),
         )
@@ -183,7 +187,7 @@ pub(super) fn actions_pinned(context: &AuditContext) -> Verdict {
             "action_not_pinned",
             offenders.join("; "),
             Remediation::new(
-                "pin_action",
+                ActionGroup::PIN_ACTION,
                 "Pin every action to a full commit sha and name the version it came from in a \
                  trailing comment, for example `# v4`.",
             ),
@@ -272,7 +276,7 @@ pub(super) fn no_pull_request_target(context: &AuditContext) -> Verdict {
             "pull_request_target_used",
             format!("{} uses pull_request_target", offenders.join(", ")),
             Remediation::new(
-                "remove_pull_request_target",
+                ActionGroup::REMOVE_PULL_REQUEST_TARGET,
                 "Replace pull_request_target with pull_request. It runs fork code with secrets.",
             ),
         )
@@ -291,7 +295,10 @@ pub(super) fn concurrency_covers_pull_requests(context: &AuditContext) -> Verdic
         return Verdict::fail(
             "no_pull_request_workflow",
             "no workflow triggers on pull_request, so no concurrency group covers pull requests",
-            Remediation::new("trigger_on_pull_request", "Trigger CI on pull_request."),
+            Remediation::new(
+                ActionGroup::TRIGGER_ON_PULL_REQUEST,
+                "Trigger CI on pull_request.",
+            ),
         );
     }
 
@@ -330,7 +337,7 @@ pub(super) fn concurrency_covers_pull_requests(context: &AuditContext) -> Verdic
             "concurrency_missing",
             offenders.join("; "),
             Remediation::new(
-                "add_concurrency",
+                ActionGroup::ADD_CONCURRENCY,
                 "Add a concurrency group with cancel-in-progress covering pull requests.",
             ),
         )
@@ -380,7 +387,7 @@ pub(super) fn jobs_invoke_tasks(context: &AuditContext) -> Verdict {
             "job_runs_raw_command",
             offenders.join("; "),
             Remediation::new(
-                "wrap_in_task",
+                ActionGroup::WRAP_IN_TASK,
                 "Move the command into taskfile.yml and invoke the task, so local and CI cannot \
                  drift apart.",
             ),
@@ -400,7 +407,7 @@ pub(super) fn pull_request_title_check(context: &AuditContext) -> Verdict {
             "no_title_check",
             "no workflow reads the pull request title to validate its format",
             Remediation::new(
-                "add_title_check",
+                ActionGroup::ADD_TITLE_CHECK,
                 "Add a job that validates the pull request title format, and require it in the \
                  ruleset.",
             ),
@@ -419,14 +426,14 @@ pub(super) fn pull_request_title_check(context: &AuditContext) -> Verdict {
     )
 }
 
-pub(super) fn reconcile_token_is_scoped(context: &AuditContext) -> Verdict {
-    let Some(workflow) = context.workflow("reconcile-settings.yml") else {
+pub(super) fn audit_uses_airlock_token(context: &AuditContext) -> Verdict {
+    let Some(workflow) = context.workflow("audit.yml") else {
         return Verdict::fail(
-            "no_reconcile_workflow",
-            "there is no .github/workflows/reconcile-settings.yml to inspect",
+            "no_audit_workflow",
+            "there is no .github/workflows/audit.yml to inspect",
             Remediation::new(
-                "add_reconcile_workflow",
-                "Add the reconcile workflow that applies .github/repo-settings.yml.",
+                ActionGroup::ADD_AUDIT_WORKFLOW,
+                "Add the standard scheduled, on-demand audit workflow.",
             ),
         );
     };
@@ -438,69 +445,84 @@ pub(super) fn reconcile_token_is_scoped(context: &AuditContext) -> Verdict {
         );
     };
 
-    let minting_steps: Vec<&Yaml> = document
+    let steps: Vec<&Yaml> = document
         .get("jobs")
         .and_then(Yaml::as_map)
         .map(|jobs| {
             jobs.iter()
                 .filter_map(|(_, job)| job.get("steps").and_then(Yaml::as_seq))
                 .flatten()
-                .filter(|step| {
-                    step.get("uses")
-                        .and_then(Yaml::as_str)
-                        .is_some_and(|uses| uses.contains("create-github-app-token"))
-                })
                 .collect()
         })
         .unwrap_or_default();
+    let has_local_action = steps.iter().any(|step| {
+        step.get("uses")
+            .and_then(Yaml::as_str)
+            .is_some_and(|uses| uses == "./")
+    });
+    let local_action_is_airlock = if has_local_action {
+        match context.yaml("action.yml") {
+            ParsedFile::Parsed(action) => {
+                action.get("name").and_then(Yaml::as_str) == Some("Airlock audit")
+            }
+            ParsedFile::Missing | ParsedFile::NotAFile(_) => false,
+            ParsedFile::Undecided(verdict) => return *verdict,
+        }
+    } else {
+        false
+    };
+    let audit_steps: Vec<&Yaml> = steps
+        .into_iter()
+        .filter(|step| {
+            step.get("uses").and_then(Yaml::as_str).is_some_and(|uses| {
+                (uses == "./" && local_action_is_airlock) || is_remote_airlock_action(uses)
+            })
+        })
+        .collect();
 
-    if minting_steps.is_empty() {
+    if audit_steps.is_empty() {
         return Verdict::fail(
-            "no_token_minting_step",
-            format!("{} mints no scoped app token", workflow.path),
+            "local_audit_action_missing",
+            format!("{} does not invoke the Airlock audit action", workflow.path),
             Remediation::new(
-                "mint_scoped_token",
-                "Mint the token with `repositories:` naming this repository only.",
+                ActionGroup::SUPPLY_AIRLOCK_TOKEN,
+                "Invoke the local audit action and supply `secrets.AIRLOCK_TOKEN`.",
             ),
         );
     }
 
-    let unscoped: Vec<usize> = minting_steps
-        .iter()
-        .enumerate()
-        .filter(|(_, step)| {
-            step.get("with")
-                .and_then(|with| with.get("repositories"))
-                .is_none()
-        })
-        .map(|(index, _)| index + 1)
-        .collect();
+    let has_airlock_token = audit_steps.iter().any(|step| {
+        step.get("env")
+            .and_then(|env| env.get("AIRLOCK_TOKEN"))
+            .and_then(Yaml::as_str)
+            .is_some_and(|value| value.contains("secrets.AIRLOCK_TOKEN"))
+    });
 
-    if unscoped.is_empty() {
+    if has_airlock_token {
         Verdict::pass_at(
-            "reconcile_token_scoped",
+            "audit_uses_airlock_token",
             &workflow.path,
-            "the token-minting step names the repositories the token may reach",
+            "the local audit action receives secrets.AIRLOCK_TOKEN as AIRLOCK_TOKEN",
         )
     } else {
         Verdict::fail_at(
-            "reconcile_token_unscoped",
+            "audit_token_missing",
             &workflow.path,
-            format!(
-                "token-minting step {} sets no `repositories:`",
-                unscoped
-                    .iter()
-                    .map(ToString::to_string)
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
+            "the local audit action does not receive secrets.AIRLOCK_TOKEN as AIRLOCK_TOKEN",
             Remediation::new(
-                "scope_token",
-                "Set `repositories:` on the token-minting step so the token reaches one \
-                 repository.",
+                ActionGroup::SUPPLY_AIRLOCK_TOKEN,
+                "Set the action step's `AIRLOCK_TOKEN` environment variable to \
+                 `${{ secrets.AIRLOCK_TOKEN }}`.",
             ),
         )
     }
+}
+
+fn is_remote_airlock_action(uses: &str) -> bool {
+    let Some((repository, reference)) = uses.rsplit_once('@') else {
+        return false;
+    };
+    !reference.is_empty() && repository.eq_ignore_ascii_case("wyrd-company/airlock")
 }
 
 #[cfg(test)]
@@ -715,35 +737,158 @@ jobs:
     }
 
     #[test]
-    fn the_reconcile_token_must_be_scoped() {
-        let scoped = "\
-on:
-  push:
-    branches: [main]
+    fn the_local_audit_action_must_receive_airlock_token() {
+        let configured = "\
+on: workflow_dispatch
 permissions: {}
 jobs:
-  reconcile:
+  audit:
     permissions:
       contents: read
     steps:
-      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
-        with:
-          repositories: name
+      - uses: ./
+        env:
+          AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}
 ";
         assert_eq!(
             verdict(
                 "REPO-CI-09",
-                &[(".github/workflows/reconcile-settings.yml", scoped)]
+                &[
+                    (".github/workflows/audit.yml", configured),
+                    (
+                        "action.yml",
+                        "name: Airlock audit\nruns:\n  using: composite\n"
+                    ),
+                ]
             ),
             Status::Pass
         );
-        let unscoped = scoped.replace("          repositories: name\n", "");
+        let unconfigured = configured.replace(
+            "        env:\n          AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}\n",
+            "",
+        );
         assert_eq!(
             verdict(
                 "REPO-CI-09",
-                &[(".github/workflows/reconcile-settings.yml", &unscoped)]
+                &[(".github/workflows/audit.yml", &unconfigured)]
             ),
             Status::Fail
+        );
+    }
+
+    #[test]
+    fn a_remote_airlock_action_must_receive_airlock_token() {
+        let configured = "\
+on: workflow_dispatch
+permissions: {}
+jobs:
+  audit:
+    permissions:
+      contents: read
+    steps:
+      - uses: wyrd-company/airlock@0123456789abcdef0123456789abcdef01234567
+        env:
+          AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}
+";
+        assert_eq!(
+            verdict("REPO-CI-09", &[(".github/workflows/audit.yml", configured)]),
+            Status::Pass
+        );
+    }
+
+    #[test]
+    fn checkout_with_airlock_token_is_not_the_airlock_action() {
+        let workflow = "\
+on: workflow_dispatch
+permissions: {}
+jobs:
+  audit:
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        env:
+          AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}
+";
+        assert_eq!(
+            verdict("REPO-CI-09", &[(".github/workflows/audit.yml", workflow)]),
+            Status::Fail
+        );
+    }
+
+    #[test]
+    fn an_unrelated_local_action_is_not_the_airlock_action() {
+        let workflow = "\
+on: workflow_dispatch
+permissions: {}
+jobs:
+  audit:
+    permissions:
+      contents: read
+    steps:
+      - uses: ./
+        env:
+          AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}
+";
+        assert_eq!(
+            verdict(
+                "REPO-CI-09",
+                &[
+                    (".github/workflows/audit.yml", workflow),
+                    ("action.yml", "name: Deploy\nruns:\n  using: composite\n"),
+                ]
+            ),
+            Status::Fail
+        );
+    }
+
+    #[test]
+    fn a_truncated_tree_cannot_disprove_the_local_airlock_action() {
+        let workflow = "\
+on: workflow_dispatch
+permissions: {}
+jobs:
+  audit:
+    permissions:
+      contents: read
+    steps:
+      - uses: ./
+        env:
+          AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}
+";
+        let mut snapshot = snapshot(&[(".github/workflows/audit.yml", workflow)]);
+        snapshot.tree.truncated = true;
+        let workflows = workflows(&snapshot);
+        let policy = policy();
+        let context = context(&snapshot, &policy, workflows);
+        let verdict = evaluate(&rule("REPO-CI-09"), &context);
+        assert_eq!(verdict.status, Status::Inconclusive);
+        assert_eq!(verdict.evidence.unwrap().code, "tree_truncated");
+    }
+
+    #[test]
+    fn an_unparseable_local_action_is_inconclusive() {
+        let workflow = "\
+on: workflow_dispatch
+permissions: {}
+jobs:
+  audit:
+    permissions:
+      contents: read
+    steps:
+      - uses: ./
+        env:
+          AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}
+";
+        assert_eq!(
+            verdict(
+                "REPO-CI-09",
+                &[
+                    (".github/workflows/audit.yml", workflow),
+                    ("action.yml", "name: one\nname: two\n"),
+                ]
+            ),
+            Status::Inconclusive
         );
     }
 

@@ -146,14 +146,14 @@ pub struct Repository {
     pub description: Option<String>,
     /// SPDX identifier of the detected license, if any.
     pub license_spdx: Option<String>,
-    /// Whether merge commits are allowed.
-    pub allow_merge_commit: bool,
-    /// Whether squash merges are allowed.
-    pub allow_squash_merge: bool,
-    /// Whether rebase merges are allowed.
-    pub allow_rebase_merge: bool,
-    /// Whether head branches are deleted on merge.
-    pub delete_branch_on_merge: bool,
+    /// Whether merge commits are allowed, when disclosed to the credential.
+    pub allow_merge_commit: Option<bool>,
+    /// Whether squash merges are allowed, when disclosed to the credential.
+    pub allow_squash_merge: Option<bool>,
+    /// Whether rebase merges are allowed, when disclosed to the credential.
+    pub allow_rebase_merge: Option<bool>,
+    /// Whether head branches are deleted on merge, when disclosed to the credential.
+    pub delete_branch_on_merge: Option<bool>,
     /// Whether the wiki is enabled.
     pub has_wiki: bool,
     /// Whether projects are enabled.
@@ -337,6 +337,16 @@ pub struct BranchRule {
     pub parameters: serde_json::Value,
 }
 
+/// An open pull request reduced to the delivery context alignment needs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PullRequest {
+    pub number: u64,
+    pub url: String,
+    pub head_branch: String,
+    pub base_branch: String,
+    pub draft: bool,
+}
+
 /// The read-only GitHub surface airlock needs.
 ///
 /// Every method is a read. There is deliberately no write anywhere in the
@@ -382,6 +392,24 @@ pub trait GitHub {
         repo: &str,
         branch: &str,
     ) -> ApiResult<Paged<BranchRule>>;
+
+    /// List open pull requests from one branch into the default branch.
+    async fn open_pull_requests(
+        &self,
+        owner: &str,
+        repo: &str,
+        head_branch: &str,
+        base_branch: &str,
+    ) -> ApiResult<Vec<PullRequest>> {
+        Err(ApiError::local(
+            ErrorCause::Transport,
+            "GET /repos/{owner}/{repo}/pulls",
+            format!(
+                "this GitHub client does not implement pull-request observation for \
+                 {owner}/{repo}:{head_branch}->{base_branch}"
+            ),
+        ))
+    }
 
     /// List every installation the credential can see, across every page.
     async fn user_installations(&self) -> ApiResult<Vec<Installation>>;

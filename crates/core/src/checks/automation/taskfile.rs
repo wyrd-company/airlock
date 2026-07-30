@@ -1,4 +1,5 @@
 use super::*;
+use crate::ActionGroup;
 
 pub(super) fn parse_taskfile(context: &AuditContext) -> Result<Yaml, Box<Verdict>> {
     match context.yaml("taskfile.yml") {
@@ -8,7 +9,10 @@ pub(super) fn parse_taskfile(context: &AuditContext) -> Result<Yaml, Box<Verdict
             "file_missing",
             "taskfile.yml",
             "there is no taskfile.yml to read tasks from",
-            Remediation::new("add_taskfile", "Add a taskfile.yml at the repository root."),
+            Remediation::new(
+                ActionGroup::ADD_TASKFILE,
+                "Add a taskfile.yml at the repository root.",
+            ),
         ))),
     }
 }
@@ -44,7 +48,7 @@ pub(super) fn required_tasks(context: &AuditContext) -> Verdict {
                     .join(", ")
             ),
             Remediation::new(
-                "define_tasks",
+                ActionGroup::DEFINE_TASKS,
                 "Define test, lint, format, and check in taskfile.yml.",
             ),
         )
@@ -91,7 +95,7 @@ pub(super) fn per_unit_taskfiles(context: &AuditContext) -> Verdict {
             "per_unit_taskfile_missing",
             format!("{} absent", missing.join(", ")),
             Remediation::new(
-                "add_unit_taskfile",
+                ActionGroup::ADD_UNIT_TASKFILE,
                 "Add a taskfile.yml at each release unit's declared path.",
             ),
         )
@@ -141,7 +145,10 @@ pub(super) fn includes_set_dir(context: &AuditContext) -> Verdict {
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
-            Remediation::new("set_include_dir", "Set `dir:` on every taskfile include."),
+            Remediation::new(
+                ActionGroup::SET_INCLUDE_DIR,
+                "Set `dir:` on every taskfile include.",
+            ),
         )
     }
 }
@@ -190,7 +197,7 @@ pub(super) fn include_namespaces(context: &AuditContext) -> Verdict {
                     .join(", ")
             ),
             Remediation::new(
-                "align_include_namespaces",
+                ActionGroup::ALIGN_INCLUDE_NAMESPACES,
                 "Name each include after the release unit id it covers.",
             ),
         )

@@ -1,0 +1,64 @@
+name: Airlock audit
+description: Audit a GitHub repository with a credential Airlock proves is read-only
+
+inputs:
+  repository:
+    description: Repository to audit as owner/repo; defaults to the current repository
+    required: false
+    default: ""
+  policy:
+    description: Policy source as owner/repo:path[@ref] or a checked-out local path
+    required: false
+    default: ""
+  ref:
+    description: Commit, branch, or tag to audit; defaults to the repository's default branch
+    required: false
+    default: ""
+  format:
+    description: Findings format, either json or text
+    required: false
+    default: json
+  fail-on-incomplete:
+    description: Whether an incomplete audit (exit 2) fails the Action
+    required: false
+    default: "true"
+
+outputs:
+  outcome:
+    description: Audit outcome (conformant, nonconformant, or incomplete)
+    value: ${{ steps.audit.outputs.outcome }}
+  complete:
+    description: Whether every gate-relevant rule was decided
+    value: ${{ steps.audit.outputs.complete }}
+  findings-location:
+    description: Absolute path to the findings document on the runner
+    value: ${{ steps.audit.outputs.findings-location }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install the Rust toolchain
+      uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+      with:
+        toolchain: stable
+    - name: Cache the Airlock build
+      uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      with:
+        workspaces: ${{ github.action_path }} -> target
+    - name: Build Airlock
+      shell: bash
+      run: >-
+        cargo build --release --locked
+        --manifest-path "$GITHUB_ACTION_PATH/Cargo.toml"
+        --target-dir "$GITHUB_ACTION_PATH/target"
+    - name: Audit repository
+      id: audit
+      shell: bash
+      env:
+        INPUT_REPOSITORY: ${{ inputs.repository }}
+        INPUT_POLICY: ${{ inputs.policy }}
+        INPUT_REF: ${{ inputs.ref }}
+        INPUT_FORMAT: ${{ inputs.format }}
+        INPUT_FAIL_ON_INCOMPLETE: ${{ inputs.fail-on-incomplete }}
+        AIRLOCK_BIN: ${{ github.action_path }}/target/release/airlock
+      run: "$GITHUB_ACTION_PATH/scripts/run-action.sh"

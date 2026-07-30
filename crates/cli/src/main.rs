@@ -1,9 +1,8 @@
 //! The `airlock` binary.
 //!
-//! Everything here is read-only. The binary resolves a credential, proves it
-//! carries no write permission, resolves a policy to immutable identities, and
-//! runs the audit. It never mutates a repository, and it never writes anything
-//! outside its own config file.
+//! Every GitHub surface here is read-only. The file-alignment command may
+//! author deterministic content in a caller-supplied working tree, but it
+//! never performs a git operation or holds a write credential.
 
 mod config;
 mod credential;
@@ -15,12 +14,13 @@ use std::process::ExitCode;
 
 use airlock_core::audit::{self, AuditOptions};
 use airlock_core::auth::{self, VerifiedGrant, AIRLOCK_SAFE_CLIENT_ID};
-use airlock_core::github::{RestClient, RestClientConfig};
+use airlock_core::github::{GitHub, RestClient, RestClientConfig};
 use airlock_core::limits::Limits;
 use airlock_core::policy::{self, PolicySource};
 use airlock_core::render;
 use anyhow::{bail, Context as _, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
+use serde::Serialize;
 
 use crate::config::DEFAULT_PROFILE;
 use crate::credential::{CredentialInputs, CredentialSelection};
@@ -55,8 +55,81 @@ struct Cli {
 enum Command {
     /// Audit a repository against a policy.
     Audit(AuditArgs),
+    /// List outstanding agent-lane work and check whether that lane is clear.
+    AgentWork(AgentWorkArgs),
+    /// Print what airlock would change, without changing anything.
+    ///
+    /// A display, not a work order. It observes the repository with the same
+    /// read-only credential the audit uses, and prints the change each open
+    /// gap calls for. Nothing reads its output back: aligning re-observes
+    /// every rule before it acts, so there is no stored plan to apply.
+    Plan(PlanArgs),
+    /// Author deterministic file remediations in a local working tree.
+    AlignFiles(AlignFilesArgs),
     /// Manage the read-only credential airlock uses.
     Auth(AuthArgs),
+    /// Write the embedded repository-standards skill to a directory.
+    Skill(SkillArgs),
+}
+
+#[derive(Debug, Args)]
+struct SkillArgs {
+    /// Directory to create.
+    #[arg(default_value = "repository-standards")]
+    target: PathBuf,
+
+    /// Replace an existing target directory and all of its contents.
+    #[arg(long)]
+    force: bool,
+}
+
+#[derive(Debug, Args)]
+struct AlignFilesArgs {
+    /// Repository to use for read-only platform context.
+    target: Option<String>,
+
+    /// Local working tree to align.
+    #[arg(long, required = true)]
+    working_tree: PathBuf,
+
+    /// Policy source. A local-only run requires a local policy.
+    #[arg(long)]
+    policy: Option<String>,
+
+    /// Output format. Defaults to text on a terminal and JSON otherwise.
+    #[arg(long, value_enum)]
+    format: Option<Format>,
+
+    /// Read-only token value.
+    #[arg(long, conflicts_with_all = ["token_file", "token_stdin"])]
+    token: Option<String>,
+
+    /// Read the read-only token from a file.
+    #[arg(long, conflicts_with_all = ["token", "token_stdin"])]
+    token_file: Option<PathBuf>,
+
+    /// Read the read-only token from standard input.
+    #[arg(long, conflicts_with_all = ["token", "token_file"])]
+    token_stdin: bool,
+
+    /// Configuration profile to use.
+    #[arg(long, default_value = DEFAULT_PROFILE)]
+    profile: String,
+}
+
+impl AlignFilesArgs {
+    fn repository(&self) -> RepositoryArgs {
+        RepositoryArgs {
+            policy: self.policy.clone(),
+            reference: None,
+            working_tree: Some(self.working_tree.clone()),
+            format: self.format,
+            token: self.token.clone(),
+            token_file: self.token_file.clone(),
+            token_stdin: self.token_stdin,
+            profile: self.profile.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Args)]
@@ -65,6 +138,94 @@ struct AuditArgs {
     #[arg(required_unless_present_any = ["list_checks", "working_tree"])]
     target: Option<String>,
 
+    #[command(flatten)]
+    repository: RepositoryArgs,
+
+    /// Print the check registry and exit, without auditing anything.
+    #[arg(long)]
+    list_checks: bool,
+}
+
+#[derive(Debug, Args)]
+struct AgentWorkArgs {
+    /// Repository to inspect, as `owner/repo`.
+    #[arg(required_unless_present = "working_tree")]
+    target: Option<String>,
+
+    #[command(flatten)]
+    repository: RepositoryArgs,
+}
+
+/// Arguments for `airlock plan`.
+///
+/// Deliberately [`RepositoryArgs`] minus `--format`, which is why it does not
+/// simply flatten it. The plan renders for a person to read and has no machine
+/// form: a JSON plan would invite a pipeline to consume it, and a consumed
+/// plan is a remembered observation. Machine consumers read the audit's
+/// findings document, or `airlock agent-work` for the agent lane — both carry
+/// the same `remediation_class` a plan is derived from.
+#[derive(Debug, Args)]
+struct PlanArgs {
+    /// Repository to plan for, as `owner/repo`.
+    #[arg(required_unless_present = "working_tree")]
+    target: Option<String>,
+
+    /// Policy source: `owner/repo:path[@ref]` or a local file path.
+    ///
+    /// Defaults to the audited owner's `.github` repository.
+    #[arg(long)]
+    policy: Option<String>,
+
+    /// Plan against a specific commit, branch, or tag.
+    #[arg(long = "ref", conflicts_with = "working_tree")]
+    reference: Option<String>,
+
+    /// Observe file-level rules from a local working tree instead of the
+    /// API tree.
+    #[arg(long)]
+    working_tree: Option<PathBuf>,
+
+    /// Read-only token value. Insecure: it appears in shell history and in
+    /// process listings. Prefer --token-file or --token-stdin.
+    #[arg(long, conflicts_with_all = ["token_file", "token_stdin"])]
+    token: Option<String>,
+
+    /// Read the token from a file.
+    #[arg(long, conflicts_with_all = ["token", "token_stdin"])]
+    token_file: Option<PathBuf>,
+
+    /// Read the token from standard input.
+    #[arg(long, conflicts_with_all = ["token", "token_file"])]
+    token_stdin: bool,
+
+    /// Configuration profile to use.
+    #[arg(long, default_value = DEFAULT_PROFILE)]
+    profile: String,
+}
+
+impl PlanArgs {
+    /// The observation these arguments ask for.
+    ///
+    /// The plan reaches its report through the same single path every other
+    /// read-only surface uses, which is what keeps "no headless surface can
+    /// write" a property of the binary rather than a convention.
+    fn repository(self) -> RepositoryArgs {
+        RepositoryArgs {
+            policy: self.policy,
+            reference: self.reference,
+            working_tree: self.working_tree,
+            // A plan has no machine form; see the type's documentation.
+            format: None,
+            token: self.token,
+            token_file: self.token_file,
+            token_stdin: self.token_stdin,
+            profile: self.profile,
+        }
+    }
+}
+
+#[derive(Debug, Args)]
+struct RepositoryArgs {
     /// Policy source: `owner/repo:path[@ref]` or a local file path.
     ///
     /// Defaults to the audited owner's `.github` repository.
@@ -102,10 +263,6 @@ struct AuditArgs {
     /// Configuration profile to use.
     #[arg(long, default_value = DEFAULT_PROFILE)]
     profile: String,
-
-    /// Print the check registry and exit, without auditing anything.
-    #[arg(long)]
-    list_checks: bool,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -220,6 +377,9 @@ async fn run(cli: Cli, interactive: bool) -> Result<u8> {
 
     match command {
         Command::Audit(args) => audit_command(args, interactive).await,
+        Command::AgentWork(args) => agent_work_command(args, interactive).await,
+        Command::Plan(args) => plan_command(args).await,
+        Command::AlignFiles(args) => align_files_command(args, interactive).await,
         Command::Auth(AuthArgs {
             command: AuthCommand::Login(args),
         }) => login_command(&args).await,
@@ -229,6 +389,224 @@ async fn run(cli: Cli, interactive: bool) -> Result<u8> {
         Command::Auth(AuthArgs {
             command: AuthCommand::Token(args),
         }) => token_command(&args).await,
+        Command::Skill(args) => skill_command(&args),
+    }
+}
+
+fn skill_command(args: &SkillArgs) -> Result<u8> {
+    airlock_core::skill::emit(&args.target, args.force)
+        .with_context(|| format!("cannot write skill to {}", args.target.display()))?;
+    println!(
+        "Wrote repository-standards skill from registry {} ({}) to {}.\n\
+         Cite every rule by id and statement together; a rule id alone is not meaningful.",
+        airlock_core::registry::REGISTRY_VERSION,
+        airlock_core::registry::digest(),
+        args.target.display()
+    );
+    Ok(0)
+}
+
+#[derive(Debug, Serialize)]
+struct ReobservedFinding {
+    rule: String,
+    status: String,
+    source: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct PullRequestContext {
+    state: String,
+    branch: String,
+    detail: String,
+    url: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct AlignFilesOutput {
+    schema_version: u32,
+    operations: airlock_core::alignment::AuthorReport,
+    reobserved: Option<Vec<ReobservedFinding>>,
+    pull_request: PullRequestContext,
+    default_branch_observation: String,
+}
+
+async fn align_files_command(args: AlignFilesArgs, interactive: bool) -> Result<u8> {
+    let format = resolved_format(args.format, interactive);
+    let repository = args.repository();
+    let observed = repository_report_with_client(args.target.as_deref(), &repository).await?;
+    let pull_request = observe_pull_request(
+        args.target.as_deref(),
+        observed.report.repository.default_branch.as_str(),
+        observed.client.as_ref(),
+    )
+    .await;
+    let authored = match airlock_core::alignment::author(&args.working_tree, &observed.report) {
+        Ok(report) => report,
+        Err(airlock_core::Error::Alignment { message, report }) => {
+            let operations = serde_json::from_str(&report)
+                .context("cannot recover the file-alignment failure report")?;
+            let output = AlignFilesOutput {
+                schema_version: 1,
+                operations,
+                reobserved: None,
+                pull_request,
+                default_branch_observation: format!(
+                    "The default-branch observation for `{}` stays open until the pull request \
+                     merges.",
+                    observed.report.repository.default_branch
+                ),
+            };
+            match format {
+                Format::Json => println!(
+                    "{}",
+                    serde_json::to_string_pretty(&output)
+                        .context("cannot render the file-alignment failure document")?
+                ),
+                Format::Text => {
+                    eprintln!("{message}");
+                    render_alignment_text(&output);
+                }
+            }
+            return Ok(EXIT_OPERATIONAL);
+        }
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("cannot align {}", args.working_tree.display()));
+        }
+    };
+    let after = repository_report(args.target.as_deref(), &repository).await?;
+
+    let affected: std::collections::BTreeSet<_> = authored
+        .operations
+        .iter()
+        .map(|operation| operation.rule.as_str())
+        .collect();
+    let reobserved = after
+        .findings
+        .iter()
+        .filter(|finding| affected.contains(finding.rule.as_str()))
+        .map(|finding| ReobservedFinding {
+            rule: finding.rule.clone(),
+            status: finding.status.code().to_owned(),
+            source: finding.source.clone(),
+        })
+        .collect();
+    let output = AlignFilesOutput {
+        schema_version: 1,
+        operations: authored,
+        reobserved: Some(reobserved),
+        pull_request,
+        default_branch_observation: format!(
+            "The default-branch observation for `{}` stays open until the pull request merges.",
+            after.repository.default_branch
+        ),
+    };
+
+    match format {
+        Format::Json => println!(
+            "{}",
+            serde_json::to_string_pretty(&output)
+                .context("cannot render the file-alignment document")?
+        ),
+        Format::Text => render_alignment_text(&output),
+    }
+    Ok(0)
+}
+
+fn render_alignment_text(output: &AlignFilesOutput) {
+    println!(
+        "working tree: {} (dirty before: {}, dirty after: {})",
+        output.operations.working_tree,
+        dirty_label(output.operations.dirty_before),
+        dirty_label(output.operations.dirty_after)
+    );
+    for operation in &output.operations.operations {
+        println!(
+            "{} {} [{} / {}]{}",
+            operation.outcome,
+            operation.path,
+            operation.rule,
+            operation.remediation_code,
+            operation
+                .reason
+                .as_ref()
+                .map(|reason| format!(": {reason}"))
+                .unwrap_or_default()
+        );
+    }
+    if let Some(findings) = &output.reobserved {
+        for finding in findings {
+            println!(
+                "re-observed {}: {} ({})",
+                finding.rule,
+                finding.status,
+                finding.source.as_deref().unwrap_or("not-observed")
+            );
+        }
+    } else {
+        println!("re-observation: not run because authoring stopped after a path failure");
+    }
+    println!(
+        "pull request: {} on `{}` — {}",
+        output.pull_request.state, output.pull_request.branch, output.pull_request.detail
+    );
+    println!("{}", output.default_branch_observation);
+    if !output.operations.judgment_findings.is_empty() {
+        println!(
+            "judgment lane: {} finding(s); emit the repository-standards skill and hand them to an agent.",
+            output.operations.judgment_findings.len()
+        );
+    }
+}
+
+async fn observe_pull_request(
+    target: Option<&str>,
+    base: &str,
+    client: Option<&RestClient>,
+) -> PullRequestContext {
+    const BRANCH: &str = "airlock/align";
+    let unknown = |detail: String| PullRequestContext {
+        state: "unknown".to_owned(),
+        branch: BRANCH.to_owned(),
+        detail,
+        url: None,
+    };
+    let Some(target) = target else {
+        return unknown("no API repository target or credential was supplied".to_owned());
+    };
+    let Ok((owner, repo)) = split_target(target) else {
+        return unknown("the repository target is invalid".to_owned());
+    };
+    let Some(client) = client else {
+        return unknown("the verified read-only GitHub client is unavailable".to_owned());
+    };
+    match client.open_pull_requests(owner, repo, BRANCH, base).await {
+        Ok(pulls) if pulls.is_empty() => PullRequestContext {
+            state: "none".to_owned(),
+            branch: BRANCH.to_owned(),
+            detail: format!("no open pull request targets `{base}` from the well-known branch"),
+            url: None,
+        },
+        Ok(pulls) => PullRequestContext {
+            state: "open".to_owned(),
+            branch: BRANCH.to_owned(),
+            detail: format!(
+                "pull request #{} already targets `{base}`; the caller should not open a duplicate",
+                pulls[0].number
+            ),
+            url: Some(pulls[0].url.clone()),
+        },
+        Err(error) => unknown(format!(
+            "read-only pull-request observation failed: {error}"
+        )),
+    }
+}
+
+fn dirty_label(value: Option<bool>) -> &'static str {
+    match value {
+        Some(true) => "yes",
+        Some(false) => "no",
+        None => "unknown",
     }
 }
 
@@ -260,7 +638,7 @@ fn resolved_format(requested: Option<Format>, interactive: bool) -> Format {
 }
 
 async fn audit_command(args: AuditArgs, interactive: bool) -> Result<u8> {
-    let format = resolved_format(args.format, interactive);
+    let format = resolved_format(args.repository.format, interactive);
 
     if args.list_checks {
         match format {
@@ -274,21 +652,87 @@ async fn audit_command(args: AuditArgs, interactive: bool) -> Result<u8> {
         return Ok(0);
     }
 
-    // A working tree with no repository target is a local-only audit: no
-    // credential, no API, platform rules reported as not observed.
-    if args.target.is_none() {
-        let Some(root) = args.working_tree.clone() else {
-            bail!("a repository is required. Name one as `airlock audit <owner/repo>`.");
-        };
-        return local_audit_command(&args, &root, format).await;
+    let report = repository_report(args.target.as_deref(), &args.repository).await?;
+    render_report(&report, format)?;
+    Ok(report.exit_code())
+}
+
+async fn agent_work_command(args: AgentWorkArgs, interactive: bool) -> Result<u8> {
+    let format = resolved_format(args.repository.format, interactive);
+    let report = repository_report(args.target.as_deref(), &args.repository).await?;
+    let list = airlock_core::worklist::AgentWorkList::from_report(&report);
+
+    match format {
+        Format::Text => print!("{}", render::agent_work_list_text(&list)),
+        Format::Json => println!(
+            "{}",
+            serde_json::to_string_pretty(&list)
+                .context("cannot render the agent work-list document")?
+        ),
     }
 
-    // clap requires a target or a working tree, and both absent returned
-    // above. There is no invocation that reaches here without a target.
-    let Some(target) = args.target.clone() else {
-        bail!("a repository is required. Name one as `airlock audit <owner/repo>`.");
+    Ok(list.exit_code())
+}
+
+/// `airlock plan`: the same observation, rendered as the changes it implies.
+///
+/// It exits 0 whenever it could observe and render at all. The plan is a
+/// display, not a gate: `airlock audit` is the surface whose exit code carries
+/// the verdict, and a second gate answering the same question slightly
+/// differently is worse than no second gate.
+async fn plan_command(args: PlanArgs) -> Result<u8> {
+    let target = args.target.clone();
+    let report = repository_report(target.as_deref(), &args.repository()).await?;
+
+    print!("{}", render::plan_text(&report));
+    Ok(0)
+}
+
+fn render_report(report: &airlock_core::findings::Report, format: Format) -> Result<()> {
+    match format {
+        Format::Text => print!("{}", render::report_text(report)),
+        Format::Json => println!(
+            "{}",
+            serde_json::to_string_pretty(report).context("cannot render the findings document")?
+        ),
+    }
+    Ok(())
+}
+
+async fn repository_report(
+    target: Option<&str>,
+    args: &RepositoryArgs,
+) -> Result<airlock_core::findings::Report> {
+    Ok(repository_report_with_client(target, args).await?.report)
+}
+
+struct RepositoryObservation {
+    report: airlock_core::findings::Report,
+    client: Option<RestClient>,
+}
+
+async fn repository_report_with_client(
+    target: Option<&str>,
+    args: &RepositoryArgs,
+) -> Result<RepositoryObservation> {
+    // A working tree with no repository target is a local-only audit: no
+    // credential, no API, platform rules reported as not observed.
+    if target.is_none() {
+        let Some(root) = &args.working_tree else {
+            bail!("a repository or working tree is required.");
+        };
+        return Ok(RepositoryObservation {
+            report: local_audit(args, root).await?,
+            client: None,
+        });
+    }
+
+    // Both absent returned above. There is no invocation that reaches here
+    // without a target.
+    let Some(target) = target else {
+        bail!("a repository is required.");
     };
-    let (owner, repo) = split_target(&target)?;
+    let (owner, repo) = split_target(target)?;
 
     let inputs = CredentialInputs {
         token: args.token.clone(),
@@ -332,22 +776,16 @@ async fn audit_command(args: AuditArgs, interactive: bool) -> Result<u8> {
     let report = audit::run(&client, owner, repo, &policy, &options, Some(&grant))
         .await
         .with_context(|| format!("cannot audit {owner}/{repo}"))?;
-
-    match format {
-        Format::Text => print!("{}", render::report_text(&report)),
-        Format::Json => println!(
-            "{}",
-            serde_json::to_string_pretty(&report).context("cannot render the findings document")?
-        ),
-    }
-
-    Ok(report.exit_code())
+    Ok(RepositoryObservation {
+        report,
+        client: Some(client),
+    })
 }
 
 /// A local-only audit: file rules from the working tree, platform rules not
 /// observed. No credential is resolved and no request is made; the policy
 /// must therefore be a local file with no remote references.
-async fn local_audit_command(args: &AuditArgs, root: &Path, format: Format) -> Result<u8> {
+async fn local_audit(args: &RepositoryArgs, root: &Path) -> Result<airlock_core::findings::Report> {
     let Some(policy_arg) = &args.policy else {
         bail!(
             "a local-only audit has no credential to fetch a policy with. Name a local policy \
@@ -377,16 +815,7 @@ async fn local_audit_command(args: &AuditArgs, root: &Path, format: Format) -> R
     };
     let report = audit::run_local(&policy, &options, root)
         .with_context(|| format!("cannot audit the working tree at {}", root.display()))?;
-
-    match format {
-        Format::Text => print!("{}", render::report_text(&report)),
-        Format::Json => println!(
-            "{}",
-            serde_json::to_string_pretty(&report).context("cannot render the findings document")?
-        ),
-    }
-
-    Ok(report.exit_code())
+    Ok(report)
 }
 
 fn split_target(target: &str) -> Result<(&str, &str)> {

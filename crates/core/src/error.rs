@@ -14,6 +14,8 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// Everything that can go wrong during an audit run.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("{message}\noperations: {report}")]
+    Alignment { message: String, report: String },
     /// A policy could not be resolved, parsed, or validated.
     #[error("policy error: {0}")]
     Policy(String),

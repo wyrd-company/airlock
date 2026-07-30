@@ -81,6 +81,35 @@ async fn a_permission_403_names_the_permission_the_endpoint_wanted() {
 }
 
 #[tokio::test]
+async fn open_pull_requests_are_observed_by_well_known_head_and_base() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/repos/owner/name/pulls"))
+        .and(query_param("state", "open"))
+        .and(query_param("head", "owner:airlock/align"))
+        .and(query_param("base", "main"))
+        .respond_with(
+            quota_headers(ResponseTemplate::new(200)).set_body_json(json!([{
+                "number": 42,
+                "html_url": "https://example.invalid/owner/name/pull/42",
+                "draft": true,
+                "head": {"ref": "airlock/align"},
+                "base": {"ref": "main"}
+            }])),
+        )
+        .mount(&server)
+        .await;
+
+    let pulls = client(&server)
+        .open_pull_requests("owner", "name", "airlock/align", "main")
+        .await
+        .unwrap();
+    assert_eq!(pulls.len(), 1);
+    assert_eq!(pulls[0].number, 42);
+    assert!(pulls[0].draft);
+}
+
+#[tokio::test]
 async fn a_plan_limitation_403_is_not_mistaken_for_a_permission_failure() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
@@ -229,11 +258,36 @@ async fn a_repository_snapshot_reads_settings_and_the_observation_time() {
     assert_eq!(repository.id, 42);
     assert_eq!(repository.default_branch, "main");
     assert_eq!(repository.license_spdx.as_deref(), Some("Apache-2.0"));
-    assert!(!repository.allow_merge_commit);
+    assert_eq!(repository.allow_merge_commit, Some(false));
     assert_eq!(
         repository.observed_at.as_deref(),
         Some("Mon, 27 Jul 2026 12:00:00 GMT")
     );
+}
+
+#[tokio::test]
+async fn a_repository_snapshot_preserves_undisclosed_merge_settings() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/repos/owner/name"))
+        .respond_with(
+            quota_headers(ResponseTemplate::new(200)).set_body_json(json!({
+                "id": 42,
+                "name": "name",
+                "full_name": "owner/name",
+                "owner": { "login": "owner" },
+                "default_branch": "main",
+                "visibility": "public"
+            })),
+        )
+        .mount(&server)
+        .await;
+
+    let repository = client(&server).repository("owner", "name").await.unwrap();
+    assert_eq!(repository.allow_merge_commit, None);
+    assert_eq!(repository.allow_squash_merge, None);
+    assert_eq!(repository.allow_rebase_merge, None);
+    assert_eq!(repository.delete_branch_on_merge, None);
 }
 
 #[tokio::test]

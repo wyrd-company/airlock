@@ -1,0 +1,41 @@
+name: Idea
+description: Suggest something this project could do
+labels:
+  - idea
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Work is planned and tracked outside GitHub, so this issue is where an
+        idea enters consideration rather than where it gets scheduled. It may
+        sit while it is weighed against work already planned. Silence is not
+        rejection, and it is not a commitment either.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: >-
+        What is hard or impossible today? Describe the situation you are in,
+        not the solution you have in mind.
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you have in mind
+      description: Optional. If you have a specific shape in mind, describe it.
+    validations:
+      required: false
+
+  - type: textarea
+    id: workaround
+    attributes:
+      label: What you do instead today
+      description: >-
+        How you work around it now, and what that costs you. This is often the
+        most useful part — it shows whether the problem is real and how much it
+        matters.
+    validations:
+      required: false

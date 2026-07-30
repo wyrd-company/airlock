@@ -1,0 +1,59 @@
+name: Bug report
+description: Something behaves differently than documented
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Do not report security vulnerabilities here. Use the Security tab and
+        choose "Report a vulnerability" so the report stays private.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you expected, and what happened instead.
+      placeholder: I expected X. Instead Y happened.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: >-
+        The shortest sequence that produces it. A report someone else can
+        reproduce gets fixed; one that cannot usually cannot be acted on.
+      placeholder: |
+        1.
+        2.
+        3.
+      render: text
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The released version, or the commit you built from.
+    validations:
+      required: true
+
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      description: Operating system, architecture, and runtime version if relevant.
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Output
+      description: Error output or logs. Remove anything sensitive first.
+      render: text
+    validations:
+      required: false

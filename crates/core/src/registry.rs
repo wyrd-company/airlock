@@ -11,9 +11,9 @@
 //! checks not yet written are registered as unimplemented so they are visibly
 //! absent rather than silently absent.
 //!
-//! The statements here are verbatim copies of the conformance checklist. A
-//! test in `tests/conformance.rs` parses a committed copy of that document and
-//! fails on any drift, in either direction.
+//! The repository-standards skill's conformance reference is generated from
+//! this registry. A test in `tests/conformance.rs` parses that projection and
+//! proves it preserves every registry-owned field.
 
 use std::fmt;
 
@@ -24,7 +24,7 @@ use sha2::{Digest, Sha256};
 /// It moves when the set of rules, their statements, their default severities,
 /// evaluation modes, or applicability conditions change. Policies constrain it with
 /// `requires-registry`.
-pub const REGISTRY_VERSION: &str = "0.2.0";
+pub const REGISTRY_VERSION: &str = "0.4.0";
 
 /// A built-in condition that determines whether a check applies.
 ///
@@ -241,9 +241,9 @@ impl Observation {
 pub struct CheckDefinition {
     /// The check definition id, for example `REPO-LIC-01`.
     pub id: &'static str,
-    /// The check definition statement, verbatim from the conformance checklist.
+    /// The check definition statement.
     pub statement: &'static str,
-    /// The default severity, verbatim from the conformance checklist.
+    /// The default severity.
     pub severity: Severity,
     /// The section the rule belongs to.
     pub section: Section,
@@ -529,7 +529,7 @@ pub const CHECKS: &[CheckDefinition] = &[
     },
     CheckDefinition {
         id: "REPO-FILE-17",
-        statement: "`.github/workflows/reconcile-settings.yml` exists and triggers on push to the default branch",
+        statement: "`.github/workflows/audit.yml` exists and triggers on a schedule and on demand",
         severity: Severity::Blocking,
         section: Section::Files,
         evaluation: Evaluation::Mechanical,
@@ -636,7 +636,10 @@ pub const CHECKS: &[CheckDefinition] = &[
         statement: "Where a demo exists, its `.tape` source is committed",
         severity: Severity::Required,
         section: Section::Readme,
-        evaluation: Evaluation::Unimplemented,
+        // Mechanical scope: the committed-demo proxy is a regular file whose
+        // basename is `demo.gif`, matching the repository VHS convention.
+        // REPO-README-05 retains the judgment of what other media is a demo.
+        evaluation: Evaluation::Mechanical,
         params: &[],
     },
     CheckDefinition {
@@ -873,7 +876,7 @@ pub const CHECKS: &[CheckDefinition] = &[
     },
     CheckDefinition {
         id: "REPO-CI-09",
-        statement: "The reconcile workflow requests a token scoped to a single repository",
+        statement: "The scheduled audit workflow supplies `secrets.AIRLOCK_TOKEN` to the Airlock audit action",
         severity: Severity::Required,
         section: Section::Automation,
         evaluation: Evaluation::Mechanical,
@@ -881,7 +884,7 @@ pub const CHECKS: &[CheckDefinition] = &[
     },
     CheckDefinition {
         id: "REPO-CI-10",
-        statement: "No workflow mutates repository settings outside the reconcile workflow",
+        statement: "No workflow mutates repository settings",
         severity: Severity::Required,
         section: Section::Automation,
         evaluation: Evaluation::Manual,
@@ -1052,7 +1055,10 @@ pub const CHECKS: &[CheckDefinition] = &[
         statement: "Schema-bound YAML artifacts follow their schema where one exists",
         severity: Severity::Observation,
         section: Section::Docs,
-        evaluation: Evaluation::Unimplemented,
+        // Manual: schema references may resolve outside the bounded repository
+        // snapshot. The registry-owned evaluation reason records why partial
+        // validation was rejected and is surfaced in listings and findings.
+        evaluation: Evaluation::Manual,
         params: &[],
     },
     CheckDefinition {
@@ -1145,6 +1151,24 @@ pub fn in_section(section: Section) -> Vec<&'static CheckDefinition> {
 }
 
 impl CheckDefinition {
+    /// Why a non-mechanical evaluation mode is the honest boundary.
+    ///
+    /// This is registry data rather than only implementation commentary so
+    /// operators see the classification boundary in listings and findings.
+    #[must_use]
+    pub fn evaluation_reason(&self) -> Option<&'static str> {
+        match self.id {
+            "REPO-DOCS-05" => Some(
+                "Schema discovery can leave the bounded repository snapshot. Partial validation \
+                 of only in-snapshot schemas was rejected because a manual finding communicates \
+                 the whole-repository judgment consistently; mixing passes with inconclusive \
+                 results based on schema location would make identical artifact classes gate \
+                 differently.",
+            ),
+            _ => None,
+        }
+    }
+
     /// The repository state under which this check's statement applies.
     #[must_use]
     pub fn applicability(&self) -> Applicability {
@@ -1183,7 +1207,7 @@ impl CheckDefinition {
 /// The registry content digest.
 ///
 /// SHA-256 over the sorted `(id, statement, severity, evaluation,
-/// applicability)` tuples, so
+/// evaluation reason, applicability)` tuples, so
 /// two binaries that agree on the digest agree on what every rule means. It
 /// travels in every audit result.
 #[must_use]
@@ -1192,11 +1216,12 @@ pub fn digest() -> String {
         .iter()
         .map(|check| {
             format!(
-                "{}\u{1f}{}\u{1f}{}\u{1f}{}\u{1f}{}",
+                "{}\u{1f}{}\u{1f}{}\u{1f}{}\u{1f}{}\u{1f}{}",
                 check.id,
                 check.statement,
                 check.severity.code(),
                 check.evaluation.code(),
+                check.evaluation_reason().unwrap_or_default(),
                 check.applicability().code()
             )
         })

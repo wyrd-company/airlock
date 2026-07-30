@@ -2,6 +2,7 @@
 
 use crate::findings::Remediation;
 use crate::policy::RuleInstance;
+use crate::ActionGroup;
 
 use super::{AuditContext, Verdict};
 
@@ -31,7 +32,7 @@ fn default_branch(context: &AuditContext) -> Verdict {
             "default_branch_is_not_main",
             format!("the default branch is `{branch}`"),
             Remediation::new(
-                "rename_default_branch",
+                ActionGroup::RENAME_DEFAULT_BRANCH,
                 "Rename the default branch to `main`.",
             ),
         )
@@ -69,7 +70,7 @@ fn org_ruleset_coverage(context: &AuditContext) -> Verdict {
             "no_org_ruleset",
             "no active organisation-sourced branch ruleset covers the repository",
             Remediation::new(
-                "apply_org_ruleset",
+                ActionGroup::APPLY_ORG_RULESET,
                 "Apply an organisation ruleset targeting the default branch. Rulesets are an \
                  organisation-side setting airlock cannot change.",
             ),
@@ -157,7 +158,7 @@ fn report_branch_gaps(branch: &str, gaps: Vec<String>) -> Verdict {
             "branch_rules_insufficient",
             format!("on `{branch}`: {}", gaps.join("; ")),
             Remediation::new(
-                "tighten_ruleset",
+                ActionGroup::TIGHTEN_RULESET,
                 "Update the ruleset to require pull requests, allow only squash and rebase, and \
                  require linear history.",
             ),
@@ -166,20 +167,25 @@ fn report_branch_gaps(branch: &str, gaps: Vec<String>) -> Verdict {
 }
 
 fn boolean_setting(
-    actual: bool,
+    actual: Option<bool>,
     expected: bool,
     code_pass: &str,
     code_fail: &str,
     subject: &str,
+    unavailable_subject: &str,
     remedy: &str,
 ) -> Verdict {
+    let Some(actual) = actual else {
+        return super::merge_settings_unavailable(unavailable_subject);
+    };
+
     if actual == expected {
         Verdict::pass(code_pass, format!("{subject} is {actual}"))
     } else {
         Verdict::fail(
             code_fail,
             format!("{subject} is {actual}, expected {expected}"),
-            Remediation::new("change_repository_setting", remedy.to_owned()),
+            Remediation::new(ActionGroup::CHANGE_REPOSITORY_SETTING, remedy.to_owned()),
         )
     }
 }
@@ -192,6 +198,7 @@ fn merge_commits_disabled(context: &AuditContext) -> Verdict {
         "merge_commits_disabled",
         "merge_commits_enabled",
         "merge commits allowed",
+        "the merge-commit setting",
         "Disable merge commits on the repository.",
     )
 }
@@ -204,6 +211,7 @@ fn squash_enabled(context: &AuditContext) -> Verdict {
         "squash_enabled",
         "squash_disabled",
         "squash merge allowed",
+        "the squash-merge setting",
         "Enable squash merging on the repository.",
     )
 }
@@ -216,6 +224,7 @@ fn auto_delete_enabled(context: &AuditContext) -> Verdict {
         "auto_delete_enabled",
         "auto_delete_disabled",
         "auto-delete head branch on merge",
+        "the auto-delete head branch setting",
         "Enable auto-delete of head branches on merge.",
     )
 }
@@ -287,7 +296,7 @@ fn tags_have_no_v_prefix(context: &AuditContext) -> Verdict {
             "v_prefixed_tags",
             format!("{} carry a `v` prefix", offenders.join(", ")),
             Remediation::new(
-                "retag_without_prefix",
+                ActionGroup::RETAG_WITHOUT_PREFIX,
                 "Tag releases without the `v` prefix.",
             ),
         )
@@ -348,7 +357,7 @@ fn multi_unit_tag_shape(context: &AuditContext) -> Verdict {
                 units.len()
             ),
             Remediation::new(
-                "scope_tags",
+                ActionGroup::SCOPE_TAGS,
                 "Tag each release unit as `@scope/name@version`.",
             ),
         )
@@ -383,7 +392,7 @@ fn no_merge_commits(rule: &RuleInstance, context: &AuditContext) -> Verdict {
                 merges[0]
             ),
             Remediation::new(
-                "rewrite_or_prevent_merges",
+                ActionGroup::REWRITE_OR_PREVENT_MERGES,
                 "Require linear history so merge commits cannot enter the default branch.",
             ),
         );
@@ -444,7 +453,7 @@ fn app_identity_conventions(context: &AuditContext) -> Verdict {
             "app_identity_conventions_broken",
             offenders.join("; "),
             Remediation::new(
-                "move_app_identity",
+                ActionGroup::MOVE_APP_IDENTITY,
                 "Store the app id as a variable named `<APP>_APP_ID` and only the private key as \
                  a secret named `<APP>_APP_PRIVATE_KEY`.",
             ),
@@ -470,6 +479,7 @@ mod tests {
     use super::super::fixtures::*;
     use crate::findings::Status;
     use crate::github::{ApiError, BranchRule, CommitSummary, ErrorCause, Paged, Ruleset, TagRef};
+    use crate::ActionGroup;
     use serde_json::json;
 
     #[test]
@@ -565,7 +575,10 @@ mod tests {
         });
         let verdict = evaluate(&rule("REPO-GIT-02"), &context);
         assert_eq!(verdict.status, Status::Error);
-        assert_eq!(verdict.remediation.unwrap().code, "plan_gate");
+        assert_eq!(
+            verdict.remediation.unwrap().action_group,
+            ActionGroup::PLAN_GATE
+        );
     }
 
     #[test]
@@ -614,12 +627,42 @@ mod tests {
             evaluate(&rule("REPO-GIT-04"), &fixture.context()).status,
             Status::Pass
         );
-        fixture.snapshot.repository.allow_merge_commit = true;
-        fixture.snapshot.repository.allow_squash_merge = false;
-        fixture.snapshot.repository.delete_branch_on_merge = false;
+        fixture.snapshot.repository.allow_merge_commit = Some(true);
+        fixture.snapshot.repository.allow_squash_merge = Some(false);
+        fixture.snapshot.repository.delete_branch_on_merge = Some(false);
         let context = fixture.context();
         for id in ["REPO-GIT-04", "REPO-GIT-05", "REPO-GIT-06"] {
             assert_eq!(evaluate(&rule(id), &context).status, Status::Fail, "{id}");
+        }
+    }
+
+    #[test]
+    fn undisclosed_merge_settings_make_all_merge_setting_rules_inconclusive() {
+        let mut fixture = CheckFixture::new(&[]);
+        fixture.snapshot.repository.allow_merge_commit = None;
+        fixture.snapshot.repository.allow_squash_merge = None;
+        fixture.snapshot.repository.delete_branch_on_merge = None;
+        let context = fixture.context();
+
+        for id in ["REPO-GIT-04", "REPO-GIT-05", "REPO-GIT-06"] {
+            let verdict = evaluate(&rule(id), &context);
+            assert_eq!(verdict.status, Status::Inconclusive, "{id}");
+            let evidence = verdict.evidence.expect("inconclusive evidence");
+            assert_eq!(
+                evidence.code,
+                super::super::MERGE_SETTINGS_UNAVAILABLE,
+                "{id}"
+            );
+            assert!(
+                evidence.detail.contains(match id {
+                    "REPO-GIT-04" => "merge-commit",
+                    "REPO-GIT-05" => "squash-merge",
+                    "REPO-GIT-06" => "auto-delete head branch",
+                    _ => unreachable!(),
+                }),
+                "{id}: {}",
+                evidence.detail
+            );
         }
     }
 

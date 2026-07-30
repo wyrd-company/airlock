@@ -28,6 +28,7 @@ tasks:
     desc: Run the full test suite
     cmds:
       - cargo test --workspace
+      - scripts/test-action.sh
 
   lint:
     desc: Static analysis and a formatting check, both non-mutating
@@ -57,6 +58,33 @@ tasks:
       # The full suite runs on stable in the test job.
       - cargo build --workspace --locked
 
+  ci:install-linters:
+    desc: Install the repository linters used by CI
+    cmds:
+      - sudo apt-get update
+      - sudo apt-get install --yes shellcheck
+      - go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
+      - echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - cargo install --locked ryl --version 0.21.0
+      - cargo install --locked rumdl --version 0.2.40
+      - cargo install --locked intentional-cli --version 0.1.6
+
+  audit:summary:
+    desc: Append the scheduled audit outcome to the GitHub job summary
+    requires:
+      vars:
+        - GITHUB_STEP_SUMMARY
+        - OUTCOME
+        - COMPLETE
+    cmds:
+      - |
+        {
+          echo "## Airlock audit"
+          echo
+          echo "- Outcome: \`$OUTCOME\`"
+          echo "- Complete: \`$COMPLETE\`"
+        } >> "$GITHUB_STEP_SUMMARY"
+
   lint:commit-msg:
     desc: Validate a conventional commit subject
     silent: true
@@ -71,6 +99,16 @@ tasks:
     # `task check` has no business requiring on a contributor's machine.
     cmds:
       - cargo run --quiet -p airlock-cli -- audit wyrd-company/airlock --format json
+
+  dogfood:when-provisioned:
+    desc: Run the dogfood audit when CI has its read-only credential
+    cmds:
+      - |
+        if [ -n "${AIRLOCK_TOKEN:-}" ]; then
+          task dogfood
+        else
+          echo "AIRLOCK_TOKEN is not provisioned; skipping the dogfood audit."
+        fi
 
   check:
     desc: Everything CI runs that needs no secret — run this before pushing

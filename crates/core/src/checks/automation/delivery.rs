@@ -1,4 +1,5 @@
 use super::*;
+use crate::ActionGroup;
 
 pub(super) fn cd<'a>(context: &'a AuditContext<'_>) -> Option<&'a Workflow> {
     context.workflow("cd.yml")
@@ -65,7 +66,7 @@ pub(super) fn cd_on_tags(rule: &RuleInstance, context: &AuditContext) -> Verdict
                 tags.join(", ")
             ),
             Remediation::new(
-                "correct_tag_pattern",
+                ActionGroup::CORRECT_TAG_PATTERN,
                 format!("Trigger CD on tags matching `{expected}`."),
             ),
         )
@@ -121,7 +122,7 @@ pub(super) fn cd_concurrency(context: &AuditContext) -> Verdict {
             &workflow.path,
             "cd.yml sets cancel-in-progress: true, so a delivery can be killed mid-flight",
             Remediation::new(
-                "do_not_cancel_delivery",
+                ActionGroup::DO_NOT_CANCEL_DELIVERY,
                 "Set cancel-in-progress: false on the CD concurrency group.",
             ),
         ),
@@ -130,7 +131,7 @@ pub(super) fn cd_concurrency(context: &AuditContext) -> Verdict {
             &workflow.path,
             "cd.yml declares no concurrency group with cancel-in-progress",
             Remediation::new(
-                "add_cd_concurrency",
+                ActionGroup::ADD_CD_CONCURRENCY,
                 "Add a concurrency group with cancel-in-progress: false.",
             ),
         ),
@@ -172,7 +173,7 @@ pub(super) fn release_and_delivery_separate(context: &AuditContext) -> Verdict {
                     .join(", ")
             ),
             Remediation::new(
-                "split_release_from_delivery",
+                ActionGroup::SPLIT_RELEASE_FROM_DELIVERY,
                 "Create the release in its own workflow and let CD deliver an existing tag.",
             ),
         )
