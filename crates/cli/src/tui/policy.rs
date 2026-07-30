@@ -169,13 +169,14 @@ fn sources(report: &Report, rules: &[Rule]) -> Vec<Source> {
         sources.push(Source {
             name: sanitize(&source.name, VALUE_LIMIT),
             reference: reference(&source.source, source.commit.as_deref()),
-            blob: source
-                .blob_sha
-                .as_ref()
-                .map_or_else(|| source.content_digest.clone(), std::clone::Clone::clone)
-                .chars()
-                .take(VALUE_LIMIT)
-                .collect(),
+            // The blob identity is server-supplied like every other string
+            // here, and a digest is a plausible place to hide an escape
+            // sequence precisely because a reader skims it. Length is not the
+            // only thing wrong with an unexamined value.
+            blob: sanitize(
+                source.blob_sha.as_deref().unwrap_or(&source.content_digest),
+                VALUE_LIMIT,
+            ),
         });
     }
     // Suppressions the policy authorized. Gathered by what authorized them,
@@ -554,6 +555,43 @@ mod tests {
         );
         report.airlock.registry_digest = "sha256:abcd".to_owned();
         assert_eq!(Inspector::of(&report).abbreviated_digest(), "sha256:abcd");
+    }
+
+    /// A string carrying everything a terminal reads as an instruction.
+    fn hostile() -> String {
+        "\u{1b}[2Jwiped\u{202e}reversed\u{200b}hidden".to_owned()
+    }
+
+    #[test]
+    fn every_server_supplied_string_is_examined_before_it_reaches_a_cell() {
+        // A policy identity is as server-supplied as a finding is: it is read
+        // from a document a repository controls, and the sources block draws
+        // every field of it.
+        let mut report = fixture::mixed();
+        report.policy.name = hostile();
+        report.policy.source = hostile();
+        report.policy.bundle_digest = hostile();
+        report.policy.sources[0].name = hostile();
+        report.policy.sources[0].source = hostile();
+        report.policy.sources[0].blob_sha = Some(hostile());
+        report.policy.sources[0].commit = Some(hostile());
+        let mut second = report.policy.sources[0].clone();
+        // The other arm of the identity: no blob sha, so the content digest is
+        // what is drawn, and it is examined on that path too.
+        second.blob_sha = None;
+        second.content_digest = hostile();
+        report.policy.sources.push(second);
+
+        let rendered = drawn(&report, REFERENCE_WIDTH);
+        for refused in ['\u{1b}', '\u{202e}', '\u{200b}'] {
+            assert!(
+                !rendered.contains(refused),
+                "{refused:?} reached a cell: {rendered:?}"
+            );
+        }
+        // Refused rather than dropped: a character that vanished silently would
+        // leave the operator no sign that anything was removed.
+        assert!(rendered.contains('\u{fffd}'), "{rendered:?}");
     }
 
     #[test]
