@@ -132,11 +132,13 @@ Its `agent_lane` contains failed rules classified as `deterministic-file` or
 `judgment-file`, keyed by rule id and carrying the remediation code and the
 change it would make. `operator_deferred` separately identifies failed
 `operator-setting` rules and failures that declare no remediation; neither
-gates the command. `needs_decision`, `unsettled`, `manual`, and `suppressed`
-keep the other unfinished or authorized-but-unaligned findings visible with
-their counts and identities. Undecided items say whether they gate and retain
-their evidence code, so a missing capability declaration is distinct from a
-retryable observation failure. Every group retains each finding's observation
+gates the command. `needs_decision`, `unsettled`, `unverifiable`, `manual`, and
+`suppressed` keep the other unfinished or authorized-but-unaligned findings
+visible with their counts and identities. Undecided items say whether they gate
+and retain their evidence code, so a missing capability declaration is distinct
+from a retryable observation failure, and `unverifiable` holds the gaps this
+surface's mandated credential can never observe — named, never gating, and
+never passing. Every group retains each finding's observation
 source, and the top-level `observation` block says whether file findings came
 from the API tree or the local working tree.
 
@@ -191,15 +193,27 @@ means only “my lane is clear”; it never means “the repository is aligned.�
 The distinction is the point. An audit that could not evaluate an enabled rule
 — because it is not built yet, because a bounded scan ran out of budget, or
 because GitHub refused the request — never reports success. Every rule the
-policy enables produces exactly one finding, with one of eight statuses:
+policy enables produces exactly one finding, with one of nine statuses:
 
 `pass`, `fail`, `manual` (a judgment call for a human), `suppressed`,
 `skipped` (a capability condition was not met), `unimplemented`,
-`inconclusive` (a bound was hit), `error` (an API failure, with its cause).
+`inconclusive` (a bound was hit), `unobservable` (the credential this surface
+mandates can never read the fact), `error` (an API failure, with its cause).
 
 `manual`, `suppressed`, and `skipped` are conclusive and never gate. The other
-three leave the assertion undecided, and at a gating severity they make the
-whole audit incomplete.
+four leave the assertion undecided, and each one carries which kind of
+undecided it is.
+
+`unimplemented`, `inconclusive`, and `error` are *circumstantial*: this run did
+not establish what it can normally establish, so at a gating severity they make
+the whole audit incomplete. `unobservable` is *structural*: GitHub discloses
+merge settings only to write-capable tokens and the headless audit proves its
+credential read-only before it runs, so those facts are undisclosed on every
+scheduled run by construction. A verdict that is permanently red carries no
+information, so a structural gap does not make the audit incomplete. It is
+never a pass either: it is named as its own group by `plan` and `agent-work`,
+counted in the summary, and the answer is taken in the interactive session,
+which holds a credential that can see it.
 
 Incomplete input can never produce a clean result. A listing that stopped at
 the page budget, a recursive tree GitHub truncated, or a response airlock could

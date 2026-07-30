@@ -94,6 +94,54 @@ impl FakeRepo {
         self
     }
 
+    /// Answer the repository endpoint the way GitHub answers a read-only
+    /// token: the merge-behaviour fields are simply absent.
+    ///
+    /// GitHub discloses `allow_*_merge` and `delete_branch_on_merge` only to a
+    /// credential with `contents: write`, and the headless audit proves its
+    /// credential read-only before it runs. This is therefore the shape of
+    /// every scheduled run, not an unusual one.
+    #[must_use]
+    pub fn with_undisclosed_merge_settings(mut self) -> Self {
+        let object = self
+            .settings
+            .as_object_mut()
+            .expect("settings are an object");
+        for field in [
+            "allow_merge_commit",
+            "allow_squash_merge",
+            "allow_rebase_merge",
+            "delete_branch_on_merge",
+        ] {
+            object.remove(field);
+        }
+        self
+    }
+
+    /// Answer the ruleset endpoints the way a repository governed as the
+    /// standards expect answers them: one active organisation branch ruleset,
+    /// requiring pull requests, squash and rebase only, and linear history.
+    #[must_use]
+    pub fn with_conforming_org_ruleset(mut self) -> Self {
+        self.rulesets = Response::Ok(json!([{
+            "id": 1,
+            "name": "default-branch",
+            "target": "branch",
+            "source_type": "Organization",
+            "source": self.owner.clone(),
+            "enforcement": "active"
+        }]));
+        self.branch_rules = Response::Ok(json!([
+            {
+                "type": "pull_request",
+                "source_type": "Organization",
+                "parameters": { "allowed_merge_methods": ["squash", "rebase"] }
+            },
+            { "type": "required_linear_history", "source_type": "Organization" }
+        ]));
+        self
+    }
+
     /// Replace the rulesets response, for the plan-limitation path.
     #[must_use]
     pub fn with_rulesets(mut self, response: Response) -> Self {

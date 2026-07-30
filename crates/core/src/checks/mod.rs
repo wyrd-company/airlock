@@ -167,6 +167,25 @@ impl Verdict {
         }
     }
 
+    /// The credential this surface mandates can never observe the fact.
+    ///
+    /// Only a check that knows *why* its input was absent may say this, and
+    /// only when the absence is a documented property of the credential rather
+    /// than of this run: GitHub discloses merge settings to write-capable
+    /// tokens only, and the headless audit refuses write-capable tokens, so on
+    /// that surface the fields are undisclosed on every run, forever. A check
+    /// that merely found nothing says [`Verdict::inconclusive`] instead — the
+    /// difference is the whole point, and it is only knowable here.
+    #[must_use]
+    pub fn unobservable(code: &str, detail: impl Into<String>) -> Self {
+        Self {
+            status: Status::Unobservable,
+            evidence: Some(Evidence::new(code, detail)),
+            remediation: None,
+            error: None,
+        }
+    }
+
     /// An API failure prevented the evaluation.
     #[must_use]
     pub fn from_api_error(error: &ApiError) -> Self {
@@ -716,8 +735,17 @@ pub(crate) const MALFORMED_DECLARATION: &str = "malformed_declaration";
 /// The stable evidence code for merge settings the credential could not observe.
 pub(crate) const MERGE_SETTINGS_UNAVAILABLE: &str = "merge_settings_unavailable";
 
+/// Merge settings are structurally unobservable to the audit's credential.
+///
+/// GitHub discloses `allow_*_merge` and `delete_branch_on_merge` only to a
+/// token with `contents: write`; `administration: read` does not expose them.
+/// The headless audit proves its credential read-only before it runs, so these
+/// fields are absent on every headless run by construction rather than by
+/// accident. The interactive session, which holds a write-capable credential,
+/// is where the fact is observable — so the gap is named, never gated, and
+/// never claimed as a pass.
 pub(crate) fn merge_settings_unavailable(subject: &str) -> Verdict {
-    Verdict::inconclusive(
+    Verdict::unobservable(
         MERGE_SETTINGS_UNAVAILABLE,
         format!(
             "{subject} cannot be verified with this credential; run the interactive airlock \

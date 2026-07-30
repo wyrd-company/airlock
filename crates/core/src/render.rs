@@ -118,6 +118,18 @@ pub fn report_text(report: &Report) -> String {
         report.complete,
         report.conformant
     );
+    // A structurally unobservable rule leaves the run complete, so nothing
+    // above this line would tell a reader it exists. It is named here for the
+    // same reason it is never a pass: the assertion is still open, and the
+    // surface that can settle it is not this one.
+    let unobservable = report.summary.count(Status::Unobservable);
+    if unobservable > 0 {
+        let _ = writeln!(
+            out,
+            "{unobservable} rule(s) this credential can never observe — named, never gating, \
+             and never a pass;\nverify them in the interactive session."
+        );
+    }
 
     out
 }
@@ -180,6 +192,11 @@ pub fn agent_work_list_text(list: &AgentWorkList) -> String {
 
     render_unsettled_group(&mut out, "needs a decision", &list.needs_decision);
     render_unsettled_group(&mut out, "unsettled questions", &list.unsettled);
+    render_unsettled_group(
+        &mut out,
+        "unverifiable with this credential (never gates)",
+        &list.unverifiable,
+    );
     render_attention_group(&mut out, "manual judgment (never gates)", &list.manual);
     render_attention_group(&mut out, "suppressed debt (never gates)", &list.suppressed);
 
@@ -191,6 +208,11 @@ pub fn agent_work_list_text(list: &AgentWorkList) -> String {
         .filter(|item| item.gating)
         .count();
     let _ = writeln!(out, "\nunsettled gating questions: {gating_unsettled}");
+    let _ = writeln!(
+        out,
+        "unverifiable with this credential: {} (verify in the interactive session)",
+        list.unverifiable.count
+    );
     let _ = writeln!(
         out,
         "\n{} — this is not a repository conformance verdict",
@@ -362,6 +384,24 @@ pub fn plan_text(report: &Report) -> String {
                 gap.status.code()
             );
             let _ = writeln!(out, "      {}", gap.reason);
+        }
+    }
+
+    if !plan.unverifiable.is_empty() {
+        out.push('\n');
+        let _ = writeln!(
+            out,
+            "unverifiable here ({}) — the credential this surface mandates can never \
+             observe\nthese, so looking again here will not answer them. They are not \
+             passes, and\nthey do not make the run incomplete; verify them in the \
+             interactive session.",
+            plan.unverifiable.len()
+        );
+        for rule in &plan.unverifiable {
+            let _ = writeln!(out, "  {:<16} {:<13}", rule.rule, rule.severity);
+            if let Some(detail) = rule.detail {
+                let _ = writeln!(out, "      {detail}");
+            }
         }
     }
 
@@ -634,6 +674,44 @@ mod tests {
         assert!(
             !text.contains("Every rule the policy asked about was decided"),
             "the plan must not claim everything was decided: {text}"
+        );
+    }
+
+    #[test]
+    fn the_report_and_the_plan_both_name_a_rule_this_credential_can_never_read() {
+        let mut unobservable = report();
+        unobservable.findings[0].status = Status::Unobservable;
+        let unobservable = crate::findings::Report::assemble(
+            unobservable.airlock.clone(),
+            unobservable.repository.clone(),
+            unobservable.observation.clone(),
+            unobservable.policy.clone(),
+            Vec::new(),
+            Vec::new(),
+            unobservable.findings.clone(),
+        );
+
+        assert!(
+            unobservable.complete,
+            "a structural gap leaves the run complete"
+        );
+        let text = report_text(&unobservable);
+        assert!(text.contains("1 unobservable"), "{text}");
+        assert!(
+            text.contains("never gating, and never a pass"),
+            "the run is complete, so the report itself must name the gap: {text}"
+        );
+
+        let plan = plan_text(&unobservable);
+        assert!(plan.contains("unverifiable here (1)"), "{plan}");
+        assert!(plan.contains("REPO-LIC-01"), "{plan}");
+        assert!(
+            plan.contains("interactive session"),
+            "the plan says where the answer lives: {plan}"
+        );
+        assert!(
+            !plan.contains("undecided: REPO-LIC-01"),
+            "it is not filed with the questions a retry here could answer: {plan}"
         );
     }
 

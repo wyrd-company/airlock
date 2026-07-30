@@ -9,6 +9,7 @@ use serde::Serialize;
 
 use crate::findings::{
     AirlockIdentity, AuditedRepository, ObservationRecord, PolicyIdentity, Report, Status,
+    Undecided,
 };
 use crate::remediation::Lane;
 
@@ -96,6 +97,10 @@ pub struct UnsettledItem {
     pub rule: String,
     /// The undecided status.
     pub status: Status,
+    /// Why the question is unanswered: this run fell short
+    /// (`circumstantial`), or the mandated credential can never see it
+    /// (`structural`).
+    pub undecided: Option<Undecided>,
     /// The effective severity.
     pub severity: String,
     /// Whether this unanswered question blocks completeness under the gate.
@@ -162,6 +167,14 @@ pub struct AgentWorkList {
     pub needs_decision: WorkGroup<UnsettledItem>,
     /// Questions the audit could not settle, including non-gating ones.
     pub unsettled: WorkGroup<UnsettledItem>,
+    /// Gaps this surface's mandated credential can never observe.
+    ///
+    /// These never gate — a permanently red lane says nothing — but they are
+    /// listed at every severity, because an unobservable rule is not a passing
+    /// rule and a clear lane is not an aligned repository. The remaining move
+    /// is to verify them on a surface that can see them: the interactive
+    /// session.
+    pub unverifiable: WorkGroup<UnsettledItem>,
     /// Manual judgments still awaiting a person.
     pub manual: WorkGroup<AttentionItem>,
     /// Authorized failures that remain standing debt.
@@ -178,15 +191,17 @@ impl AgentWorkList {
         let mut operator = Vec::new();
         let mut decisions = Vec::new();
         let mut unsettled = Vec::new();
+        let mut unverifiable = Vec::new();
         let mut manual = Vec::new();
         let mut suppressed = Vec::new();
         let mut classification_unsettled = false;
 
         for finding in &report.findings {
-            if finding.status.is_inconclusive() {
+            if let Some(kind) = finding.status.undecided() {
                 let item = UnsettledItem {
                     rule: finding.rule.clone(),
                     status: finding.status,
+                    undecided: Some(kind),
                     severity: finding.severity.clone(),
                     gating: finding.blocks_completeness(report.policy.gate),
                     evidence_code: finding
@@ -195,10 +210,19 @@ impl AgentWorkList {
                         .map(|evidence| evidence.code.clone()),
                     source: finding.source.clone(),
                 };
-                if item.evidence_code.as_deref() == Some("condition_undecided") {
-                    decisions.push(item);
-                } else {
-                    unsettled.push(item);
+                match kind {
+                    // A structural gap belongs in its own group whatever its
+                    // evidence code: it is not a question this surface can be
+                    // asked again, so grouping it with the ones that can be
+                    // would invite a retry that cannot work.
+                    Undecided::Structural => unverifiable.push(item),
+                    Undecided::Circumstantial => {
+                        if item.evidence_code.as_deref() == Some("condition_undecided") {
+                            decisions.push(item);
+                        } else {
+                            unsettled.push(item);
+                        }
+                    }
                 }
                 continue;
             }
@@ -243,6 +267,7 @@ impl AgentWorkList {
                 unsettled.push(UnsettledItem {
                     rule: finding.rule.clone(),
                     status: finding.status,
+                    undecided: None,
                     severity: finding.severity.clone(),
                     gating: true,
                     evidence_code: Some("remediation_class_undecided".to_owned()),
@@ -255,6 +280,7 @@ impl AgentWorkList {
                 unsettled.push(UnsettledItem {
                     rule: finding.rule.clone(),
                     status: finding.status,
+                    undecided: None,
                     severity: finding.severity.clone(),
                     gating: true,
                     evidence_code: Some("remediation_lane_unknown".to_owned()),
@@ -305,6 +331,7 @@ impl AgentWorkList {
             operator_deferred: WorkGroup::new(operator),
             needs_decision: WorkGroup::new(decisions),
             unsettled: WorkGroup::new(unsettled),
+            unverifiable: WorkGroup::new(unverifiable),
             manual: WorkGroup::new(manual),
             suppressed: WorkGroup::new(suppressed),
             outcome,
@@ -488,6 +515,67 @@ mod tests {
         assert_eq!(list.outcome, Outcome::AgentLaneClear);
         assert_eq!(list.unsettled.count, 1);
         assert!(!list.unsettled.items[0].gating);
+    }
+
+    #[test]
+    fn structural_gaps_get_their_own_group_and_never_gate_the_lane() {
+        let list = AgentWorkList::from_report(&report(vec![
+            finding("REPO-GIT-04", Status::Unobservable, "required", Some("api")),
+            finding("REPO-LIC-01", Status::Pass, "blocking", Some("api")),
+        ]));
+
+        assert_eq!(list.outcome, Outcome::AgentLaneClear);
+        assert_eq!(list.exit_code(), 0);
+        assert_eq!(list.unsettled.count, 0);
+        assert_eq!(list.unverifiable.count, 1);
+        let item = &list.unverifiable.items[0];
+        assert_eq!(item.rule, "REPO-GIT-04");
+        assert_eq!(item.undecided, Some(Undecided::Structural));
+        assert!(
+            !item.gating,
+            "a gap the mandated credential can never observe does not gate"
+        );
+    }
+
+    #[test]
+    fn a_clear_lane_beside_a_structural_gap_still_names_the_gap() {
+        // "My lane is clear" must never be read as "the repository is
+        // aligned". The lane is clear and the rule is unverified, and the
+        // document has to say both.
+        let list = AgentWorkList::from_report(&report(vec![finding(
+            "REPO-GIT-04",
+            Status::Unobservable,
+            "required",
+            Some("api"),
+        )]));
+
+        assert_eq!(list.outcome, Outcome::AgentLaneClear);
+        assert_eq!(list.scope, "agent_lane_only_not_repository_conformance");
+        assert_eq!(list.unverifiable.count, 1);
+        let text = crate::render::agent_work_list_text(&list);
+        assert!(
+            text.contains("unverifiable with this credential (never gates) (1)"),
+            "{text}"
+        );
+        assert!(text.contains("REPO-GIT-04"), "{text}");
+        assert!(
+            text.contains("unverifiable with this credential: 1"),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn a_structural_gap_does_not_hide_a_circumstantial_one() {
+        let list = AgentWorkList::from_report(&report(vec![
+            finding("REPO-GIT-04", Status::Unobservable, "required", Some("api")),
+            finding("REPO-GIT-02", Status::Error, "blocking", None),
+        ]));
+
+        assert_eq!(list.outcome, Outcome::CouldNotSettle);
+        assert_eq!(list.exit_code(), 2);
+        assert_eq!(list.unverifiable.count, 1);
+        assert_eq!(list.unsettled.count, 1);
+        assert!(list.unsettled.items[0].gating);
     }
 
     #[test]

@@ -13,7 +13,7 @@
 //! what the run observed, so that a person can see what closing the gaps would
 //! take before anything is done about it.
 
-use crate::findings::{Report, Status};
+use crate::findings::{Report, Status, Undecided};
 use crate::remediation::Lane;
 
 /// One change airlock would make, and the observation that calls for it.
@@ -64,6 +64,23 @@ pub struct UndecidedRule<'a> {
     pub blocks_completeness: bool,
 }
 
+/// A rule this surface can never decide.
+///
+/// It proposes nothing and it answers nothing, and unlike an undecided rule
+/// there is no point looking again here: the credential this surface mandates
+/// is not allowed to see the fact. The move is to look from a surface that can
+/// — the interactive session — so the plan names the rule and says so.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UnverifiableRule<'a> {
+    /// The rule this surface cannot observe.
+    pub rule: &'a str,
+    /// The severity the effective policy graded the rule at.
+    pub severity: &'a str,
+    /// What the run said about why it could not be seen, when it said
+    /// anything.
+    pub detail: Option<&'a str>,
+}
+
 /// An open gap airlock declares it cannot close, and why.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UnclosableGap<'a> {
@@ -99,7 +116,18 @@ pub struct Plan<'a> {
     /// and silently dropped every non-gating undecided rule. Ask
     /// [`Self::is_incomplete`] for the gate question and read this list for
     /// the other.
+    ///
+    /// Rules this surface can never decide are not here; they are in
+    /// [`Self::unverifiable`], because "look again" is advice only one of the
+    /// two lists can act on.
     pub undecided: Vec<UndecidedRule<'a>>,
+    /// Every rule whose fact this surface's mandated credential can never
+    /// observe.
+    ///
+    /// Named for the same reason [`Self::undecided`] is — an unobserved rule
+    /// is not a passing rule — and separately, because these do not leave the
+    /// run incomplete and no retry here will change them.
+    pub unverifiable: Vec<UnverifiableRule<'a>>,
 }
 
 impl<'a> Plan<'a> {
@@ -120,19 +148,34 @@ impl<'a> Plan<'a> {
         let mut proposed = Vec::new();
         let mut unclosable = Vec::new();
         let mut undecided = Vec::new();
+        let mut unverifiable = Vec::new();
 
         for finding in &report.findings {
-            if finding.status.is_inconclusive() {
-                undecided.push(UndecidedRule {
-                    rule: &finding.rule,
-                    severity: &finding.severity,
-                    status: finding.status,
-                    // The audit's own completeness predicate, so a plan and
-                    // the report it came from cannot disagree about which
-                    // questions stop the run.
-                    blocks_completeness: finding.blocks_completeness(report.policy.gate),
-                });
-                continue;
+            // The audit's own typed distinction, so a plan and the report it
+            // came from cannot disagree about which unanswered questions stop
+            // the run and which are the surface working as mandated.
+            match finding.status.undecided() {
+                Some(Undecided::Structural) => {
+                    unverifiable.push(UnverifiableRule {
+                        rule: &finding.rule,
+                        severity: &finding.severity,
+                        detail: finding
+                            .evidence
+                            .as_ref()
+                            .map(|evidence| evidence.detail.as_str()),
+                    });
+                    continue;
+                }
+                Some(Undecided::Circumstantial) => {
+                    undecided.push(UndecidedRule {
+                        rule: &finding.rule,
+                        severity: &finding.severity,
+                        status: finding.status,
+                        blocks_completeness: finding.blocks_completeness(report.policy.gate),
+                    });
+                    continue;
+                }
+                None => {}
             }
             if !is_open_gap(finding.status) {
                 continue;
@@ -183,11 +226,13 @@ impl<'a> Plan<'a> {
                 .then_with(|| left.rule.cmp(right.rule))
         });
         unclosable.sort_by(|left, right| left.rule.cmp(right.rule));
+        unverifiable.sort_by(|left, right| left.rule.cmp(right.rule));
 
         Self {
             proposed,
             unclosable,
             undecided,
+            unverifiable,
         }
     }
 
@@ -396,6 +441,41 @@ mod tests {
         assert!(
             !plan.undecided[0].blocks_completeness,
             "it does not gate, and the plan must say so rather than omit it"
+        );
+    }
+
+    #[test]
+    fn a_rule_this_surface_can_never_see_is_named_separately_and_does_not_gate() {
+        let mut unobservable = finding("REPO-GIT-04", Status::Unobservable);
+        unobservable.evidence = Some(crate::findings::Evidence::new(
+            "merge_settings_unavailable",
+            "the merge-commit setting cannot be verified with this credential",
+        ));
+        let report = report(vec![unobservable]);
+        let plan = Plan::derive(&report);
+
+        assert!(
+            plan.proposed.is_empty(),
+            "there is no observed gap to close"
+        );
+        assert!(
+            plan.undecided.is_empty(),
+            "a rule no retry here can answer is not filed with the ones a retry could"
+        );
+        assert_eq!(plan.unverifiable.len(), 1);
+        assert_eq!(plan.unverifiable[0].rule, "REPO-GIT-04");
+        assert!(plan.unverifiable[0]
+            .detail
+            .expect("the run said why")
+            .contains("this credential"));
+        assert!(
+            !plan.is_incomplete(),
+            "the surface working as mandated does not make the run incomplete"
+        );
+        assert_eq!(
+            report.complete,
+            !plan.is_incomplete(),
+            "the plan and the report it came from must agree about the gate"
         );
     }
 

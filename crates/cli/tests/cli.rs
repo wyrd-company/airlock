@@ -1087,6 +1087,124 @@ async fn the_candidate_organisation_policy_compiles_and_resolves_its_reference_d
 }
 
 // ---------------------------------------------------------------------------
+// What the mandated credential can never see
+// ---------------------------------------------------------------------------
+
+/// The git section under the gate the standards policy declares. The three
+/// merge-behaviour rules in it are graded `required`, so under this gate they
+/// would stop the run if an unanswered question stopped it regardless of why
+/// it was unanswered.
+const GIT_POLICY: &str = "\
+version: 1
+name: test-policy
+gate: required
+capabilities:
+  base: [git]
+";
+
+/// The shape of every scheduled run: read-only facts, merge settings
+/// undisclosed because GitHub discloses them to write-capable tokens only, and
+/// everything else in order.
+fn scheduled_audit_repo() -> FakeRepo {
+    FakeRepo::new("wyrd-company", "example")
+        .with_conforming_org_ruleset()
+        .with_undisclosed_merge_settings()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_scheduled_audit_is_not_failed_by_settings_its_credential_can_never_read() {
+    // The audit refuses write-capable credentials and GitHub discloses merge
+    // settings to write-capable credentials only, so these three rules are
+    // unanswered on every scheduled run, permanently. A permanently red
+    // scheduled audit carries no information, so this must exit 0 — while
+    // still never claiming the rules passed.
+    let report = audit_json(scheduled_audit_repo(), GIT_POLICY, 0).await;
+
+    assert_eq!(report["outcome"], "conformant");
+    assert_eq!(report["complete"], true);
+    assert_eq!(report["summary"]["unobservable"], 3);
+    for rule in ["REPO-GIT-04", "REPO-GIT-05", "REPO-GIT-06"] {
+        let finding = finding(&report, rule);
+        assert_eq!(finding["status"], "unobservable", "{rule}");
+        assert_ne!(finding["status"], "pass", "{rule}");
+        assert_eq!(
+            finding["evidence"]["code"], "merge_settings_unavailable",
+            "{rule}"
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_truncated_tree_still_stops_a_run_whose_only_other_gaps_are_unobservable() {
+    // A truncated tree is a run that fell short of what it can normally do:
+    // the capability condition that selects the release rules was never
+    // settled. That is circumstantial, and it still exits 2 — the structural
+    // gaps sitting beside it do not soften it, and it does not gate them.
+    let repo = scheduled_audit_repo().with_truncated_tree();
+    let report = audit_json(repo, GIT_POLICY, 2).await;
+
+    assert_eq!(report["outcome"], "incomplete");
+    assert_eq!(report["complete"], false);
+    assert_eq!(
+        report["summary"]["unobservable"], 3,
+        "the structural gaps are still reported; they are simply not what stopped this"
+    );
+    let git09 = finding(&report, "REPO-GIT-09");
+    assert_eq!(git09["status"], "inconclusive");
+    assert_eq!(git09["evidence"]["code"], "condition_undecided");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_transient_api_failure_still_stops_a_run_whose_other_gaps_are_unobservable() {
+    let repo = scheduled_audit_repo().with_rulesets(Response::Status(
+        502,
+        serde_json::json!({ "message": "Server Error" }),
+    ));
+    let report = audit_json(repo, GIT_POLICY, 2).await;
+
+    assert_eq!(report["outcome"], "incomplete");
+    assert_eq!(report["complete"], false);
+    assert_eq!(report["summary"]["unobservable"], 3);
+    assert_eq!(finding(&report, "REPO-GIT-02")["status"], "error");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn agent_work_names_unverifiable_gaps_as_their_own_group_without_gating_on_them() {
+    let list = agent_work_json(scheduled_audit_repo(), GIT_POLICY, 0).await;
+
+    assert_eq!(list["outcome"], "agent_lane_clear");
+    assert_eq!(list["unverifiable"]["count"], 3);
+    assert_eq!(
+        list["unsettled"]["count"], 0,
+        "a gap no credential here can close is not a question to ask again"
+    );
+    for item in list["unverifiable"]["items"].as_array().unwrap() {
+        assert_eq!(item["status"], "unobservable");
+        assert_eq!(item["undecided"], "structural");
+        assert_eq!(item["gating"], false);
+        assert_eq!(item["evidence_code"], "merge_settings_unavailable");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn plan_names_what_this_surface_can_never_verify() {
+    let text = plan_text(scheduled_audit_repo(), GIT_POLICY).await;
+
+    assert!(text.contains("unverifiable here (3)"), "{text}");
+    for rule in ["REPO-GIT-04", "REPO-GIT-05", "REPO-GIT-06"] {
+        assert!(text.contains(rule), "{rule} must be named: {text}");
+    }
+    assert!(
+        text.contains("interactive session"),
+        "the plan must say where the answer lives: {text}"
+    );
+    assert!(
+        text.contains("Every rule the policy asked about was decided"),
+        "no circumstantial question was left open: {text}"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Incomplete input must never look like a clean audit
 // ---------------------------------------------------------------------------
 

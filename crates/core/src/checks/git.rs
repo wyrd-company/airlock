@@ -637,7 +637,7 @@ mod tests {
     }
 
     #[test]
-    fn undisclosed_merge_settings_make_all_merge_setting_rules_inconclusive() {
+    fn undisclosed_merge_settings_make_all_merge_setting_rules_unobservable() {
         let mut fixture = CheckFixture::new(&[]);
         fixture.snapshot.repository.allow_merge_commit = None;
         fixture.snapshot.repository.allow_squash_merge = None;
@@ -646,8 +646,8 @@ mod tests {
 
         for id in ["REPO-GIT-04", "REPO-GIT-05", "REPO-GIT-06"] {
             let verdict = evaluate(&rule(id), &context);
-            assert_eq!(verdict.status, Status::Inconclusive, "{id}");
-            let evidence = verdict.evidence.expect("inconclusive evidence");
+            assert_eq!(verdict.status, Status::Unobservable, "{id}");
+            let evidence = verdict.evidence.expect("unobservable evidence");
             assert_eq!(
                 evidence.code,
                 super::super::MERGE_SETTINGS_UNAVAILABLE,
