@@ -35,6 +35,7 @@ use crate::admin::sign_in::Reason;
 use super::detail;
 use super::findings;
 use super::organizations;
+use super::panel;
 use super::repositories::{self, Filter};
 use super::screen::{Key, Screen, INPUT_KEYS};
 use super::sign_in;
@@ -90,7 +91,7 @@ pub struct App {
     /// Where the operator is in the queue, and what it is showing.
     findings: findings::State,
     /// Where the operator is in a finding's reading.
-    detail: detail::State,
+    detail: panel::Scroll,
     /// The rule `o` last asked to be re-observed.
     ///
     /// The request, not a result. What a re-observation concluded is shown when
@@ -123,7 +124,7 @@ impl App {
             requested: None,
             queue: None,
             findings: findings::State::default(),
-            detail: detail::State::default(),
+            detail: panel::Scroll::default(),
             reobserve: None,
             note: None,
         }
@@ -178,7 +179,7 @@ impl App {
     ) {
         self.queue = Some(Box::new(findings::Queue::of(report, deliveries)));
         self.findings = findings::State::default();
-        self.detail = detail::State::default();
+        self.detail = panel::Scroll::default();
         self.reobserve = None;
         self.note = None;
     }
@@ -369,8 +370,8 @@ impl App {
     fn reading(&mut self, code: KeyCode) -> Option<Flow> {
         let rule = self.focused_row().map(|row| row.rule.clone());
         match code {
-            KeyCode::Up => self.detail.scroll(-1),
-            KeyCode::Down => self.detail.scroll(1),
+            KeyCode::Up => self.detail.by(-1),
+            KeyCode::Down => self.detail.by(1),
             // The transcript is reachable only where there is a settings-level
             // change to carry out. Elsewhere the status line says why rather
             // than the key silently doing nothing.

@@ -22,8 +22,6 @@
 //! Everything drawn here was sanitized where the run became a read model. This
 //! module takes values and returns lines; it asks nothing else a question.
 
-use std::cell::Cell;
-
 use ratatui::text::{Line, Span};
 
 use airlock_core::findings::{EffectiveRule, Finding, Status, Undecided};
@@ -32,7 +30,7 @@ use airlock_core::registry;
 use crate::admin::text::sanitize;
 
 use super::lane::{self, Lane};
-use super::panel::{self, field_at, heading, Provenance};
+use super::panel::{self, field_at, heading, Provenance, Scroll};
 use super::theme::{Role, Styles};
 
 /// The column every value on this screen starts in.
@@ -276,52 +274,6 @@ impl Detail {
     }
 }
 
-/// Where the operator is in a reading longer than the terminal is tall.
-///
-/// The extent is what the last frame actually drew, so a scroll is clamped to
-/// a reading that exists rather than to one guessed from a width this state
-/// does not know. Before a first frame there is nothing drawn and nothing to
-/// scroll, and the clamp says so by holding the offset at the top.
-#[derive(Debug, Clone, Default)]
-pub struct State {
-    offset: usize,
-    extent: Cell<Extent>,
-}
-
-/// The size of the last frame's reading, and the room it had.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-struct Extent {
-    length: usize,
-    room: usize,
-}
-
-impl State {
-    /// Where the window starts.
-    #[cfg_attr(not(test), allow(dead_code))]
-    #[must_use]
-    pub const fn offset(&self) -> usize {
-        self.offset
-    }
-
-    /// Move the window, never past either end of the reading.
-    pub fn scroll(&mut self, delta: isize) {
-        let extent = self.extent.get();
-        let last = extent.length.saturating_sub(extent.room);
-        self.offset = if delta < 0 {
-            self.offset.saturating_sub(delta.unsigned_abs())
-        } else {
-            self.offset.saturating_add(delta as usize)
-        }
-        .min(last);
-    }
-
-    /// Return to the top, which is where a different finding is read from.
-    pub fn rewind(&mut self) {
-        self.offset = 0;
-        self.extent.set(Extent::default());
-    }
-}
-
 /// The whole screen, windowed to the rows it has.
 ///
 /// The reading is composed in full and then windowed, never composed to fit:
@@ -334,35 +286,14 @@ pub fn body(
     height: u16,
     row: &super::findings::Row,
     provenance: &Provenance,
-    state: &State,
+    state: &Scroll,
 ) -> Vec<Line<'static>> {
     let width = width as usize;
-    let height = height as usize;
-    let all = regions(styles, width, row, provenance);
-    if all.len() <= height || height == 0 {
-        state.extent.set(Extent {
-            length: all.len(),
-            room: all.len(),
-        });
-        return all;
-    }
-    // One row is spent saying where the window is. A reader who cannot see
-    // that a screen continues reads what is on it as the whole of it.
-    let room = height - 1;
-    state.extent.set(Extent {
-        length: all.len(),
-        room,
-    });
-    let offset = state.offset.min(all.len() - room);
-    let mut lines: Vec<Line<'static>> = all[offset..offset + room].to_vec();
-    lines.push(Line::from(Span::styled(
-        format!(
-            "\u{2014} {offset} lines above \u{b7} {} below \u{b7} \u{2191}\u{2193} scrolls \u{2014}",
-            all.len() - offset - room
-        ),
-        styles.of(Role::Faint),
-    )));
-    lines
+    state.window(
+        regions(styles, width, row, provenance),
+        height as usize,
+        styles,
+    )
 }
 
 /// Every region, in the order the specification lists them.
@@ -923,7 +854,7 @@ mod tests {
             height,
             row,
             &queue.provenance,
-            &State::default(),
+            &Scroll::default(),
         ))
     }
 
@@ -1192,7 +1123,7 @@ mod tests {
         let report = fixture::mixed();
         let queue = queue(&report);
         let row = row_for(&queue, "REPO-GIT-01");
-        let mut state = State::default();
+        let mut state = Scroll::default();
         let height = FLOOR_HEIGHT - 3;
         for _ in 0..200 {
             let lines = body(
@@ -1204,7 +1135,7 @@ mod tests {
                 &state,
             );
             assert_eq!(lines.len(), height as usize);
-            state.scroll(1);
+            state.by(1);
         }
         // At the bottom, the last line of the reading is in view.
         let lines = body(
@@ -1218,7 +1149,7 @@ mod tests {
         let rendered = text(&lines);
         assert!(rendered.contains("0 below"), "{rendered}");
         for _ in 0..200 {
-            state.scroll(-1);
+            state.by(-1);
         }
         assert_eq!(state.offset(), 0);
     }
@@ -1234,7 +1165,7 @@ mod tests {
             REFERENCE_HEIGHT * 4,
             row,
             &queue.provenance,
-            &State::default(),
+            &Scroll::default(),
         );
         let rendered = text(&lines);
         assert!(!rendered.contains("lines above"), "{rendered}");
@@ -1255,14 +1186,6 @@ mod tests {
             !wide.contains('\u{2026}'),
             "nothing on this screen is elided: {wide}"
         );
-    }
-
-    #[test]
-    fn a_new_finding_is_read_from_the_top() {
-        let mut state = State::default();
-        state.scroll(5);
-        state.rewind();
-        assert_eq!(state.offset(), 0);
     }
 
     // -----------------------------------------------------------------

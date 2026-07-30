@@ -6,6 +6,8 @@
 //! a compile-time constant — and never the credential: the grant is printed by
 //! permission list and by source, and there is no value in scope to print.
 
+use std::cell::Cell;
+
 use ratatui::text::{Line, Span};
 
 use airlock_core::findings::Report;
@@ -40,6 +42,92 @@ pub const fn density(width: usize) -> Density {
         Density::Tight
     } else {
         Density::Full
+    }
+}
+
+/// Where the operator is in a reading longer than the terminal is tall.
+///
+/// Height is answered by scrolling rather than by the withholding rule that
+/// answers width: a rendering too wide cannot be drawn at all, and one too far
+/// down the screen can. Nothing is shortened or dropped to make a reading fit a
+/// height.
+///
+/// The extent is what the last frame actually drew, so a move is clamped to a
+/// reading that exists rather than to one guessed from a width this state does
+/// not know. Before a first frame there is nothing drawn and nothing to move
+/// over, and the clamp says so by holding the window at the top.
+#[derive(Debug, Clone, Default)]
+pub struct Scroll {
+    offset: usize,
+    extent: Cell<Extent>,
+}
+
+/// The size of the last frame's reading, and the room it had.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct Extent {
+    length: usize,
+    room: usize,
+}
+
+impl Scroll {
+    /// Where the window starts.
+    #[cfg_attr(not(test), allow(dead_code))]
+    #[must_use]
+    pub const fn offset(&self) -> usize {
+        self.offset
+    }
+
+    /// Move the window, never past either end of the reading.
+    pub fn by(&mut self, delta: isize) {
+        let extent = self.extent.get();
+        let last = extent.length.saturating_sub(extent.room);
+        self.offset = if delta < 0 {
+            self.offset.saturating_sub(delta.unsigned_abs())
+        } else {
+            self.offset.saturating_add(delta.unsigned_abs())
+        }
+        .min(last);
+    }
+
+    /// Return to the top, which is where a different reading starts.
+    pub fn rewind(&mut self) {
+        self.offset = 0;
+        self.extent.set(Extent::default());
+    }
+
+    /// The slice of a reading that is in view, and the note that says so.
+    ///
+    /// One row is spent saying where the window is, because a reader who cannot
+    /// see that a screen continues reads what is on it as the whole of it.
+    #[must_use]
+    pub fn window(
+        &self,
+        lines: Vec<Line<'static>>,
+        height: usize,
+        styles: Styles,
+    ) -> Vec<Line<'static>> {
+        if lines.len() <= height || height == 0 {
+            self.extent.set(Extent {
+                length: lines.len(),
+                room: lines.len(),
+            });
+            return lines;
+        }
+        let room = height - 1;
+        self.extent.set(Extent {
+            length: lines.len(),
+            room,
+        });
+        let offset = self.offset.min(lines.len() - room);
+        let below = lines.len() - offset - room;
+        let mut shown: Vec<Line<'static>> = lines[offset..offset + room].to_vec();
+        shown.push(Line::from(Span::styled(
+            format!(
+                "\u{2014} {offset} lines above \u{b7} {below} below \u{b7} \u{2191}\u{2193} moves the window \u{2014}"
+            ),
+            styles.of(Role::Faint),
+        )));
+        shown
     }
 }
 
@@ -313,6 +401,43 @@ mod tests {
         report.repository.settings_observed_at = None;
         let rendered = text(&Provenance::of(&report).lines(styles(), 120, LABEL_WIDTH));
         assert!(rendered.contains("not established"), "{rendered}");
+    }
+
+    #[test]
+    fn a_reading_that_fits_is_never_windowed_and_one_that_does_not_says_where_it_is() {
+        let lines: Vec<Line<'static>> = (0..40).map(|_| Line::raw("x")).collect();
+        let state = Scroll::default();
+        assert_eq!(state.window(lines.clone(), 40, styles()).len(), 40);
+        let shown = state.window(lines.clone(), 10, styles());
+        assert_eq!(shown.len(), 10);
+        assert!(text(&shown[9..]).contains("0 lines above"));
+        assert!(text(&shown[9..]).contains("31 below"));
+    }
+
+    #[test]
+    fn the_window_never_leaves_the_reading() {
+        let lines: Vec<Line<'static>> = (0..40).map(|_| Line::raw("x")).collect();
+        let mut state = Scroll::default();
+        for _ in 0..100 {
+            assert_eq!(state.window(lines.clone(), 10, styles()).len(), 10);
+            state.by(1);
+        }
+        assert_eq!(state.offset(), 40 - 9);
+        for _ in 0..100 {
+            state.by(-1);
+        }
+        assert_eq!(state.offset(), 0);
+    }
+
+    #[test]
+    fn a_new_reading_starts_at_its_top() {
+        let lines: Vec<Line<'static>> = (0..40).map(|_| Line::raw("x")).collect();
+        let mut state = Scroll::default();
+        let _ = state.window(lines, 10, styles());
+        state.by(5);
+        assert_eq!(state.offset(), 5);
+        state.rewind();
+        assert_eq!(state.offset(), 0);
     }
 
     #[test]
