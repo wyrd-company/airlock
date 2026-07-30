@@ -372,12 +372,31 @@ it needs no action. No other group starts collapsed.
 
 A filter narrows the working set across all groups: the whole working set,
 gating failures, undecided, all failures, or inert. The filter changes what is
-shown; it never changes a count in a group heading.
+shown; it never changes a count in a group heading. It selects between the five
+named sets rather than taking text, so nothing here captures a printable key and
+both chrome surfaces go on offering every key they offer.
+
+The per-group counts are carried by a standing tally above the queue as well as
+by the headings, so scrolling never takes a count off the screen. The narrower
+reading keys that tally by group number, which every heading carries.
+
+Every group heading is drawn whatever the filter and whatever is collapsed, so
+every group is addressable and an empty one states what would have populated it
+rather than being absent. The queue scrolls under them, and says how many
+entries lie above the window, how many below it, and the size of the working set
+against the whole.
+
+A row is one line where the width carries its whole reading and two where it
+does not; the section and the row's own fact take the second line rather than
+being elided away. Where a row carries such a fact — a delivery state, the grant
+a gated fact requires, why airlock declares no remediation — the statement is
+what is shortened for room, never the fact.
 
 A secondary view lists every finding flat, ordered by rule id. Its purpose is
 lookup — a predictable address for every rule, for answering what airlock says
 about a given rule id. It is reached by keystroke and is labelled as a lookup
-view.
+view. The filter does not narrow it: an address is only predictable if every
+rule has one.
 
 **Keymap.** `↑↓`/`j`/`k` move · `space` collapse or expand the focused group ·
 `↵` finding detail · `f` filter · `a` apply, on group 1 rows only · `l` flat
