@@ -679,6 +679,62 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    async fn a_loopback_host_cannot_redirect_the_flow_off_the_machine() {
+        // The console's half of the redirect property. The base URL is a
+        // validated loopback and stays one, so `is_loopback` is satisfied and
+        // says nothing useful: what would have left the machine is the second
+        // hop, which it never sees. Nothing that arrives from the far side may
+        // reach the screen, so the redirect has to be a reported interruption
+        // rather than an issued code.
+        let attacker = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "device_code": "chosen-by-the-redirect",
+                "user_code": "AAAA-AAAA",
+                "verification_uri": "https://attacker.example/login/device",
+                "expires_in": 900,
+                "interval": 0,
+            })))
+            .mount(&attacker)
+            .await;
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/login/device/code"))
+            .respond_with(ResponseTemplate::new(307).insert_header(
+                "location",
+                &*format!("{}/login/device/code", attacker.uri()),
+            ))
+            .mount(&server)
+            .await;
+
+        let authorizing = Authorizing::start(&server.uri()).expect("the flow starts");
+        assert!(
+            until(&authorizing, |report| is_progress(report, |progress| {
+                matches!(progress, Progress::Interrupted(_))
+            }))
+            .is_some(),
+            "the redirect is reported as an interruption"
+        );
+        assert!(
+            attacker
+                .received_requests()
+                .await
+                .unwrap_or_default()
+                .is_empty(),
+            "the flow followed a redirect off the host it validated"
+        );
+        // Nothing the far side wrote can be on screen, because nothing was ever
+        // asked for it.
+        assert!(
+            until(&authorizing, |report| is_progress(report, |progress| {
+                matches!(progress, Progress::CodeIssued(_))
+            }))
+            .is_none(),
+            "a code from the redirected host reached the interface"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
     async fn shutdown_stops_the_worker_rather_than_detaching_it() {
         // A server that accepts the poll and then says nothing for far longer
         // than any shutdown should wait. If the worker ran the request out, the

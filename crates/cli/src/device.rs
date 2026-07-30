@@ -155,6 +155,17 @@ impl DeviceFlow {
             // that happens before the bounded REST client exists.
             .connect_timeout(config.connect_timeout)
             .timeout(config.request_timeout)
+            // Every request here goes to the host airlock chose, and only to
+            // that host. A redirect is the server choosing the next one, and
+            // 307 and 308 carry the method and the body with them, so a single
+            // hop would put the device code — and, on the token route, the
+            // exchange that yields the credential — on a server airlock never
+            // agreed to talk to. The validation of the base URL would be
+            // untouched and irrelevant, because it says nothing about where a
+            // response can send the next request. A redirected answer is
+            // refused as a non-success status instead, which the caller already
+            // handles.
+            .redirect(reqwest::redirect::Policy::none())
             .build()
             .context("cannot build the http client")?;
         Ok(Self {
@@ -465,6 +476,163 @@ mod tests {
             error.to_string().contains("cannot reach"),
             "unexpected error: {error:#}"
         );
+    }
+
+    /// A server airlock never chose, mounted to answer anything a follower
+    /// would send it, and watched to prove nothing did.
+    ///
+    /// It answers plausibly on purpose: a test where the second host refuses
+    /// would pass for the wrong reason, because the assertion is that the
+    /// request never arrives, not that it fails when it does.
+    async fn elsewhere(answer: serde_json::Value) -> MockServer {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(answer))
+            .mount(&server)
+            .await;
+        server
+    }
+
+    /// A route that hands the caller to another host.
+    async fn mount_redirect(server: &MockServer, route: &str, status: u16, target: &MockServer) {
+        let location = format!("{}{route}", target.uri());
+        Mock::given(method("POST"))
+            .and(path(route.to_owned()))
+            .respond_with(ResponseTemplate::new(status).insert_header("location", &*location))
+            .mount(server)
+            .await;
+    }
+
+    /// Whether the host airlock never chose was ever spoken to.
+    async fn was_visited(server: &MockServer) -> bool {
+        !server
+            .received_requests()
+            .await
+            .unwrap_or_default()
+            .is_empty()
+    }
+
+    #[tokio::test]
+    async fn a_redirected_device_code_request_is_refused_rather_than_followed() {
+        // 307 preserves the method and the body, so a followed redirect would
+        // repost the request to whoever answered — and the response driving the
+        // screen, the address, and the scan code would be theirs. Validating the
+        // base URL says nothing about this: the first hop is the only one it
+        // ever sees.
+        let attacker = elsewhere(serde_json::json!({
+            "device_code": "chosen-by-the-redirect",
+            "user_code": "AAAA-AAAA",
+            "verification_uri": "https://attacker.example/login/device",
+            "expires_in": 900,
+            "interval": 5,
+        }))
+        .await;
+        let server = MockServer::start().await;
+        mount_redirect(&server, "/login/device/code", 307, &attacker).await;
+
+        let error = impatient(&server)
+            .request_codes()
+            .await
+            .expect_err("a redirect is not a device code response");
+
+        assert!(
+            format!("{error:#}").contains("307"),
+            "the redirect is reported as the non-answer it is: {error:#}"
+        );
+        assert!(
+            !was_visited(&attacker).await,
+            "the device code request left the host airlock chose"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_redirected_poll_never_carries_the_device_code_to_another_host() {
+        // The same hop on the token route is worse: the body carries the device
+        // code, and the answer is the credential itself.
+        let attacker = elsewhere(serde_json::json!({ "access_token": "ghu_attacker" })).await;
+        let server = MockServer::start().await;
+        mount_redirect(&server, "/login/oauth/access_token", 308, &attacker).await;
+
+        let error = impatient(&server)
+            .poll_once("device-code-that-must-not-travel")
+            .await
+            .expect_err("a redirect is not a token response");
+
+        assert!(
+            format!("{error:#}").contains("308"),
+            "the redirect is reported as the non-answer it is: {error:#}"
+        );
+        assert!(
+            !was_visited(&attacker).await,
+            "the poll carried the device code to a host airlock never chose"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_redirected_refresh_stays_on_the_host_airlock_chose() {
+        // The third route through `post`, asserted so the property is about the
+        // client rather than about two call sites that happen to be covered.
+        let attacker = elsewhere(serde_json::json!({ "access_token": "ghu_attacker" })).await;
+        let server = MockServer::start().await;
+        mount_redirect(&server, "/login/oauth/access_token", 302, &attacker).await;
+
+        let error = impatient(&server)
+            .refresh("ghr_must_not_travel")
+            .await
+            .expect_err("a redirect is not a refresh response");
+
+        assert!(format!("{error:#}").contains("302"), "{error:#}");
+        assert!(
+            !was_visited(&attacker).await,
+            "the refresh token reached a host airlock never chose"
+        );
+    }
+
+    #[tokio::test]
+    async fn no_redirect_status_is_followed_by_either_endpoint() {
+        // The three tests above name the two statuses that replay the body,
+        // because those are the ones that carry a credential-shaped value to
+        // the next host. They are not the whole of it: 301, 302, and 303 turn
+        // the request into a GET and drop the form, which loses the device code
+        // but still hands the next hop — and therefore the answer the screen
+        // believes — to a host airlock never chose. The property is that none
+        // of them is followed, so it is asserted as none of them.
+        for status in [301u16, 302, 303, 307, 308] {
+            for route in ["/login/device/code", "/login/oauth/access_token"] {
+                let attacker = elsewhere(serde_json::json!({
+                    "device_code": "chosen-by-the-redirect",
+                    "user_code": "AAAA-AAAA",
+                    "verification_uri": "https://attacker.example/login/device",
+                    "expires_in": 900,
+                    "interval": 5,
+                    "access_token": "ghu_attacker",
+                }))
+                .await;
+                let server = MockServer::start().await;
+                mount_redirect(&server, route, status, &attacker).await;
+                let flow = impatient(&server);
+
+                let reported = if route == "/login/device/code" {
+                    format!("{:#}", flow.request_codes().await.expect_err("refused"))
+                } else {
+                    format!(
+                        "{:#}",
+                        flow.poll_once("device-code-that-must-not-travel")
+                            .await
+                            .expect_err("refused")
+                    )
+                };
+
+                assert!(
+                    reported.contains(&status.to_string()),
+                    "{route} answered {status} and it was not reported as such: {reported}"
+                );
+                assert!(
+                    !was_visited(&attacker).await,
+                    "{route} followed a {status} to a host airlock never chose"
+                );
+            }
+        }
     }
 
     #[tokio::test]
