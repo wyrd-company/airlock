@@ -437,11 +437,24 @@ pub fn plan_text(report: &Report) -> String {
     // looked where it had not.
     out.push('\n');
     if plan.undecided.is_empty() {
-        let _ = writeln!(
-            out,
-            "Every rule the policy asked about was decided, so this names every \
-             gap it\nfound."
-        );
+        // "Nothing this surface could ask went unanswered" and "every rule was
+        // decided" are different claims, and a plan that has just listed rules
+        // it cannot ask may only make the first one.
+        if plan.unverifiable.is_empty() {
+            let _ = writeln!(
+                out,
+                "Every rule the policy asked about was decided, so this names every \
+                 gap it\nfound."
+            );
+        } else {
+            let _ = writeln!(
+                out,
+                "Every question this surface can ask was answered. The {} rule(s) above \
+                 that\nit cannot ask remain undecided, so this names every gap it could \
+                 see — not\nevery gap there is.",
+                plan.unverifiable.len()
+            );
+        }
     } else {
         let _ = writeln!(
             out,
@@ -723,6 +736,36 @@ mod tests {
     fn the_plan_reports_the_completeness_of_the_observation_it_came_from() {
         let text = plan_text(&report());
         assert!(text.contains("Every rule the policy asked about was decided"));
+    }
+
+    #[test]
+    fn a_plan_holding_a_rule_it_cannot_ask_about_never_claims_everything_was_decided() {
+        let mut source = report();
+        source.findings[0].rule = "REPO-GIT-04".to_owned();
+        source.findings[0].status = Status::Unobservable;
+        let unobservable = crate::findings::Report::assemble(
+            source.airlock.clone(),
+            source.repository.clone(),
+            source.observation.clone(),
+            source.policy.clone(),
+            Vec::new(),
+            Vec::new(),
+            source.findings.clone(),
+        );
+
+        let text = plan_text(&unobservable);
+        assert!(
+            !text.contains("Every rule the policy asked about was decided"),
+            "one rule is undecided, and the plan has just said so: {text}"
+        );
+        assert!(
+            text.contains("Every question this surface can ask was answered"),
+            "{text}"
+        );
+        assert!(
+            text.contains("not\nevery gap there is"),
+            "the plan states the limit of what it names: {text}"
+        );
     }
 
     #[test]

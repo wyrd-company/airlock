@@ -1206,9 +1206,16 @@ async fn plan_names_what_this_surface_can_never_verify() {
         text.contains(surface.guidance()),
         "the plan must say where the answer lives, in the declaration's words: {text}"
     );
+    // The plan has just listed three rules it cannot ask about, so it may say
+    // that nothing it could ask went unanswered, and it may not say that
+    // everything was decided.
     assert!(
-        text.contains("Every rule the policy asked about was decided"),
+        text.contains("Every question this surface can ask was answered"),
         "no circumstantial question was left open: {text}"
+    );
+    assert!(
+        !text.contains("Every rule the policy asked about was decided"),
+        "three rules remain undecided, so the plan must not claim otherwise: {text}"
     );
 }
 

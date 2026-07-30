@@ -170,9 +170,14 @@ airlock align-files wyrd-company/airlock --working-tree .
 
 | Code | Outcome         | Meaning                                                  |
 | ---- | --------------- | -------------------------------------------------------- |
-| `0`  | `conformant`    | Every enabled rule was decided; the gate is satisfied     |
-| `1`  | `nonconformant` | Every enabled rule was decided; a gating rule failed      |
-| `2`  | `incomplete`    | A gating rule was left undecided, or the run never started |
+| `0`  | `conformant`    | Every question this run could settle was settled; the gate is satisfied |
+| `1`  | `nonconformant` | Every question this run could settle was settled; a gating rule failed |
+| `2`  | `incomplete`    | This run left a gating rule undecided, or never started    |
+
+A rule behind a declared disclosure gate is one this run could never settle. It
+is reported `unobservable`, named as its own group, and counted against no exit
+code — codes `0` and `1` therefore mean "nothing this run could answer went
+unanswered", never "every rule was decided".
 
 On Unix, a closed output pipe terminates silently on signal 13 (`SIGPIPE`),
 commonly reported by shells as status 141.
@@ -190,8 +195,8 @@ Operator-setting failures are always counted and identified in
 `operator_deferred`, but do not change code `0` to code `1`. Code `0` therefore
 means only “my lane is clear”; it never means “the repository is aligned.”
 
-The distinction is the point. An audit that could not evaluate an enabled rule
-— because it is not built yet, because a bounded scan ran out of budget, or
+The distinction is the point. An audit that fell short of evaluating an enabled
+rule — because it is not built yet, because a bounded scan ran out of budget, or
 because GitHub refused the request — never reports success. Every rule the
 policy enables produces exactly one finding, with one of nine statuses:
 

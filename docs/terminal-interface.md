@@ -134,18 +134,30 @@ reads at a glance and survives monochrome: `███ blocking`, `██░ requ
 The gate is severity times status. Severity alone is not consequence, and
 status alone is not consequence. A `fail` at `observation` severity is real
 information that stops nothing; an `inconclusive` at `observation` severity
-leaves the run complete. Rows that actually gate the run carry a solid left
-rail; nothing else does.
+leaves the run complete. Nor is the undecided lane one consequence: a rule left
+undecided because this run fell short of what it can normally do gates at a
+gating severity, and one left undecided because the rule's declared disclosure
+gate withholds the fact from this credential never does, at any severity. Rows
+that actually gate the run carry a solid left rail; nothing else does.
 
 The gate is a property of the effective policy, not of the session. The
 interface displays which gate is in force and never offers to change it.
 
 `complete` and `conformant` are separate facts and are always printed
-separately. A run is incomplete when a rule at a gating severity ended in the
-undecided lane. A run is nonconformant when a rule at a gating severity ended
+separately. A run is incomplete when a rule at a gating severity ended
+undecided because the run fell short: `unimplemented`, `inconclusive`, or
+`error`. An `unobservable` rule ended undecided because its declared disclosure
+gate withholds the fact from the observing credential; a permanently
+unanswerable question carries no information, so it leaves the run complete at
+every severity. A run is nonconformant when a rule at a gating severity ended
 in `fail`. Incompleteness outranks nonconformance in the verdict, which is one
-of `conformant`, `nonconformant`, or `incomplete`. An unanswered question is
-not a clean repository.
+of `conformant`, `nonconformant`, or `incomplete`.
+
+An unanswered question is still not a clean repository, whichever kind it is.
+`conformant` therefore states that nothing the run could answer went
+unanswered and the gate is satisfied — never that every rule was decided. The
+verdict region says so whenever the not-verifiable-here group is populated, and
+names the count.
 
 ## Emptiness
 
@@ -260,7 +272,9 @@ it.
 **Content.** Above the queue, unchanged by anything below it:
 
 - The verdict, its glyph, and the reason for it, stating `complete` and
-  `conformant` as separate facts.
+  `conformant` as separate facts. Where any rule ended `unobservable`, the
+  verdict states their count and that they are unanswered, so a `conformant`
+  verdict is never read as every rule having been decided.
 - The status summary — every one of the nine statuses with its glyph, its
   count, and its lane, under the three lane headings `DECIDED · GATING`
   (counts toward the verdict), `DECIDED · INERT` (never gates), and
@@ -269,10 +283,12 @@ it.
   qualifier, because an undecided result at a severity the effective gate does
   not enforce leaves the run complete, and so does one no credential here could
   ever have settled.
-- When a rule at a gating severity could not be evaluated, a blocker banner
-  naming each such rule, its status, and why it could not be evaluated. The
-  banner states that `complete` is false and that no verdict below it can be
-  certified.
+- When this run fell short of evaluating a rule at a gating severity, a blocker
+  banner naming each such rule, its status, and what stopped it. The banner
+  states that `complete` is false and that no verdict below it can be certified.
+  A rule its declared disclosure gate withholds is not a blocker and is never
+  named here: the run is complete, and the not-verifiable-here group is where it
+  is accounted for.
 
 The queue itself is eight groups, in this order. Each group heading carries
 its count and a one-line gloss of the work:
