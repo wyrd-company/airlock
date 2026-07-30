@@ -304,7 +304,8 @@ fn regions(
     provenance: &Provenance,
 ) -> Vec<Line<'static>> {
     let detail = &row.detail;
-    let mut lines = vec![identity(styles, row), gate_note(styles, width, row)];
+    let mut lines = vec![identity(styles, row)];
+    lines.extend(gate_note(styles, width, row));
     lines.push(Line::default());
     for part in super::chrome::wrap(&row.statement, width) {
         lines.push(Line::from(Span::styled(part, styles.of(Role::Text))));
@@ -354,8 +355,16 @@ fn identity(styles: Styles, row: &super::findings::Row) -> Line<'static> {
 }
 
 /// Whether this finding gates the run, and why.
-fn gate_note(styles: Styles, width: usize, row: &super::findings::Row) -> Line<'static> {
-    let text = if row.gates() {
+fn gate_note(styles: Styles, width: usize, row: &super::findings::Row) -> Vec<Line<'static>> {
+    let text = if row.gates() && row.status.undecided().is_some() {
+        format!(
+            "gates the run: {} at {} severity, which the {} gate enforces, so complete \
+             is false and no verdict can be certified",
+            row.status.code(),
+            row.severity.code(),
+            row.gate.code()
+        )
+    } else if row.gates() {
         format!(
             "gates the run: {} at {} severity, which the {} gate enforces",
             row.status.code(),
@@ -387,10 +396,10 @@ fn gate_note(styles: Styles, width: usize, row: &super::findings::Row) -> Line<'
             row.severity.code()
         )
     };
-    Line::from(Span::styled(
-        super::chrome::fit(&text, width),
-        styles.of(Role::Dim),
-    ))
+    super::chrome::wrap(&text, width)
+        .into_iter()
+        .map(|part| Line::from(Span::styled(part, styles.of(Role::Dim))))
+        .collect()
 }
 
 /// What was observed, or the statement that nothing was and why.
@@ -682,15 +691,16 @@ pub fn status(row: &super::findings::Row) -> String {
         Lane::Inert => "decided \u{b7} inert",
         Lane::Undecided => "undecided",
     };
-    let effect = if row.gates() {
-        "gates the run".to_owned()
-    } else if row.status.undecided().is_some() {
-        format!(
-            "complete: false is not set by this rule under the {} gate",
-            row.gate.code()
-        )
-    } else {
-        "does not gate".to_owned()
+    // Undecided is asked first, because what an unanswered question does to a
+    // run is decided before what a decided one does: it sets complete, and
+    // incompleteness outranks nonconformance.
+    let effect = match row.status.undecided() {
+        Some(Undecided::Circumstantial) if row.gate.enforces(row.severity) => {
+            "complete: false".to_owned()
+        }
+        Some(_) => "the run stays complete \u{b7} the question is still unanswered".to_owned(),
+        None if row.gates() => "gates the run".to_owned(),
+        None => "does not gate".to_owned(),
     };
     let mut text = format!("{lane} \u{b7} {effect}");
     if let Some(suppression) = row.detail.suppression.as_ref() {
@@ -1169,6 +1179,32 @@ mod tests {
         );
         let rendered = text(&lines);
         assert!(!rendered.contains("lines above"), "{rendered}");
+    }
+
+    #[test]
+    fn nothing_on_this_screen_is_ever_elided() {
+        // The queue elides a statement to keep a fact. Here there is nothing to
+        // keep room for: the reading is whole at every width, and a mark that
+        // said something was dropped would be the one thing this screen is for
+        // failing to do.
+        for report in [
+            fixture::mixed(),
+            fixture::incomplete(),
+            fixture::long_fact(),
+            only(fixture::suppressed()),
+        ] {
+            let queue = queue(&report);
+            for row in &queue.rows {
+                for width in [REFERENCE_WIDTH, FLOOR_WIDTH] {
+                    let rendered = text(&regions(styles(), width as usize, row, &queue.provenance));
+                    assert!(
+                        !rendered.contains('\u{2026}'),
+                        "{} at {width}: {rendered}",
+                        row.rule
+                    );
+                }
+            }
+        }
     }
 
     #[test]
