@@ -8,6 +8,7 @@
 
 mod app;
 mod chrome;
+mod findings;
 mod lane;
 mod organizations;
 mod panel;

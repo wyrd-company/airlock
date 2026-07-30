@@ -22,7 +22,7 @@ UNDECIDED
 SEVERITY  ███ blocking   ██░ required   █░░ observation                         
 ▌ a solid left rail marks a row that actually gates the run                     
 — 10 more lines withheld: this screen needs 30 rows and has 21 —                
-↑↓ move · space collapse or expand · ↵ finding detail · f filter · 7 more…      
+↑↓/j/k move · space collapse or expand · ↵ finding detail · f filter · 7 more…  
 no repository observed · this shell renders the frame only · tty required       
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
@@ -47,7 +47,7 @@ dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 ffffffffddddddjjjjjjjjzzzddddjjjjjjjjzzzddddjjjjjjjjjjjddddddddddddddddddddddddd
 kkAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAddddddddddddddddddddd
 AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAdddddddddddddddd
-ccdjjjjzzzcccccdjjjjjjjjjjjjjjjjjjzzzcdjjjjjjjjjjjjjjzzzcdjjjjjjzzzAAAAAAAdddddd
+ccccccdjjjjzzzcccccdjjjjjjjjjjjjjjjjjjzzzcdjjjjjjjjjjjjjjzzzcdjjjjjjzzzAAAAAAAdd
 BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB
 --- legend ---
 a fg=#2B2822 bg=#EDE8DD BOLD

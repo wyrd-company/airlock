@@ -38,7 +38,7 @@ next            navigate with ↵ and esc to read the frame on every screen, pre
                                                                                                                         
                                                                                                                         
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-↑↓ move · space collapse or expand · ↵ finding detail · f filter · a apply · l flat list · p policy inspector · 4 more… 
+↑↓/j/k move · space collapse or expand · ↵ finding detail · f filter · a apply · l flat list · 5 more…                  
 no repository observed · this shell renders the frame only · tty required                                               
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
@@ -79,7 +79,7 @@ eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-ddellllhhhdddddellllllllllllllllllhhhdellllllllllllllhhhdellllllhhhdelllllhhhdelllllllllhhhdellllllllllllllllhhhCCCCCCCe
+ddddddellllhhhdddddellllllllllllllllllhhhdellllllllllllllhhhdellllllhhhdelllllhhhdelllllllllhhhCCCCCCCeeeeeeeeeeeeeeeeee
 DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD
 --- legend ---
 a fg=#CBD3DD bg=#14181D BOLD

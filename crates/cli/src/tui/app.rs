@@ -32,6 +32,7 @@ use crate::admin::catalogue::{self, Observations, Observe, Row};
 use crate::admin::flow::Progress;
 use crate::admin::sign_in::Reason;
 
+use super::findings;
 use super::organizations;
 use super::repositories::{self, Filter};
 use super::screen::{Key, Screen, INPUT_KEYS};
@@ -71,6 +72,19 @@ pub struct App {
     observations: Observations,
     /// The observation the last `↵` on a repository asked for.
     requested: Option<Observe>,
+    /// The run the findings screen draws, once one has been observed.
+    ///
+    /// A read model rather than the audit document: it is built at one
+    /// boundary, which is where every string the run did not write itself is
+    /// made safe to draw.
+    queue: Option<Box<findings::Queue>>,
+    /// Where the operator is in the queue, and what it is showing.
+    findings: findings::State,
+    /// What the status line says about the key just pressed, for one frame.
+    ///
+    /// A key the screen lists and that does nothing on this row says why rather
+    /// than silently doing nothing.
+    note: Option<String>,
 }
 
 impl App {
@@ -90,6 +104,9 @@ impl App {
             filter: Filter::default(),
             observations: Observations::default(),
             requested: None,
+            queue: None,
+            findings: findings::State::default(),
+            note: None,
         }
     }
 
@@ -125,6 +142,24 @@ impl App {
     #[must_use]
     pub const fn requested(&self) -> Option<&Observe> {
         self.requested.as_ref()
+    }
+
+    /// Take a run onto the findings screen.
+    ///
+    /// The one way the queue is populated, and the one boundary at which the
+    /// audit document becomes something this type draws: what it keeps is a
+    /// read model whose every server-supplied string was sanitized on the way
+    /// in. The position is reset, because a position in one repository's queue
+    /// is not a position in another's.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn observed_run(
+        &mut self,
+        report: &airlock_core::findings::Report,
+        deliveries: &findings::Deliveries,
+    ) {
+        self.queue = Some(Box::new(findings::Queue::of(report, deliveries)));
+        self.findings = findings::State::default();
+        self.note = None;
     }
 
     /// Open the interface with the sign-in flow in a given state.
@@ -190,6 +225,14 @@ impl App {
         if self.screen == Screen::Repositories && self.filter.is_open() {
             return self.filtering(event.code);
         }
+        // A note stands for one frame: it answers the key that was just
+        // pressed, and the next key is a different question.
+        self.note = None;
+        if self.screen == Screen::Findings {
+            if let Some(flow) = self.working(event.code) {
+                return flow;
+            }
+        }
         match event.code {
             KeyCode::Char('t') => self.theme = self.theme.toggled(),
             KeyCode::Enter => return self.forward(),
@@ -224,6 +267,68 @@ impl App {
             _ => {}
         }
         Flow::Continue
+    }
+
+    /// Keys the work queue takes for itself.
+    ///
+    /// `None` hands the key back to the screen-independent reading, which is
+    /// how `t`, `esc`, `p`, and `b` keep meaning what they mean here. Nothing in
+    /// this state captures a printable key as text, so both chrome surfaces go
+    /// on offering everything they offer.
+    ///
+    /// `a` is answered whether or not a run has been observed, because a key
+    /// the footer lists and that silently does nothing is a key the operator
+    /// presses again.
+    fn working(&mut self, code: KeyCode) -> Option<Flow> {
+        if matches!(code, KeyCode::Char('a')) {
+            let settings = self.focused_row().is_some_and(|row| {
+                row.group == findings::Group::Settings && row.status == Status::Fail
+            });
+            if settings {
+                self.screen = Screen::Remediation;
+            } else {
+                self.note = Some(findings::inert_apply());
+            }
+            return Some(Flow::Continue);
+        }
+        let queue = self.queue.as_deref()?;
+        let entries = findings::entries(queue, &self.findings);
+        match code {
+            KeyCode::Up | KeyCode::Char('k') => self.findings.move_selection(-1, entries.len()),
+            KeyCode::Down | KeyCode::Char('j') => self.findings.move_selection(1, entries.len()),
+            // Collapse is about the focused group, whether the focus is on its
+            // heading or on a row inside it. Collapsing puts the focus on the
+            // heading, because that is where the group now is.
+            KeyCode::Char(' ') if !self.findings.flat() => {
+                if let Some(group) =
+                    findings::focused_group(queue, &entries, self.findings.selected())
+                {
+                    self.findings
+                        .toggle(group, findings::heading_index(&entries, group));
+                }
+            }
+            KeyCode::Char('f') => self.findings.cycle_filter(),
+            KeyCode::Char('l') => self.findings.toggle_flat(),
+            // A group heading opens nothing: there is no finding under the
+            // focus to show a detail of.
+            KeyCode::Enter => {
+                if findings::focused_row(queue, &entries, self.findings.selected()).is_some() {
+                    self.screen = Screen::FindingDetail;
+                }
+            }
+            _ => return None,
+        }
+        let queue = self.queue.as_deref()?;
+        self.findings
+            .clamp(findings::entries(queue, &self.findings).len());
+        Some(Flow::Continue)
+    }
+
+    /// The row the queue's focus is on, when it is on one.
+    fn focused_row(&self) -> Option<&findings::Row> {
+        let queue = self.queue.as_deref()?;
+        let entries = findings::entries(queue, &self.findings);
+        findings::focused_row(queue, &entries, self.findings.selected())
     }
 
     /// Keys while the repository filter is open.
@@ -519,9 +624,16 @@ impl App {
     /// Two screens now know something the shell did not, and they say it. The
     /// rest still state that nothing has been observed, which remains true.
     fn status(&self) -> String {
+        if let Some(note) = &self.note {
+            return note.clone();
+        }
         match self.screen {
             Screen::Organizations => organizations::status(&self.catalogue),
             Screen::Repositories => repositories::status(self.visible_rows().len(), self.reach()),
+            Screen::Findings => self
+                .queue
+                .as_deref()
+                .map_or_else(|| chrome::status_text(Screen::Findings), findings::status),
             other => chrome::status_text(other),
         }
     }
@@ -549,6 +661,11 @@ impl App {
                     selected: self.repository,
                 },
             );
+        }
+        if self.screen == Screen::Findings {
+            if let Some(queue) = self.queue.as_deref() {
+                return findings::body(styles, width, height, queue, &self.findings);
+            }
         }
         let width = width as usize;
         let mut lines = vec![Line::from(Span::styled(
@@ -698,8 +815,12 @@ impl App {
 
 impl Screen {
     /// Whether `a` reaches the remediation transcript from here.
+    ///
+    /// The findings screen is not on this list: there, `a` is a property of the
+    /// focused row rather than of the screen, and it is answered before this is
+    /// ever asked.
     const fn remediation_reachable(self) -> bool {
-        matches!(self, Screen::Findings | Screen::FindingDetail)
+        matches!(self, Screen::FindingDetail)
     }
 }
 
@@ -792,7 +913,6 @@ mod tests {
     #[test]
     fn the_screens_hung_off_findings_are_reachable_and_return_to_it() {
         for (code, expected) in [
-            (KeyCode::Char('a'), Screen::Remediation),
             (KeyCode::Char('p'), Screen::PolicyInspector),
             (KeyCode::Char('b'), Screen::PublishingBootstrap),
         ] {
@@ -806,15 +926,14 @@ mod tests {
 
     #[test]
     fn apply_is_inert_where_the_specification_says_it_is() {
+        // On the findings screen `a` is a property of the focused row rather
+        // than of the screen, and an unobserved screen has no row to apply
+        // anything to. Every other screen but the finding detail is inert.
         for screen in Screen::ALL {
             let mut app = app().at(screen, Theme::Dark);
             press(&mut app, KeyCode::Char('a'));
             let moved = app.screen() != screen;
-            assert_eq!(
-                moved,
-                matches!(screen, Screen::Findings | Screen::FindingDetail),
-                "{screen:?}"
-            );
+            assert_eq!(moved, screen == Screen::FindingDetail, "{screen:?}");
             if moved {
                 assert_eq!(app.screen(), Screen::Remediation, "{screen:?}");
             }
@@ -1336,6 +1455,212 @@ mod tests {
         // The selected installation is the one the repositories screen is
         // about, and the catalogue it draws from is the same one.
         assert_eq!(selected(&app).installations().len(), 1);
+    }
+
+    // ---------------------------------------------------------------------
+    // The work queue
+    // ---------------------------------------------------------------------
+
+    fn observed() -> App {
+        let mut app = app().at(Screen::Findings, Theme::Dark);
+        app.observed_run(
+            &findings::fixture::mixed(),
+            &findings::fixture::deliveries(),
+        );
+        app
+    }
+
+    /// Move the focus onto the first row of a group.
+    fn focus(app: &mut App, group: findings::Group) {
+        let queue = app.queue.as_deref().expect("a run is on screen");
+        let entries = findings::entries(queue, &app.findings);
+        let index = entries
+            .iter()
+            .position(|entry| match entry {
+                findings::Entry::Row(index) => queue.rows[*index].group == group,
+                findings::Entry::Heading(_) => false,
+            })
+            .expect("the group holds a row");
+        for _ in 0..index {
+            press(app, KeyCode::Down);
+        }
+    }
+
+    #[test]
+    fn a_run_reaches_the_screen_as_the_queue_and_replaces_the_emptiness() {
+        let app = observed();
+        let text = body_text(&app);
+        assert!(text.contains("VERDICT"), "{text}");
+        assert!(!text.contains("NOTHING OBSERVED YET"), "{text}");
+        for group in findings::Group::ALL.iter().take(2) {
+            assert!(text.contains(group.heading()), "{group:?}");
+        }
+    }
+
+    #[test]
+    fn the_queue_moves_on_the_arrows_and_on_j_and_k() {
+        let mut app = observed();
+        assert_eq!(app.findings.selected(), 0);
+        press(&mut app, KeyCode::Char('j'));
+        assert_eq!(app.findings.selected(), 1);
+        press(&mut app, KeyCode::Down);
+        assert_eq!(app.findings.selected(), 2);
+        press(&mut app, KeyCode::Char('k'));
+        assert_eq!(app.findings.selected(), 1);
+        press(&mut app, KeyCode::Up);
+        press(&mut app, KeyCode::Up);
+        assert_eq!(
+            app.findings.selected(),
+            0,
+            "the top of the queue is the top"
+        );
+    }
+
+    #[test]
+    fn space_collapses_the_focused_group_and_no_count_moves() {
+        let mut app = observed();
+        let before = app
+            .queue
+            .as_deref()
+            .expect("a run")
+            .count(findings::Group::Settings);
+        press(&mut app, KeyCode::Char(' '));
+        assert!(app.findings.is_collapsed(findings::Group::Settings));
+        assert_eq!(
+            app.queue
+                .as_deref()
+                .expect("a run")
+                .count(findings::Group::Settings),
+            before,
+            "collapsing is screen space, never a count"
+        );
+        press(&mut app, KeyCode::Char(' '));
+        assert!(!app.findings.is_collapsed(findings::Group::Settings));
+    }
+
+    #[test]
+    fn collapsing_from_inside_a_group_leaves_the_focus_on_its_heading() {
+        let mut app = observed();
+        focus(&mut app, findings::Group::AgentWork);
+        press(&mut app, KeyCode::Char(' '));
+        assert!(app.findings.is_collapsed(findings::Group::AgentWork));
+        let queue = app.queue.as_deref().expect("a run");
+        let entries = findings::entries(queue, &app.findings);
+        assert_eq!(
+            entries[app.findings.selected()],
+            findings::Entry::Heading(findings::Group::AgentWork)
+        );
+    }
+
+    #[test]
+    fn apply_acts_only_on_a_settings_row_and_says_why_everywhere_else() {
+        let mut app = observed();
+        // The focus opens on the first group's heading, which is not a row.
+        press(&mut app, KeyCode::Char('a'));
+        assert_eq!(app.screen(), Screen::Findings);
+        assert!(
+            app.status().contains("only on a row in group 1"),
+            "{}",
+            app.status()
+        );
+
+        let mut app = observed();
+        focus(&mut app, findings::Group::AgentWork);
+        press(&mut app, KeyCode::Char('a'));
+        assert_eq!(
+            app.screen(),
+            Screen::Findings,
+            "a file-level gap is shown here and acted on nowhere"
+        );
+        assert!(app.status().contains("writes a file"), "{}", app.status());
+
+        let mut app = observed();
+        focus(&mut app, findings::Group::Settings);
+        press(&mut app, KeyCode::Char('a'));
+        assert_eq!(app.screen(), Screen::Remediation);
+    }
+
+    #[test]
+    fn enter_opens_a_finding_from_a_row_and_nothing_from_a_heading() {
+        let mut app = observed();
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(
+            app.screen(),
+            Screen::Findings,
+            "a heading has no finding under it"
+        );
+        focus(&mut app, findings::Group::Settings);
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(app.screen(), Screen::FindingDetail);
+    }
+
+    #[test]
+    fn f_selects_one_of_five_sets_and_l_reaches_the_lookup_view() {
+        let mut app = observed();
+        assert_eq!(app.findings.filter(), findings::FilterSet::Everything);
+        for expected in findings::FilterSet::ALL.iter().skip(1) {
+            press(&mut app, KeyCode::Char('f'));
+            assert_eq!(app.findings.filter(), *expected);
+        }
+        press(&mut app, KeyCode::Char('f'));
+        assert_eq!(
+            app.findings.filter(),
+            findings::FilterSet::Everything,
+            "the five cycle"
+        );
+
+        assert!(!app.findings.flat());
+        press(&mut app, KeyCode::Char('l'));
+        assert!(app.findings.flat());
+        assert!(body_text(&app).contains("ordered by rule id"));
+        press(&mut app, KeyCode::Char('l'));
+        assert!(!app.findings.flat());
+    }
+
+    #[test]
+    fn the_queue_captures_no_key_so_both_chrome_surfaces_keep_offering_the_theme() {
+        // Nothing on this screen types: the filter selects between named sets,
+        // so no printable key is text and neither surface has to withdraw one.
+        // The footer here is longer than the row it has and drops entries from
+        // the end with a count, which is the overflow rule; what it never does
+        // is withdraw a key, and the header's slot is what shows the difference.
+        let mut app = observed();
+        for code in [
+            KeyCode::Char('f'),
+            KeyCode::Char('l'),
+            KeyCode::Char(' '),
+            KeyCode::Char('j'),
+        ] {
+            press(&mut app, code);
+            assert!(header(&app).contains("theme t"), "{}", header(&app));
+            let footer = footer(&app);
+            assert!(footer.contains("f filter"), "{footer}");
+            assert!(
+                footer.contains("t theme") || footer.contains("more\u{2026}"),
+                "a key left the footer without the footer admitting it: {footer}"
+            );
+        }
+        let before = app.theme();
+        press(&mut app, KeyCode::Char('t'));
+        assert_ne!(app.theme(), before, "the toggle is live throughout");
+    }
+
+    #[test]
+    fn the_status_line_carries_the_verdict_completeness_and_the_gate() {
+        let app = observed();
+        let status = app.status();
+        assert!(status.contains("complete"), "{status}");
+        assert!(status.contains("9 rules"), "{status}");
+        assert!(status.contains("gate required"), "{status}");
+    }
+
+    #[test]
+    fn a_note_answers_one_key_and_then_the_status_line_returns() {
+        let mut app = observed();
+        press(&mut app, KeyCode::Char('a'));
+        assert!(app.status().contains("group 1"));
+        press(&mut app, KeyCode::Down);
+        assert!(!app.status().contains("group 1"), "{}", app.status());
     }
 
     fn body_text(app: &App) -> String {

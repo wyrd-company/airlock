@@ -154,7 +154,7 @@ impl Screen {
                 key!("esc", "back"),
             ],
             Self::Findings => &[
-                key!("\u{2191}\u{2193}", "move"),
+                key!("\u{2191}\u{2193}/j/k", "move"),
                 key!("space", "collapse or expand"),
                 key!("\u{21b5}", "finding detail"),
                 key!("f", "filter"),
