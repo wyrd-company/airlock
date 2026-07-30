@@ -1087,7 +1087,7 @@ async fn the_candidate_organisation_policy_compiles_and_resolves_its_reference_d
 }
 
 // ---------------------------------------------------------------------------
-// What the mandated credential can never see
+// What requires admin access to verify
 // ---------------------------------------------------------------------------
 
 /// The git section under the gate the standards policy declares. The three
@@ -1112,7 +1112,7 @@ fn scheduled_audit_repo() -> FakeRepo {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_scheduled_audit_is_not_failed_by_settings_its_credential_can_never_read() {
+async fn a_scheduled_audit_is_not_failed_by_settings_that_require_admin_access() {
     // The audit refuses write-capable credentials and GitHub discloses merge
     // settings to write-capable credentials only, so these three rules are
     // unanswered on every scheduled run, permanently. A permanently red
@@ -1122,10 +1122,10 @@ async fn a_scheduled_audit_is_not_failed_by_settings_its_credential_can_never_re
 
     assert_eq!(report["outcome"], "conformant");
     assert_eq!(report["complete"], true);
-    assert_eq!(report["summary"]["unobservable"], 3);
+    assert_eq!(report["summary"]["admin-only"], 3);
     for rule in ["REPO-GIT-04", "REPO-GIT-05", "REPO-GIT-06"] {
         let finding = finding(&report, rule);
-        assert_eq!(finding["status"], "unobservable", "{rule}");
+        assert_eq!(finding["status"], "admin-only", "{rule}");
         assert_ne!(finding["status"], "pass", "{rule}");
         assert_eq!(
             finding["evidence"]["code"], "merge_settings_unavailable",
@@ -1135,7 +1135,7 @@ async fn a_scheduled_audit_is_not_failed_by_settings_its_credential_can_never_re
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_truncated_tree_still_stops_a_run_whose_only_other_gaps_are_unobservable() {
+async fn a_truncated_tree_still_stops_a_run_whose_only_other_gaps_are_admin_only() {
     // A truncated tree is a run that fell short of what it can normally do:
     // the capability condition that selects the release rules was never
     // settled. That is circumstantial, and it still exits 2 — the structural
@@ -1146,7 +1146,7 @@ async fn a_truncated_tree_still_stops_a_run_whose_only_other_gaps_are_unobservab
     assert_eq!(report["outcome"], "incomplete");
     assert_eq!(report["complete"], false);
     assert_eq!(
-        report["summary"]["unobservable"], 3,
+        report["summary"]["admin-only"], 3,
         "the structural gaps are still reported; they are simply not what stopped this"
     );
     let git09 = finding(&report, "REPO-GIT-09");
@@ -1155,7 +1155,7 @@ async fn a_truncated_tree_still_stops_a_run_whose_only_other_gaps_are_unobservab
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_transient_api_failure_still_stops_a_run_whose_other_gaps_are_unobservable() {
+async fn a_transient_api_failure_still_stops_a_run_whose_other_gaps_are_admin_only() {
     let repo = scheduled_audit_repo().with_rulesets(Response::Status(
         502,
         serde_json::json!({ "message": "Server Error" }),
@@ -1164,22 +1164,22 @@ async fn a_transient_api_failure_still_stops_a_run_whose_other_gaps_are_unobserv
 
     assert_eq!(report["outcome"], "incomplete");
     assert_eq!(report["complete"], false);
-    assert_eq!(report["summary"]["unobservable"], 3);
+    assert_eq!(report["summary"]["admin-only"], 3);
     assert_eq!(finding(&report, "REPO-GIT-02")["status"], "error");
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn agent_work_names_unverifiable_gaps_as_their_own_group_without_gating_on_them() {
+async fn agent_work_names_admin_only_gaps_as_their_own_group_without_gating_on_them() {
     let list = agent_work_json(scheduled_audit_repo(), GIT_POLICY, 0).await;
 
     assert_eq!(list["outcome"], "agent_lane_clear");
-    assert_eq!(list["unverifiable"]["count"], 3);
+    assert_eq!(list["admin-only"]["count"], 3);
     assert_eq!(
         list["unsettled"]["count"], 0,
         "a gap no credential here can close is not a question to ask again"
     );
-    for item in list["unverifiable"]["items"].as_array().unwrap() {
-        assert_eq!(item["status"], "unobservable");
+    for item in list["admin-only"]["items"].as_array().unwrap() {
+        assert_eq!(item["status"], "admin-only");
         assert_eq!(item["undecided"], "structural");
         assert_eq!(item["gating"], false);
         assert_eq!(item["evidence_code"], "merge_settings_unavailable");
@@ -1191,10 +1191,10 @@ async fn agent_work_names_unverifiable_gaps_as_their_own_group_without_gating_on
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn plan_names_what_this_surface_can_never_verify() {
+async fn plan_names_what_requires_admin_access_to_verify() {
     let text = plan_text(scheduled_audit_repo(), GIT_POLICY).await;
 
-    assert!(text.contains("unverifiable here (3)"), "{text}");
+    assert!(text.contains("admin-only (3)"), "{text}");
     for rule in ["REPO-GIT-04", "REPO-GIT-05", "REPO-GIT-06"] {
         assert!(text.contains(rule), "{rule} must be named: {text}");
     }
@@ -1206,11 +1206,11 @@ async fn plan_names_what_this_surface_can_never_verify() {
         text.contains(surface.guidance()),
         "the plan must say where the answer lives, in the declaration's words: {text}"
     );
-    // The plan has just listed three rules it cannot ask about, so it may say
-    // that nothing it could ask went unanswered, and it may not say that
-    // everything was decided.
+    // The plan has just listed three rules that require admin access, so it may
+    // say that nothing the read-only surface could ask went unanswered, and it
+    // may not say that everything was decided.
     assert!(
-        text.contains("Every question this surface can ask was answered"),
+        text.contains("Every question this read-only surface can ask was answered"),
         "no circumstantial question was left open: {text}"
     );
     assert!(

@@ -330,9 +330,9 @@ impl CredentialCapability {
 /// The surface that verifies a fact the audit's credential is not allowed to
 /// read.
 ///
-/// A gated fact is not unknowable; it is unknowable *here*. Naming where it is
-/// knowable is what keeps a gap from reading as an unanswerable question, and
-/// it is where every surface takes the guidance it prints from.
+/// A gated fact requires admin access to verify. Naming the admin-capable
+/// verification surface keeps the access requirement explicit, and it is where
+/// every surface takes the guidance it prints from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VerificationSurface {
     /// The interactive airlock session, which holds an operator's
@@ -370,7 +370,7 @@ impl VerificationSurface {
 /// A fact the platform discloses only to a credential the audit surface is not
 /// allowed to hold.
 ///
-/// This is rule metadata, not check trivia: it says the audit can never settle
+/// This is rule metadata, not check trivia: it says the read-only audit cannot settle
 /// the rule, whatever it retries, and it names the surface that can. The audit
 /// derives a structurally undecided finding from it, and every projection
 /// derives what it prints from it. A check may not decide on its own that its

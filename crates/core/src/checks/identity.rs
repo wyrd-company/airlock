@@ -542,7 +542,7 @@ features:
     }
 
     #[test]
-    fn declared_merge_settings_are_unobservable_when_live_values_are_undisclosed() {
+    fn declared_merge_settings_are_admin_only_when_live_values_are_undisclosed() {
         let mut snapshot = snapshot(&[(".github/repo-settings.yml", SETTINGS)]);
         snapshot.repository.description = Some("A tool that audits repositories.".to_owned());
         snapshot.repository.allow_merge_commit = None;
@@ -558,9 +558,9 @@ features:
         let context = context(&snapshot, &policy, Vec::new());
 
         let verdict = evaluate(&rule("REPO-META-13"), &context);
-        assert_eq!(verdict.status, Status::Unobservable);
+        assert_eq!(verdict.status, Status::AdminOnly);
         assert_eq!(
-            verdict.evidence.expect("unobservable evidence").code,
+            verdict.evidence.expect("admin-only evidence").code,
             crate::registry::MERGE_SETTINGS_DISCLOSURE.evidence_code
         );
     }

@@ -98,7 +98,7 @@ pub struct UnsettledItem {
     /// The undecided status.
     pub status: Status,
     /// Why the question is unanswered: this run fell short
-    /// (`circumstantial`), or the mandated credential can never see it
+    /// (`circumstantial`), or it requires admin access to verify
     /// (`structural`).
     pub undecided: Option<Undecided>,
     /// The effective severity.
@@ -106,7 +106,7 @@ pub struct UnsettledItem {
     /// Whether this unanswered question blocks completeness under the gate.
     pub gating: bool,
     /// Where the question is answered instead, when the registry declares that
-    /// this surface's credential can never answer it.
+    /// it requires admin access.
     pub verified_by: Option<String>,
     /// The evidence classification, when one was available.
     pub evidence_code: Option<String>,
@@ -170,14 +170,15 @@ pub struct AgentWorkList {
     pub needs_decision: WorkGroup<UnsettledItem>,
     /// Questions the audit could not settle, including non-gating ones.
     pub unsettled: WorkGroup<UnsettledItem>,
-    /// Gaps this surface's mandated credential can never observe.
+    /// Gaps that require admin access to verify.
     ///
     /// These never gate — a permanently red lane says nothing — but they are
-    /// listed at every severity, because an unobservable rule is not a passing
+    /// listed at every severity, because an admin-only rule is not a passing
     /// rule and a clear lane is not an aligned repository. The remaining move
     /// is to verify them on a surface that can see them: the interactive
     /// session.
-    pub unverifiable: WorkGroup<UnsettledItem>,
+    #[serde(rename = "admin-only")]
+    pub admin_only: WorkGroup<UnsettledItem>,
     /// Manual judgments still awaiting a person.
     pub manual: WorkGroup<AttentionItem>,
     /// Authorized failures that remain standing debt.
@@ -194,7 +195,7 @@ impl AgentWorkList {
         let mut operator = Vec::new();
         let mut decisions = Vec::new();
         let mut unsettled = Vec::new();
-        let mut unverifiable = Vec::new();
+        let mut admin_only = Vec::new();
         let mut manual = Vec::new();
         let mut suppressed = Vec::new();
         let mut classification_unsettled = false;
@@ -221,7 +222,7 @@ impl AgentWorkList {
                     // evidence code: it is not a question this surface can be
                     // asked again, so grouping it with the ones that can be
                     // would invite a retry that cannot work.
-                    Undecided::Structural => unverifiable.push(item),
+                    Undecided::Structural => admin_only.push(item),
                     Undecided::Circumstantial => {
                         if item.evidence_code.as_deref() == Some("condition_undecided") {
                             decisions.push(item);
@@ -339,7 +340,7 @@ impl AgentWorkList {
             operator_deferred: WorkGroup::new(operator),
             needs_decision: WorkGroup::new(decisions),
             unsettled: WorkGroup::new(unsettled),
-            unverifiable: WorkGroup::new(unverifiable),
+            admin_only: WorkGroup::new(admin_only),
             manual: WorkGroup::new(manual),
             suppressed: WorkGroup::new(suppressed),
             outcome,
@@ -528,20 +529,20 @@ mod tests {
     #[test]
     fn structural_gaps_get_their_own_group_and_never_gate_the_lane() {
         let list = AgentWorkList::from_report(&report(vec![
-            finding("REPO-GIT-04", Status::Unobservable, "required", Some("api")),
+            finding("REPO-GIT-04", Status::AdminOnly, "required", Some("api")),
             finding("REPO-LIC-01", Status::Pass, "blocking", Some("api")),
         ]));
 
         assert_eq!(list.outcome, Outcome::AgentLaneClear);
         assert_eq!(list.exit_code(), 0);
         assert_eq!(list.unsettled.count, 0);
-        assert_eq!(list.unverifiable.count, 1);
-        let item = &list.unverifiable.items[0];
+        assert_eq!(list.admin_only.count, 1);
+        let item = &list.admin_only.items[0];
         assert_eq!(item.rule, "REPO-GIT-04");
         assert_eq!(item.undecided, Some(Undecided::Structural));
         assert!(
             !item.gating,
-            "a gap the mandated credential can never observe does not gate"
+            "a gap that requires admin access to verify does not gate"
         );
     }
 
@@ -552,36 +553,33 @@ mod tests {
         // document has to say both.
         let list = AgentWorkList::from_report(&report(vec![finding(
             "REPO-GIT-04",
-            Status::Unobservable,
+            Status::AdminOnly,
             "required",
             Some("api"),
         )]));
 
         assert_eq!(list.outcome, Outcome::AgentLaneClear);
         assert_eq!(list.scope, "agent_lane_only_not_repository_conformance");
-        assert_eq!(list.unverifiable.count, 1);
+        assert_eq!(list.admin_only.count, 1);
         let text = crate::render::agent_work_list_text(&list);
         assert!(
-            text.contains("unverifiable with this credential (never gates) (1)"),
+            text.contains("admin-only (requires interactive admin mode; never gates) (1)"),
             "{text}"
         );
         assert!(text.contains("REPO-GIT-04"), "{text}");
-        assert!(
-            text.contains("unverifiable with this credential: 1"),
-            "{text}"
-        );
+        assert!(text.contains("admin-only: 1"), "{text}");
     }
 
     #[test]
     fn a_structural_gap_does_not_hide_a_circumstantial_one() {
         let list = AgentWorkList::from_report(&report(vec![
-            finding("REPO-GIT-04", Status::Unobservable, "required", Some("api")),
+            finding("REPO-GIT-04", Status::AdminOnly, "required", Some("api")),
             finding("REPO-GIT-02", Status::Error, "blocking", None),
         ]));
 
         assert_eq!(list.outcome, Outcome::CouldNotSettle);
         assert_eq!(list.exit_code(), 2);
-        assert_eq!(list.unverifiable.count, 1);
+        assert_eq!(list.admin_only.count, 1);
         assert_eq!(list.unsettled.count, 1);
         assert!(list.unsettled.items[0].gating);
     }

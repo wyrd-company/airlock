@@ -43,13 +43,13 @@ pub enum Status {
     /// Evaluation hit a resource bound, or a bounded scan could not prove the
     /// assertion. Inconclusive.
     Inconclusive,
-    /// The fact is outside what the surface's mandated credential can ever
-    /// observe. Inconclusive, and structurally so: this is the expected steady
-    /// state of the surface rather than something this run failed at, so it
-    /// never blocks completeness. It is never a pass either — the assertion is
-    /// still undecided, and it is named as its own group wherever gaps are
-    /// reported.
-    Unobservable,
+    /// The fact requires admin access to verify. Inconclusive, and structurally
+    /// so: this is the expected steady state of the read-only surface rather
+    /// than something this run failed at, so it never blocks completeness. It
+    /// is never a pass either — the assertion is still undecided, and it is
+    /// named as its own group wherever gaps are reported.
+    #[serde(rename = "admin-only")]
+    AdminOnly,
     /// An API failure prevented evaluation. Inconclusive.
     Error,
 }
@@ -69,9 +69,9 @@ pub enum Undecided {
     /// transient API failure, a file over budget, a rule not built yet. It
     /// blocks completeness, because retrying could answer it.
     Circumstantial,
-    /// The credential this surface mandates can never observe the fact, so no
-    /// retry on this surface answers it. It does not block completeness; the
-    /// answer lives on another surface.
+    /// The fact requires admin access to verify, so no retry with this
+    /// surface's read-only credential answers it. It does not block
+    /// completeness; the answer lives on the interactive admin surface.
     Structural,
 }
 
@@ -98,7 +98,7 @@ impl Status {
             Status::Skipped => "skipped",
             Status::Unimplemented => "unimplemented",
             Status::Inconclusive => "inconclusive",
-            Status::Unobservable => "unobservable",
+            Status::AdminOnly => "admin-only",
             Status::Error => "error",
         }
     }
@@ -116,7 +116,7 @@ impl Status {
             Status::Unimplemented | Status::Inconclusive | Status::Error => {
                 Some(Undecided::Circumstantial)
             }
-            Status::Unobservable => Some(Undecided::Structural),
+            Status::AdminOnly => Some(Undecided::Structural),
             Status::Pass | Status::Fail | Status::Manual | Status::Suppressed | Status::Skipped => {
                 None
             }
@@ -143,7 +143,7 @@ impl Status {
         Status::Skipped,
         Status::Unimplemented,
         Status::Inconclusive,
-        Status::Unobservable,
+        Status::AdminOnly,
         Status::Error,
     ];
 }
@@ -427,19 +427,18 @@ impl Finding {
     ///
     /// Only a *circumstantially* undecided finding blocks: this run failed to
     /// establish something it can normally establish, so the result cannot be
-    /// certified. A structurally undecided finding — one whose fact the
-    /// surface's mandated credential can never observe — is the surface
-    /// working as designed. Blocking on it would make the verdict permanently
-    /// red, which carries no information, so it does not block. It is still
-    /// never a pass, and [`Self::names_a_structural_gap`] keeps it visible.
+    /// certified. A structurally undecided finding — one whose fact requires
+    /// admin access to verify — is the read-only surface working as designed.
+    /// Blocking on it would make the verdict permanently red, which carries no
+    /// information, so it does not block. It is still never a pass, and
+    /// [`Self::names_a_structural_gap`] keeps it visible.
     #[must_use]
     pub fn blocks_completeness(&self, gate: Gate) -> bool {
         let severity = Severity::parse(&self.severity).unwrap_or(Severity::Observation);
         gate.enforces(severity) && self.status.undecided() == Some(Undecided::Circumstantial)
     }
 
-    /// Whether this finding names a gap the mandated credential can never
-    /// observe.
+    /// Whether this finding names a gap that requires admin access to verify.
     ///
     /// The counterpart of [`Self::blocks_completeness`]: what does not gate
     /// must still be named, at every severity, or "my lane is clear" quietly
@@ -589,8 +588,9 @@ pub struct Summary {
     pub unimplemented: usize,
     /// Rules left undecided by a resource bound.
     pub inconclusive: usize,
-    /// Rules whose fact the mandated credential can never observe.
-    pub unobservable: usize,
+    /// Rules whose fact requires admin access to verify.
+    #[serde(rename = "admin-only")]
+    pub admin_only: usize,
     /// Rules an API failure prevented evaluating.
     pub error: usize,
 }
@@ -605,7 +605,7 @@ impl Summary {
             Status::Skipped => &mut self.skipped,
             Status::Unimplemented => &mut self.unimplemented,
             Status::Inconclusive => &mut self.inconclusive,
-            Status::Unobservable => &mut self.unobservable,
+            Status::AdminOnly => &mut self.admin_only,
             Status::Error => &mut self.error,
         }
     }
@@ -927,13 +927,13 @@ mod tests {
 
     #[test]
     fn a_structural_gap_at_a_gating_severity_leaves_the_run_complete() {
-        // The mandated credential can never observe this fact, so a red run
+        // This fact requires admin access to verify, so a red read-only run
         // would be the permanent steady state and would carry no information.
         // It is still not a pass, and it is still named.
         let report = report(
             Gate::Required,
             vec![
-                finding("REPO-GIT-04", Severity::Required, Status::Unobservable),
+                finding("REPO-GIT-04", Severity::Required, Status::AdminOnly),
                 finding("REPO-LIC-01", Severity::Blocking, Status::Pass),
             ],
         );
@@ -941,7 +941,7 @@ mod tests {
         assert!(report.conformant);
         assert_eq!(report.outcome, Outcome::Conformant);
         assert_eq!(report.exit_code(), 0);
-        assert_eq!(report.summary.unobservable, 1);
+        assert_eq!(report.summary.admin_only, 1);
         assert_eq!(report.summary.pass, 1);
         assert_ne!(report.findings[0].status, Status::Pass);
         assert!(report.findings[0].names_a_structural_gap());
@@ -972,10 +972,7 @@ mod tests {
                 "{status:?}"
             );
         }
-        assert_eq!(
-            Status::Unobservable.undecided(),
-            Some(Undecided::Structural)
-        );
+        assert_eq!(Status::AdminOnly.undecided(), Some(Undecided::Structural));
         assert_eq!(
             Status::Inconclusive.undecided(),
             Some(Undecided::Circumstantial)
@@ -1009,7 +1006,7 @@ mod tests {
                 finding("REPO-AA-05", Severity::Observation, Status::Skipped),
                 finding("REPO-AA-06", Severity::Observation, Status::Unimplemented),
                 finding("REPO-AA-07", Severity::Observation, Status::Inconclusive),
-                finding("REPO-AA-08", Severity::Observation, Status::Unobservable),
+                finding("REPO-AA-08", Severity::Observation, Status::AdminOnly),
                 finding("REPO-AA-09", Severity::Observation, Status::Error),
             ],
         );
@@ -1020,7 +1017,7 @@ mod tests {
         assert_eq!(report.summary.skipped, 1);
         assert_eq!(report.summary.unimplemented, 1);
         assert_eq!(report.summary.inconclusive, 1);
-        assert_eq!(report.summary.unobservable, 1);
+        assert_eq!(report.summary.admin_only, 1);
         assert_eq!(report.summary.error, 1);
         assert_eq!(report.findings.len(), Status::ALL.len());
     }

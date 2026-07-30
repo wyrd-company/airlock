@@ -132,13 +132,13 @@ Its `agent_lane` contains failed rules classified as `deterministic-file` or
 `judgment-file`, keyed by rule id and carrying the remediation code and the
 change it would make. `operator_deferred` separately identifies failed
 `operator-setting` rules and failures that declare no remediation; neither
-gates the command. `needs_decision`, `unsettled`, `unverifiable`, `manual`, and
+gates the command. `needs_decision`, `unsettled`, `admin-only`, `manual`, and
 `suppressed` keep the other unfinished or authorized-but-unaligned findings
 visible with their counts and identities. Undecided items say whether they gate
 and retain their evidence code, so a missing capability declaration is distinct
-from a retryable observation failure, and `unverifiable` holds the gaps this
-surface's mandated credential can never observe — named, never gating, and
-never passing. Every group retains each finding's observation
+from a retryable observation failure, and `admin-only` holds the gaps that
+require admin access to verify — named, never gating, and never passing. Every
+group retains each finding's observation
 source, and the top-level `observation` block says whether file findings came
 from the API tree or the local working tree.
 
@@ -174,9 +174,9 @@ airlock align-files wyrd-company/airlock --working-tree .
 | `1`  | `nonconformant` | Every question this run could settle was settled; a gating rule failed |
 | `2`  | `incomplete`    | This run left a gating rule undecided, or never started    |
 
-A rule behind a declared disclosure gate is one this run could never settle. It
-is reported `unobservable`, named as its own group, and counted against no exit
-code — codes `0` and `1` therefore mean "nothing this run could answer went
+A rule behind a declared disclosure gate requires admin access to verify. It is
+reported `admin-only`, named as its own group, and counted against no exit code
+— codes `0` and `1` therefore mean "nothing this run could answer went
 unanswered", never "every rule was decided".
 
 On Unix, a closed output pipe terminates silently on signal 13 (`SIGPIPE`),
@@ -202,8 +202,8 @@ policy enables produces exactly one finding, with one of nine statuses:
 
 `pass`, `fail`, `manual` (a judgment call for a human), `suppressed`,
 `skipped` (a capability condition was not met), `unimplemented`,
-`inconclusive` (a bound was hit), `unobservable` (the credential this surface
-mandates can never read the fact), `error` (an API failure, with its cause).
+`inconclusive` (a bound was hit), `admin-only` (the fact requires admin access
+to verify), `error` (an API failure, with its cause).
 
 `manual`, `suppressed`, and `skipped` are conclusive and never gate. The other
 four leave the assertion undecided, and each one carries which kind of
@@ -211,7 +211,7 @@ undecided it is.
 
 `unimplemented`, `inconclusive`, and `error` are *circumstantial*: this run did
 not establish what it can normally establish, so at a gating severity they make
-the whole audit incomplete. `unobservable` is *structural*: the registry
+the whole audit incomplete. `admin-only` is *structural*: the registry
 declares, per rule, a **disclosure gate** — a fact the platform reveals only to
 a grant the audit is not allowed to hold, plus the surface that verifies it
 instead. GitHub discloses merge settings only to `contents: write`
@@ -243,8 +243,8 @@ surface its gate declares — today the interactive session, which holds a
 credential that can both read and align the setting. Every surface takes its
 wording from the declaration rather than writing its own.
 `airlock audit --list-checks` prints each rule's gate, the grant it requires,
-and where it is verified, so which rules a scheduled run can never settle is
-readable before pointing airlock at anything.
+and where it is verified, so which rules require the interactive admin session
+is readable before pointing airlock at anything.
 
 Incomplete input can never produce a clean result. A listing that stopped at
 the page budget, a recursive tree GitHub truncated, or a response airlock could

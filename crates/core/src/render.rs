@@ -118,15 +118,15 @@ pub fn report_text(report: &Report) -> String {
         report.complete,
         report.conformant
     );
-    // A structurally unobservable rule leaves the run complete, so nothing
+    // A structurally admin-only rule leaves the run complete, so nothing
     // above this line would tell a reader it exists. It is named here for the
     // same reason it is never a pass: the assertion is still open, and the
     // surface that can settle it is not this one.
-    let unobservable = report.summary.count(Status::Unobservable);
-    if unobservable > 0 {
+    let admin_only = report.summary.count(Status::AdminOnly);
+    if admin_only > 0 {
         let _ = writeln!(
             out,
-            "{unobservable} rule(s) this credential can never observe — named, never gating, \
+            "{admin_only} rule(s) require admin access to verify — named, never gating, \
              and never a pass."
         );
         for surface in verification_surfaces(report) {
@@ -197,8 +197,8 @@ pub fn agent_work_list_text(list: &AgentWorkList) -> String {
     render_unsettled_group(&mut out, "unsettled questions", &list.unsettled);
     render_unsettled_group(
         &mut out,
-        "unverifiable with this credential (never gates)",
-        &list.unverifiable,
+        "admin-only (requires interactive admin mode; never gates)",
+        &list.admin_only,
     );
     render_attention_group(&mut out, "manual judgment (never gates)", &list.manual);
     render_attention_group(&mut out, "suppressed debt (never gates)", &list.suppressed);
@@ -211,11 +211,7 @@ pub fn agent_work_list_text(list: &AgentWorkList) -> String {
         .filter(|item| item.gating)
         .count();
     let _ = writeln!(out, "\nunsettled gating questions: {gating_unsettled}");
-    let _ = writeln!(
-        out,
-        "unverifiable with this credential: {}",
-        list.unverifiable.count
-    );
+    let _ = writeln!(out, "admin-only: {}", list.admin_only.count);
     let _ = writeln!(
         out,
         "\n{} — this is not a repository conformance verdict",
@@ -406,16 +402,16 @@ pub fn plan_text(report: &Report) -> String {
         }
     }
 
-    if !plan.unverifiable.is_empty() {
+    if !plan.admin_only.is_empty() {
         out.push('\n');
         let _ = writeln!(
             out,
-            "unverifiable here ({}) — the credential this surface mandates can never \
-             observe\nthese, so looking again here will not answer them. They are not \
-             passes, and\nthey do not make the run incomplete.",
-            plan.unverifiable.len()
+            "admin-only ({}) — these rules require admin access to verify. Use the\n\
+             interactive airlock session (admin mode). They are not passes, and they\n\
+             do not make the read-only run incomplete.",
+            plan.admin_only.len()
         );
-        for rule in &plan.unverifiable {
+        for rule in &plan.admin_only {
             let _ = writeln!(out, "  {:<16} {:<13}", rule.rule, rule.severity);
             if let Some(detail) = rule.detail {
                 let _ = writeln!(out, "      {detail}");
@@ -439,8 +435,8 @@ pub fn plan_text(report: &Report) -> String {
     if plan.undecided.is_empty() {
         // "Nothing this surface could ask went unanswered" and "every rule was
         // decided" are different claims, and a plan that has just listed rules
-        // it cannot ask may only make the first one.
-        if plan.unverifiable.is_empty() {
+        // it can ask only with admin access may only make the first one.
+        if plan.admin_only.is_empty() {
             let _ = writeln!(
                 out,
                 "Every rule the policy asked about was decided, so this names every \
@@ -449,10 +445,10 @@ pub fn plan_text(report: &Report) -> String {
         } else {
             let _ = writeln!(
                 out,
-                "Every question this surface can ask was answered. The {} rule(s) above \
-                 that\nit cannot ask remain undecided, so this names every gap it could \
-                 see — not\nevery gap there is.",
-                plan.unverifiable.len()
+                "Every question this read-only surface can ask was answered. The {} \
+                 admin-only\nrule(s) above remain undecided, so this names every gap it \
+                 could verify\nwithout admin access — not every gap there is.",
+                plan.admin_only.len()
             );
         }
     } else {
@@ -541,8 +537,7 @@ pub fn list_checks_text() -> String {
                 None => {}
             }
             // A policy author has to be able to see, before running anything,
-            // which rules a headless run can never settle and where they are
-            // settled instead.
+            // which rules require admin access and where they are verified.
             if let Some(gate) = check.disclosure_gate() {
                 let _ = writeln!(
                     out,
@@ -739,11 +734,11 @@ mod tests {
     }
 
     #[test]
-    fn a_plan_holding_a_rule_it_cannot_ask_about_never_claims_everything_was_decided() {
+    fn a_plan_holding_an_admin_only_rule_never_claims_everything_was_decided() {
         let mut source = report();
         source.findings[0].rule = "REPO-GIT-04".to_owned();
-        source.findings[0].status = Status::Unobservable;
-        let unobservable = crate::findings::Report::assemble(
+        source.findings[0].status = Status::AdminOnly;
+        let admin_only = crate::findings::Report::assemble(
             source.airlock.clone(),
             source.repository.clone(),
             source.observation.clone(),
@@ -753,17 +748,17 @@ mod tests {
             source.findings.clone(),
         );
 
-        let text = plan_text(&unobservable);
+        let text = plan_text(&admin_only);
         assert!(
             !text.contains("Every rule the policy asked about was decided"),
             "one rule is undecided, and the plan has just said so: {text}"
         );
         assert!(
-            text.contains("Every question this surface can ask was answered"),
+            text.contains("Every question this read-only surface can ask was answered"),
             "{text}"
         );
         assert!(
-            text.contains("not\nevery gap there is"),
+            text.contains("not every gap there is"),
             "the plan states the limit of what it names: {text}"
         );
     }
@@ -790,13 +785,13 @@ mod tests {
     }
 
     #[test]
-    fn the_report_and_the_plan_both_name_a_rule_this_credential_can_never_read() {
+    fn the_report_and_plan_both_name_a_rule_that_requires_admin_access() {
         // A rule the registry declares gated, so the guidance the surfaces
         // print has a declaration to come from.
         let mut source = report();
         source.findings[0].rule = "REPO-GIT-04".to_owned();
-        source.findings[0].status = Status::Unobservable;
-        let unobservable = crate::findings::Report::assemble(
+        source.findings[0].status = Status::AdminOnly;
+        let admin_only = crate::findings::Report::assemble(
             source.airlock.clone(),
             source.repository.clone(),
             source.observation.clone(),
@@ -808,11 +803,11 @@ mod tests {
         let surface = registry::MERGE_SETTINGS_DISCLOSURE.verified_by;
 
         assert!(
-            unobservable.complete,
+            admin_only.complete,
             "a structural gap leaves the run complete"
         );
-        let text = report_text(&unobservable);
-        assert!(text.contains("1 unobservable"), "{text}");
+        let text = report_text(&admin_only);
+        assert!(text.contains("1 admin-only"), "{text}");
         assert!(
             text.contains("never gating, and never a pass"),
             "the run is complete, so the report itself must name the gap: {text}"
@@ -822,8 +817,8 @@ mod tests {
             "the report takes its guidance from the declaration: {text}"
         );
 
-        let plan = plan_text(&unobservable);
-        assert!(plan.contains("unverifiable here (1)"), "{plan}");
+        let plan = plan_text(&admin_only);
+        assert!(plan.contains("admin-only (1)"), "{plan}");
         assert!(plan.contains("REPO-GIT-04"), "{plan}");
         assert!(plan.contains(surface.code()), "{plan}");
         assert!(
@@ -842,7 +837,7 @@ mod tests {
         // surfaces must say what they know and no more: the gap is named, and
         // no destination is invented for it.
         let mut source = report();
-        source.findings[0].status = Status::Unobservable;
+        source.findings[0].status = Status::AdminOnly;
         let undeclared = crate::findings::Report::assemble(
             source.airlock.clone(),
             source.repository.clone(),
@@ -857,13 +852,13 @@ mod tests {
             .and_then(registry::CheckDefinition::disclosure_gate)
             .is_none());
         let text = report_text(&undeclared);
-        assert!(text.contains("1 unobservable"), "{text}");
+        assert!(text.contains("1 admin-only"), "{text}");
         assert!(
             !text.contains(registry::VerificationSurface::InteractiveSession.guidance()),
             "no surface was declared, so none is promised: {text}"
         );
         let plan = plan_text(&undeclared);
-        assert!(plan.contains("unverifiable here (1)"), "{plan}");
+        assert!(plan.contains("admin-only (1)"), "{plan}");
         assert!(plan.contains("REPO-LIC-01"), "{plan}");
         assert!(
             !plan.contains(registry::VerificationSurface::InteractiveSession.code()),
@@ -878,7 +873,7 @@ mod tests {
         let gate = &registry::MERGE_SETTINGS_DISCLOSURE;
 
         // A policy author reads this before pointing airlock at anything, so
-        // which rules a headless run can never settle has to be in it.
+        // which rules require admin access has to be in it.
         assert!(text.contains(gate.requires.code()), "{text}");
         assert!(text.contains(gate.verified_by.code()), "{text}");
         assert!(

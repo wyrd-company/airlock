@@ -179,7 +179,7 @@ impl Verdict {
     #[must_use]
     pub fn withheld(gate: &DisclosureGate, subject: &str) -> Self {
         Self {
-            status: Status::Unobservable,
+            status: Status::AdminOnly,
             evidence: Some(Evidence::new(
                 gate.evidence_code,
                 format!(
@@ -1076,7 +1076,7 @@ mod tests {
     fn a_withheld_field_is_structural_only_where_the_registry_declares_a_gate() {
         // The check reports one observation — the platform did not give me
         // this field — and the registry decides what it means. A rule that
-        // declares the gate can never be settled here, so it is structural. A
+        // declares that admin access is required, so it is structural. A
         // rule that declares none is a run that fell short, so it stays
         // circumstantial and keeps blocking. No check can promote itself.
         let snapshot = snapshot(&[]);
@@ -1085,7 +1085,7 @@ mod tests {
 
         let declared = crate::registry::find("REPO-GIT-04").expect("registered");
         let verdict = undisclosed(declared, &read_only, "the merge-commit setting");
-        assert_eq!(verdict.status, Status::Unobservable);
+        assert_eq!(verdict.status, Status::AdminOnly);
         assert_eq!(verdict.status.undecided(), Some(Undecided::Structural));
         let evidence = verdict.evidence.expect("evidence");
         assert_eq!(
@@ -1103,7 +1103,7 @@ mod tests {
         let undeclared = crate::registry::find("REPO-GIT-01").expect("registered");
         assert!(undeclared.disclosure_gate().is_none());
         let verdict = undisclosed(undeclared, &read_only, "the default branch");
-        assert_ne!(verdict.status, Status::Unobservable);
+        assert_ne!(verdict.status, Status::AdminOnly);
         assert_eq!(verdict.status.undecided(), Some(Undecided::Circumstantial));
         assert_eq!(
             verdict.evidence.expect("evidence").code,

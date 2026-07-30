@@ -65,15 +65,15 @@ pub struct UndecidedRule<'a> {
     pub blocks_completeness: bool,
 }
 
-/// A rule this surface can never decide.
+/// A rule that requires admin access to verify.
 ///
 /// It proposes nothing and it answers nothing, and unlike an undecided rule
-/// there is no point looking again here: the credential this surface mandates
-/// is not allowed to see the fact. The move is to look from a surface that can
-/// — the interactive session — so the plan names the rule and says so.
+/// there is no point looking again with the read-only credential. The move is
+/// to use the interactive session (admin mode), so the plan names the rule and
+/// says so.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct UnverifiableRule<'a> {
-    /// The rule this surface cannot observe.
+pub struct AdminOnlyRule<'a> {
+    /// The rule that requires admin access to verify.
     pub rule: &'a str,
     /// The severity the effective policy graded the rule at.
     pub severity: &'a str,
@@ -124,17 +124,16 @@ pub struct Plan<'a> {
     /// [`Self::is_incomplete`] for the gate question and read this list for
     /// the other.
     ///
-    /// Rules this surface can never decide are not here; they are in
-    /// [`Self::unverifiable`], because "look again" is advice only one of the
+    /// Rules that require admin access to verify are not here; they are in
+    /// [`Self::admin_only`], because "look again" is advice only one of the
     /// two lists can act on.
     pub undecided: Vec<UndecidedRule<'a>>,
-    /// Every rule whose fact this surface's mandated credential can never
-    /// observe.
+    /// Every rule whose fact requires admin access to verify.
     ///
-    /// Named for the same reason [`Self::undecided`] is — an unobserved rule
-    /// is not a passing rule — and separately, because these do not leave the
-    /// run incomplete and no retry here will change them.
-    pub unverifiable: Vec<UnverifiableRule<'a>>,
+    /// Named for the same reason [`Self::undecided`] is — a rule not verified
+    /// here is not a passing rule — and separately, because these do not leave
+    /// the run incomplete and no retry with read-only access will change them.
+    pub admin_only: Vec<AdminOnlyRule<'a>>,
 }
 
 impl<'a> Plan<'a> {
@@ -155,7 +154,7 @@ impl<'a> Plan<'a> {
         let mut proposed = Vec::new();
         let mut unclosable = Vec::new();
         let mut undecided = Vec::new();
-        let mut unverifiable = Vec::new();
+        let mut admin_only = Vec::new();
 
         for finding in &report.findings {
             // The audit's own typed distinction, so a plan and the report it
@@ -163,7 +162,7 @@ impl<'a> Plan<'a> {
             // the run and which are the surface working as mandated.
             match finding.status.undecided() {
                 Some(Undecided::Structural) => {
-                    unverifiable.push(UnverifiableRule {
+                    admin_only.push(AdminOnlyRule {
                         rule: &finding.rule,
                         severity: &finding.severity,
                         detail: finding
@@ -236,13 +235,13 @@ impl<'a> Plan<'a> {
                 .then_with(|| left.rule.cmp(right.rule))
         });
         unclosable.sort_by(|left, right| left.rule.cmp(right.rule));
-        unverifiable.sort_by(|left, right| left.rule.cmp(right.rule));
+        admin_only.sort_by(|left, right| left.rule.cmp(right.rule));
 
         Self {
             proposed,
             unclosable,
             undecided,
-            unverifiable,
+            admin_only,
         }
     }
 
@@ -455,13 +454,13 @@ mod tests {
     }
 
     #[test]
-    fn a_rule_this_surface_can_never_see_is_named_separately_and_does_not_gate() {
-        let mut unobservable = finding("REPO-GIT-04", Status::Unobservable);
-        unobservable.evidence = Some(crate::findings::Evidence::new(
+    fn an_admin_only_rule_is_named_separately_and_does_not_gate() {
+        let mut admin_only = finding("REPO-GIT-04", Status::AdminOnly);
+        admin_only.evidence = Some(crate::findings::Evidence::new(
             "merge_settings_unavailable",
             "the merge-commit setting cannot be verified with this credential",
         ));
-        let report = report(vec![unobservable]);
+        let report = report(vec![admin_only]);
         let plan = Plan::derive(&report);
 
         assert!(
@@ -472,9 +471,9 @@ mod tests {
             plan.undecided.is_empty(),
             "a rule no retry here can answer is not filed with the ones a retry could"
         );
-        assert_eq!(plan.unverifiable.len(), 1);
-        assert_eq!(plan.unverifiable[0].rule, "REPO-GIT-04");
-        assert!(plan.unverifiable[0]
+        assert_eq!(plan.admin_only.len(), 1);
+        assert_eq!(plan.admin_only[0].rule, "REPO-GIT-04");
+        assert!(plan.admin_only[0]
             .detail
             .expect("the run said why")
             .contains("this credential"));

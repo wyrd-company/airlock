@@ -101,7 +101,7 @@ carries it alone.
 | `skipped` | `○` | inert | Never gates, never affects completeness |
 | `unimplemented` | `▢` | undecided | Makes the run incomplete at a gating severity |
 | `inconclusive` | `◑` | undecided | Makes the run incomplete at a gating severity |
-| `unobservable` | `◍` | undecided | Never affects completeness; the rule's declared disclosure gate withholds the fact from this credential |
+| `admin-only` | `◍` | undecided | Never affects completeness; the rule requires admin access to verify |
 | `error` | `!` | undecided | Makes the run incomplete at a gating severity |
 
 The three lanes read as three shape families: the gating lane uses stroke
@@ -119,9 +119,8 @@ The glosses the interface prints for each status are:
 - `skipped` — `condition_not_met`, the capability condition did not apply
 - `unimplemented` — registered and enabled, not yet evaluated
 - `inconclusive` — the question could not be established
-- `unobservable` — the rule's declared disclosure gate withholds the fact from
-  the credential this surface mandates, so the question is answered on the
-  verification surface the gate names and never here
+- `admin-only` — the rule requires admin access to verify, so the question is
+  answered on the verification surface the gate names
 - `error` — the call did not complete, so no evidence exists
 
 ## Severity and the gate
@@ -146,17 +145,17 @@ interface displays which gate is in force and never offers to change it.
 `complete` and `conformant` are separate facts and are always printed
 separately. A run is incomplete when a rule at a gating severity ended
 undecided because the run fell short: `unimplemented`, `inconclusive`, or
-`error`. An `unobservable` rule ended undecided because its declared disclosure
-gate withholds the fact from the observing credential; a permanently
-unanswerable question carries no information, so it leaves the run complete at
-every severity. A run is nonconformant when a rule at a gating severity ended
-in `fail`. Incompleteness outranks nonconformance in the verdict, which is one
+`error`. An `admin-only` rule ended undecided because it requires admin access
+to verify; that expected access boundary carries no information about repository
+conformance, so it leaves the run complete at every severity. A run is
+nonconformant when a rule at a gating severity ended in `fail`. Incompleteness
+outranks nonconformance in the verdict, which is one
 of `conformant`, `nonconformant`, or `incomplete`.
 
 An unanswered question is still not a clean repository, whichever kind it is.
 `conformant` therefore states that nothing the run could answer went
 unanswered and the gate is satisfied — never that every rule was decided. The
-verdict region says so whenever the not-verifiable-here group is populated, and
+verdict region says so whenever the admin-only group is populated, and
 names the count.
 
 ## Emptiness
@@ -272,14 +271,14 @@ it.
 **Content.** Above the queue, unchanged by anything below it:
 
 - The verdict, its glyph, and the reason for it, stating `complete` and
-  `conformant` as separate facts. Where any rule ended `unobservable`, the
+  `conformant` as separate facts. Where any rule ended `admin-only`, the
   verdict states their count and that they are unanswered, so a `conformant`
   verdict is never read as every rule having been decided.
 - The status summary — every one of the nine statuses with its glyph, its
   count, and its lane, under the three lane headings `DECIDED · GATING`
   (counts toward the verdict), `DECIDED · INERT` (never gates), and
   `UNDECIDED` (makes the run incomplete at a gating severity, unless the fact
-  is one this credential can never read). The undecided heading carries the
+  requires admin access to verify). The undecided heading carries the
   qualifier, because an undecided result at a severity the effective gate does
   not enforce leaves the run complete, and so does one no credential here could
   ever have settled.
@@ -287,7 +286,7 @@ it.
   banner naming each such rule, its status, and what stopped it. The banner
   states that `complete` is false and that no verdict below it can be certified.
   A rule its declared disclosure gate withholds is not a blocker and is never
-  named here: the run is complete, and the not-verifiable-here group is where it
+  named here: the run is complete, and the admin-only group is where it
   is accounted for.
 
 The queue itself is eight groups, in this order. Each group heading carries
@@ -308,11 +307,11 @@ its count and a one-line gloss of the work:
    outside the repository — a plan change, a grant change, a rule not yet
    built. A row in this group that does not block says so on the row: it is
    still an unanswered question, and it is not a pass.
-6. **Not verifiable here.** Rules the registry declares behind a disclosure
-   gate — a fact the platform reveals only to a grant the observing surface is
-   not allowed to hold. They never gate, because a permanently unanswerable
-   question is not a finding about the repository, and they are never folded in
-   with passing rules, because nothing observed them. Each row states the grant
+6. **Admin-only.** Rules the registry declares behind a disclosure gate — a
+   fact that requires admin access to verify. They never gate because the
+   read-only run reaching its expected access boundary is not a finding about
+   the repository, and they are never folded in with passing rules because
+   they remain undecided. Each row states the grant
    the fact requires and the verification surface the gate names, both read from
    the registry declaration rather than composed here; the interface writes no
    guidance of its own. A gate applies only to a credential that cannot hold the
@@ -329,7 +328,7 @@ its count and a one-line gloss of the work:
 A finding takes the first group it matches, tested in this order:
 
 1. `suppressed` → group 7.
-2. `unobservable` → group 6.
+2. `admin-only` → group 6.
 3. `inconclusive` with `evidence.code` of `condition_undecided` → group 3.
 4. `unimplemented`, `inconclusive`, or `error` → group 5.
 5. `manual` → group 4.
