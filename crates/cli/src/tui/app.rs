@@ -32,6 +32,7 @@ use crate::admin::catalogue::{self, Observations, Observe, Row};
 use crate::admin::flow::Progress;
 use crate::admin::sign_in::Reason;
 
+use super::detail;
 use super::findings;
 use super::organizations;
 use super::repositories::{self, Filter};
@@ -40,7 +41,7 @@ use super::sign_in;
 use super::theme::{ColorMode, Role, Styles, Theme};
 
 /// What the application does after handling an event.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Flow {
     /// Keep running.
     Continue,
@@ -48,6 +49,14 @@ pub enum Flow {
     Exit,
     /// Abandon the device code on screen and ask for a new one.
     Reissue,
+    /// Offer a value to the terminal's clipboard.
+    ///
+    /// A value rather than an action, because this type does not own the
+    /// terminal: it says what it would like held, and the loop that does own
+    /// the terminal asks for it. Only two values ever travel here — a rule id
+    /// and the registry digest — and no credential is on any screen to be one
+    /// of them.
+    Copy(String),
 }
 
 /// The whole interface state.
@@ -80,6 +89,14 @@ pub struct App {
     queue: Option<Box<findings::Queue>>,
     /// Where the operator is in the queue, and what it is showing.
     findings: findings::State,
+    /// Where the operator is in a finding's reading.
+    detail: detail::State,
+    /// The rule `o` last asked to be re-observed.
+    ///
+    /// The request, not a result. What a re-observation concluded is shown when
+    /// the observation returns; recording the asking is all this type may
+    /// honestly do with the key.
+    reobserve: Option<String>,
     /// What the status line says about the key just pressed, for one frame.
     ///
     /// A key the screen lists and that does nothing on this row says why rather
@@ -106,6 +123,8 @@ impl App {
             requested: None,
             queue: None,
             findings: findings::State::default(),
+            detail: detail::State::default(),
+            reobserve: None,
             note: None,
         }
     }
@@ -159,7 +178,16 @@ impl App {
     ) {
         self.queue = Some(Box::new(findings::Queue::of(report, deliveries)));
         self.findings = findings::State::default();
+        self.detail = detail::State::default();
+        self.reobserve = None;
         self.note = None;
+    }
+
+    /// The rule the interface last asked to re-observe.
+    #[cfg_attr(not(test), allow(dead_code))]
+    #[must_use]
+    pub fn reobserve_requested(&self) -> Option<&str> {
+        self.reobserve.as_deref()
     }
 
     /// Open the interface with the sign-in flow in a given state.
@@ -233,6 +261,11 @@ impl App {
                 return flow;
             }
         }
+        if self.screen == Screen::FindingDetail {
+            if let Some(flow) = self.reading(event.code) {
+                return flow;
+            }
+        }
         match event.code {
             KeyCode::Char('t') => self.theme = self.theme.toggled(),
             KeyCode::Enter => return self.forward(),
@@ -243,9 +276,6 @@ impl App {
                 if let Some(previous) = self.screen.back() {
                     self.screen = previous;
                 }
-            }
-            KeyCode::Char('a') if self.screen.remediation_reachable() => {
-                self.screen = Screen::Remediation;
             }
             KeyCode::Char('p') if self.screen == Screen::Findings => {
                 self.screen = Screen::PolicyInspector;
@@ -314,6 +344,9 @@ impl App {
             KeyCode::Enter => {
                 if findings::focused_row(queue, &entries, self.findings.selected()).is_some() {
                     self.screen = Screen::FindingDetail;
+                    // A position in one finding's reading is not a position in
+                    // another's.
+                    self.detail.rewind();
                 }
             }
             _ => return None,
@@ -322,6 +355,66 @@ impl App {
         self.findings
             .clamp(findings::entries(queue, &self.findings).len());
         Some(Flow::Continue)
+    }
+
+    /// Keys the finding detail takes for itself.
+    ///
+    /// `None` hands the key back, which is how `t` and `esc` keep meaning what
+    /// they mean here. Nothing in this state captures a printable key as text,
+    /// so both chrome surfaces go on offering everything they offer.
+    ///
+    /// The three keys that act on the finding are answered whether or not there
+    /// is one under the focus, because a key the footer lists and that silently
+    /// does nothing is a key the operator presses again.
+    fn reading(&mut self, code: KeyCode) -> Option<Flow> {
+        let rule = self.focused_row().map(|row| row.rule.clone());
+        match code {
+            KeyCode::Up => self.detail.scroll(-1),
+            KeyCode::Down => self.detail.scroll(1),
+            // The transcript is reachable only where there is a settings-level
+            // change to carry out. Elsewhere the status line says why rather
+            // than the key silently doing nothing.
+            KeyCode::Char('a') => {
+                if self.applicable() {
+                    self.screen = Screen::Remediation;
+                } else {
+                    self.note = Some(findings::inert_apply());
+                }
+            }
+            KeyCode::Char('o') => match rule {
+                Some(rule) => {
+                    self.note = Some(detail::reobserving(&rule));
+                    self.reobserve = Some(rule);
+                }
+                None => self.note = Some(detail::nothing_to_act_on()),
+            },
+            KeyCode::Char('y') => {
+                return Some(match rule {
+                    Some(rule) => {
+                        self.note = Some(detail::copied(&rule));
+                        Flow::Copy(rule)
+                    }
+                    None => {
+                        self.note = Some(detail::nothing_to_act_on());
+                        Flow::Continue
+                    }
+                })
+            }
+            _ => return None,
+        }
+        Some(Flow::Continue)
+    }
+
+    /// Whether the focused finding has a settings-level change to carry out.
+    ///
+    /// Both halves are required: a remediation must be on offer, and its
+    /// declared lane must be the one this interface may act in. A file-level
+    /// gap leaves as a pull request and nothing here offers to author it.
+    fn applicable(&self) -> bool {
+        self.focused_row().is_some_and(|row| {
+            row.status == Status::Fail
+                && row.detail.remediation.class_lane.as_deref() == Some("operator-setting")
+        })
     }
 
     /// The row the queue's focus is on, when it is on one.
@@ -634,6 +727,10 @@ impl App {
                 .queue
                 .as_deref()
                 .map_or_else(|| chrome::status_text(Screen::Findings), findings::status),
+            Screen::FindingDetail => self.focused_row().map_or_else(
+                || chrome::status_text(Screen::FindingDetail),
+                detail::status,
+            ),
             other => chrome::status_text(other),
         }
     }
@@ -666,6 +763,12 @@ impl App {
             if let Some(queue) = self.queue.as_deref() {
                 return findings::body(styles, width, height, queue, &self.findings);
             }
+        }
+        if self.screen == Screen::FindingDetail {
+            if let (Some(queue), Some(row)) = (self.queue.as_deref(), self.focused_row()) {
+                return detail::body(styles, width, height, row, &queue.provenance, &self.detail);
+            }
+            return detail::nothing_selected(styles, width as usize);
         }
         let width = width as usize;
         let mut lines = vec![Line::from(Span::styled(
@@ -813,17 +916,6 @@ impl App {
     }
 }
 
-impl Screen {
-    /// Whether `a` reaches the remediation transcript from here.
-    ///
-    /// The findings screen is not on this list: there, `a` is a property of the
-    /// focused row rather than of the screen, and it is answered before this is
-    /// ever asked.
-    const fn remediation_reachable(self) -> bool {
-        matches!(self, Screen::FindingDetail)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -926,18 +1018,127 @@ mod tests {
 
     #[test]
     fn apply_is_inert_where_the_specification_says_it_is() {
-        // On the findings screen `a` is a property of the focused row rather
-        // than of the screen, and an unobserved screen has no row to apply
-        // anything to. Every other screen but the finding detail is inert.
+        // `a` is a property of the focused finding rather than of the screen,
+        // on both screens that offer it: the transcript exists to carry out a
+        // settings-level change, and without one there is nothing to open.
         for screen in Screen::ALL {
             let mut app = app().at(screen, Theme::Dark);
             press(&mut app, KeyCode::Char('a'));
-            let moved = app.screen() != screen;
-            assert_eq!(moved, screen == Screen::FindingDetail, "{screen:?}");
-            if moved {
-                assert_eq!(app.screen(), Screen::Remediation, "{screen:?}");
-            }
+            assert_eq!(app.screen(), screen, "{screen:?}");
         }
+    }
+
+    #[test]
+    fn apply_opens_the_transcript_only_for_a_settings_level_change() {
+        // The queue's first row is the settings failure, and the group it
+        // stands in is the one the interface may act in.
+        let mut app = app();
+        app.observed_run(
+            &findings::fixture::mixed(),
+            &findings::Deliveries::default(),
+        );
+        app.screen = Screen::Findings;
+        press(&mut app, KeyCode::Down);
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(app.screen(), Screen::FindingDetail);
+        press(&mut app, KeyCode::Char('a'));
+        assert_eq!(app.screen(), Screen::Remediation);
+    }
+
+    #[test]
+    fn apply_says_why_it_did_nothing_on_a_file_level_gap() {
+        let mut app = app();
+        app.observed_run(
+            &findings::fixture::mixed(),
+            &findings::Deliveries::default(),
+        );
+        app.screen = Screen::Findings;
+        // Past group one's heading and row, onto group two's row: a file-level
+        // gap, which leaves as a pull request and is never applied from here.
+        for _ in 0..3 {
+            press(&mut app, KeyCode::Down);
+        }
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(app.screen(), Screen::FindingDetail);
+        press(&mut app, KeyCode::Char('a'));
+        assert_eq!(app.screen(), Screen::FindingDetail, "nothing was opened");
+        assert!(app.status().contains("airlock closes"), "{}", app.status());
+    }
+
+    #[test]
+    fn re_observing_records_the_request_and_claims_no_result() {
+        let mut app = app();
+        app.observed_run(
+            &findings::fixture::mixed(),
+            &findings::Deliveries::default(),
+        );
+        app.screen = Screen::Findings;
+        press(&mut app, KeyCode::Down);
+        press(&mut app, KeyCode::Enter);
+        press(&mut app, KeyCode::Char('o'));
+        assert_eq!(app.reobserve_requested(), Some("REPO-GIT-01"));
+        assert!(app.status().contains("requested"), "{}", app.status());
+        assert_eq!(
+            app.screen(),
+            Screen::FindingDetail,
+            "that is not navigation"
+        );
+    }
+
+    #[test]
+    fn copying_a_rule_id_asks_the_terminal_and_says_only_that() {
+        let mut app = app();
+        app.observed_run(
+            &findings::fixture::mixed(),
+            &findings::Deliveries::default(),
+        );
+        app.screen = Screen::Findings;
+        press(&mut app, KeyCode::Down);
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(
+            press(&mut app, KeyCode::Char('y')),
+            Flow::Copy("REPO-GIT-01".to_owned())
+        );
+        assert!(app.status().contains("clipboard"), "{}", app.status());
+    }
+
+    #[test]
+    fn a_key_that_acts_on_a_finding_says_so_when_there_is_none() {
+        for code in [KeyCode::Char('o'), KeyCode::Char('y')] {
+            let mut app = app().at(Screen::FindingDetail, Theme::Dark);
+            press(&mut app, code);
+            assert!(
+                app.status().contains("no finding is open"),
+                "{:?}: {}",
+                code,
+                app.status()
+            );
+        }
+    }
+
+    #[test]
+    fn a_finding_is_always_read_from_the_top() {
+        let mut app = app();
+        app.observed_run(
+            &findings::fixture::mixed(),
+            &findings::Deliveries::default(),
+        );
+        app.screen = Screen::Findings;
+        press(&mut app, KeyCode::Down);
+        press(&mut app, KeyCode::Enter);
+        // Draw once so the state knows how long the reading is, then move.
+        let _ = app.body(chrome::FLOOR_WIDTH, chrome::FLOOR_HEIGHT - 3);
+        for _ in 0..5 {
+            press(&mut app, KeyCode::Down);
+        }
+        assert!(app.detail.offset() > 0);
+        press(&mut app, KeyCode::Esc);
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(
+            app.detail.offset(),
+            0,
+            "a different finding starts at its top"
+        );
     }
 
     #[test]

@@ -26,12 +26,6 @@ pub const LABEL_WIDTH: usize = 14;
 /// of the block is that both are readable in full.
 const PROVENANCE_LIMIT: usize = 200;
 
-/// How much of a digest the status lines quote.
-///
-/// Enough to tell two registries apart at a glance, and never enough to be
-/// mistaken for the digest itself — which is why the abbreviation is marked.
-const DIGEST_PREFIX: usize = 8;
-
 /// The width below which prose is written tightly.
 ///
 /// The reference layout carries the full sentences and the floor does not. The
@@ -120,46 +114,51 @@ impl Provenance {
     }
 
     /// The block as lines, under its heading.
+    ///
+    /// The label column is the caller's, because the block sits inside a screen
+    /// whose other regions have already chosen one, and a provenance block that
+    /// did not line up with them would read as a different table.
     #[must_use]
-    pub fn lines(&self, styles: Styles, width: usize) -> Vec<Line<'static>> {
+    pub fn lines(&self, styles: Styles, width: usize, label_width: usize) -> Vec<Line<'static>> {
         let mut lines = vec![heading(styles, "RUN PROVENANCE")];
         for (label, value) in self.fields() {
-            lines.extend(field(styles, label, &value, width));
+            lines.extend(field_at(styles, label, &value, width, label_width));
         }
         lines
-    }
-
-    /// The digest as a status line quotes it: enough to tell two apart, marked
-    /// so it is never read as the digest itself.
-    #[must_use]
-    pub fn abbreviated_digest(&self) -> String {
-        let (algorithm, value) = self
-            .registry_digest
-            .split_once(':')
-            .unwrap_or(("", self.registry_digest.as_str()));
-        if value.chars().count() <= DIGEST_PREFIX {
-            return self.registry_digest.clone();
-        }
-        let head: String = value.chars().take(DIGEST_PREFIX).collect();
-        if algorithm.is_empty() {
-            format!("{head}\u{2026}")
-        } else {
-            format!("{algorithm}:{head}\u{2026}")
-        }
     }
 }
 
 /// A labelled field, wrapped under its value rather than under its label.
 #[must_use]
 pub fn field(styles: Styles, label: &str, text: &str, width: usize) -> Vec<Line<'static>> {
-    let room = width.saturating_sub(LABEL_WIDTH).max(1);
+    field_at(styles, label, text, width, LABEL_WIDTH)
+}
+
+/// A labelled field in a label column of the caller's choosing.
+///
+/// A screen that prints the audit's own field names needs a wider column than
+/// one printing prose labels, and every region of one screen must share a
+/// column: a value that starts in a different place on two adjacent lines
+/// reads as two tables rather than one.
+#[must_use]
+pub fn field_at(
+    styles: Styles,
+    label: &str,
+    text: &str,
+    width: usize,
+    label_width: usize,
+) -> Vec<Line<'static>> {
+    let room = width.saturating_sub(label_width).max(1);
     wrap(text, room)
         .into_iter()
         .enumerate()
         .map(|(index, part)| {
             let label = if index == 0 { label } else { "" };
             Line::from(vec![
-                Span::styled(format!("{label:<LABEL_WIDTH$}"), styles.of(Role::Faint)),
+                Span::styled(
+                    format!("{label:<width$}", width = label_width),
+                    styles.of(Role::Faint),
+                ),
                 Span::styled(part, styles.of(Role::Dim)),
             ])
         })
@@ -301,7 +300,7 @@ mod tests {
     fn the_provenance_block_states_every_fact_the_run_carries() {
         let report = crate::tui::findings::fixture::mixed();
         let provenance = Provenance::of(&report);
-        let rendered = text(&provenance.lines(styles(), 120));
+        let rendered = text(&provenance.lines(styles(), 120, LABEL_WIDTH));
         assert!(rendered.contains(&provenance.airlock_version));
         assert!(rendered.contains(&provenance.registry_digest));
         assert!(rendered.contains(&provenance.audited_commit));
@@ -312,20 +311,8 @@ mod tests {
     fn an_unestablished_observation_time_is_stated_rather_than_left_blank() {
         let mut report = crate::tui::findings::fixture::mixed();
         report.repository.settings_observed_at = None;
-        let rendered = text(&Provenance::of(&report).lines(styles(), 120));
+        let rendered = text(&Provenance::of(&report).lines(styles(), 120, LABEL_WIDTH));
         assert!(rendered.contains("not established"), "{rendered}");
-    }
-
-    #[test]
-    fn an_abbreviated_digest_is_marked_as_one_and_keeps_its_algorithm() {
-        let mut report = crate::tui::findings::fixture::mixed();
-        report.airlock.registry_digest = format!("sha256:{}", "a".repeat(64));
-        let provenance = Provenance::of(&report);
-        assert_eq!(provenance.abbreviated_digest(), "sha256:aaaaaaaa\u{2026}");
-        // Short enough to be whole is printed whole: a mark that said
-        // something was dropped when nothing was would be a lie.
-        report.airlock.registry_digest = "sha256:abcd".to_owned();
-        assert_eq!(Provenance::of(&report).abbreviated_digest(), "sha256:abcd");
     }
 
     #[test]

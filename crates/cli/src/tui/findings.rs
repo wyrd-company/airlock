@@ -27,8 +27,9 @@ use crate::admin::sign_in::Density;
 use crate::admin::text::sanitize;
 
 use super::chrome::fit;
+use super::detail::Detail;
 use super::lane::{self, Lane, GATING_RAIL, LANES_WIDTH};
-use super::panel;
+use super::panel::{self, Provenance};
 use super::theme::{Role, Styles};
 
 /// The most a rule id may be. The registry's longest is fourteen characters.
@@ -384,6 +385,14 @@ pub struct Row {
     pub delivery: Delivery,
     /// What this row says beyond its statement, where the group requires it.
     pub note: Option<String>,
+    /// Everything else airlock knows about the finding, for the screen that
+    /// reads one rule in full.
+    ///
+    /// Carried on the row rather than looked up again, so a row and its detail
+    /// are one value built at one boundary: they sanitize together, they sort
+    /// together, and no second path exists by which a server-supplied string
+    /// could reach a cell.
+    pub detail: Detail,
 }
 
 impl Row {
@@ -446,6 +455,8 @@ pub struct Queue {
     pub gate: Gate,
     /// The registry version the run attests to.
     pub registry_version: String,
+    /// What produced the reading, and what it was of.
+    pub provenance: Provenance,
 }
 
 impl Queue {
@@ -456,7 +467,7 @@ impl Queue {
         let mut rows: Vec<Row> = report
             .findings
             .iter()
-            .map(|finding| row(finding, gate, deliveries))
+            .map(|finding| row(finding, gate, deliveries, &report.effective_policy))
             .collect();
         // Grouped by the work, and by rule id inside each group: the audit's
         // own order is what makes a rule findable, and the group is what makes
@@ -489,6 +500,7 @@ impl Queue {
             rows,
             gate,
             registry_version: sanitize(&report.airlock.registry_version, RULE_LIMIT),
+            provenance: Provenance::of(report),
         }
     }
 
@@ -593,7 +605,12 @@ fn note_of(finding: &Finding, group: Group, gate: Gate, severity: Severity) -> O
     }
 }
 
-fn row(finding: &Finding, gate: Gate, deliveries: &Deliveries) -> Row {
+fn row(
+    finding: &Finding,
+    gate: Gate,
+    deliveries: &Deliveries,
+    effective_policy: &[airlock_core::findings::EffectiveRule],
+) -> Row {
     let severity = Severity::parse(&finding.severity).unwrap_or(Severity::Observation);
     let group = group_of(finding);
     Row {
@@ -609,6 +626,7 @@ fn row(finding: &Finding, gate: Gate, deliveries: &Deliveries) -> Row {
         group,
         delivery: deliveries.get(&finding.rule),
         note: note_of(finding, group, gate, severity),
+        detail: Detail::of(finding, effective_policy),
     }
 }
 
@@ -2339,6 +2357,10 @@ mod tests {
             group: Group::Judgment,
             delivery: Delivery::Unknown,
             note: Some(fact.to_owned()),
+            detail: Detail::of(
+                &finding("REPO-DOCS-05", Severity::Required, Status::Fail),
+                &[],
+            ),
         }
     }
 

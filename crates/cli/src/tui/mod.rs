@@ -8,6 +8,7 @@
 
 mod app;
 mod chrome;
+mod detail;
 mod findings;
 mod lane;
 mod organizations;
@@ -107,6 +108,11 @@ fn drive(app: &mut App, session: &mut terminal::Session, authorizing: &Authorizi
                 Event::Key(key) => match app.handle_key(key) {
                     Flow::Exit => return Ok(0),
                     Flow::Reissue => authorizing.reissue(),
+                    // The interface says what it would like the terminal to
+                    // hold; the terminal is owned here, so the asking happens
+                    // here. A terminal that ignores it says nothing back, and
+                    // nothing here claims it complied.
+                    Flow::Copy(value) => offer_to_clipboard(&value),
                     Flow::Continue => {}
                 },
                 // A resize redraws on the next pass; everything else is not
@@ -156,6 +162,29 @@ fn drive(app: &mut App, session: &mut terminal::Session, authorizing: &Authorizi
         // dropped — and zeroized — however this function returns.
         let _ = &credential;
     }
+}
+
+/// Offer a value to the terminal's clipboard.
+///
+/// The terminal's own facility, because the binary shells out to nothing: no
+/// `xclip`, no `pbcopy`, no child process of any kind. The request is written
+/// to the terminal and there is no reply to read, so this reports nothing and
+/// swallows nothing that matters — a terminal that does not implement the
+/// sequence ignores it, and the value is on the screen in full regardless.
+///
+/// Only a rule id and the registry digest ever reach here. No credential is on
+/// any screen, so none can be copied off one.
+fn offer_to_clipboard(value: &str) {
+    use base64::Engine as _;
+    use std::io::Write as _;
+
+    let encoded = base64::engine::general_purpose::STANDARD.encode(value.as_bytes());
+    let mut out = std::io::stdout();
+    // A failure to write is not reported: the interface never claimed the
+    // terminal took it, and a torn-down clipboard request is not a reason to
+    // interrupt a session.
+    let _ = write!(out, "\u{1b}]52;c;{encoded}\u{7}");
+    let _ = out.flush();
 }
 
 #[cfg(test)]
