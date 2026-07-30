@@ -390,7 +390,9 @@ A row is one line where the width carries its whole reading and two where it
 does not; the section and the row's own fact take the second line rather than
 being elided away. Where a row carries such a fact — a delivery state, the grant
 a gated fact requires, why airlock declares no remediation — the statement is
-what is shortened for room, never the fact.
+what is shortened for room, never the fact. A fact the width cannot carry even
+alone is withheld and the row says so, never rendered partially; the finding
+detail always carries it whole.
 
 A secondary view lists every finding flat, ordered by rule id. Its purpose is
 lookup — a predictable address for every rule, for answering what airlock says
