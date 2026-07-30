@@ -18,7 +18,12 @@ use airlock_core::registry::Severity;
 
 use super::chrome::{self, wrap};
 use super::lane::{self, Lane};
+use crate::admin::flow::Report;
+use crate::admin::sign_in::Reason;
+use crate::device::TokenGrant;
+
 use super::screen::Screen;
+use super::sign_in;
 use super::theme::{ColorMode, Role, Styles, Theme};
 
 /// What the application does after handling an event.
@@ -28,6 +33,8 @@ pub enum Flow {
     Continue,
     /// Restore the terminal and leave.
     Exit,
+    /// Abandon the device code on screen and ask for a new one.
+    Reissue,
 }
 
 /// The whole interface state.
@@ -37,6 +44,8 @@ pub struct App {
     theme: Theme,
     color: ColorMode,
     version: String,
+    sign_in: sign_in::Screen,
+    authorized: bool,
 }
 
 impl App {
@@ -48,7 +57,21 @@ impl App {
             theme: Theme::Dark,
             color,
             version: version.into(),
+            sign_in: sign_in::Screen::default(),
+            authorized: false,
         }
+    }
+
+    /// Open the interface with the sign-in flow in a given state.
+    ///
+    /// The five states are reached by what GitHub answers, and the suite has no
+    /// GitHub. This is how each one is rendered and compared.
+    #[cfg_attr(not(test), allow(dead_code))]
+    #[must_use]
+    pub fn signing_in(mut self, state: crate::admin::sign_in::SignIn) -> Self {
+        self.screen = Screen::SignIn;
+        self.sign_in = sign_in::Screen::at(state);
+        self
     }
 
     /// Open the interface on a given screen and palette.
@@ -116,9 +139,76 @@ impl App {
             KeyCode::Char('b') if self.screen == Screen::Findings => {
                 self.screen = Screen::PublishingBootstrap;
             }
+            KeyCode::Char('q') if self.screen == Screen::SignIn => self.sign_in.cycle_scan(),
+            // `r` is live only once a device code exists, because until then
+            // there is nothing to reissue. Asking for a replacement is a
+            // transition of this screen's state and nothing else: the session
+            // is not restarted.
+            KeyCode::Char('r')
+                if self.screen == Screen::SignIn && self.sign_in.state().has_code() =>
+            {
+                self.sign_in.state_mut().reissue(Reason::Asked);
+                return Flow::Reissue;
+            }
             _ => {}
         }
         Flow::Continue
+    }
+
+    /// Advance every clock the interface shows.
+    ///
+    /// A countdown that only moves when a key is pressed is a countdown that
+    /// lies, so the loop ticks whether or not anything happened.
+    pub fn tick(&mut self, elapsed: std::time::Duration) {
+        self.sign_in.state_mut().tick(elapsed);
+    }
+
+    /// Apply what the device flow reported.
+    ///
+    /// The grant is handed straight back to the caller rather than kept. This
+    /// type draws, and a value it never holds is a value it can never draw.
+    pub fn report(&mut self, report: Report) -> Option<Box<TokenGrant>> {
+        let state = self.sign_in.state_mut();
+        match report {
+            Report::CodeIssued(codes) => state.code_issued(&codes),
+            // A poll that got through after a transport failure is what says
+            // the interruption is over, so it is the same report that resumes
+            // the screen. The code and its remaining validity are the ones it
+            // was holding: approval already given is not wasted.
+            Report::Pending(interval) => {
+                if matches!(state, crate::admin::sign_in::SignIn::Interrupted { .. }) {
+                    state.resumed(interval);
+                } else {
+                    state.polled();
+                }
+            }
+            Report::SlowDown(suggested) => state.slow_down(suggested),
+            // Expiry and denial are displayed, not skipped past. The worker is
+            // already asking for a replacement, and the screen says so; the
+            // next report is the replacement arriving, which is what returns
+            // the screen to awaiting approval. The session is not restarted and
+            // no other screen's position is touched, because none of it lives
+            // on this screen.
+            Report::Expired => state.expired(),
+            Report::Denied => state.denied(),
+            Report::Interrupted(cause) => state.interrupted(cause),
+            Report::Granted(grant) => {
+                self.authorized = true;
+                self.screen = Screen::Organizations;
+                return Some(grant);
+            }
+        }
+        None
+    }
+
+    /// Whether the session holds an authorization.
+    ///
+    /// A boolean, deliberately: the interface is told that a credential exists,
+    /// never what it is.
+    #[cfg_attr(not(test), allow(dead_code))]
+    #[must_use]
+    pub const fn authorized(&self) -> bool {
+        self.authorized
     }
 
     /// Draw the whole interface.
@@ -152,7 +242,10 @@ impl App {
         // continuation line lands under the text it continues instead of under
         // the label, and so a column that carries meaning cannot be reflowed
         // out of position.
-        let body = self.withhold(self.body(frame.body.width), frame.body.height);
+        let body = self.withhold(
+            self.body(frame.body.width, frame.body.height),
+            frame.body.height,
+        );
         Paragraph::new(body).render(frame.body, buffer);
     }
 
@@ -205,8 +298,11 @@ impl App {
     /// empty, and what can be done next. Only the findings screen draws
     /// anything more, because the status vocabulary is the one thing this task
     /// does own.
-    fn body(&self, width: u16) -> Vec<Line<'static>> {
+    fn body(&self, width: u16, height: u16) -> Vec<Line<'static>> {
         let styles = self.styles();
+        if self.screen == Screen::SignIn {
+            return self.sign_in.body(styles, width, height);
+        }
         let width = width as usize;
         let mut lines = vec![Line::from(Span::styled(
             self.screen.label().to_uppercase(),
@@ -464,6 +560,85 @@ mod tests {
     }
 
     #[test]
+    fn a_grant_leaves_the_interface_rather_than_being_kept_by_it() {
+        let mut app = app();
+        assert!(!app.authorized());
+        let grant = app.report(Report::Granted(Box::new(TokenGrant {
+            access_token: "ghu_approved".to_owned(),
+            expires_in: None,
+            refresh_token: None,
+            refresh_token_expires_in: None,
+        })));
+        // Handed straight back: the drawing state has no field for it, so there
+        // is nothing on this side that could render it.
+        assert_eq!(
+            grant.map(|grant| grant.access_token),
+            Some("ghu_approved".to_owned())
+        );
+        assert!(app.authorized(), "the session holds an authorization");
+        assert_eq!(app.screen(), Screen::Organizations);
+    }
+
+    #[test]
+    fn the_five_states_are_reached_by_what_github_answers() {
+        use crate::admin::sign_in::SignIn;
+        let issued = crate::device::DeviceCode {
+            device_code: "never-shown".to_owned(),
+            user_code: "WDJB-MJHT".to_owned(),
+            verification_uri: "https://github.com/login/device".to_owned(),
+            expires_in: 900,
+            interval: 5,
+        };
+        let mut app = app();
+        assert!(matches!(app.sign_in.state(), SignIn::Requesting { .. }));
+        app.report(Report::CodeIssued(Box::new(issued)));
+        assert!(matches!(app.sign_in.state(), SignIn::Awaiting { .. }));
+        app.report(Report::Interrupted("connection reset".to_owned()));
+        assert!(matches!(app.sign_in.state(), SignIn::Interrupted { .. }));
+        // The next poll that gets through is what says the interruption is
+        // over, and it keeps the code that was already on screen.
+        app.report(Report::Pending(std::time::Duration::from_secs(5)));
+        assert!(matches!(app.sign_in.state(), SignIn::Awaiting { .. }));
+        app.report(Report::Expired);
+        assert_eq!(app.sign_in.state(), &SignIn::Expired);
+        app.report(Report::Denied);
+        assert_eq!(app.sign_in.state(), &SignIn::Denied);
+        assert_eq!(app.screen(), Screen::SignIn, "none of that is navigation");
+    }
+
+    #[test]
+    fn r_asks_for_a_new_code_only_once_there_is_one_to_replace() {
+        let mut app = app();
+        assert_eq!(press(&mut app, KeyCode::Char('r')), Flow::Continue);
+        app.report(Report::CodeIssued(Box::new(crate::device::DeviceCode {
+            device_code: "never-shown".to_owned(),
+            user_code: "WDJB-MJHT".to_owned(),
+            verification_uri: "https://github.com/login/device".to_owned(),
+            expires_in: 900,
+            interval: 5,
+        })));
+        assert_eq!(press(&mut app, KeyCode::Char('r')), Flow::Reissue);
+    }
+
+    #[test]
+    fn ticking_runs_the_code_validity_down() {
+        use crate::admin::sign_in::SignIn;
+        let mut app = app();
+        app.report(Report::CodeIssued(Box::new(crate::device::DeviceCode {
+            device_code: "never-shown".to_owned(),
+            user_code: "WDJB-MJHT".to_owned(),
+            verification_uri: "https://github.com/login/device".to_owned(),
+            expires_in: 900,
+            interval: 5,
+        })));
+        app.tick(std::time::Duration::from_secs(60));
+        let SignIn::Awaiting { remaining, .. } = app.sign_in.state() else {
+            panic!("expected the awaiting state");
+        };
+        assert_eq!(*remaining, std::time::Duration::from_secs(840));
+    }
+
+    #[test]
     fn a_key_release_does_nothing() {
         let mut app = app();
         let mut event = KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE);
@@ -474,10 +649,12 @@ mod tests {
 
     #[test]
     fn every_screen_states_what_would_have_populated_it() {
-        for screen in Screen::ALL {
+        // Sign-in is excluded because it is no longer empty: it draws the
+        // device flow, and a region that has content states its content.
+        for screen in Screen::ALL.into_iter().filter(|s| *s != Screen::SignIn) {
             let app = app().at(screen, Theme::Dark);
             let text: String = app
-                .body(chrome::REFERENCE_WIDTH)
+                .body(chrome::REFERENCE_WIDTH, chrome::REFERENCE_HEIGHT)
                 .iter()
                 .flat_map(|line| line.spans.iter())
                 .map(|span| span.content.as_ref())
@@ -513,7 +690,7 @@ mod tests {
     fn the_findings_screen_prints_all_nine_statuses_with_their_glosses() {
         let app = app().at(Screen::Findings, Theme::Dark);
         let text: String = app
-            .body(chrome::REFERENCE_WIDTH)
+            .body(chrome::REFERENCE_WIDTH, chrome::REFERENCE_HEIGHT)
             .iter()
             .flat_map(|line| line.spans.iter())
             .map(|span| span.content.as_ref())

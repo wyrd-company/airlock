@@ -17,12 +17,20 @@ airlock-core.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 crossterm.workspace = true
+qrcode.workspace = true
 ratatui.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 toml.workspace = true
+zeroize.workspace = true
+
+[features]
+# The write path binds to Airlock Test rather than Airlock Admin. Off by
+# default, so the shipped binary contains no code and no string that could
+# accept the test identity.
+test-identity = []
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true

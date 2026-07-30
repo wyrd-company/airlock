@@ -4,6 +4,7 @@
 //! author deterministic content in a caller-supplied working tree, but it
 //! never performs a git operation or holds a write credential.
 
+mod admin;
 mod config;
 mod credential;
 mod device;

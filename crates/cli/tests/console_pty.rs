@@ -93,9 +93,21 @@ impl Pty {
     /// Start `airlock` with this pty as its controlling terminal, on all three
     /// standard descriptors, exactly as a shell would.
     fn spawn_console(&self) -> Child {
+        self.spawn_console_in(&[])
+    }
+
+    /// Start the console with extra environment, as above.
+    fn spawn_console_in(&self, environment: &[(&str, &std::path::Path)]) -> Child {
         let device = self.device.as_raw_fd();
         let mut command = Command::new(assert_cmd::cargo::cargo_bin("airlock"));
         command.env_remove("NO_COLOR");
+        // Nowhere for the flow to reach: the loopback port the override names
+        // refuses at once, so the console shows a polling interruption rather
+        // than the suite talking to github.com.
+        command.env("AIRLOCK_GITHUB_LOGIN_URL", "http://127.0.0.1:1");
+        for (name, value) in environment {
+            command.env(name, value);
+        }
         // SAFETY: `pre_exec` runs between fork and exec. Every call here —
         // `setsid`, `ioctl`, `dup2`, `close` — is async-signal-safe.
         unsafe {
@@ -275,6 +287,73 @@ fn a_delivered_signal_gives_the_terminal_back_and_still_kills_the_process() {
     );
     assert_eq!(status.code(), None, "a signalled process has no exit code");
     assert_restored(&pty, &format!("{opening}{closing}"));
+}
+
+/// Every file under a directory, recursively.
+fn contents(root: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let mut found = Vec::new();
+    let mut frontier = vec![root.to_path_buf()];
+    while let Some(directory) = frontier.pop() {
+        let Ok(entries) = std::fs::read_dir(&directory) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                frontier.push(path.clone());
+            }
+            found.push(path);
+        }
+    }
+    found
+}
+
+#[test]
+fn a_whole_session_writes_no_file_anywhere() {
+    // The write path's guarantee is that no credential is stored, under any
+    // circumstance, in any location. The strongest available reading of that is
+    // that a session creates no file at all: every place airlock could write to
+    // is redirected into one empty directory, and it is still empty afterwards.
+    let home = tempfile::tempdir().expect("a home to watch");
+    let watched: &[(&str, &std::path::Path)] = &[
+        ("HOME", home.path()),
+        ("XDG_CONFIG_HOME", home.path()),
+        ("XDG_DATA_HOME", home.path()),
+        ("XDG_CACHE_HOME", home.path()),
+        ("XDG_STATE_HOME", home.path()),
+        ("TMPDIR", home.path()),
+    ];
+    assert!(
+        contents(home.path()).is_empty(),
+        "the directory starts empty"
+    );
+
+    let pty = Pty::open();
+    let mut child = pty.spawn_console_in(watched);
+    std::thread::sleep(SETTLE);
+    let drawn = pty.drain();
+    assert!(
+        drawn.contains("AIRLOCK"),
+        "the console drew no frame: {drawn:?}"
+    );
+    assert!(
+        drawn.contains("POLLING INTERRUPTED") || drawn.contains("REQUESTING A DEVICE CODE"),
+        "the device flow did not run: {drawn:?}"
+    );
+
+    pty.write(b"r");
+    std::thread::sleep(SETTLE);
+    let after = pty.drain();
+    pty.write(b"\x03");
+    let status = wait_for(&mut child);
+
+    assert_eq!(status.code(), Some(0), "a clean exit reports success");
+    assert_restored(&pty, &format!("{drawn}{after}{}", pty.drain()));
+    assert_eq!(
+        contents(home.path()),
+        Vec::<std::path::PathBuf>::new(),
+        "the session wrote something, and it may write nothing"
+    );
 }
 
 #[test]

@@ -1,24 +1,24 @@
 sign-in-80x24-no-color · 80x24 · theme dark · NO_COLOR
 --- text ---
 AIRLOCK 0.0.0  sign-in                    no credential stored · theme t · dark 
-SIGN-IN                                                                         
-Obtain an authorization for this session through the device flow.               
+REQUESTING A DEVICE CODE                                                        
+Asking GitHub for a device code.                                                
                                                                                 
-NOTHING OBSERVED YET                                                            
-would show      the device code, the address to enter it at, and the scan code  
-                where width allows                                              
-empty because   this build is the interface shell. It draws the frame, the      
-                status vocabulary, and the navigation between screens. No       
-                authorization is requested and no repository is observed, so    
-                there is nothing for this region to hold.                       
-next            navigate with ↵ and esc to read the frame on every screen, press
-                t to compare the palettes, and ctrl-c to leave.                 
-                                                                                
-                                                                                
-                                                                                
-                                                                                
-                                                                                
-                                                                                
+┌───────────────────┐                                                           
+│                   │                                                           
+└───────────────────┘                                                           
+address       not issued yet                                                    
+code          eight characters, case-insensitive; no 0, O, 1, or I.             
+scan code     none yet: it encodes the address.                                 
+remedy        Nothing yet. r and q are not live until a code exists.            
+CREDENTIAL                                                                      
+source        GitHub App Airlock Admin · device flow                            
+grant         read: metadata, actions · write: administration, contents,        
+              environments, repository_custom_properties, secrets, variables,   
+              workflows, organization_administration, organization_secrets ·    
+              admin: organization_custom_properties                             
+storage       none. No credential of any kind is stored, anywhere, ever. Its    
+              value is never displayed.                                         
                                                                                 
                                                                                 
                                                                                 
@@ -26,10 +26,7 @@ r issue a new code · q show or hide the scan code · t theme · ctrl-c exit
 no credential on disk · tty required                                            
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-aaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-aaaaaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+aaaaaaaaaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
@@ -37,6 +34,9 @@ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+aaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb

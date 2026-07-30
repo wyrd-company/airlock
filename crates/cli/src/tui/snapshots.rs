@@ -16,6 +16,9 @@ use ratatui::buffer::Buffer;
 use ratatui::style::{Color, Modifier};
 use ratatui::Terminal;
 
+use crate::admin::sign_in::SignIn;
+use crate::device::DeviceCode;
+
 use super::app::App;
 use super::chrome::{FLOOR_HEIGHT, FLOOR_WIDTH, REFERENCE_HEIGHT, REFERENCE_WIDTH};
 use super::screen::Screen;
@@ -34,12 +37,56 @@ struct Case {
     color: ColorMode,
     width: u16,
     height: u16,
+    /// The sign-in state to open on, where the case is one of the five.
+    flow: Option<SignIn>,
+}
+
+/// The device code every sign-in snapshot is drawn from.
+///
+/// A fixture, and the specification says as much: illustrative values are
+/// shapes. What is asserted is that the interface prints what it was given.
+fn fixture() -> DeviceCode {
+    DeviceCode {
+        device_code: "this-never-reaches-a-screen".to_owned(),
+        user_code: "WDJB-MJHT".to_owned(),
+        verification_uri: "https://github.com/login/device".to_owned(),
+        expires_in: 900,
+        interval: 5,
+    }
+}
+
+/// Each of the five states, with the slug its snapshot is filed under.
+fn flows() -> Vec<(&'static str, SignIn)> {
+    let awaiting = || {
+        let mut state = SignIn::opening();
+        state.code_issued(&fixture());
+        state
+    };
+    let mut interrupted = awaiting();
+    interrupted.tick(std::time::Duration::from_secs(63));
+    interrupted.interrupted("connection reset by peer");
+    let mut awaited = awaiting();
+    awaited.polled();
+    awaited.polled();
+    awaited.tick(std::time::Duration::from_secs(28));
+    vec![
+        ("requesting", SignIn::opening()),
+        ("awaiting", awaited),
+        ("expired", SignIn::Expired),
+        ("denied", SignIn::Denied),
+        ("interrupted", interrupted),
+    ]
 }
 
 fn render(case: &Case) -> String {
     let backend = TestBackend::new(case.width, case.height);
     let mut terminal = Terminal::new(backend).expect("a test terminal");
-    let app = App::new(VERSION, case.color).at(case.screen, case.theme);
+    let app = match case.flow.clone() {
+        Some(state) => App::new(VERSION, case.color)
+            .at(case.screen, case.theme)
+            .signing_in(state),
+        None => App::new(VERSION, case.color).at(case.screen, case.theme),
+    };
     terminal
         .draw(|frame| app.render(frame.area(), frame.buffer_mut()))
         .expect("the interface draws");
@@ -186,9 +233,56 @@ fn cases() -> Vec<Case> {
                 color: ColorMode::Color,
                 width,
                 height,
+                flow: None,
             });
         }
     }
+    // The five sign-in states, each at both sizes. The scan code sits alongside
+    // at the reference and is withheld at the floor, so the two sizes are also
+    // the two halves of that rule.
+    for (name, state) in flows() {
+        for (width, height) in [
+            (REFERENCE_WIDTH, REFERENCE_HEIGHT),
+            (FLOOR_WIDTH, FLOOR_HEIGHT),
+        ] {
+            cases.push(Case {
+                name: Box::leak(
+                    format!("sign-in-{name}-{}-dark", size_slug(width)).into_boxed_str(),
+                ),
+                screen: Screen::SignIn,
+                theme: Theme::Dark,
+                color: ColorMode::Color,
+                width,
+                height,
+                flow: Some(state.clone()),
+            });
+        }
+    }
+    // The awaiting state is the one that draws a scan code, so it is the one
+    // whose light palette and colourless renderings are worth recording.
+    let awaiting = flows()
+        .into_iter()
+        .find(|(name, _)| *name == "awaiting")
+        .map(|(_, state)| state)
+        .expect("the awaiting state is one of the five");
+    cases.push(Case {
+        name: "sign-in-awaiting-120x40-light",
+        screen: Screen::SignIn,
+        theme: Theme::Light,
+        color: ColorMode::Color,
+        width: REFERENCE_WIDTH,
+        height: REFERENCE_HEIGHT,
+        flow: Some(awaiting.clone()),
+    });
+    cases.push(Case {
+        name: "sign-in-awaiting-120x40-no-color",
+        screen: Screen::SignIn,
+        theme: Theme::Dark,
+        color: ColorMode::NoColor,
+        width: REFERENCE_WIDTH,
+        height: REFERENCE_HEIGHT,
+        flow: Some(awaiting),
+    });
     for screen in [Screen::SignIn, Screen::Findings] {
         for (width, height) in [
             (REFERENCE_WIDTH, REFERENCE_HEIGHT),
@@ -203,6 +297,7 @@ fn cases() -> Vec<Case> {
                 color: ColorMode::Color,
                 width,
                 height,
+                flow: None,
             });
             cases.push(Case {
                 name: Box::leak(
@@ -213,6 +308,7 @@ fn cases() -> Vec<Case> {
                 color: ColorMode::NoColor,
                 width,
                 height,
+                flow: None,
             });
         }
     }
@@ -253,6 +349,7 @@ fn the_reading_is_the_same_text_in_both_palettes_and_without_colour() {
                 color,
                 width,
                 height,
+                flow: None,
             };
             let dark = reading(&case(Theme::Dark, ColorMode::Color));
             let light = reading(&case(Theme::Light, ColorMode::Color));
@@ -261,6 +358,43 @@ fn the_reading_is_the_same_text_in_both_palettes_and_without_colour() {
             assert_eq!(dark, mono, "{screen:?} at {width}x{height}");
         }
     }
+}
+
+/// The awaiting state, which is the one that draws a scan code.
+fn awaiting_case(theme: Theme, color: ColorMode) -> Case {
+    Case {
+        name: "comparison",
+        screen: Screen::SignIn,
+        theme,
+        color,
+        width: REFERENCE_WIDTH,
+        height: REFERENCE_HEIGHT,
+        flow: flows()
+            .into_iter()
+            .find(|(name, _)| *name == "awaiting")
+            .map(|(_, state)| state),
+    }
+}
+
+#[test]
+fn a_scan_code_reads_the_same_in_both_palettes_and_is_withheld_without_colour() {
+    let dark = characters(&awaiting_case(Theme::Dark, ColorMode::Color));
+    let light = characters(&awaiting_case(Theme::Light, ColorMode::Color));
+    assert_eq!(
+        reading(&awaiting_case(Theme::Dark, ColorMode::Color)),
+        reading(&awaiting_case(Theme::Light, ColorMode::Color)),
+        "the code is painted, not themed"
+    );
+    assert!(dark.contains('\u{2580}') && light.contains('\u{2580}'));
+
+    // Without colour it cannot paint its own field, so it is withheld and the
+    // screen says which of the two facts is missing.
+    let mono = characters(&awaiting_case(Theme::Dark, ColorMode::NoColor));
+    assert!(
+        !mono.contains('\u{2580}'),
+        "a code that cannot be painted is not drawn"
+    );
+    assert!(mono.contains("NO_COLOR"), "{mono}");
 }
 
 #[test]
@@ -273,6 +407,7 @@ fn the_two_palettes_never_paint_a_screen_the_same_way() {
             color: ColorMode::Color,
             width: REFERENCE_WIDTH,
             height: REFERENCE_HEIGHT,
+            flow: None,
         };
         assert_ne!(
             legend(&case(Theme::Dark)),
@@ -296,6 +431,7 @@ fn no_color_emits_no_colour_at_all() {
                 color: ColorMode::NoColor,
                 width,
                 height,
+                flow: None,
             });
             for entry in &entries {
                 assert!(
@@ -318,6 +454,7 @@ fn the_whole_vocabulary_is_legible_at_the_floor_without_colour() {
         color: ColorMode::NoColor,
         width: FLOOR_WIDTH,
         height: FLOOR_HEIGHT,
+        flow: None,
     });
     for status in airlock_core::findings::Status::ALL {
         assert!(
@@ -340,6 +477,7 @@ fn a_terminal_under_the_floor_is_told_so_rather_than_drawn_into() {
         color: ColorMode::Color,
         width: 60,
         height: 20,
+        flow: None,
     });
     assert!(rendered.contains("TERMINAL TOO SMALL"), "{rendered}");
     assert!(!rendered.contains("STATUS VOCABULARY"), "{rendered}");

@@ -29,6 +29,7 @@ dependencies = [
  "crossterm",
  "libc",
  "predicates",
+ "qrcode",
  "ratatui",
  "reqwest",
  "serde",
@@ -37,6 +38,7 @@ dependencies = [
  "tokio",
  "toml",
  "wiremock",
+ "zeroize",
 ]
 
 [[package]]
@@ -2690,6 +2692,12 @@ checksum = "5a6efc566849d3d9d737c5cb06cc50e48950ebe3d3f9d70631490fff3a07b139"
 dependencies = [
  "parking_lot",
 ]
+
+[[package]]
+name = "qrcode"
+version = "0.14.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d68782463e408eb1e668cf6152704bd856c78c5b6417adaee3203d8f4c1fc9ec"
 
 [[package]]
 name = "quinn"

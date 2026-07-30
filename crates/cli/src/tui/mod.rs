@@ -10,6 +10,7 @@ mod app;
 mod chrome;
 mod lane;
 mod screen;
+mod sign_in;
 mod terminal;
 mod theme;
 
@@ -17,12 +18,21 @@ mod theme;
 mod snapshots;
 
 use std::io::IsTerminal;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result};
 use crossterm::event::{self, Event};
 
 use self::app::{App, Flow};
 use self::theme::ColorMode;
+use crate::admin::flow::Authorizing;
+use crate::admin::session::SessionCredential;
+
+/// How long the loop waits for a key before it looks at the clock again.
+///
+/// The sign-in screen counts a code's validity down and a backoff down, and a
+/// countdown that only moves when a key is pressed is a countdown that lies.
+const TICK: Duration = Duration::from_millis(250);
 
 /// Whether both halves of the terminal are interactive.
 ///
@@ -55,27 +65,60 @@ pub const fn non_interactive_message() -> &'static str {
 /// The caller has already established that the terminal is interactive.
 pub fn run(version: &str) -> Result<u8> {
     let mut app = App::new(version, ColorMode::from_env());
+    // The device flow starts before the terminal is taken, so a failure to
+    // start it is an ordinary error on an ordinary terminal rather than one
+    // printed into an alternate screen that is about to be torn down.
+    let authorizing = Authorizing::start(&crate::admin::flow::login_base())?;
     let mut session = terminal::Session::take()?;
-    let outcome = drive(&mut app, &mut session);
+    let outcome = drive(&mut app, &mut session, &authorizing);
     drop(session);
     outcome
 }
 
-fn drive(app: &mut App, session: &mut terminal::Session) -> Result<u8> {
+/// The loop.
+///
+/// The credential lives here and nowhere else. It is never handed to [`App`],
+/// which is what draws: a value the renderer cannot reach cannot be rendered,
+/// and that is a stronger guarantee than a renderer that remembers not to.
+///
+/// It is dropped, and zeroized, when this function returns — on the clean path,
+/// on the error path, and on the panic that unwinds through it.
+fn drive(app: &mut App, session: &mut terminal::Session, authorizing: &Authorizing) -> Result<u8> {
+    let mut credential: Option<SessionCredential> = None;
+    let mut last = Instant::now();
     loop {
         session
             .terminal()
             .draw(|frame| app.render(frame.area(), frame.buffer_mut()))
             .context("cannot draw the interface")?;
-        match event::read().context("cannot read from the terminal")? {
-            Event::Key(key) => {
-                if app.handle_key(key) == Flow::Exit {
-                    return Ok(0);
-                }
+
+        if event::poll(TICK).context("cannot wait on the terminal")? {
+            match event::read().context("cannot read from the terminal")? {
+                Event::Key(key) => match app.handle_key(key) {
+                    Flow::Exit => return Ok(0),
+                    Flow::Reissue => authorizing.reissue(),
+                    Flow::Continue => {}
+                },
+                // A resize redraws on the next pass; everything else is not
+                // bound.
+                _ => continue,
             }
-            // A resize redraws on the next pass; everything else is not bound.
-            _ => continue,
         }
+
+        let now = Instant::now();
+        app.tick(now.saturating_duration_since(last));
+        last = now;
+
+        // Everything the worker has to say, without waiting: the wait above is
+        // the loop's only one.
+        while let Some(report) = authorizing.next_report(Duration::ZERO) {
+            if let Some(grant) = app.report(report) {
+                credential = Some(SessionCredential::from_device_grant(*grant));
+            }
+        }
+        // Held only so the credential's lifetime is this loop's. Nothing reads
+        // it yet: the screens that would are the tasks after this one.
+        let _ = &credential;
     }
 }
 

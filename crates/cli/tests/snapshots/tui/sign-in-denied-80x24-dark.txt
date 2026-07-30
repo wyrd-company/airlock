@@ -1,8 +1,9 @@
-sign-in-80x24-light · 80x24 · theme light · colour
+sign-in-denied-80x24-dark · 80x24 · theme dark · colour
 --- text ---
-AIRLOCK 0.0.0  sign-in                    no credential stored · theme t · light
-REQUESTING A DEVICE CODE                                                        
-Asking GitHub for a device code.                                                
+AIRLOCK 0.0.0  sign-in                    no credential stored · theme t · dark 
+AUTHORIZATION DENIED                                                            
+GitHub reported access_denied: rejected in the browser, or the account may not  
+authorize this app. A new code is being issued in place.                        
                                                                                 
 ┌───────────────────┐                                                           
 │                   │                                                           
@@ -10,7 +11,8 @@ Asking GitHub for a device code.
 address       not issued yet                                                    
 code          eight characters, case-insensitive; no 0, O, 1, or I.             
 scan code     none yet: it encodes the address.                                 
-remedy        Nothing yet. r and q are not live until a code exists.            
+remedy        If this was not you, nothing was granted and there is nothing to  
+              revoke. If it was, approve the replacement.                       
 CREDENTIAL                                                                      
 source        GitHub App Airlock Admin · device flow                            
 grant         read: metadata, actions · write: administration, contents,        
@@ -20,13 +22,12 @@ grant         read: metadata, actions · write: administration, contents,
 storage       none. No credential of any kind is stored, anywhere, ever. Its    
               value is never displayed.                                         
                                                                                 
-                                                                                
-                                                                                
 r issue a new code · q show or hide the scan code · t theme · ctrl-c exit       
 no credential on disk · tty required                                            
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-ccccccccccccccccccccccccdddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+ccccccccccccccccccccdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 eeeeeeeeeeeeeeeeeeeeeddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
@@ -35,7 +36,8 @@ eeeeeeeeeeeeeeeeeeeeeddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 ffffffffffffffggggggggggggggdddddddddddddddddddddddddddddddddddddddddddddddddddd
 ffffffffffffffgggggggggggggggggggggggggggggggggggggggggggggggggggggddddddddddddd
 ffffffffffffffgggggggggggggggggggggggggggggggggddddddddddddddddddddddddddddddddd
-ffffffffffffffggggggggggggggggggggggggggggggggggggggggggggggggggggggdddddddddddd
+ffffffffffffffggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggdd
+ffffffffffffffgggggggggggggggggggggggggggggggggggggggggggddddddddddddddddddddddd
 hhhhhhhhhhdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 ffffffffffffffggggggggggggggggggggggggggggggggggggggdddddddddddddddddddddddddddd
 ffffffffffffffggggggggggggggggggggggggggggggggggggggggggggggggggggggggggdddddddd
@@ -45,17 +47,15 @@ ffffffffffffffgggggggggggggggggggggggggggggggggggggddddddddddddddddddddddddddddd
 ffffffffffffffggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggdddd
 ffffffffffffffgggggggggggggggggggggggggddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 cdggggggggggggggggfffcdggggggggggggggggggggggggggfffcdgggggfffccccccdggggddddddd
 iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii
 --- legend ---
-a fg=#2B2822 bg=#EDE8DD BOLD
-b fg=#2B2822 bg=#EDE8DD
-c fg=#9A6B12 bg=#F6F3EC BOLD
-d fg=#2B2822 bg=#F6F3EC
-e fg=#B9AF9B bg=#F6F3EC
-f fg=#958C78 bg=#F6F3EC
-g fg=#6E6759 bg=#F6F3EC
-h fg=#2B2822 bg=#F6F3EC BOLD
-i fg=#6E6759 bg=#EFEAE0
+a fg=#CBD3DD bg=#14181D BOLD
+b fg=#CBD3DD bg=#14181D
+c fg=#E8B84B bg=#0B0D10 BOLD
+d fg=#CBD3DD bg=#0B0D10
+e fg=#39434F bg=#0B0D10
+f fg=#4C5661 bg=#0B0D10
+g fg=#79838F bg=#0B0D10
+h fg=#CBD3DD bg=#0B0D10 BOLD
+i fg=#79838F bg=#101419
