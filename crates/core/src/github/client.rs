@@ -573,18 +573,29 @@ fn decode_ruleset(endpoint: &str, item: &Value) -> ApiResult<Ruleset> {
     Ok(Ruleset {
         id: require_u64(endpoint, item, "id")?,
         name: require_string(endpoint, item, "name")?,
-        target: optional_string(item, "target"),
-        source_type: optional_string(item, "source_type"),
+        target: Some(require_string(endpoint, item, "target")?),
+        source_type: Some(require_string(endpoint, item, "source_type")?),
         source: optional_string(item, "source"),
-        enforcement: optional_string(item, "enforcement"),
+        enforcement: Some(require_string(endpoint, item, "enforcement")?),
     })
 }
 
 fn decode_branch_rule(endpoint: &str, item: &Value) -> ApiResult<BranchRule> {
+    let rule_type = require_string(endpoint, item, "type")?;
+    let parameters = match item.get("parameters") {
+        Some(parameters) => parameters.clone(),
+        None if rule_type == "pull_request" => {
+            return Err(malformed(
+                endpoint,
+                "the pull request rule is missing the field `parameters`",
+            ))
+        }
+        None => Value::Null,
+    };
     Ok(BranchRule {
-        rule_type: require_string(endpoint, item, "type")?,
-        source_type: optional_string(item, "source_type"),
-        parameters: item.get("parameters").cloned().unwrap_or(Value::Null),
+        rule_type,
+        source_type: optional_string(item, "ruleset_source_type"),
+        parameters,
     })
 }
 
@@ -813,15 +824,7 @@ impl GitHub for RestClient {
             encode_segment(owner),
             encode_segment(repo)
         );
-        let (items, truncated) = match self.get_paged(&endpoint, &path).await {
-            Ok(pages) => pages,
-            // A repository with no tags answers 404 on this endpoint, which is
-            // a legitimate empty answer rather than a failure.
-            Err(error) if error.cause == ErrorCause::NotFound => {
-                return Ok(Paged::complete(Vec::new()))
-            }
-            Err(error) => return Err(error),
-        };
+        let (items, truncated) = self.get_paged(&endpoint, &path).await?;
         Ok(Paged {
             items: items
                 .iter()
@@ -1112,11 +1115,34 @@ mod tests {
 
     #[test]
     fn a_ruleset_without_a_name_is_malformed_not_dropped() {
-        let ruleset = serde_json::json!({ "id": 1, "source_type": "Organization" });
+        let ruleset = serde_json::json!({
+            "id": 1,
+            "source_type": "Organization",
+            "target": "branch",
+            "enforcement": "active"
+        });
         assert_eq!(
             decode_ruleset("GET /rulesets", &ruleset).unwrap_err().cause,
             ErrorCause::Malformed
         );
+    }
+
+    #[test]
+    fn a_ruleset_without_verdict_fields_is_malformed() {
+        let complete = serde_json::json!({
+            "id": 1,
+            "name": "default",
+            "source_type": "Organization",
+            "target": "branch",
+            "enforcement": "active"
+        });
+        for field in ["source_type", "target", "enforcement"] {
+            let mut ruleset = complete.clone();
+            ruleset.as_object_mut().unwrap().remove(field);
+            let error = decode_ruleset("GET /rulesets", &ruleset).unwrap_err();
+            assert_eq!(error.cause, ErrorCause::Malformed, "{field}");
+            assert!(error.to_string().contains(field), "{field}: {error}");
+        }
     }
 
     #[test]
@@ -1125,6 +1151,29 @@ mod tests {
         assert_eq!(
             decode_branch_rule("GET /rules", &rule).unwrap_err().cause,
             ErrorCause::Malformed
+        );
+    }
+
+    #[test]
+    fn a_pull_request_rule_without_parameters_is_malformed() {
+        let rule = serde_json::json!({ "type": "pull_request" });
+        let error = decode_branch_rule("GET /rules", &rule).unwrap_err();
+        assert_eq!(error.cause, ErrorCause::Malformed);
+        assert!(error.to_string().contains("parameters"));
+    }
+
+    #[test]
+    fn branch_rule_source_type_uses_the_branch_rules_payload_name() {
+        let rule = serde_json::json!({
+            "type": "required_linear_history",
+            "ruleset_source_type": "Organization"
+        });
+        assert_eq!(
+            decode_branch_rule("GET /rules", &rule)
+                .unwrap()
+                .source_type
+                .as_deref(),
+            Some("Organization")
         );
     }
 

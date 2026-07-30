@@ -350,7 +350,7 @@ async fn a_blob_is_decoded_from_base64() {
 }
 
 #[tokio::test]
-async fn a_repository_without_tags_answers_an_empty_list_rather_than_failing() {
+async fn an_ambiguous_tag_listing_404_does_not_become_an_empty_list() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/repos/owner/name/git/refs/tags"))
@@ -361,11 +361,8 @@ async fn a_repository_without_tags_answers_an_empty_list_rather_than_failing() {
         .mount(&server)
         .await;
 
-    assert!(client(&server)
-        .tags("owner", "name")
-        .await
-        .unwrap()
-        .is_empty());
+    let error = client(&server).tags("owner", "name").await.unwrap_err();
+    assert_eq!(error.cause, ErrorCause::NotFound);
 }
 
 #[tokio::test]
@@ -726,8 +723,20 @@ async fn a_ruleset_listing_stopped_at_the_page_budget_says_so() {
     mount_two_pages(
         &server,
         "/repos/owner/name/rulesets",
-        json!([{ "id": 1, "name": "repo-local", "source_type": "Repository" }]),
-        json!([{ "id": 2, "name": "org-wide", "source_type": "Organization" }]),
+        json!([{
+            "id": 1,
+            "name": "repo-local",
+            "source_type": "Repository",
+            "target": "branch",
+            "enforcement": "active"
+        }]),
+        json!([{
+            "id": 2,
+            "name": "org-wide",
+            "source_type": "Organization",
+            "target": "branch",
+            "enforcement": "active"
+        }]),
     )
     .await;
 
@@ -914,8 +923,19 @@ async fn a_malformed_ruleset_fails_the_listing() {
         .and(path("/repos/owner/name/rulesets"))
         .respond_with(
             quota_headers(ResponseTemplate::new(200)).set_body_json(json!([
-                { "id": 1, "name": "fine", "source_type": "Repository" },
-                { "id": 2, "source_type": "Organization" }
+                {
+                    "id": 1,
+                    "name": "fine",
+                    "source_type": "Repository",
+                    "target": "branch",
+                    "enforcement": "active"
+                },
+                {
+                    "id": 2,
+                    "source_type": "Organization",
+                    "target": "branch",
+                    "enforcement": "active"
+                }
             ])),
         )
         .mount(&server)
@@ -923,6 +943,54 @@ async fn a_malformed_ruleset_fails_the_listing() {
 
     let error = client(&server).rulesets("owner", "name").await.unwrap_err();
     assert_eq!(error.cause, ErrorCause::Malformed);
+}
+
+#[tokio::test]
+async fn absent_ruleset_verdict_fields_fail_the_listing() {
+    for field in ["source_type", "target", "enforcement"] {
+        let server = MockServer::start().await;
+        let mut ruleset = json!({
+            "id": 1,
+            "name": "org-default",
+            "source_type": "Organization",
+            "target": "branch",
+            "enforcement": "active"
+        });
+        ruleset.as_object_mut().unwrap().remove(field);
+        Mock::given(method("GET"))
+            .and(path("/repos/owner/name/rulesets"))
+            .respond_with(quota_headers(ResponseTemplate::new(200)).set_body_json(json!([ruleset])))
+            .mount(&server)
+            .await;
+
+        let error = client(&server).rulesets("owner", "name").await.unwrap_err();
+        assert_eq!(error.cause, ErrorCause::Malformed, "{field}");
+        assert!(error.to_string().contains(field), "{field}: {error}");
+    }
+}
+
+#[tokio::test]
+async fn a_pull_request_rule_without_parameters_fails_the_listing() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/repos/owner/name/rules/branches/main"))
+        .respond_with(
+            quota_headers(ResponseTemplate::new(200)).set_body_json(json!([
+                {
+                    "type": "pull_request",
+                    "ruleset_source_type": "Organization"
+                }
+            ])),
+        )
+        .mount(&server)
+        .await;
+
+    let error = client(&server)
+        .branch_rules("owner", "name", "main")
+        .await
+        .unwrap_err();
+    assert_eq!(error.cause, ErrorCause::Malformed);
+    assert!(error.to_string().contains("parameters"));
 }
 
 #[tokio::test]
