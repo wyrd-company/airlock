@@ -641,6 +641,20 @@ fn queues() -> Vec<Case> {
             });
         }
     }
+    // A declared reason longer than any row can carry, at the width where the
+    // rule bites: the fact is withheld with a notice rather than half printed,
+    // and the row still says which rule it is about.
+    cases.push(Case {
+        name: "findings-withheld-fact-80x24-dark",
+        screen: Screen::Findings,
+        theme: Theme::Dark,
+        color: ColorMode::Color,
+        width: FLOOR_WIDTH,
+        height: FLOOR_HEIGHT,
+        flow: None,
+        selection: None,
+        run: Some(Run::of(fixture::long_fact())),
+    });
     cases
 }
 

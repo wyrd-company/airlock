@@ -1285,15 +1285,24 @@ fn row_lines(
                 fit(&row.statement, room),
                 styles.of(Role::Dim),
             ));
-            let second = format!(
-                "{:<marks$}{}",
-                "",
-                fit(
-                    &format!("{}{}", row.section, tail_of(row)),
-                    width.saturating_sub(marks)
-                ),
-                marks = marks
-            );
+            // The fact is allocated first and the section takes what is left,
+            // because the fact is what the group exists to carry. Neither is
+            // half-printed: the fact is whole or it is the notice that it was
+            // withheld, and the section is elided the way every bounded field
+            // on this screen is.
+            let room = width.saturating_sub(marks);
+            let tail = match fact(row, room) {
+                None => fit(&row.section, room),
+                Some(fact) => {
+                    let left = room.saturating_sub(fact.chars().count() + 3);
+                    if left == 0 {
+                        fact
+                    } else {
+                        format!("{} \u{b7} {fact}", fit(&row.section, left))
+                    }
+                }
+            };
+            let second = format!("{:<marks$}{tail}", "", marks = marks);
             vec![
                 Line::from(spans),
                 Line::from(Span::styled(second, styles.of(Role::Faint))),
@@ -1302,35 +1311,55 @@ fn row_lines(
     }
 }
 
-/// What a row says after its section: its note, then its statement.
+/// What a row says after its section: its own fact, then its statement.
 ///
-/// The note is placed first and elided last, because it is the fact the group
-/// exists to carry — the delivery state of a file-level gap, the grant an
-/// admin-only fact requires, or why airlock offers no remediation. A statement
-/// the width cannot hold is shortened; a note is not shortened to make room for
-/// one.
+/// The fact is allocated first, because it is what the group exists to carry —
+/// the delivery state of a file-level gap, the grant an admin-only fact
+/// requires, or why airlock declares no remediation. A statement the width
+/// cannot hold is shortened; a fact is never shortened to make room for one.
 fn detail(row: &Row, room: usize) -> String {
-    let note = tail_of(row);
-    let note = note.trim_start_matches(" \u{b7} ");
-    if note.is_empty() {
+    let Some(fact) = fact(row, room) else {
         return fit(&row.statement, room);
-    }
-    let note = fit(note, room);
-    let left = room.saturating_sub(note.chars().count());
+    };
+    let left = room.saturating_sub(fact.chars().count());
     if left <= 4 {
-        return note;
+        return fact;
     }
-    format!("{note} \u{b7} {}", fit(&row.statement, left - 3))
+    format!("{fact} \u{b7} {}", fit(&row.statement, left - 3))
+}
+
+/// What the row prints where its own fact will not fit at all.
+///
+/// Short by construction, so the notice fits wherever the fact did not. It
+/// names the key that opens the finding detail, which is where the fact is
+/// carried whole.
+const FACT_WITHHELD: &str = "fact withheld for width \u{b7} \u{21b5} shows it whole";
+
+/// The row's own fact, whole or withheld — never part of one.
+///
+/// A fact the width cannot carry is not shortened into the row. Half a reason,
+/// half a grant, or half a delivery state reads as the whole of it, and a
+/// reader has no way to tell which they are looking at; a stated absence is
+/// something they can act on. The notice itself is elided rather than dropped
+/// if even it does not fit, which is safe for the one reason the fact is not:
+/// a shortened notice cannot be mistaken for a fact.
+fn fact(row: &Row, room: usize) -> Option<String> {
+    let fact = tail_of(row);
+    if fact.is_empty() {
+        return None;
+    }
+    if fact.chars().count() <= room {
+        return Some(fact);
+    }
+    Some(fit(FACT_WITHHELD, room))
 }
 
 /// The row's own fact, when its group gives it one.
 fn tail_of(row: &Row) -> String {
     if row.group == Group::AgentWork {
-        return format!(" \u{b7} {}", row.delivery.label());
+        return row.delivery.label().to_owned();
     }
-    row.note
-        .as_ref()
-        .map_or_else(String::new, |note| format!(" \u{b7} {note}"))
+    row.note.clone().unwrap_or_default()
 }
 
 /// What lies above and below, and the size of the working set.
@@ -1503,6 +1532,35 @@ pub mod fixture {
                 errored(),
                 finding("REPO-CI-02", Severity::Blocking, Status::Unimplemented),
                 settings_failure(),
+                finding("REPO-META-01", Severity::Blocking, Status::Pass),
+            ],
+        )
+    }
+
+    /// A failure whose declared reason is longer than any row can carry.
+    ///
+    /// Contrived, and deliberately so: the reason a rule declares is prose the
+    /// registry writes, and this is the width at which a row has no reading of
+    /// it to give.
+    #[must_use]
+    pub fn long_fact() -> Report {
+        let mut unremediable = finding("REPO-DOCS-05", Severity::Required, Status::Fail);
+        unremediable.remediation_class = RemediationClass {
+            lane: None,
+            code: None,
+            change: None,
+            reversible: None,
+            none_reason: Some(
+                "the correct content depends on judgments about this repository that \
+                 airlock cannot make on its behalf, so the remaining move is a person's \
+                 and the declared reason is carried in full rather than summarised"
+                    .to_owned(),
+            ),
+        };
+        report(
+            Gate::Required,
+            vec![
+                unremediable,
                 finding("REPO-META-01", Severity::Blocking, Status::Pass),
             ],
         )
@@ -2204,6 +2262,47 @@ mod tests {
         assert!(!why.contains('\u{1b}'), "{why}");
         assert!(!why.contains('\u{202e}'), "{why}");
         assert!(why.contains('\u{fffd}'), "{why}");
+    }
+
+    #[test]
+    fn a_fact_the_width_cannot_carry_is_withheld_rather_than_half_printed() {
+        let queue = Queue::of(&super::fixture::long_fact(), &Deliveries::default());
+        let row = queue
+            .rows
+            .iter()
+            .find(|row| row.group == Group::Judgment)
+            .expect("the failure with no declared remediation");
+        let reason = row.note.clone().expect("the declared reason");
+        // Long enough that neither reading has room for it, which is the case
+        // the rule is about.
+        assert!(reason.chars().count() > 120, "{reason}");
+        for width in [120u16, 80] {
+            let rendered = rendered(&queue, &State::default(), width, 40);
+            assert!(rendered.contains("fact withheld"), "at {width}: {rendered}");
+            let opening: String = reason.chars().take(40).collect();
+            assert!(
+                !rendered.contains(&opening),
+                "a fact was half printed at {width}: {rendered}"
+            );
+            // And the row still says which rule it is about, and its section.
+            assert!(rendered.contains("REPO-DOCS-05"), "at {width}");
+            assert!(rendered.contains("docs"), "at {width}");
+        }
+    }
+
+    #[test]
+    fn a_fact_that_fits_is_printed_whole_at_both_widths() {
+        let queue = queue(vec![finding(
+            "REPO-GIT-04",
+            Severity::Required,
+            Status::AdminOnly,
+        )]);
+        let whole = queue.rows[0].note.clone().expect("the declaration");
+        for width in [120u16, 80] {
+            let rendered = rendered(&queue, &State::default(), width, 40);
+            assert!(rendered.contains(&whole), "at {width}: {rendered}");
+            assert!(!rendered.contains("fact withheld"), "at {width}");
+        }
     }
 
     #[test]

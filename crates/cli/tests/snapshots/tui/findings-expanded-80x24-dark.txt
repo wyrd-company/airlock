@@ -17,7 +17,7 @@ groups        1:1 · 2:1 · 3:1 · 4:1 · 5:1 · 6:1 · 7:1 · 8:2
 showing       the whole working set · 9 of 9 · gate required · f                
    - 7 AUTHORIZED BUT NOT ALIGNED  1  the policy permitted the failure; it did …
     ███     ⊘ │   │ REPO-CI-02     suppressed    the condition REPO-CI-02 states
-                    automation · still on offer: Set workflow-level `permission…
+                    still on offer: Set workflow-level `permissions:` to `{}`.  
 ▸  - 8 ALIGNED  2  passing rules, and rules skipped because a capability condit…
     ███  ✓    │   │ REPO-META-01   pass          the condition REPO-META-01 sta…
                     identity                                                    
@@ -42,7 +42,7 @@ jjjjjjjjjjjjjjfffffffffffffffffffffffffffffffffffffffffffffddddddddddddddddddddd
 jjjjjjjjjjjjjjffffffffffffffffffffffffffffffffffffffffffffffffffdddddddddddddddd
 hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhmmmmmjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj
 oopddddddddqqqrdddrddddddddddddddddqqqqqqqqqqqqqqfffffffffffffffffffffffffffffff
-jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj
+jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjdd
 hhhhhhhhhhhhhhmmmmmjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj
 oopdddddsssdddrdddrddddddddddddddddssssssssssssssfffffffffffffffffffffffffffffff
 jjjjjjjjjjjjjjjjjjjjjjjjjjjjdddddddddddddddddddddddddddddddddddddddddddddddddddd

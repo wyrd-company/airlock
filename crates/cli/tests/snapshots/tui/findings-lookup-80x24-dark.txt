@@ -18,7 +18,7 @@ showing       all 9 shown, never narrowed · gate required · l returns
 ▸ ▌ ███       │ ▢ │ REPO-CI-02     unimplemented the condition REPO-CI-02 states
                     automation                                                  
     ███     ⊘ │   │ REPO-CI-02     suppressed    the condition REPO-CI-02 states
-                    automation · still on offer: Set workflow-level `permission…
+                    still on offer: Set workflow-level `permissions:` to `{}`.  
   ▌ ███  ✗    │   │ REPO-GIT-01    fail          the condition REPO-GIT-01 stat…
                     git                                                         
 0 above · 6 below · working set 9 of 9 · ↑↓ moves through the rest              
@@ -43,7 +43,7 @@ jjjjjjjjjjjjjjfffffffffffffffffffffffffffffffffffffffffffffffffffffffddddddddddd
 oopdddddddddddqeeeqdhhhhhhhhhhhhhhheeeeeeeeeeeeeefffffffffffffffffffffffffffffff
 jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjdddddddddddddddddddddddddddddddddddddddddddddddddd
 oopddddddddrrrqdddqddddddddddddddddrrrrrrrrrrrrrrfffffffffffffffffffffffffffffff
-jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj
+jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjdd
 oopdddddpppdddqdddqddddddddddddddddppppppppppppppfffffffffffffffffffffffffffffff
 jjjjjjjjjjjjjjjjjjjjjjjddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnndddddddddddddd
