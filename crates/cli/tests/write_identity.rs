@@ -261,6 +261,17 @@ fn every_server_supplied_string_leaves_the_worker_sanitized() {
             && state.contains("cause: text::sanitize(cause.as_ref(), CAUSE_LIMIT)"),
         "the state the screen renders trusts its caller"
     );
+
+    let remediation = std::fs::read_to_string(admin_source().join("remediation.rs"))
+        .expect("the remediation worker has a source file");
+    let remediation = shipped_only(&remediation);
+    assert!(
+        remediation.contains("text::sanitize(name, NAME_LIMIT)")
+            && remediation.contains("the remediation choices could not be observed: {error:#}")
+            && remediation.contains("Response::Failed(text::sanitize(")
+            && remediation.contains("text::sanitize(detail, CAUSE_LIMIT)"),
+        "the remediation worker lets a server-supplied name, cause, or transcript step cross raw"
+    );
 }
 
 /// Tripwire: a scan code is only ever drawn for the origin airlock asked.

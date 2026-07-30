@@ -1035,6 +1035,7 @@ fn remediation_input_and_result_frames_match_recordings() {
                     "rename-repository-kebab",
                     Input::Text {
                         draft: "sample-repository".to_owned(),
+                        required_prefix: None,
                         error: None,
                     },
                 )],
@@ -1120,6 +1121,31 @@ fn remediation_input_and_result_frames_match_recordings() {
         FLOOR_WIDTH,
         FLOOR_HEIGHT,
         creation,
+    );
+    let mut attachment = State::confirm(
+        "generic-owner".to_owned(),
+        "sample-repository".to_owned(),
+        vec![item(
+            "attach-org-rulesets",
+            Input::Choice {
+                values: vec!["41 — protected branches".to_owned()],
+                selected: 0,
+                empty: String::new(),
+            },
+        )],
+    );
+    assert!(attachment.input_key(KeyCode::Enter));
+    check_remediation(
+        "remediation-ruleset-attach-confirm-120x40-dark",
+        REFERENCE_WIDTH,
+        REFERENCE_HEIGHT,
+        attachment.clone(),
+    );
+    check_remediation(
+        "remediation-ruleset-attach-confirm-80x24-dark",
+        FLOOR_WIDTH,
+        FLOOR_HEIGHT,
+        attachment,
     );
 
     let mut complete = State::confirm(

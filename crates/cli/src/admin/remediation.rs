@@ -9,6 +9,7 @@
 //! write, and observes again after a successful request. The result is derived
 //! from that last observation, not from the status of the write request.
 
+use std::collections::HashMap;
 use std::sync::mpsc::{Receiver, Sender};
 use std::time::{Duration, Instant};
 
@@ -41,6 +42,15 @@ pub enum Action {
 }
 
 impl Action {
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::DefaultBranchMain => "set-default-branch-main",
+            Self::DisableMergeCommits => "disable-merge-commits",
+            Self::EnableSquashMerge => "enable-squash-merge",
+            Self::EnableHeadBranchAutoDelete => "enable-head-branch-auto-delete",
+        }
+    }
     /// Resolve the compiled remediation code to an executable action.
     ///
     /// The other operator-setting remediations need explicit operator input:
@@ -116,11 +126,22 @@ pub struct Transcript {
     pub observed: ObservedStatus,
     /// A credential-free inverse request, present only when Airlock can
     /// reconstruct the previous value without guessing.
-    pub undo: Option<Undo>,
+    pub undo: Option<UndoHandle>,
+}
+
+/// Opaque reference to an inverse held only by the credential-owning worker.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct UndoHandle(u64);
+
+#[cfg(test)]
+impl UndoHandle {
+    pub(crate) const fn fixture(value: u64) -> Self {
+        Self(value)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Undo {
+enum UndoOperation {
     RenameBranch {
         owner: String,
         repo: String,
@@ -178,7 +199,7 @@ pub enum Request {
     /// Apply a confirmed same-lane group, re-observing per rule.
     ApplyGroup {
         target: Target,
-        requests: Vec<(String, String, Option<String>)>,
+        requests: Vec<(String, Action)>,
     },
     /// Apply an inverse captured from the immediately preceding fresh
     /// observation.
@@ -186,7 +207,8 @@ pub enum Request {
         target: Target,
         rule: String,
         remediation: String,
-        undo: Undo,
+        undo: UndoHandle,
+        expected: ObservedStatus,
     },
 }
 
@@ -340,7 +362,7 @@ impl WriteClient {
                     segment(id)
                 ))
                 .await?;
-            let body = ruleset_update_body(existing, Some(repo))?;
+            let body = ruleset_attach_body(existing, repo)?;
             self.send_json(
                 reqwest::Method::PUT,
                 &format!("/orgs/{}/rulesets/{}", segment(owner), segment(id)),
@@ -362,7 +384,7 @@ impl WriteClient {
         self.send_json(
             reqwest::Method::PUT,
             &format!("/orgs/{}/rulesets/{}", segment(owner), segment(id)),
-            &ruleset_update_body(existing, None)?,
+            &ruleset_tighten_body(existing)?,
             "PUT /orgs/{org}/rulesets/{id}",
         )
         .await
@@ -499,10 +521,9 @@ impl WriteClient {
     }
 }
 
-fn ruleset_update_body(
-    existing: serde_json::Value,
-    repository: Option<&str>,
-) -> anyhow::Result<serde_json::Value> {
+fn ruleset_update_base(
+    existing: &serde_json::Value,
+) -> anyhow::Result<serde_json::Map<String, serde_json::Value>> {
     let mut body = serde_json::Map::new();
     for field in [
         "name",
@@ -522,36 +543,63 @@ fn ruleset_update_body(
             && body.contains_key("conditions"),
         "the observed ruleset omitted a required field"
     );
-    if let Some(repository) = repository {
-        let include = body
-            .get_mut("conditions")
-            .and_then(|value| value.get_mut("repository_name"))
-            .and_then(|value| value.get_mut("include"))
-            .and_then(serde_json::Value::as_array_mut)
-            .ok_or_else(|| anyhow::anyhow!("the observed ruleset has no repository-name choice"))?;
-        if !include
-            .iter()
-            .any(|value| value.as_str() == Some(repository))
-        {
-            include.push(serde_json::Value::String(repository.to_owned()));
-        }
-    }
-    let mut rules = existing
+    Ok(body)
+}
+
+fn observed_rules(existing: &serde_json::Value) -> anyhow::Result<Vec<serde_json::Value>> {
+    existing
         .get("rules")
         .and_then(serde_json::Value::as_array)
         .cloned()
-        .ok_or_else(|| anyhow::anyhow!("the observed ruleset omitted its rules"))?;
-    let compiled = ruleset_body(None);
-    let required = compiled["rules"]
-        .as_array()
-        .expect("compiled rules are an array");
-    for required_rule in required {
-        let kind = required_rule.get("type");
-        if let Some(position) = rules.iter().position(|rule| rule.get("type") == kind) {
-            rules[position] = required_rule.clone();
-        } else {
-            rules.push(required_rule.clone());
-        }
+        .ok_or_else(|| anyhow::anyhow!("the observed ruleset omitted its rules"))
+}
+
+fn ruleset_attach_body(
+    existing: serde_json::Value,
+    repository: &str,
+) -> anyhow::Result<serde_json::Value> {
+    let mut body = ruleset_update_base(&existing)?;
+    let include = body
+        .get_mut("conditions")
+        .and_then(|value| value.get_mut("repository_name"))
+        .and_then(|value| value.get_mut("include"))
+        .and_then(serde_json::Value::as_array_mut)
+        .ok_or_else(|| anyhow::anyhow!("the observed ruleset has no repository-name choice"))?;
+    if !include
+        .iter()
+        .any(|value| value.as_str() == Some(repository))
+    {
+        include.push(serde_json::Value::String(repository.to_owned()));
+    }
+    body.insert(
+        "rules".to_owned(),
+        serde_json::Value::Array(observed_rules(&existing)?),
+    );
+    Ok(serde_json::Value::Object(body))
+}
+
+fn ruleset_tighten_body(existing: serde_json::Value) -> anyhow::Result<serde_json::Value> {
+    let mut body = ruleset_update_base(&existing)?;
+    let mut rules = observed_rules(&existing)?;
+    if let Some(pull_request) = rules
+        .iter_mut()
+        .find(|rule| rule.get("type").and_then(serde_json::Value::as_str) == Some("pull_request"))
+    {
+        let parameters = pull_request
+            .get_mut("parameters")
+            .and_then(serde_json::Value::as_object_mut)
+            .ok_or_else(|| anyhow::anyhow!("the observed pull-request rule omitted parameters"))?;
+        parameters.insert(
+            "allowed_merge_methods".to_owned(),
+            serde_json::json!(["squash", "rebase"]),
+        );
+    } else {
+        rules.push(ruleset_body(None)["rules"][0].clone());
+    }
+    if !rules.iter().any(|rule| {
+        rule.get("type").and_then(serde_json::Value::as_str) == Some("required_linear_history")
+    }) {
+        rules.push(serde_json::json!({"type": "required_linear_history"}));
     }
     body.insert("rules".to_owned(), serde_json::Value::Array(rules));
     Ok(serde_json::Value::Object(body))
@@ -611,6 +659,8 @@ pub struct Session {
     config: RestClientConfig,
     writer: WriteClient,
     version: String,
+    undo_operations: HashMap<UndoHandle, UndoOperation>,
+    next_undo: u64,
 }
 
 impl Session {
@@ -631,6 +681,8 @@ impl Session {
             config,
             writer: WriteClient::from_session(credential)?,
             version: version.into(),
+            undo_operations: HashMap::new(),
+            next_undo: 1,
         })
     }
 
@@ -685,7 +737,7 @@ impl Session {
 
     /// Apply one rule under the re-observation contract.
     pub async fn apply(
-        &self,
+        &mut self,
         owner: &str,
         repo: &str,
         rule: &str,
@@ -763,7 +815,9 @@ impl Session {
                     .await;
                 let accepted = changed.is_ok();
                 if accepted {
-                    transcript.undo = input_undo(owner, repo, remediation, argument);
+                    if let Some(undo) = input_undo(owner, repo, remediation, argument) {
+                        transcript.undo = Some(self.remember_undo(undo));
+                    }
                 }
                 transcript.steps.push(step(
                     started,
@@ -878,8 +932,11 @@ impl Session {
                     ),
                 ));
                 if accepted {
-                    transcript.undo =
-                        action.and_then(|action| action_undo(owner, repo, action, &before));
+                    if let Some(undo) =
+                        action.and_then(|action| action_undo(owner, repo, action, &before))
+                    {
+                        transcript.undo = Some(self.remember_undo(undo));
+                    }
                 }
             }
         }
@@ -928,14 +985,14 @@ impl Session {
 
     /// Apply a same-kind group, preserving the single-rule contract per rule.
     pub async fn apply_group<'a>(
-        &self,
+        &mut self,
         owner: &str,
         repo: &str,
-        requests: impl IntoIterator<Item = (&'a str, &'a str, Option<&'a str>)>,
+        requests: impl IntoIterator<Item = (&'a str, Action)>,
     ) -> Vec<Transcript> {
         let mut transcripts = Vec::new();
-        for (rule, remediation, argument) in requests {
-            transcripts.push(self.apply(owner, repo, rule, remediation, argument).await);
+        for (rule, action) in requests {
+            transcripts.push(self.apply(owner, repo, rule, action.code(), None).await);
         }
         transcripts
     }
@@ -1026,15 +1083,22 @@ impl Session {
         }
     }
 
-    async fn undo(&self, undo: &Undo) -> anyhow::Result<()> {
+    fn remember_undo(&mut self, undo: UndoOperation) -> UndoHandle {
+        let handle = UndoHandle(self.next_undo);
+        self.next_undo = self.next_undo.saturating_add(1);
+        self.undo_operations.insert(handle, undo);
+        handle
+    }
+
+    async fn undo(&self, undo: &UndoOperation) -> anyhow::Result<()> {
         match undo {
-            Undo::RenameBranch {
+            UndoOperation::RenameBranch {
                 owner,
                 repo,
                 from,
                 to,
             } => self.writer.rename_branch_to(owner, repo, from, to).await,
-            Undo::PatchRepository {
+            UndoOperation::PatchRepository {
                 owner,
                 repo,
                 field,
@@ -1049,10 +1113,10 @@ impl Session {
                 }
                 self.writer.patch_repository(owner, repo, &patch).await
             }
-            Undo::RenameRepository { owner, from, to } => {
+            UndoOperation::RenameRepository { owner, from, to } => {
                 self.writer.rename_repository(owner, from, to).await
             }
-            Undo::RenameVariable {
+            UndoOperation::RenameVariable {
                 owner,
                 repo,
                 from,
@@ -1066,29 +1130,78 @@ impl Session {
     }
 
     async fn apply_undo(
-        &self,
+        &mut self,
         target: &Target,
         rule: &str,
         remediation: &str,
-        undo: &Undo,
+        undo: UndoHandle,
+        expected: ObservedStatus,
     ) -> Transcript {
         let started = Instant::now();
-        let changed = self.undo(undo).await;
         let mut transcript = Transcript {
             rule: text::sanitize(rule, NAME_LIMIT),
             remediation: text::sanitize(remediation, NAME_LIMIT),
             proposed_change: "restore the freshly observed previous value".to_owned(),
-            steps: vec![step(
-                started,
-                changed.is_ok(),
-                &changed.map_or_else(
-                    |error| format!("the undo request failed: {error:#}"),
-                    |()| "github accepted the undo request".to_owned(),
-                ),
-            )],
+            steps: Vec::new(),
             observed: ObservedStatus::Inconclusive,
             undo: None,
         };
+        let Some(operation) = self.undo_operations.get(&undo).cloned() else {
+            transcript.steps.push(step(
+                started,
+                false,
+                "the undo is no longer available; no write was made",
+            ));
+            return transcript;
+        };
+        let observation_target = undo_observation_target(&operation, target);
+        let before = match self.observe(&observation_target).await {
+            Ok(report) => report,
+            Err(error) => {
+                transcript.steps.push(step(
+                    started,
+                    false,
+                    &format!("pre-undo re-observation failed: {error:#}"),
+                ));
+                transcript
+                    .steps
+                    .push(step(started, false, "no undo write was attempted"));
+                return transcript;
+            }
+        };
+        let observed = before
+            .findings
+            .iter()
+            .find(|finding| finding.rule == rule)
+            .map(|finding| finding.status);
+        let expected = match expected {
+            ObservedStatus::Pass => Some(airlock_core::findings::Status::Pass),
+            ObservedStatus::Fail => Some(airlock_core::findings::Status::Fail),
+            ObservedStatus::Inconclusive => None,
+        };
+        transcript.steps.push(step(
+            started,
+            observed.is_some(),
+            "re-observed the rule immediately before undo",
+        ));
+        if expected.is_none() || observed != expected {
+            transcript.steps.push(step(
+                started,
+                false,
+                "the current observation no longer matches the undo point; no write was made",
+            ));
+            return transcript;
+        }
+        self.undo_operations.remove(&undo);
+        let changed = self.undo(&operation).await;
+        transcript.steps.push(step(
+            started,
+            changed.is_ok(),
+            &changed.map_or_else(
+                |error| format!("the undo request failed: {error:#}"),
+                |()| "github accepted the undo request".to_owned(),
+            ),
+        ));
         match self.observe(target).await {
             Ok(report) => {
                 transcript.observed = match report
@@ -1117,9 +1230,24 @@ impl Session {
     }
 }
 
-fn action_undo(owner: &str, repo: &str, action: Action, before: &Repository) -> Option<Undo> {
+fn undo_observation_target(operation: &UndoOperation, fallback: &Target) -> Target {
+    match operation {
+        UndoOperation::RenameRepository { owner, from, .. } => Target {
+            owner: owner.clone(),
+            repo: from.clone(),
+        },
+        _ => fallback.clone(),
+    }
+}
+
+fn action_undo(
+    owner: &str,
+    repo: &str,
+    action: Action,
+    before: &Repository,
+) -> Option<UndoOperation> {
     match action {
-        Action::DefaultBranchMain => Some(Undo::RenameBranch {
+        Action::DefaultBranchMain => Some(UndoOperation::RenameBranch {
             owner: owner.to_owned(),
             repo: repo.to_owned(),
             from: "main".to_owned(),
@@ -1128,25 +1256,27 @@ fn action_undo(owner: &str, repo: &str, action: Action, before: &Repository) -> 
         Action::DisableMergeCommits => {
             before
                 .allow_merge_commit
-                .map(|value| Undo::PatchRepository {
+                .map(|value| UndoOperation::PatchRepository {
                     owner: owner.to_owned(),
                     repo: repo.to_owned(),
                     field: "allow_merge_commit".to_owned(),
                     value,
                 })
         }
-        Action::EnableSquashMerge => before
-            .allow_squash_merge
-            .map(|value| Undo::PatchRepository {
-                owner: owner.to_owned(),
-                repo: repo.to_owned(),
-                field: "allow_squash_merge".to_owned(),
-                value,
-            }),
+        Action::EnableSquashMerge => {
+            before
+                .allow_squash_merge
+                .map(|value| UndoOperation::PatchRepository {
+                    owner: owner.to_owned(),
+                    repo: repo.to_owned(),
+                    field: "allow_squash_merge".to_owned(),
+                    value,
+                })
+        }
         Action::EnableHeadBranchAutoDelete => {
             before
                 .delete_branch_on_merge
-                .map(|value| Undo::PatchRepository {
+                .map(|value| UndoOperation::PatchRepository {
                     owner: owner.to_owned(),
                     repo: repo.to_owned(),
                     field: "delete_branch_on_merge".to_owned(),
@@ -1156,19 +1286,24 @@ fn action_undo(owner: &str, repo: &str, action: Action, before: &Repository) -> 
     }
 }
 
-fn input_undo(owner: &str, repo: &str, remediation: &str, argument: Option<&str>) -> Option<Undo> {
+fn input_undo(
+    owner: &str,
+    repo: &str,
+    remediation: &str,
+    argument: Option<&str>,
+) -> Option<UndoOperation> {
     let argument = argument?;
     match remediation {
         "rename-repository-kebab"
         | "rename-repository-undotted"
-        | "rename-repository-family-prefix" => Some(Undo::RenameRepository {
+        | "rename-repository-family-prefix" => Some(UndoOperation::RenameRepository {
             owner: owner.to_owned(),
             from: argument.to_owned(),
             to: repo.to_owned(),
         }),
         "rename-app-credentials" | "rename-task-named-credentials" => {
             let mut names = argument.lines();
-            Some(Undo::RenameVariable {
+            Some(UndoOperation::RenameVariable {
                 owner: owner.to_owned(),
                 repo: repo.to_owned(),
                 from: names.nth(1)?.to_owned(),
@@ -1258,7 +1393,7 @@ impl Drop for Working {
     }
 }
 
-fn run(session: Session, requests: Receiver<Request>, responses: &Sender<Response>) {
+fn run(mut session: Session, requests: Receiver<Request>, responses: &Sender<Response>) {
     let runtime = match tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -1316,9 +1451,9 @@ fn run(session: Session, requests: Receiver<Request>, responses: &Sender<Respons
                 Response::Applied { target, transcript }
             }
             Request::ApplyGroup { target, requests } => {
-                let borrowed = requests.iter().map(|(rule, remediation, argument)| {
-                    (rule.as_str(), remediation.as_str(), argument.as_deref())
-                });
+                let borrowed = requests
+                    .iter()
+                    .map(|(rule, action)| (rule.as_str(), *action));
                 let transcripts =
                     runtime.block_on(session.apply_group(&target.owner, &target.repo, borrowed));
                 Response::GroupApplied {
@@ -1331,9 +1466,15 @@ fn run(session: Session, requests: Receiver<Request>, responses: &Sender<Respons
                 rule,
                 remediation,
                 undo,
+                expected,
             } => {
-                let transcript =
-                    runtime.block_on(session.apply_undo(&target, &rule, &remediation, &undo));
+                let transcript = runtime.block_on(session.apply_undo(
+                    &target,
+                    &rule,
+                    &remediation,
+                    undo,
+                    expected,
+                ));
                 Response::Applied { target, transcript }
             }
         };
@@ -1462,6 +1603,8 @@ mod tests {
                 base_url: server.uri(),
             },
             version: "0.0.0".to_owned(),
+            undo_operations: HashMap::new(),
+            next_undo: 1,
         }
     }
 
@@ -1535,6 +1678,112 @@ mod tests {
             .unwrap();
     }
 
+    fn protected_ruleset() -> serde_json::Value {
+        serde_json::json!({
+            "id": 41,
+            "name": "protected branches",
+            "target": "branch",
+            "enforcement": "active",
+            "bypass_actors": [{"actor_id": 7, "actor_type": "Team", "bypass_mode": "pull_request"}],
+            "conditions": {
+                "repository_name": {
+                    "include": ["existing-repository"],
+                    "exclude": ["excluded-repository"],
+                    "protected": true
+                }
+            },
+            "rules": [
+                {
+                    "type": "pull_request",
+                    "parameters": {
+                        "allowed_merge_methods": ["merge"],
+                        "required_approving_review_count": 2,
+                        "dismiss_stale_reviews_on_push": true,
+                        "require_code_owner_review": true,
+                        "require_last_push_approval": true,
+                        "required_review_thread_resolution": true
+                    }
+                },
+                {
+                    "type": "required_status_checks",
+                    "parameters": {"strict_required_status_checks_policy": true}
+                }
+            ]
+        })
+    }
+
+    #[tokio::test]
+    async fn attaching_an_existing_ruleset_changes_only_its_repository_condition() {
+        let server = MockServer::start().await;
+        let existing = protected_ruleset();
+        let expected = ruleset_attach_body(existing.clone(), "sample-repository").unwrap();
+        assert_eq!(expected["rules"], existing["rules"]);
+        assert_eq!(expected["bypass_actors"], existing["bypass_actors"]);
+        assert_eq!(
+            expected["conditions"]["repository_name"]["include"],
+            serde_json::json!(["existing-repository", "sample-repository"])
+        );
+        Mock::given(method("GET"))
+            .and(path("/orgs/generic-owner/rulesets/41"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(existing))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("PUT"))
+            .and(path("/orgs/generic-owner/rulesets/41"))
+            .and(body_json(expected))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(1)
+            .mount(&server)
+            .await;
+        writer(&server)
+            .attach_ruleset("generic-owner", "sample-repository", "41")
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn tightening_preserves_every_unasserted_rule_and_parameter() {
+        let server = MockServer::start().await;
+        let existing = protected_ruleset();
+        let expected = ruleset_tighten_body(existing.clone()).unwrap();
+        let mut preserved_parameters = existing["rules"][0]["parameters"].clone();
+        preserved_parameters["allowed_merge_methods"] = serde_json::json!(["squash", "rebase"]);
+        assert_eq!(expected["rules"][0]["parameters"], preserved_parameters);
+        assert_eq!(
+            expected["rules"][0]["parameters"]["required_approving_review_count"],
+            2
+        );
+        assert_eq!(
+            expected["rules"][0]["parameters"]["require_code_owner_review"],
+            true
+        );
+        assert_eq!(
+            expected["rules"][0]["parameters"]["allowed_merge_methods"],
+            serde_json::json!(["squash", "rebase"])
+        );
+        assert_eq!(expected["rules"][1], existing["rules"][1]);
+        assert_eq!(expected["conditions"], existing["conditions"]);
+        assert_eq!(expected["bypass_actors"], existing["bypass_actors"]);
+        Mock::given(method("GET"))
+            .and(path("/orgs/generic-owner/rulesets/41"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(existing))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("PUT"))
+            .and(path("/orgs/generic-owner/rulesets/41"))
+            .and(body_json(expected))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(1)
+            .mount(&server)
+            .await;
+        writer(&server)
+            .tighten_ruleset("generic-owner", "41")
+            .await
+            .unwrap();
+    }
+
     #[tokio::test]
     async fn variable_rename_preserves_the_worker_only_value() {
         let server = MockServer::start().await;
@@ -1590,7 +1839,6 @@ mod tests {
             .expect(1)
             .mount(&server)
             .await;
-
         let transcript = session(&server)
             .await
             .apply(
@@ -1620,6 +1868,12 @@ mod tests {
             .and(path("/repos/generic-owner/sample-repository"))
             .respond_with(ResponseTemplate::new(200).set_body_json(repository(false)))
             .expect(2)
+            .mount(&server)
+            .await;
+        Mock::given(method("PATCH"))
+            .and(path("/repos/generic-owner/sample-repository"))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(0)
             .mount(&server)
             .await;
 

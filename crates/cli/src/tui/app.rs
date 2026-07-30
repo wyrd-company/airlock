@@ -241,7 +241,7 @@ impl App {
                     names,
                     selected: 0,
                     draft: String::new(),
-                    notice: "deferred: secret values require task 97's masked entry".to_owned(),
+                    notice: "airlock cannot read a secret's value back, so this rename needs the value re-entered by a person; the gap stays in the queue until it is".to_owned(),
                     error: None,
                 }
             }
@@ -599,6 +599,10 @@ impl App {
             self.screen = Screen::Remediation;
             return;
         };
+        if row.group != findings::Group::Settings || row.status != Status::Fail {
+            self.note = Some(findings::inert_apply());
+            return;
+        }
         let target = self.requested.clone().or_else(|| {
             let (owner, name) = self.queue.as_deref()?.repository.split_once('/')?;
             Some(Observe {
@@ -646,6 +650,7 @@ impl App {
             | "rename-repository-undotted"
             | "rename-repository-family-prefix" => remediation::Input::Text {
                 draft: remediation::rename_candidate(code, &target.name, None),
+                required_prefix: None,
                 error: None,
             },
             "transfer-repository" => remediation::Input::Transfer {
@@ -669,8 +674,7 @@ impl App {
                     names: Vec::new(),
                     selected: 0,
                     draft: String::new(),
-                    notice: "loading variables; secret values remain deferred to task 97"
-                        .to_owned(),
+                    notice: "airlock cannot read a secret's value back, so this rename needs the value re-entered by a person; the gap stays in the queue until it is".to_owned(),
                     error: None,
                 }
             }
@@ -682,12 +686,8 @@ impl App {
         let Some(focused) = self.focused_row() else {
             return;
         };
-        if focused
-            .remediation
-            .as_deref()
-            .and_then(crate::admin::remediation::Action::for_code)
-            .is_none()
-        {
+        let focused_kind = focused.remediation.as_deref().and_then(bulk_kind);
+        if focused_kind.is_none() {
             self.note =
                 Some("bulk is unavailable because this remediation takes an input".to_owned());
             return;
@@ -712,6 +712,9 @@ impl App {
             .filter(|row| row.group == findings::Group::Settings && row.status == Status::Fail)
             .filter_map(|row| {
                 let code = row.remediation.clone()?;
+                if bulk_kind(&code) != focused_kind {
+                    return None;
+                }
                 crate::admin::remediation::Action::for_code(&code)?;
                 Some(remediation::Item {
                     rule: row.rule.clone(),
@@ -1017,6 +1020,9 @@ impl App {
         if self.screen == Screen::Repositories && self.filter.is_open() {
             return INPUT_KEYS.to_vec();
         }
+        if self.screen == Screen::Remediation && self.remediation.captures_text() {
+            return INPUT_KEYS.to_vec();
+        }
         chrome::keys_of(self.screen)
     }
 
@@ -1235,6 +1241,26 @@ impl App {
             ),
         ]));
         lines
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BulkKind {
+    InputFreeSettings,
+}
+
+fn bulk_kind(code: &str) -> Option<BulkKind> {
+    crate::admin::remediation::Action::for_code(code).map(|_| BulkKind::InputFreeSettings)
+}
+
+impl Screen {
+    /// Whether `a` reaches the remediation transcript from here.
+    ///
+    /// The findings screen is not on this list: there, `a` is a property of the
+    /// focused row rather than of the screen, and it is answered before this is
+    /// ever asked.
+    const fn remediation_reachable(self) -> bool {
+        matches!(self, Screen::FindingDetail)
     }
 }
 
@@ -1783,6 +1809,32 @@ mod tests {
         // The toggle comes back the moment focus leaves the input.
         press(&mut app, KeyCode::Esc);
         assert_eq!(footer(&app), unfocused);
+
+        app.screen = Screen::Remediation;
+        app.remediation = remediation::State::confirm(
+            "generic-owner".to_owned(),
+            "sample-repository".to_owned(),
+            vec![remediation::Item {
+                rule: "REPO-NAME-01".to_owned(),
+                remediation: "rename-repository-kebab".to_owned(),
+                change: "rename".to_owned(),
+                reversible: true,
+                input: remediation::Input::Text {
+                    draft: "sample-repository".to_owned(),
+                    required_prefix: None,
+                    error: None,
+                },
+            }],
+        );
+        let remediation_focused = footer(&app);
+        assert!(
+            !remediation_focused.contains("t theme"),
+            "{remediation_focused}"
+        );
+        assert!(
+            remediation_focused.contains("backspace delete"),
+            "{remediation_focused}"
+        );
     }
 
     fn header(app: &App) -> String {
@@ -2117,6 +2169,11 @@ mod tests {
             Screen::Findings,
             "a file-level gap is shown here and acted on nowhere"
         );
+        assert!(app.status().contains("writes a file"), "{}", app.status());
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(app.screen(), Screen::FindingDetail);
+        press(&mut app, KeyCode::Char('a'));
+        assert_eq!(app.screen(), Screen::FindingDetail);
         assert!(app.status().contains("writes a file"), "{}", app.status());
 
         let mut app = observed();

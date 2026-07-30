@@ -213,8 +213,10 @@ fn drive(app: &mut App, session: &mut terminal::Session, authorizing: &Authorizi
                         .items
                         .into_iter()
                         .map(|item| {
-                            let argument = item.argument();
-                            (item.rule, item.remediation, argument)
+                            let action =
+                                crate::admin::remediation::Action::for_code(&item.remediation)
+                                    .expect("bulk items are structurally input-free actions");
+                            (item.rule, action)
                         })
                         .collect(),
                 }
@@ -232,6 +234,7 @@ fn drive(app: &mut App, session: &mut terminal::Session, authorizing: &Authorizi
                 rule: request.rule,
                 remediation: request.remediation,
                 undo: request.undo,
+                expected: request.expected,
             }) {
                 app.operation_failed(text::sanitize(&format!("{error:#}"), CAUSE_LIMIT));
             }

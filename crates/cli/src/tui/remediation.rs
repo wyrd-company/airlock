@@ -14,6 +14,7 @@ pub enum Input {
     /// A repository-name target authored in a focused text field.
     Text {
         draft: String,
+        required_prefix: Option<String>,
         error: Option<String>,
     },
     /// A value selected from a fresh observation.
@@ -53,7 +54,8 @@ pub struct UndoRequest {
     pub repo: String,
     pub rule: String,
     pub remediation: String,
-    pub undo: crate::admin::remediation::Undo,
+    pub undo: crate::admin::remediation::UndoHandle,
+    pub expected: ObservedStatus,
 }
 
 /// One rule in a single or bulk confirmation.
@@ -116,6 +118,18 @@ impl State {
     pub const fn is_input(&self) -> bool {
         matches!(self, Self::Input { .. })
     }
+
+    #[must_use]
+    pub fn captures_text(&self) -> bool {
+        matches!(
+            self,
+            Self::Input { request }
+                if request.items.iter().any(|item| matches!(
+                    item.input,
+                    Input::Text { .. } | Input::Transfer { .. } | Input::VariableRename { .. }
+                ))
+        )
+    }
     /// Build the confirmation from already-sanitized queue data.
     #[must_use]
     pub fn confirm(owner: String, repo: String, items: Vec<Item>) -> Self {
@@ -140,11 +154,11 @@ impl State {
             return false;
         };
         match (&mut item.input, code) {
-            (Input::Text { draft, error }, crossterm::event::KeyCode::Backspace) => {
+            (Input::Text { draft, error, .. }, crossterm::event::KeyCode::Backspace) => {
                 draft.pop();
                 *error = None;
             }
-            (Input::Text { draft, error }, crossterm::event::KeyCode::Char(character)) => {
+            (Input::Text { draft, error, .. }, crossterm::event::KeyCode::Char(character)) => {
                 draft.push(character);
                 *error = None;
             }
@@ -232,13 +246,19 @@ impl State {
         let remediation = item.remediation.clone();
         let valid = match &mut item.input {
             Input::None => true,
-            Input::Text { draft, error } => match validate_repository_target(&remediation, draft) {
-                Ok(()) => true,
-                Err(cause) => {
-                    *error = Some(cause);
-                    false
+            Input::Text {
+                draft,
+                required_prefix,
+                error,
+            } => {
+                match validate_repository_target(&remediation, draft, required_prefix.as_deref()) {
+                    Ok(()) => true,
+                    Err(cause) => {
+                        *error = Some(cause);
+                        false
+                    }
                 }
-            },
+            }
             Input::Choice { values, .. } => !values.is_empty(),
             Input::VariableRename {
                 names,
@@ -286,14 +306,18 @@ impl State {
         else {
             return None;
         };
+        if transcripts.len() != 1 {
+            return None;
+        }
         let transcript = transcripts.first()?;
-        let undo = transcript.undo.clone()?;
+        let undo = transcript.undo?;
         let result = UndoRequest {
             owner: request.owner.clone(),
             repo: request.repo.clone(),
             rule: transcript.rule.clone(),
             remediation: transcript.remediation.clone(),
             undo,
+            expected: transcript.observed,
         };
         *self = Self::Applying {
             request: request.clone(),
@@ -396,7 +420,7 @@ pub fn body(styles: Styles, width: usize, state: &State) -> Vec<Line<'static>> {
     lines.push(Line::default());
     match state {
         State::Input { request } => match &request.items[0].input {
-            Input::Text { draft, error } => {
+            Input::Text { draft, error, .. } => {
                 lines.push(Line::from(format!("new name        {draft}")));
                 if let Some(error) = error {
                     lines.push(Line::from(format!("invalid         {error}")));
@@ -482,11 +506,18 @@ pub fn body(styles: Styles, width: usize, state: &State) -> Vec<Line<'static>> {
                         step.detail
                     )));
                 }
-                lines.push(Line::from(if transcript.undo.is_some() {
-                    "undo            press u to restore the observed previous value"
-                } else {
-                    "undo            unavailable; this change is not safely reversible"
-                }));
+                if transcripts.len() == 1 {
+                    lines.push(Line::from(if transcript.undo.is_some() {
+                        "undo            press u to restore the observed previous value"
+                    } else {
+                        "undo            unavailable; this change is not safely reversible"
+                    }));
+                }
+            }
+            if transcripts.len() > 1 {
+                lines.push(Line::from(
+                    "undo            unavailable after a bulk confirmation",
+                ));
             }
         }
         State::Empty => {}
@@ -518,6 +549,15 @@ fn confirmed_input(item: &Item, repository: &str, width: usize) -> Vec<String> {
                         if index == 0 { "ruleset body" } else { "" }
                     ));
                 }
+            } else if item.remediation == "attach-org-rulesets" {
+                lines.push(format!(
+                    "change          add {repository} to the repositories this ruleset covers; preserve its rules"
+                ));
+            } else if item.remediation == "tighten-org-rulesets" {
+                lines.push(
+                    "change          allow only squash and rebase; require linear history; preserve every other observed rule and parameter"
+                        .to_owned(),
+                );
             }
             lines
         }
@@ -571,18 +611,31 @@ pub fn validate_repository_name(value: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn validate_repository_target(remediation: &str, value: &str) -> Result<(), String> {
+fn validate_repository_target(
+    remediation: &str,
+    value: &str,
+    required_prefix: Option<&str>,
+) -> Result<(), String> {
     validate_repository_name(value)?;
     match remediation {
         "rename-repository-kebab"
-            if value
-                .bytes()
-                .any(|byte| byte.is_ascii_uppercase() || matches!(byte, b'_' | b'.')) =>
+            if rename_candidate("rename-repository-kebab", value, None) != value =>
         {
             Err("use lowercase kebab-case".to_owned())
         }
         "rename-repository-undotted" if value.contains('.') => {
             Err("the repository name must not contain a dot".to_owned())
+        }
+        "rename-repository-family-prefix" => {
+            let prefix = required_prefix.ok_or_else(|| {
+                "airlock did not observe a family prefix, so it cannot validate this target"
+                    .to_owned()
+            })?;
+            if value.starts_with(&format!("{prefix}-")) {
+                Ok(())
+            } else {
+                Err(format!("the name must start with `{prefix}-`"))
+            }
         }
         _ => Ok(()),
     }
@@ -652,5 +705,102 @@ mod tests {
         for invalid in ["", ".hidden", "ends.", "has space", "has/slash"] {
             assert!(validate_repository_name(invalid).is_err(), "{invalid}");
         }
+        assert!(
+            validate_repository_target("rename-repository-kebab", "double--hyphen", None).is_err()
+        );
+        assert!(validate_repository_target(
+            "rename-repository-family-prefix",
+            "sample-repository",
+            None
+        )
+        .is_err());
+        assert!(validate_repository_target(
+            "rename-repository-family-prefix",
+            "family-sample-repository",
+            Some("family")
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn only_text_bearing_inputs_capture_printable_keys() {
+        let state = |input| {
+            State::confirm(
+                "generic-owner".to_owned(),
+                "sample-repository".to_owned(),
+                vec![Item {
+                    rule: "REPO-SAMPLE-01".to_owned(),
+                    remediation: "sample".to_owned(),
+                    change: "sample".to_owned(),
+                    reversible: true,
+                    input,
+                }],
+            )
+        };
+        assert!(state(Input::Text {
+            draft: String::new(),
+            required_prefix: None,
+            error: None,
+        })
+        .captures_text());
+        assert!(!state(Input::Choice {
+            values: vec!["observed".to_owned()],
+            selected: 0,
+            empty: String::new(),
+        })
+        .captures_text());
+    }
+
+    #[test]
+    fn bulk_completion_offers_no_single_rule_undo() {
+        let item = |rule: &str| Item {
+            rule: rule.to_owned(),
+            remediation: "disable-merge-commits".to_owned(),
+            change: "change".to_owned(),
+            reversible: true,
+            input: Input::None,
+        };
+        let mut state = State::confirm(
+            "generic-owner".to_owned(),
+            "sample-repository".to_owned(),
+            vec![item("REPO-SAMPLE-01"), item("REPO-SAMPLE-02")],
+        );
+        let _ = state.take_confirmation();
+        state.complete_group(
+            ["REPO-SAMPLE-01", "REPO-SAMPLE-02"]
+                .into_iter()
+                .enumerate()
+                .map(|(index, rule)| Transcript {
+                    rule: rule.to_owned(),
+                    remediation: "disable-merge-commits".to_owned(),
+                    proposed_change: "change".to_owned(),
+                    steps: Vec::new(),
+                    observed: ObservedStatus::Pass,
+                    undo: Some(crate::admin::remediation::UndoHandle::fixture(
+                        index as u64 + 1,
+                    )),
+                })
+                .collect(),
+        );
+        assert!(state.take_undo().is_none());
+        let rendered = body(
+            Styles::new(
+                super::super::theme::Theme::Dark,
+                super::super::theme::ColorMode::Color,
+            ),
+            120,
+            &state,
+        )
+        .into_iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+        assert!(!rendered.contains("press u to restore"), "{rendered}");
+        assert_eq!(
+            rendered
+                .matches("unavailable after a bulk confirmation")
+                .count(),
+            1
+        );
     }
 }

@@ -1,6 +1,6 @@
 remediation-transfer-120x40-dark · 120x40 · theme dark · colour
 --- text ---
-AIRLOCK 0.0.0  …nizations › repositories › findings › remediation  no credential stored · tty required · theme t · dark 
+AIRLOCK 0.0.0  …nizations › repositories › findings › remediation  no credential stored · tty required · theme — · dark 
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 SETTINGS REMEDIATION                                                                                                    
 repository      generic-owner/sample-repository                                                                         
@@ -38,7 +38,7 @@ type name       sample-repository
                                                                                                                         
                                                                                                                         
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-esc back · ↵ next in queue · u undo · o re-observe · t theme · ctrl-c exit                                              
+↵ observe · ↑↓ select · backspace delete · esc close the filter · ctrl-c exit                                           
 input required before confirmation                                                                                      
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
@@ -79,7 +79,7 @@ eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-dddeggggfffdegggggggggggggfffdeggggfffdeggggggggggfffdegggggfffddddddeggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+degggggggfffddeggggggfffdddddddddeggggggfffdddeggggggggggggggggfffddddddeggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh
 --- legend ---
 a fg=#CBD3DD bg=#14181D BOLD
