@@ -25,7 +25,7 @@ use crossterm::event::{self, Event};
 
 use self::app::{App, Flow};
 use self::theme::ColorMode;
-use crate::admin::flow::Authorizing;
+use crate::admin::flow::{Authorizing, Report};
 use crate::admin::session::SessionCredential;
 
 /// How long the loop waits for a key before it looks at the clock again.
@@ -112,8 +112,14 @@ fn drive(app: &mut App, session: &mut terminal::Session, authorizing: &Authorizi
         // Everything the worker has to say, without waiting: the wait above is
         // the loop's only one.
         while let Some(report) = authorizing.next_report(Duration::ZERO) {
-            if let Some(grant) = app.report(report) {
-                credential = Some(SessionCredential::from_device_grant(*grant));
+            match report {
+                // The grant is taken here and the interface is only told that
+                // one exists. `App::report` names no type that could carry it.
+                Report::Granted(grant) => {
+                    credential = Some(SessionCredential::from_device_grant(*grant));
+                    app.authorization_granted();
+                }
+                Report::Progress(progress) => app.report(progress),
             }
         }
         // Held only so the credential's lifetime is this loop's. Nothing reads

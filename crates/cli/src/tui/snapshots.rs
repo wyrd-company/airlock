@@ -9,6 +9,7 @@
 //! Run with `UPDATE_SNAPSHOTS=1` to rewrite the recorded files.
 
 use std::fmt::Write as _;
+#[cfg_attr(feature = "test-identity", allow(unused_imports))]
 use std::path::PathBuf;
 
 use ratatui::backend::TestBackend;
@@ -16,8 +17,8 @@ use ratatui::buffer::Buffer;
 use ratatui::style::{Color, Modifier};
 use ratatui::Terminal;
 
+use crate::admin::flow::Issued;
 use crate::admin::sign_in::SignIn;
-use crate::device::DeviceCode;
 
 use super::app::App;
 use super::chrome::{FLOOR_HEIGHT, FLOOR_WIDTH, REFERENCE_HEIGHT, REFERENCE_WIDTH};
@@ -45,13 +46,12 @@ struct Case {
 ///
 /// A fixture, and the specification says as much: illustrative values are
 /// shapes. What is asserted is that the interface prints what it was given.
-fn fixture() -> DeviceCode {
-    DeviceCode {
-        device_code: "this-never-reaches-a-screen".to_owned(),
+fn fixture() -> Issued {
+    Issued {
         user_code: "WDJB-MJHT".to_owned(),
         verification_uri: "https://github.com/login/device".to_owned(),
-        expires_in: 900,
-        interval: 5,
+        expires_in: std::time::Duration::from_secs(900),
+        interval: std::time::Duration::from_secs(5),
     }
 }
 
@@ -160,12 +160,14 @@ fn name(color: Color) -> String {
     }
 }
 
+#[cfg_attr(feature = "test-identity", allow(dead_code))]
 fn path(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/snapshots/tui")
         .join(format!("{name}.txt"))
 }
 
+#[cfg_attr(feature = "test-identity", allow(dead_code))]
 fn check(case: &Case) {
     let rendered = render(case);
     let path = path(case.name);
@@ -217,6 +219,7 @@ fn size_slug(width: u16) -> &'static str {
 /// the most vocabulary — sign-in, which fixes its own status line, and
 /// findings, which prints the entire status vocabulary — are additionally drawn
 /// in the light palette and under `NO_COLOR` at both sizes.
+#[cfg_attr(feature = "test-identity", allow(dead_code))]
 fn cases() -> Vec<Case> {
     let mut cases = Vec::new();
     for screen in Screen::ALL {
@@ -315,11 +318,33 @@ fn cases() -> Vec<Case> {
     cases
 }
 
+/// The recorded files are of the shipped build, which names Airlock Admin on
+/// the sign-in screen. A test build names Airlock Test there — deliberately, so
+/// an operator can never be unsure which identity a development binary is bound
+/// to — so the comparison is skipped rather than recorded twice. What that build
+/// asserts instead is below.
+#[cfg(not(feature = "test-identity"))]
 #[test]
 fn the_frame_renders_as_recorded() {
     for case in cases() {
         check(&case);
     }
+}
+
+#[cfg(feature = "test-identity")]
+#[test]
+fn a_test_build_names_the_test_identity_on_the_screen() {
+    let rendered = characters(&Case {
+        name: "comparison",
+        screen: Screen::SignIn,
+        theme: Theme::Dark,
+        color: ColorMode::Color,
+        width: REFERENCE_WIDTH,
+        height: REFERENCE_HEIGHT,
+        flow: None,
+    });
+    assert!(rendered.contains("Airlock Test"), "{rendered}");
+    assert!(!rendered.contains("Airlock Admin"), "{rendered}");
 }
 
 /// The character grid below the header, which is the whole reading.

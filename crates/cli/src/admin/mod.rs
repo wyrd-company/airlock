@@ -24,3 +24,4 @@ pub mod identity;
 pub mod scan;
 pub mod session;
 pub mod sign_in;
+pub mod text;

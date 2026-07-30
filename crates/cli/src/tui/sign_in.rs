@@ -625,8 +625,8 @@ fn paragraph(text: &str, styles: Styles, role: Role, width: usize) -> Vec<Line<'
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::admin::flow::Issued;
     use crate::admin::sign_in::Reason;
-    use crate::device::DeviceCode;
     use crate::tui::chrome::{FLOOR_WIDTH, REFERENCE_WIDTH};
     use crate::tui::theme::{ColorMode, Theme};
 
@@ -638,13 +638,12 @@ mod tests {
         Styles::new(Theme::Dark, ColorMode::Color)
     }
 
-    fn issued() -> DeviceCode {
-        DeviceCode {
-            device_code: "never-shown".to_owned(),
+    fn issued() -> Issued {
+        Issued {
             user_code: "WDJB-MJHT".to_owned(),
             verification_uri: "https://github.com/login/device".to_owned(),
-            expires_in: 900,
-            interval: 5,
+            expires_in: std::time::Duration::from_secs(900),
+            interval: std::time::Duration::from_secs(5),
         }
     }
 
@@ -898,6 +897,52 @@ mod tests {
                     "{} is missing",
                     permission.name
                 );
+            }
+        }
+    }
+
+    #[test]
+    fn a_hostile_server_cannot_put_a_control_character_on_the_terminal() {
+        // The whole rendering, cell by cell, for the two states that carry
+        // server-supplied text — given a server that answers with terminal
+        // instructions rather than with a code and a cause. The scan code path
+        // is included, because the address it encodes is server-supplied too.
+        let mut screen = Screen::default();
+        screen.state_mut().code_issued(&Issued {
+            user_code: "WD\u{1b}[2J\u{202e}JB".to_owned(),
+            verification_uri: "https://github.com\u{1b}]0;pwned\u{7}/login/device".to_owned(),
+            expires_in: std::time::Duration::from_secs(900),
+            interval: std::time::Duration::from_secs(5),
+        });
+        let mut interrupted = screen.clone();
+        interrupted
+            .state_mut()
+            .interrupted("\u{1b}[1;1Hno credential stored\u{1b}[2J");
+
+        for candidate in [screen, interrupted] {
+            for mode in [ScanMode::Auto, ScanMode::Below, ScanMode::Hidden] {
+                let mut candidate = candidate.clone();
+                while candidate.scan_mode() != mode {
+                    candidate.cycle_scan();
+                }
+                for width in [REFERENCE_WIDTH, FLOOR_WIDTH] {
+                    for line in candidate.body(styles(), width, 60) {
+                        for span in &line.spans {
+                            assert!(
+                                !span.content.chars().any(char::is_control),
+                                "a control character reached a cell: {:?}",
+                                span.content
+                            );
+                            for forbidden in ['\u{202e}', '\u{200e}', '\u{2066}'] {
+                                assert!(
+                                    !span.content.contains(forbidden),
+                                    "a bidirectional control reached a cell: {:?}",
+                                    span.content
+                                );
+                            }
+                        }
+                    }
+                }
             }
         }
     }

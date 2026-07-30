@@ -18,9 +18,8 @@ use airlock_core::registry::Severity;
 
 use super::chrome::{self, wrap};
 use super::lane::{self, Lane};
-use crate::admin::flow::Report;
+use crate::admin::flow::Progress;
 use crate::admin::sign_in::Reason;
-use crate::device::TokenGrant;
 
 use super::screen::Screen;
 use super::sign_in;
@@ -165,40 +164,46 @@ impl App {
 
     /// Apply what the device flow reported.
     ///
-    /// The grant is handed straight back to the caller rather than kept. This
-    /// type draws, and a value it never holds is a value it can never draw.
-    pub fn report(&mut self, report: Report) -> Option<Box<TokenGrant>> {
+    /// [`Progress`] has no arm that carries a credential, and this signature
+    /// names no type that could. The grant travels in the worker's own report,
+    /// which the run loop takes apart before anything reaches here — so a
+    /// credential is not something this type declines to draw, it is something
+    /// it is never given.
+    pub fn report(&mut self, progress: Progress) {
         let state = self.sign_in.state_mut();
-        match report {
-            Report::CodeIssued(codes) => state.code_issued(&codes),
+        match progress {
+            Progress::CodeIssued(issued) => state.code_issued(&issued),
             // A poll that got through after a transport failure is what says
             // the interruption is over, so it is the same report that resumes
             // the screen. The code and its remaining validity are the ones it
             // was holding: approval already given is not wasted.
-            Report::Pending(interval) => {
+            Progress::Pending(interval) => {
                 if matches!(state, crate::admin::sign_in::SignIn::Interrupted { .. }) {
                     state.resumed(interval);
                 } else {
                     state.polled();
                 }
             }
-            Report::SlowDown(suggested) => state.slow_down(suggested),
+            Progress::SlowDown(suggested) => state.slow_down(suggested),
             // Expiry and denial are displayed, not skipped past. The worker is
             // already asking for a replacement, and the screen says so; the
             // next report is the replacement arriving, which is what returns
             // the screen to awaiting approval. The session is not restarted and
             // no other screen's position is touched, because none of it lives
             // on this screen.
-            Report::Expired => state.expired(),
-            Report::Denied => state.denied(),
-            Report::Interrupted(cause) => state.interrupted(cause),
-            Report::Granted(grant) => {
-                self.authorized = true;
-                self.screen = Screen::Organizations;
-                return Some(grant);
-            }
+            Progress::Expired => state.expired(),
+            Progress::Denied => state.denied(),
+            Progress::Interrupted(cause) => state.interrupted(cause),
         }
-        None
+    }
+
+    /// The operator approved, and the run loop has taken the credential.
+    ///
+    /// A notification rather than a value. The interface is told that an
+    /// authorization exists; it is never told what it is.
+    pub fn authorization_granted(&mut self) {
+        self.authorized = true;
+        self.screen = Screen::Organizations;
     }
 
     /// Whether the session holds an authorization.
@@ -468,6 +473,15 @@ mod tests {
         app.handle_key(KeyEvent::new(code, KeyModifiers::NONE))
     }
 
+    fn issued() -> crate::admin::flow::Issued {
+        crate::admin::flow::Issued {
+            user_code: "WDJB-MJHT".to_owned(),
+            verification_uri: "https://github.com/login/device".to_owned(),
+            expires_in: std::time::Duration::from_secs(900),
+            interval: std::time::Duration::from_secs(5),
+        }
+    }
+
     #[test]
     fn the_interface_opens_on_sign_in_in_the_dark_palette() {
         let app = app();
@@ -560,21 +574,14 @@ mod tests {
     }
 
     #[test]
-    fn a_grant_leaves_the_interface_rather_than_being_kept_by_it() {
+    fn an_authorization_is_a_notification_rather_than_a_value() {
+        // There is no call to write here that hands this type a grant, because
+        // neither `report` nor `authorization_granted` names a type that could
+        // carry one. That absence is the assertion; what follows is only that
+        // the notification does what it says.
         let mut app = app();
         assert!(!app.authorized());
-        let grant = app.report(Report::Granted(Box::new(TokenGrant {
-            access_token: "ghu_approved".to_owned(),
-            expires_in: None,
-            refresh_token: None,
-            refresh_token_expires_in: None,
-        })));
-        // Handed straight back: the drawing state has no field for it, so there
-        // is nothing on this side that could render it.
-        assert_eq!(
-            grant.map(|grant| grant.access_token),
-            Some("ghu_approved".to_owned())
-        );
+        app.authorization_granted();
         assert!(app.authorized(), "the session holds an authorization");
         assert_eq!(app.screen(), Screen::Organizations);
     }
@@ -582,26 +589,19 @@ mod tests {
     #[test]
     fn the_five_states_are_reached_by_what_github_answers() {
         use crate::admin::sign_in::SignIn;
-        let issued = crate::device::DeviceCode {
-            device_code: "never-shown".to_owned(),
-            user_code: "WDJB-MJHT".to_owned(),
-            verification_uri: "https://github.com/login/device".to_owned(),
-            expires_in: 900,
-            interval: 5,
-        };
         let mut app = app();
         assert!(matches!(app.sign_in.state(), SignIn::Requesting { .. }));
-        app.report(Report::CodeIssued(Box::new(issued)));
+        app.report(Progress::CodeIssued(Box::new(issued())));
         assert!(matches!(app.sign_in.state(), SignIn::Awaiting { .. }));
-        app.report(Report::Interrupted("connection reset".to_owned()));
+        app.report(Progress::Interrupted("connection reset".to_owned()));
         assert!(matches!(app.sign_in.state(), SignIn::Interrupted { .. }));
         // The next poll that gets through is what says the interruption is
         // over, and it keeps the code that was already on screen.
-        app.report(Report::Pending(std::time::Duration::from_secs(5)));
+        app.report(Progress::Pending(std::time::Duration::from_secs(5)));
         assert!(matches!(app.sign_in.state(), SignIn::Awaiting { .. }));
-        app.report(Report::Expired);
+        app.report(Progress::Expired);
         assert_eq!(app.sign_in.state(), &SignIn::Expired);
-        app.report(Report::Denied);
+        app.report(Progress::Denied);
         assert_eq!(app.sign_in.state(), &SignIn::Denied);
         assert_eq!(app.screen(), Screen::SignIn, "none of that is navigation");
     }
@@ -610,13 +610,7 @@ mod tests {
     fn r_asks_for_a_new_code_only_once_there_is_one_to_replace() {
         let mut app = app();
         assert_eq!(press(&mut app, KeyCode::Char('r')), Flow::Continue);
-        app.report(Report::CodeIssued(Box::new(crate::device::DeviceCode {
-            device_code: "never-shown".to_owned(),
-            user_code: "WDJB-MJHT".to_owned(),
-            verification_uri: "https://github.com/login/device".to_owned(),
-            expires_in: 900,
-            interval: 5,
-        })));
+        app.report(Progress::CodeIssued(Box::new(issued())));
         assert_eq!(press(&mut app, KeyCode::Char('r')), Flow::Reissue);
     }
 
@@ -624,13 +618,7 @@ mod tests {
     fn ticking_runs_the_code_validity_down() {
         use crate::admin::sign_in::SignIn;
         let mut app = app();
-        app.report(Report::CodeIssued(Box::new(crate::device::DeviceCode {
-            device_code: "never-shown".to_owned(),
-            user_code: "WDJB-MJHT".to_owned(),
-            verification_uri: "https://github.com/login/device".to_owned(),
-            expires_in: 900,
-            interval: 5,
-        })));
+        app.report(Progress::CodeIssued(Box::new(issued())));
         app.tick(std::time::Duration::from_secs(60));
         let SignIn::Awaiting { remaining, .. } = app.sign_in.state() else {
             panic!("expected the awaiting state");

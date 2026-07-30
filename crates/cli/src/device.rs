@@ -43,6 +43,12 @@ pub struct DeviceCode {
 }
 
 /// A granted credential.
+///
+/// Its bytes are overwritten when it drops, wherever it is dropped. That
+/// matters most on the interactive path, where a grant can be sent to an
+/// interface that has already gone and is then dropped by the worker with
+/// nobody waiting: the guarantee has to belong to the value rather than to the
+/// place it happened to be.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct TokenGrant {
     /// The user access token.
@@ -56,6 +62,16 @@ pub struct TokenGrant {
     /// Seconds until the refresh token expires.
     #[serde(default)]
     pub refresh_token_expires_in: Option<u64>,
+}
+
+impl Drop for TokenGrant {
+    fn drop(&mut self) {
+        use zeroize::Zeroize as _;
+        self.access_token.zeroize();
+        if let Some(refresh) = self.refresh_token.as_mut() {
+            refresh.zeroize();
+        }
+    }
 }
 
 /// What one poll learned.

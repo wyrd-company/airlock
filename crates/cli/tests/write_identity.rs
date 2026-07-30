@@ -5,6 +5,26 @@
 //! posture is — no store, no environment, no flag, no child process, no second
 //! identity — and a passing behavioural test is not sufficient evidence for one,
 //! because it only shows that the path nobody took today was not taken.
+//!
+//! # What these assertions are worth
+//!
+//! Two of them are proofs and the rest are tripwires, and the difference is
+//! worth stating plainly rather than leaving a reader to assume the stronger
+//! reading.
+//!
+//! **Proofs.** The identity binding is read out of the built binary: the bytes
+//! that would be needed to accept the other app are not in the file, so no code
+//! in it can. The credential type's shape is read out of its own declaration:
+//! there is one constructor and it takes a device grant.
+//!
+//! **Tripwires.** The source scans below look for the calls that would store,
+//! export, or resolve a credential, *by the names those calls have today*. They
+//! catch a reintroduction, which is what they are for. They do not catch an
+//! alias, a macro, a re-export under another name, or a helper in another
+//! module that the write path calls into — and nothing that reads source text
+//! could. Read them as "no one has put it back", not as "it cannot be put
+//! back". The behavioural complement, and its own stated limits, is
+//! `tests/console_pty.rs`.
 
 use std::path::{Path, PathBuf};
 
@@ -110,8 +130,9 @@ fn a_test_build_is_bound_to_the_test_identity_and_not_to_the_shipped_one() {
     );
 }
 
+/// Tripwire: the write path names no credential-bearing environment variable.
 #[test]
-fn the_write_path_reads_no_environment_variable() {
+fn the_write_path_names_no_credential_environment_variable() {
     // The one exception is the OAuth host override, which is read here and is
     // honoured only for a loopback address — asserted where it is written.
     for (name, source) in write_path_sources() {
@@ -125,7 +146,7 @@ fn the_write_path_reads_no_environment_variable() {
         ] {
             assert!(
                 !shipped.contains(forbidden),
-                "{name} reads {forbidden}, and the write credential has one source"
+                "{name} names {forbidden}, and the write credential has one source"
             );
         }
         if name != "flow.rs" {
@@ -137,8 +158,9 @@ fn the_write_path_reads_no_environment_variable() {
     }
 }
 
+/// Tripwire: the write path calls nothing that writes a file.
 #[test]
-fn the_write_path_writes_no_file() {
+fn the_write_path_calls_nothing_that_writes_a_file() {
     for (name, source) in write_path_sources() {
         let shipped = shipped_only(&source);
         for forbidden in [
@@ -157,8 +179,9 @@ fn the_write_path_writes_no_file() {
     }
 }
 
+/// Tripwire: the write path calls nothing that starts a process.
 #[test]
-fn the_write_path_starts_no_child_process() {
+fn the_write_path_calls_nothing_that_starts_a_child_process() {
     // A credential is never exported to a child process, and the reason it
     // cannot be is that the write path starts none. Opening the browser for the
     // operator would be the tempting exception, and it is deliberately absent.
@@ -173,8 +196,9 @@ fn the_write_path_starts_no_child_process() {
     }
 }
 
+/// Tripwire: the write path names nothing from the read path's resolver.
 #[test]
-fn the_write_path_never_reaches_the_read_paths_credential_resolver() {
+fn the_write_path_names_nothing_from_the_read_paths_credential_resolver() {
     // `crate::credential` resolves a token from a flag, the environment, or the
     // stored profile. If any of it could be reached from here, "never stored"
     // would be a convention rather than a property.
@@ -194,6 +218,49 @@ fn the_write_path_never_reaches_the_read_paths_credential_resolver() {
     }
 }
 
+/// Tripwire: every server-supplied string leaves the worker sanitized.
+///
+/// A terminal is an interpreter, so a string GitHub chose is a program for it
+/// unless something examines it first. The examination lives in `text.rs`, and
+/// this asserts that the two places server data leaves the worker call it.
+#[test]
+fn every_server_supplied_string_leaves_the_worker_sanitized() {
+    let flow = std::fs::read_to_string(admin_source().join("flow.rs"))
+        .expect("the worker has a source file");
+    let shipped = shipped_only(&flow);
+    for constructed in [
+        "user_code: text::sanitize(",
+        "verification_uri: text::sanitize(",
+    ] {
+        assert!(
+            shipped.contains(constructed),
+            "{constructed} is missing: a code or an address reaches the interface raw"
+        );
+    }
+    assert!(
+        shipped.contains("fn cause(error: &anyhow::Error) -> String {")
+            && shipped.contains("text::sanitize(&format!(\"{error:#}\"), CAUSE_LIMIT)"),
+        "a reported cause reaches the interface raw"
+    );
+    assert!(
+        shipped.contains("Progress::Interrupted(text::sanitize(&message, CAUSE_LIMIT))"),
+        "a message GitHub chose reaches the interface raw"
+    );
+
+    // The second gate, in the state the screen renders: the state machine's
+    // guarantee must not depend on which caller it has.
+    let state = std::fs::read_to_string(admin_source().join("sign_in.rs"))
+        .expect("the state machine has a source file");
+    let state = shipped_only(&state);
+    assert!(
+        state.contains("text::sanitize(&issued.user_code, CODE_LIMIT)")
+            && state.contains("text::sanitize(&issued.verification_uri, ADDRESS_LIMIT)")
+            && state.contains("cause: text::sanitize(cause.as_ref(), CAUSE_LIMIT)"),
+        "the state the screen renders trusts its caller"
+    );
+}
+
+/// Proof: read out of the type's own declaration.
 #[test]
 fn the_session_credential_cannot_be_printed_or_copied() {
     let source = std::fs::read_to_string(admin_source().join("session.rs"))
@@ -223,6 +290,7 @@ fn the_session_credential_cannot_be_printed_or_copied() {
     );
 }
 
+/// Proof: read out of the type's own declaration.
 #[test]
 fn the_only_way_to_a_session_credential_is_a_device_grant() {
     let source = std::fs::read_to_string(admin_source().join("session.rs"))

@@ -93,11 +93,15 @@ impl Pty {
     /// Start `airlock` with this pty as its controlling terminal, on all three
     /// standard descriptors, exactly as a shell would.
     fn spawn_console(&self) -> Child {
-        self.spawn_console_in(&[])
+        self.spawn_console_in(&[], None)
     }
 
-    /// Start the console with extra environment, as above.
-    fn spawn_console_in(&self, environment: &[(&str, &std::path::Path)]) -> Child {
+    /// Start the console with extra environment and a working directory.
+    fn spawn_console_in(
+        &self,
+        environment: &[(&str, &std::path::Path)],
+        working_directory: Option<&std::path::Path>,
+    ) -> Child {
         let device = self.device.as_raw_fd();
         let mut command = Command::new(assert_cmd::cargo::cargo_bin("airlock"));
         command.env_remove("NO_COLOR");
@@ -107,6 +111,9 @@ impl Pty {
         command.env("AIRLOCK_GITHUB_LOGIN_URL", "http://127.0.0.1:1");
         for (name, value) in environment {
             command.env(name, value);
+        }
+        if let Some(directory) = working_directory {
+            command.current_dir(directory);
         }
         // SAFETY: `pre_exec` runs between fork and exec. Every call here —
         // `setsid`, `ioctl`, `dup2`, `close` — is async-signal-safe.
@@ -308,28 +315,44 @@ fn contents(root: &std::path::Path) -> Vec<std::path::PathBuf> {
     found
 }
 
+/// A session writes nothing to the two places a program writes to by default.
+///
+/// What this proves: a real session, driven to the point where the device flow
+/// has run and been asked to reissue, leaves its home — and every `XDG_*`
+/// directory, and `TMPDIR` — and its working directory exactly as it found
+/// them.
+///
+/// What it does not prove: that no absolute path anywhere was written. Nothing
+/// short of a sandbox that denies writes outright can show that from here, and
+/// the suite does not have one. It is the observation available, and the claim
+/// is stated to match rather than the other way round. The complement is
+/// `tests/write_identity.rs`, which reads the write path's source for the calls
+/// that would do it — also a tripwire rather than a proof, and stated as one.
 #[test]
-fn a_whole_session_writes_no_file_anywhere() {
-    // The write path's guarantee is that no credential is stored, under any
-    // circumstance, in any location. The strongest available reading of that is
-    // that a session creates no file at all: every place airlock could write to
-    // is redirected into one empty directory, and it is still empty afterwards.
+fn a_session_writes_nothing_to_its_home_or_its_working_directory() {
     let home = tempfile::tempdir().expect("a home to watch");
+    let working = tempfile::tempdir().expect("a working directory to watch");
     let watched: &[(&str, &std::path::Path)] = &[
         ("HOME", home.path()),
         ("XDG_CONFIG_HOME", home.path()),
         ("XDG_DATA_HOME", home.path()),
         ("XDG_CACHE_HOME", home.path()),
         ("XDG_STATE_HOME", home.path()),
+        ("XDG_RUNTIME_DIR", home.path()),
         ("TMPDIR", home.path()),
+        ("TMP", home.path()),
+        ("TEMP", home.path()),
     ];
-    assert!(
-        contents(home.path()).is_empty(),
-        "the directory starts empty"
-    );
+    for directory in [home.path(), working.path()] {
+        assert!(
+            contents(directory).is_empty(),
+            "{} starts empty",
+            directory.display()
+        );
+    }
 
     let pty = Pty::open();
-    let mut child = pty.spawn_console_in(watched);
+    let mut child = pty.spawn_console_in(watched, Some(working.path()));
     std::thread::sleep(SETTLE);
     let drawn = pty.drain();
     assert!(
@@ -349,11 +372,14 @@ fn a_whole_session_writes_no_file_anywhere() {
 
     assert_eq!(status.code(), Some(0), "a clean exit reports success");
     assert_restored(&pty, &format!("{drawn}{after}{}", pty.drain()));
-    assert_eq!(
-        contents(home.path()),
-        Vec::<std::path::PathBuf>::new(),
-        "the session wrote something, and it may write nothing"
-    );
+    for directory in [home.path(), working.path()] {
+        assert_eq!(
+            contents(directory),
+            Vec::<std::path::PathBuf>::new(),
+            "the session wrote into {}, and it may write nothing there",
+            directory.display()
+        );
+    }
 }
 
 #[test]

@@ -608,13 +608,21 @@ it follows:
 
 - **It is never stored.** Not in a file, not in the environment, not in a child
   process, and not after the session ends. Its bytes are overwritten when it
-  goes. A session creates no file at all.
+  goes — wherever it is dropped, including on the way out of a session that has
+  already closed. A session leaves its home directory and its working directory
+  exactly as it found them; the suite runs one and watches both.
 - **No refresh token is kept.** GitHub sends one alongside the access token; it
   is overwritten on arrival and never reaches the session.
 - **No child process is started**, so there is nothing to export it to. The
   console does not open your browser for you, for exactly that reason.
 - **Its value is never displayed.** The sign-in screen shows the credential's
-  source and its grant, and nothing else.
+  source and its grant, and nothing else. The interface is not given the
+  credential at all: it is told that one exists, and the type that draws names
+  nothing that could carry it.
+- **Nothing a server says is executed by your terminal.** Codes, addresses, and
+  error text are sanitized where they leave the network worker: control
+  characters, escape sequences, and bidirectional overrides are replaced, and
+  lengths are bounded.
 - **There is no subcommand and no flag** that acquires it, and none that
   mutates. `--yes` exists on nothing.
 

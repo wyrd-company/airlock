@@ -2,26 +2,39 @@
 //!
 //! The flow is asynchronous and the interface is a synchronous draw-and-read
 //! loop, so the flow runs on its own thread with its own runtime and speaks to
-//! the interface over channels. Two things follow from that shape, and both are
-//! deliberate.
+//! the interface over channels. Three things follow from that shape, and all
+//! three are deliberate.
 //!
 //! The device code airlock polls with never crosses the channel. It stays on
 //! the worker, which is the only thing that needs it, so no interface state can
-//! hold it and no rendering can print it.
+//! hold it and no rendering can print it. What crosses is [`Issued`], which is
+//! the operator-facing half and nothing else.
 //!
-//! The grant crosses exactly once, into the run loop, and is turned into a
-//! [`SessionCredential`] there. It is never handed to the drawing state: what
-//! renders the screen cannot reach the credential, which is stronger than
-//! remembering not to draw it.
+//! Everything server-supplied is sanitized here, on the way out, so there is
+//! one boundary rather than one per screen.
+//!
+//! The grant crosses in its own variant, which the run loop takes before the
+//! drawing state is told anything. [`Progress`] — the only thing the interface
+//! is given — has no arm that could carry one.
+//!
+//! Shutdown is deterministic. Dropping [`Authorizing`] closes the request
+//! channel, which every await on the worker is selecting against, so the worker
+//! abandons whatever it is doing at once and is joined rather than detached.
+//! Anything still queued is drained, and a `TokenGrant` zeroizes when it drops,
+//! so no grant outlives the session in readable form on any of those paths.
 
-use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, SyncSender, TrySendError};
+use std::sync::mpsc::{Receiver as SyncReceiver, RecvTimeoutError, Sender as SyncSender};
 use std::time::Duration;
+
+use tokio::sync::mpsc::error::TrySendError;
+use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::device::{
     DeviceCode, DeviceFlow, DeviceFlowConfig, PollOutcome, TokenGrant, GITHUB_LOGIN_BASE,
 };
 
 use super::identity;
+use super::text::{self, ADDRESS_LIMIT, CAUSE_LIMIT, CODE_LIMIT};
 
 /// Overrides GitHub's OAuth host, and only for a server on this machine.
 ///
@@ -33,8 +46,18 @@ use super::identity;
 /// machine.
 const LOGIN_URL_OVERRIDE: &str = "AIRLOCK_GITHUB_LOGIN_URL";
 
-/// The hosts the override may name.
-const LOOPBACK: &[&str] = &["127.0.0.1", "localhost", "[::1]"];
+/// The registered names the override may use.
+const LOOPBACK_NAMES: &[&str] = &["127.0.0.1", "localhost"];
+
+/// The IPv6 literals the override may use, unbracketed.
+const LOOPBACK_LITERALS: &[&str] = &["::1", "0:0:0:0:0:0:0:1"];
+
+/// How long the worker is given to notice that the session has gone.
+///
+/// Every await on it is selecting against the request channel, so it returns as
+/// soon as that channel closes; this is the bound on a join that should be
+/// immediate, so a wedged worker cannot hold the terminal instead.
+const SHUTDOWN_BUDGET: Duration = Duration::from_secs(2);
 
 /// Where the device flow talks to.
 #[must_use]
@@ -46,6 +69,13 @@ pub fn login_base() -> String {
 }
 
 /// Whether a base URL names a host on this machine.
+///
+/// The authority is taken apart rather than matched against: `localhost` is a
+/// prefix of a great many hostnames, and it is also legal userinfo. The three
+/// shapes that have to be refused and would otherwise pass a prefix test are
+/// `http://localhost:80@attacker.example`, where the loopback name is a
+/// username; `http://localhost.attacker.example`, where it is a label; and
+/// `http://attacker.example/?x=localhost`, where it is in the path.
 fn is_loopback(base: &str) -> bool {
     let Some(rest) = base
         .strip_prefix("http://")
@@ -53,20 +83,87 @@ fn is_loopback(base: &str) -> bool {
     else {
         return false;
     };
-    let authority = rest.split('/').next().unwrap_or_default();
-    let host = match authority.rsplit_once(':') {
-        // An IPv6 literal keeps its brackets, so a colon inside them is not a
-        // port separator.
-        Some((head, _)) if !head.is_empty() && !authority.ends_with(']') => head,
-        _ => authority,
+    // Whitespace and controls have no place in a URL and are refused before
+    // anything is read out of it.
+    if base.chars().any(|c| c.is_control() || c.is_whitespace()) {
+        return false;
+    }
+    // The authority ends at the first delimiter, whichever comes first.
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    // Userinfo is refused outright rather than parsed past. A base URL for the
+    // device flow has no business carrying credentials, and `@` is the whole of
+    // the `localhost:80@attacker.example` trick.
+    if authority.contains('@') {
+        return false;
+    }
+    if let Some(rest) = authority.strip_prefix('[') {
+        let Some((literal, after)) = rest.split_once(']') else {
+            return false;
+        };
+        return is_port(after)
+            && LOOPBACK_LITERALS
+                .iter()
+                .any(|allowed| literal.eq_ignore_ascii_case(allowed));
+    }
+    let (host, port) = match authority.split_once(':') {
+        Some((host, port)) => (host, port),
+        None => (authority, ""),
     };
-    LOOPBACK.contains(&host)
+    // An unbracketed IPv6 literal has more colons, so its "port" is not digits.
+    is_port(if port.is_empty() { "" } else { port })
+        && LOOPBACK_NAMES
+            .iter()
+            .any(|allowed| host.eq_ignore_ascii_case(allowed))
 }
 
-/// What the worker tells the interface.
-pub enum Report {
+/// Whether what follows the host is nothing, or a port.
+///
+/// Accepts `""` for the empty tail of a bracketed literal too, so both call
+/// sites read the same.
+fn is_port(tail: &str) -> bool {
+    let tail = tail.strip_prefix(':').unwrap_or(tail);
+    tail.is_empty() || (tail.len() <= 5 && tail.bytes().all(|byte| byte.is_ascii_digit()))
+}
+
+/// A device code, as the operator sees it.
+///
+/// The code airlock polls with is deliberately absent: it is credential-shaped,
+/// it is not the operator's to type, and a type that has no field for it cannot
+/// carry it to a screen. Both strings arrive sanitized.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Issued {
+    /// The characters the operator types.
+    pub user_code: String,
+    /// Where they type them.
+    pub verification_uri: String,
+    /// How long the code is good for.
+    pub expires_in: Duration,
+    /// The wait GitHub asks for between polls.
+    pub interval: Duration,
+}
+
+impl Issued {
+    /// Take the operator-facing half of a device code response, made safe to
+    /// draw.
+    fn from_response(code: &DeviceCode) -> Self {
+        Self {
+            user_code: text::sanitize(&code.user_code, CODE_LIMIT),
+            verification_uri: text::sanitize(&code.verification_uri, ADDRESS_LIMIT),
+            expires_in: Duration::from_secs(code.expires_in),
+            interval: Duration::from_secs(code.interval),
+        }
+    }
+}
+
+/// What the interface is told.
+///
+/// No arm carries a credential, and none can be added that does without this
+/// type changing: the grant travels in [`Report`], which the run loop takes
+/// apart before the drawing state is told anything.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Progress {
     /// A device code arrived.
-    CodeIssued(Box<DeviceCode>),
+    CodeIssued(Box<Issued>),
     /// One poll came back with the authorization still pending, and the wait
     /// before the next one. The interval is carried because a poll that
     /// succeeds after a transport failure is what tells the screen the
@@ -81,8 +178,14 @@ pub enum Report {
     Denied,
     /// The transport failed, or GitHub reported something unhandled.
     Interrupted(String),
-    /// The operator approved. This is the only message carrying a credential,
-    /// and it is sent once.
+}
+
+/// What the worker sends.
+pub enum Report {
+    /// Something the interface should draw.
+    Progress(Progress),
+    /// The operator approved. The only variant that carries a credential, and
+    /// it never reaches the interface: the run loop takes it here.
     Granted(Box<TokenGrant>),
 }
 
@@ -90,16 +193,10 @@ impl std::fmt::Debug for Report {
     /// Redacting rather than absent: the enum is matched on in the run loop, so
     /// an error there wants a name, and no arm may print a value.
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let name = match self {
-            Self::CodeIssued(_) => "CodeIssued",
-            Self::Pending(_) => "Pending",
-            Self::SlowDown(_) => "SlowDown",
-            Self::Expired => "Expired",
-            Self::Denied => "Denied",
-            Self::Interrupted(_) => "Interrupted",
-            Self::Granted(_) => "Granted",
-        };
-        formatter.write_str(name)
+        match self {
+            Self::Progress(progress) => formatter.debug_tuple("Progress").field(progress).finish(),
+            Self::Granted(_) => formatter.write_str("Granted"),
+        }
     }
 }
 
@@ -112,8 +209,10 @@ pub enum Request {
 
 /// The interface's end of the worker.
 pub struct Authorizing {
-    reports: Receiver<Report>,
-    requests: SyncSender<Request>,
+    reports: SyncReceiver<Report>,
+    /// Held in an `Option` so shutdown can drop it before joining. Closing this
+    /// channel is the signal, and every await on the worker selects against it.
+    requests: Option<Sender<Request>>,
     worker: Option<std::thread::JoinHandle<()>>,
 }
 
@@ -127,7 +226,7 @@ impl Authorizing {
         let (report_sender, reports) = std::sync::mpsc::channel();
         // A bound of one: the interface only ever has one outstanding request,
         // and an unbounded queue of them would let a held key reissue forever.
-        let (requests, request_receiver) = std::sync::mpsc::sync_channel(1);
+        let (requests, request_receiver) = tokio::sync::mpsc::channel(1);
         let config = DeviceFlowConfig {
             base_url: login_base.to_owned(),
             ..DeviceFlowConfig::default()
@@ -135,10 +234,10 @@ impl Authorizing {
         let flow = DeviceFlow::new(identity::bound().client_id, config)?;
         let worker = std::thread::Builder::new()
             .name("airlock-device-flow".to_owned())
-            .spawn(move || run(&flow, &report_sender, &request_receiver))?;
+            .spawn(move || run(&flow, &report_sender, request_receiver))?;
         Ok(Self {
             reports,
-            requests,
+            requests: Some(requests),
             worker: Some(worker),
         })
     }
@@ -161,72 +260,121 @@ impl Authorizing {
     /// A request that does not fit is dropped rather than queued: the worker is
     /// already reissuing, and a second request would only reissue again.
     pub fn reissue(&self) {
-        match self.requests.try_send(Request::Reissue) {
-            Ok(()) | Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {}
+        if let Some(requests) = self.requests.as_ref() {
+            match requests.try_send(Request::Reissue) {
+                Ok(()) | Err(TrySendError::Full(_)) | Err(TrySendError::Closed(_)) => {}
+            }
         }
+    }
+
+    /// Stop the worker and account for anything it had in hand.
+    ///
+    /// Ordered, and the order is the point. The request channel closes first,
+    /// which every await on the worker is selecting against, so it abandons an
+    /// in-flight poll rather than running it out. Then the queue is drained,
+    /// dropping — and so zeroizing — a grant that arrived and was never read.
+    /// Then the worker is joined, so a grant it acquires on the way out is
+    /// dropped before this returns rather than on a thread nobody is waiting
+    /// for. Then the queue is drained again, because the join is what lets the
+    /// worker put one there.
+    fn shut_down(&mut self) {
+        drop(self.requests.take());
+        self.drain();
+        if let Some(worker) = self.worker.take() {
+            let deadline = std::time::Instant::now() + SHUTDOWN_BUDGET;
+            while !worker.is_finished() && std::time::Instant::now() < deadline {
+                // Draining as it goes, so a grant sent during shutdown is
+                // cleared even if the join below is abandoned.
+                self.drain();
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            if worker.is_finished() {
+                let _ = worker.join();
+            }
+        }
+        self.drain();
+    }
+
+    /// Take everything queued and drop it.
+    ///
+    /// Dropping is what clears it: `TokenGrant` zeroizes on drop, so a grant
+    /// that was never read is not left readable in a freed allocation.
+    fn drain(&mut self) {
+        while self.reports.try_recv().is_ok() {}
     }
 }
 
 impl Drop for Authorizing {
     fn drop(&mut self) {
-        // Dropping the request sender is what tells the worker to stop; it
-        // observes the disconnection at its next wait. The handle is dropped
-        // rather than joined, because a poll already in flight holds a request
-        // timeout the operator should not have to sit through on the way out.
-        if let Some(worker) = self.worker.take() {
-            drop(worker);
-        }
+        self.shut_down();
     }
 }
 
 /// The worker: acquire a code, poll it, and start again when it lapses.
-fn run(flow: &DeviceFlow, reports: &Sender<Report>, requests: &Receiver<Request>) {
+fn run(flow: &DeviceFlow, reports: &SyncSender<Report>, requests: Receiver<Request>) {
     let runtime = match tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
     {
         Ok(runtime) => runtime,
         Err(error) => {
-            let _ = reports.send(Report::Interrupted(format!(
-                "the device flow could not start: {error}"
-            )));
+            let _ = reports.send(Report::Progress(Progress::Interrupted(text::sanitize(
+                &format!("the device flow could not start: {error}"),
+                CAUSE_LIMIT,
+            ))));
             return;
         }
     };
+    let mut requests = requests;
     runtime.block_on(async {
         let mut backoff = Duration::from_secs(2);
         loop {
-            let codes = match flow.request_codes().await {
-                Ok(codes) => {
+            // Every await below is inside `interruptible`, so closing the
+            // request channel abandons it rather than running it out. That is
+            // what makes shutdown prompt, and what keeps a grant from being
+            // acquired on a thread nobody is joining.
+            let codes = match interruptible(&mut requests, flow.request_codes()).await {
+                Interrupted::Finished(Ok(codes)) => {
                     backoff = Duration::from_secs(2);
                     codes
                 }
-                Err(error) => {
-                    if reports
-                        .send(Report::Interrupted(format!("{error:#}")))
-                        .is_err()
-                    {
+                Interrupted::Finished(Err(error)) => {
+                    if report(reports, Progress::Interrupted(cause(&error))).is_err() {
                         return;
                     }
-                    if wait(requests, backoff).is_none() {
-                        return;
+                    match wait(&mut requests, backoff).await {
+                        Waited::Gone => return,
+                        Waited::Reissue | Waited::Elapsed => {}
                     }
                     backoff = (backoff * 2).min(Duration::from_secs(30));
                     continue;
                 }
+                Interrupted::Reissue => continue,
+                Interrupted::Gone => return,
             };
-            if reports
-                .send(Report::CodeIssued(Box::new(codes.clone())))
-                .is_err()
+            if report(
+                reports,
+                Progress::CodeIssued(Box::new(Issued::from_response(&codes))),
+            )
+            .is_err()
             {
                 return;
             }
-            match poll(flow, reports, requests, &codes).await {
+            match poll(flow, reports, &mut requests, &codes).await {
                 Poll::Granted | Poll::Gone => return,
                 Poll::Restart => {}
             }
         }
     });
+}
+
+fn report(reports: &SyncSender<Report>, progress: Progress) -> Result<(), ()> {
+    reports.send(Report::Progress(progress)).map_err(|_| ())
+}
+
+/// A transport or protocol failure, made safe to draw.
+fn cause(error: &anyhow::Error) -> String {
+    text::sanitize(&format!("{error:#}"), CAUSE_LIMIT)
 }
 
 /// How a code's polling ended.
@@ -241,45 +389,54 @@ enum Poll {
 
 async fn poll(
     flow: &DeviceFlow,
-    reports: &Sender<Report>,
-    requests: &Receiver<Request>,
+    reports: &SyncSender<Report>,
+    requests: &mut Receiver<Request>,
     codes: &DeviceCode,
 ) -> Poll {
     let mut interval = Duration::from_secs(codes.interval).max(Duration::from_secs(1));
     let deadline = std::time::Instant::now() + Duration::from_secs(codes.expires_in);
     loop {
-        match wait(requests, interval) {
-            // The operator pressed `r`.
-            Some(true) => return Poll::Restart,
-            Some(false) => {}
-            None => return Poll::Gone,
+        match wait(requests, interval).await {
+            Waited::Reissue => return Poll::Restart,
+            Waited::Elapsed => {}
+            Waited::Gone => return Poll::Gone,
         }
         if std::time::Instant::now() >= deadline {
-            return match reports.send(Report::Expired) {
+            return match report(reports, Progress::Expired) {
                 Ok(()) => Poll::Restart,
-                Err(_) => Poll::Gone,
+                Err(()) => Poll::Gone,
             };
         }
-        let report = match flow.poll_once(&codes.device_code).await {
+        let outcome = match interruptible(requests, flow.poll_once(&codes.device_code)).await {
+            Interrupted::Finished(outcome) => outcome,
+            Interrupted::Reissue => return Poll::Restart,
+            Interrupted::Gone => return Poll::Gone,
+        };
+        let progress = match outcome {
             Ok(PollOutcome::Granted(grant)) => {
+                // Sent, or dropped here — and dropping it zeroizes it, so the
+                // interface having gone is not a grant left in memory.
                 return match reports.send(Report::Granted(grant)) {
-                    Ok(()) | Err(_) => Poll::Granted,
-                }
+                    Ok(()) => Poll::Granted,
+                    Err(_) => Poll::Gone,
+                };
             }
-            Ok(PollOutcome::Pending) => Report::Pending(interval),
+            Ok(PollOutcome::Pending) => Progress::Pending(interval),
             Ok(PollOutcome::SlowDown(seconds)) => {
                 interval = interval
                     .saturating_add(Duration::from_secs(5))
                     .max(Duration::from_secs(seconds));
-                Report::SlowDown(interval)
+                Progress::SlowDown(interval)
             }
-            Ok(PollOutcome::Expired) => Report::Expired,
-            Ok(PollOutcome::Denied) => Report::Denied,
-            Ok(PollOutcome::Failed(message)) => Report::Interrupted(message),
-            Err(error) => Report::Interrupted(format!("{error:#}")),
+            Ok(PollOutcome::Expired) => Progress::Expired,
+            Ok(PollOutcome::Denied) => Progress::Denied,
+            Ok(PollOutcome::Failed(message)) => {
+                Progress::Interrupted(text::sanitize(&message, CAUSE_LIMIT))
+            }
+            Err(error) => Progress::Interrupted(cause(&error)),
         };
-        let restart = matches!(report, Report::Expired | Report::Denied);
-        if reports.send(report).is_err() {
+        let restart = matches!(progress, Progress::Expired | Progress::Denied);
+        if report(reports, progress).is_err() {
             return Poll::Gone;
         }
         if restart {
@@ -288,15 +445,56 @@ async fn poll(
     }
 }
 
+/// What a wait ended with.
+enum Waited {
+    /// The operator pressed `r`.
+    Reissue,
+    /// The wait ran out.
+    Elapsed,
+    /// The interface has gone.
+    Gone,
+}
+
 /// Wait, unless the interface asks for something or goes away first.
+async fn wait(requests: &mut Receiver<Request>, duration: Duration) -> Waited {
+    tokio::select! {
+        received = requests.recv() => match received {
+            Some(Request::Reissue) => Waited::Reissue,
+            None => Waited::Gone,
+        },
+        () = tokio::time::sleep(duration) => Waited::Elapsed,
+    }
+}
+
+/// How an awaited call ended.
+enum Interrupted<T> {
+    /// It finished.
+    Finished(T),
+    /// The operator asked for a new code while it was in flight.
+    Reissue,
+    /// The interface went away while it was in flight.
+    Gone,
+}
+
+/// Run a request, abandoning it if the interface asks for something or goes.
 ///
-/// `Some(true)` is a reissue, `Some(false)` is the wait elapsing, and `None` is
-/// the interface having gone.
-fn wait(requests: &Receiver<Request>, duration: Duration) -> Option<bool> {
-    match requests.recv_timeout(duration) {
-        Ok(Request::Reissue) => Some(true),
-        Err(RecvTimeoutError::Timeout) => Some(false),
-        Err(RecvTimeoutError::Disconnected) => None,
+/// Abandoning a poll means dropping the future mid-flight, which is what makes
+/// shutdown immediate rather than bounded by a request timeout — and, on the
+/// closing path, what keeps a grant from arriving after the last thing that
+/// could account for it has gone.
+async fn interruptible<T>(
+    requests: &mut Receiver<Request>,
+    work: impl std::future::Future<Output = T>,
+) -> Interrupted<T> {
+    tokio::select! {
+        // The request channel is checked first so that a shutdown racing a
+        // completing request resolves as a shutdown.
+        biased;
+        received = requests.recv() => match received {
+            Some(Request::Reissue) => Interrupted::Reissue,
+            None => Interrupted::Gone,
+        },
+        finished = work => Interrupted::Finished(finished),
     }
 }
 
@@ -316,11 +514,11 @@ mod tests {
         })
     }
 
-    async fn server(token: serde_json::Value) -> MockServer {
+    async fn server_with(codes: serde_json::Value, token: serde_json::Value) -> MockServer {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/login/device/code"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(code_response()))
+            .respond_with(ResponseTemplate::new(200).set_body_json(codes))
             .mount(&server)
             .await;
         Mock::given(method("POST"))
@@ -329,6 +527,10 @@ mod tests {
             .mount(&server)
             .await;
         server
+    }
+
+    async fn server(token: serde_json::Value) -> MockServer {
+        server_with(code_response(), token).await
     }
 
     /// Collect reports until one matches, or give up.
@@ -346,19 +548,26 @@ mod tests {
         None
     }
 
+    fn is_progress(report: &Report, wanted: impl Fn(&Progress) -> bool) -> bool {
+        matches!(report, Report::Progress(progress) if wanted(progress))
+    }
+
     #[tokio::test(flavor = "multi_thread")]
     async fn an_approved_flow_reports_a_grant_and_nothing_else_carries_one() {
         let server = server(serde_json::json!({ "access_token": "ghu_approved" })).await;
         let authorizing = Authorizing::start(&server.uri()).expect("the flow starts");
 
         let issued = until(&authorizing, |report| {
-            matches!(report, Report::CodeIssued(_))
+            is_progress(report, |progress| {
+                matches!(progress, Progress::CodeIssued(_))
+            })
         })
         .expect("a code was issued");
-        let Report::CodeIssued(codes) = issued else {
+        let Report::Progress(Progress::CodeIssued(issued)) = issued else {
             unreachable!()
         };
-        assert_eq!(codes.user_code, "WDJB-MJHT");
+        assert_eq!(issued.user_code, "WDJB-MJHT");
+        assert_eq!(issued.expires_in, Duration::from_secs(900));
 
         let granted =
             until(&authorizing, |report| matches!(report, Report::Granted(_))).expect("a grant");
@@ -369,19 +578,94 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    async fn the_code_airlock_polls_with_does_not_cross_the_channel() {
+        let server = server(serde_json::json!({ "error": "authorization_pending" })).await;
+        let authorizing = Authorizing::start(&server.uri()).expect("the flow starts");
+        let issued = until(&authorizing, |report| {
+            is_progress(report, |progress| {
+                matches!(progress, Progress::CodeIssued(_))
+            })
+        })
+        .expect("a code was issued");
+        // `Issued` has no field for it, so the reading available is the whole
+        // of what the interface can ever be given.
+        let printed = format!("{issued:?}");
+        assert!(!printed.contains("never-crosses-the-channel"), "{printed}");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_hostile_code_response_cannot_reach_the_interface_unsanitized() {
+        // A server that answers with terminal instructions rather than a code.
+        let hostile = serde_json::json!({
+            "device_code": "polled-with",
+            "user_code": "WDJB\u{1b}[2J-MJHT",
+            "verification_uri": "https://github.com\u{202e}/moc.rekcatta//:sptth",
+            "expires_in": 900,
+            "interval": 0,
+        });
+        let server = server_with(hostile, serde_json::json!({ "error": "slow_down" })).await;
+        let authorizing = Authorizing::start(&server.uri()).expect("the flow starts");
+
+        let issued = until(&authorizing, |report| {
+            is_progress(report, |progress| {
+                matches!(progress, Progress::CodeIssued(_))
+            })
+        })
+        .expect("a code was issued");
+        let Report::Progress(Progress::CodeIssued(issued)) = issued else {
+            unreachable!()
+        };
+        assert!(
+            !issued.user_code.chars().any(char::is_control),
+            "{:?}",
+            issued.user_code
+        );
+        assert!(
+            !issued.verification_uri.contains('\u{202e}'),
+            "{:?}",
+            issued.verification_uri
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_hostile_error_description_cannot_reach_the_interface_unsanitized() {
+        let server = server_with(
+            serde_json::json!({
+                "error": "something_new",
+                "error_description": "\u{1b}[2Jno credential stored\u{1b}[1;1H",
+            }),
+            serde_json::json!({}),
+        )
+        .await;
+        let authorizing = Authorizing::start(&server.uri()).expect("the flow starts");
+        let reported = until(&authorizing, |report| {
+            is_progress(report, |progress| {
+                matches!(progress, Progress::Interrupted(_))
+            })
+        })
+        .expect("the failure is reported");
+        let Report::Progress(Progress::Interrupted(cause)) = reported else {
+            unreachable!()
+        };
+        assert!(!cause.chars().any(char::is_control), "{cause:?}");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
     async fn a_denial_is_reported_and_a_new_code_follows_it_in_place() {
         let server = server(serde_json::json!({ "error": "access_denied" })).await;
         let authorizing = Authorizing::start(&server.uri()).expect("the flow starts");
 
         assert!(
-            until(&authorizing, |report| matches!(report, Report::Denied)).is_some(),
+            until(&authorizing, |report| is_progress(report, |progress| {
+                matches!(progress, Progress::Denied)
+            }))
+            .is_some(),
             "the denial is reported"
         );
         assert!(
-            until(&authorizing, |report| matches!(
-                report,
-                Report::CodeIssued(_)
-            ))
+            until(&authorizing, |report| is_progress(report, |progress| {
+                matches!(progress, Progress::CodeIssued(_))
+            }))
             .is_some(),
             "a replacement code is issued without the session restarting"
         );
@@ -393,13 +677,76 @@ mod tests {
         // failing rather than GitHub answering.
         let authorizing = Authorizing::start("http://127.0.0.1:1").expect("the flow starts");
         assert!(
-            until(&authorizing, |report| matches!(
-                report,
-                Report::Interrupted(_)
-            ))
+            until(&authorizing, |report| is_progress(report, |progress| {
+                matches!(progress, Progress::Interrupted(_))
+            }))
             .is_some(),
             "the transport failure is reported"
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn shutdown_stops_the_worker_rather_than_detaching_it() {
+        // A server that accepts the poll and then says nothing for far longer
+        // than any shutdown should wait. If the worker ran the request out, the
+        // drop below would take the server's delay rather than the budget.
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/login/device/code"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(code_response()))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/login/oauth/access_token"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({ "access_token": "ghu_late" }))
+                    .set_delay(Duration::from_secs(20)),
+            )
+            .mount(&server)
+            .await;
+
+        let authorizing = Authorizing::start(&server.uri()).expect("the flow starts");
+        until(&authorizing, |report| {
+            is_progress(report, |progress| {
+                matches!(progress, Progress::CodeIssued(_))
+            })
+        })
+        .expect("a code was issued");
+
+        let started = std::time::Instant::now();
+        drop(authorizing);
+        let took = started.elapsed();
+        assert!(
+            took < SHUTDOWN_BUDGET + Duration::from_secs(1),
+            "shutdown waited {took:?} on an in-flight poll"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_grant_queued_and_never_read_is_dropped_by_shutdown() {
+        let server = server(serde_json::json!({ "access_token": "ghu_never_read" })).await;
+        let mut authorizing = Authorizing::start(&server.uri()).expect("the flow starts");
+        // Long enough for the grant to be sent and to sit unread in the queue.
+        std::thread::sleep(Duration::from_millis(400));
+
+        authorizing.shut_down();
+
+        assert!(
+            authorizing.next_report(Duration::from_millis(50)).is_none(),
+            "shutdown left a report — and so possibly a grant — in the queue"
+        );
+        assert!(
+            authorizing.worker.is_none(),
+            "shutdown left the worker unaccounted for"
+        );
+    }
+
+    #[test]
+    fn shutting_down_twice_is_harmless() {
+        let mut authorizing = Authorizing::start("http://127.0.0.1:1").expect("the flow starts");
+        authorizing.shut_down();
+        authorizing.shut_down();
     }
 
     #[test]
@@ -409,22 +756,48 @@ mod tests {
             "http://localhost",
             "https://localhost:443/",
             "http://[::1]:9000",
+            "http://LocalHost:1234",
+            "http://127.0.0.1:8080/login",
         ] {
             assert!(is_loopback(allowed), "{allowed}");
         }
         for refused in [
+            // The finding: userinfo that makes a loopback name the username.
+            "http://localhost:80@attacker.example",
+            "http://127.0.0.1@attacker.example/",
+            "http://user:pass@localhost",
+            // A loopback name as a label of somebody else's domain.
+            "http://localhost.attacker.example",
+            "http://127.0.0.1.attacker.example",
+            "http://attacker.example/localhost",
+            "http://attacker.example/?x=localhost",
+            // Not a loopback at all.
             "https://github.com",
-            "https://127.0.0.1.example.com",
-            "http://evil.test/127.0.0.1",
+            // Malformed, and refused rather than guessed at.
+            "http://[::1",
+            "http://[::1]x",
+            "http://localhost:notaport",
+            "http://localhost:8080\u{1b}[2J",
+            "http://local host",
             "127.0.0.1:8080",
+            "file:///etc/passwd",
             "",
         ] {
             assert!(!is_loopback(refused), "{refused}");
         }
     }
 
-    #[tokio::test(flavor = "multi_thread")]
-    async fn a_report_never_prints_anything_it_carries() {
+    #[test]
+    fn the_override_falls_back_rather_than_failing_when_it_is_refused() {
+        // The environment is process-wide, so this asserts the decision rather
+        // than setting the variable: `login_base` is the two branches below.
+        assert!(is_loopback("http://127.0.0.1:9"));
+        assert!(!is_loopback("http://localhost:80@attacker.example"));
+        assert_eq!(GITHUB_LOGIN_BASE, "https://github.com");
+    }
+
+    #[test]
+    fn a_report_never_prints_anything_it_carries() {
         let grant = TokenGrant {
             access_token: "ghu_secret".to_owned(),
             expires_in: None,

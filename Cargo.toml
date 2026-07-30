@@ -42,7 +42,7 @@ serde_json = "1.0"
 serde_norway = "0.9"
 sha2 = "0.10"
 thiserror = "2.0"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
 toml = "0.8"
 # zeroize overwrites the write credential rather than only dropping it.
 zeroize = "1"

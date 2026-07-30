@@ -11,7 +11,8 @@
 
 use std::time::Duration;
 
-use crate::device::DeviceCode;
+use super::flow::Issued;
+use super::text::{self, ADDRESS_LIMIT, CAUSE_LIMIT, CODE_LIMIT};
 
 /// What the screen shows of a device code.
 ///
@@ -27,12 +28,16 @@ pub struct IssuedCode {
 }
 
 impl IssuedCode {
-    /// Take the operator-facing half of a device code response.
-    #[must_use]
-    pub fn from_device_code(code: &DeviceCode) -> Self {
+    /// Take what the operator needs, made safe to draw.
+    ///
+    /// Sanitized here as well as at the worker's boundary. The worker is the
+    /// only caller today, but this type's guarantee should not depend on which
+    /// caller it has: a state machine that is safe only because of who calls it
+    /// is one refactor away from not being.
+    fn from_issued(issued: &Issued) -> Self {
         Self {
-            user_code: code.user_code.clone(),
-            verification_uri: code.verification_uri.clone(),
+            user_code: text::sanitize(&issued.user_code, CODE_LIMIT),
+            verification_uri: text::sanitize(&issued.verification_uri, ADDRESS_LIMIT),
         }
     }
 }
@@ -122,12 +127,12 @@ impl SignIn {
     }
 
     /// A device code arrived.
-    pub fn code_issued(&mut self, code: &DeviceCode) {
+    pub fn code_issued(&mut self, issued: &Issued) {
         *self = Self::Awaiting {
-            code: IssuedCode::from_device_code(code),
+            code: IssuedCode::from_issued(issued),
             poll: 1,
-            interval: Duration::from_secs(code.interval),
-            remaining: Duration::from_secs(code.expires_in),
+            interval: issued.interval,
+            remaining: issued.expires_in,
         };
     }
 
@@ -181,7 +186,7 @@ impl SignIn {
     /// The code, where one exists, stays on screen with what is left of its
     /// validity: approval the operator has already given is picked up when
     /// polling resumes, and a screen that discarded the code would waste it.
-    pub fn interrupted(&mut self, cause: impl Into<String>) {
+    pub fn interrupted(&mut self, cause: impl AsRef<str>) {
         let backoff = match self {
             Self::Interrupted { backoff, .. } => backoff.saturating_mul(2).min(Self::MAX_BACKOFF),
             _ => Self::FIRST_BACKOFF,
@@ -204,7 +209,8 @@ impl SignIn {
         *self = Self::Interrupted {
             code,
             remaining,
-            cause: cause.into(),
+            // Sanitized here too, for the reason `from_issued` is.
+            cause: text::sanitize(cause.as_ref(), CAUSE_LIMIT),
             backoff,
             poll,
         };
@@ -414,13 +420,12 @@ pub fn humanize(duration: Duration) -> String {
 mod tests {
     use super::*;
 
-    fn issued() -> DeviceCode {
-        DeviceCode {
-            device_code: "never-shown".to_owned(),
+    fn issued() -> Issued {
+        Issued {
             user_code: "WDJB-MJHT".to_owned(),
             verification_uri: "https://github.com/login/device".to_owned(),
-            expires_in: 900,
-            interval: 5,
+            expires_in: Duration::from_secs(900),
+            interval: Duration::from_secs(5),
         }
     }
 
@@ -446,6 +451,30 @@ mod tests {
         assert_eq!(code.verification_uri, "https://github.com/login/device");
         // `IssuedCode` has no field for it, so there is nothing to assert
         // against beyond that: the value cannot be reached from here at all.
+    }
+
+    #[test]
+    fn a_hostile_code_cannot_carry_terminal_instructions_into_the_state() {
+        let mut state = SignIn::opening();
+        state.code_issued(&Issued {
+            user_code: "WDJB\u{1b}[2J".to_owned(),
+            verification_uri: "https://github.com\u{202e}/moc.rekcatta".to_owned(),
+            expires_in: Duration::from_secs(900),
+            interval: Duration::from_secs(5),
+        });
+        let code = state.code().expect("a code is on screen");
+        assert!(!code.user_code.chars().any(char::is_control), "{code:?}");
+        assert!(!code.verification_uri.contains('\u{202e}'), "{code:?}");
+    }
+
+    #[test]
+    fn a_hostile_cause_cannot_carry_terminal_instructions_into_the_state() {
+        let mut state = awaiting();
+        state.interrupted("\u{1b}[2Jno credential stored\u{1b}[1;1H");
+        let SignIn::Interrupted { cause, .. } = &state else {
+            panic!("expected the interrupted state");
+        };
+        assert!(!cause.chars().any(char::is_control), "{cause:?}");
     }
 
     #[test]
