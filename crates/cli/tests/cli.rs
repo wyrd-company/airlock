@@ -1173,12 +1173,12 @@ async fn agent_work_names_admin_only_gaps_as_their_own_group_without_gating_on_t
     let list = agent_work_json(scheduled_audit_repo(), GIT_POLICY, 0).await;
 
     assert_eq!(list["outcome"], "agent_lane_clear");
-    assert_eq!(list["admin-only"]["count"], 3);
+    assert_eq!(list["admin_only"]["count"], 3);
     assert_eq!(
         list["unsettled"]["count"], 0,
-        "a gap no credential here can close is not a question to ask again"
+        "a gap that requires admin access is not a question to ask again here"
     );
-    for item in list["admin-only"]["items"].as_array().unwrap() {
+    for item in list["admin_only"]["items"].as_array().unwrap() {
         assert_eq!(item["status"], "admin-only");
         assert_eq!(item["undecided"], "structural");
         assert_eq!(item["gating"], false);

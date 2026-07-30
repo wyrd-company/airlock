@@ -1076,9 +1076,10 @@ mod tests {
     fn a_withheld_field_is_structural_only_where_the_registry_declares_a_gate() {
         // The check reports one observation — the platform did not give me
         // this field — and the registry decides what it means. A rule that
-        // declares that admin access is required, so it is structural. A
-        // rule that declares none is a run that fell short, so it stays
-        // circumstantial and keeps blocking. No check can promote itself.
+        // declares a gate can only be settled with admin access, so it is
+        // structural. A rule that declares no gate is a run that fell short,
+        // so it stays circumstantial and keeps blocking. No check can promote
+        // itself.
         let snapshot = snapshot(&[]);
         let policy = policy();
         let read_only = context(&snapshot, &policy, Vec::new());

@@ -197,7 +197,7 @@ pub fn agent_work_list_text(list: &AgentWorkList) -> String {
     render_unsettled_group(&mut out, "unsettled questions", &list.unsettled);
     render_unsettled_group(
         &mut out,
-        "admin-only (requires interactive admin mode; never gates)",
+        "admin-only (requires admin access; never gates)",
         &list.admin_only,
     );
     render_attention_group(&mut out, "manual judgment (never gates)", &list.manual);
@@ -406,9 +406,9 @@ pub fn plan_text(report: &Report) -> String {
         out.push('\n');
         let _ = writeln!(
             out,
-            "admin-only ({}) — these rules require admin access to verify. Use the\n\
-             interactive airlock session (admin mode). They are not passes, and they\n\
-             do not make the read-only run incomplete.",
+            "admin-only ({}) — these rules require admin access to verify, so looking\n\
+             again with this credential will not answer them. They are not passes, and\n\
+             they do not make the read-only run incomplete.",
             plan.admin_only.len()
         );
         for rule in &plan.admin_only {
@@ -857,12 +857,22 @@ mod tests {
             !text.contains(registry::VerificationSurface::InteractiveSession.guidance()),
             "no surface was declared, so none is promised: {text}"
         );
+        assert!(
+            !text.to_ascii_lowercase().contains("interactive")
+                && !text.to_ascii_lowercase().contains("admin mode"),
+            "the report must not invent destination prose: {text}"
+        );
         let plan = plan_text(&undeclared);
         assert!(plan.contains("admin-only (1)"), "{plan}");
         assert!(plan.contains("REPO-LIC-01"), "{plan}");
         assert!(
             !plan.contains(registry::VerificationSurface::InteractiveSession.code()),
             "{plan}"
+        );
+        assert!(
+            !plan.to_ascii_lowercase().contains("interactive")
+                && !plan.to_ascii_lowercase().contains("admin mode"),
+            "the plan must not invent destination prose: {plan}"
         );
     }
 

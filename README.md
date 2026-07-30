@@ -132,11 +132,11 @@ Its `agent_lane` contains failed rules classified as `deterministic-file` or
 `judgment-file`, keyed by rule id and carrying the remediation code and the
 change it would make. `operator_deferred` separately identifies failed
 `operator-setting` rules and failures that declare no remediation; neither
-gates the command. `needs_decision`, `unsettled`, `admin-only`, `manual`, and
+gates the command. `needs_decision`, `unsettled`, `admin_only`, `manual`, and
 `suppressed` keep the other unfinished or authorized-but-unaligned findings
 visible with their counts and identities. Undecided items say whether they gate
 and retain their evidence code, so a missing capability declaration is distinct
-from a retryable observation failure, and `admin-only` holds the gaps that
+from a retryable observation failure, and `admin_only` holds the gaps that
 require admin access to verify — named, never gating, and never passing. Every
 group retains each finding's observation
 source, and the top-level `observation` block says whether file findings came
@@ -243,8 +243,8 @@ surface its gate declares — today the interactive session, which holds a
 credential that can both read and align the setting. Every surface takes its
 wording from the declaration rather than writing its own.
 `airlock audit --list-checks` prints each rule's gate, the grant it requires,
-and where it is verified, so which rules require the interactive admin session
-is readable before pointing airlock at anything.
+and where it is verified, so which rules require admin access, and where they
+are verified, is readable before pointing airlock at anything.
 
 Incomplete input can never produce a clean result. A listing that stopped at
 the page budget, a recursive tree GitHub truncated, or a response airlock could

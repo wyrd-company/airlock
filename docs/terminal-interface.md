@@ -146,11 +146,11 @@ interface displays which gate is in force and never offers to change it.
 separately. A run is incomplete when a rule at a gating severity ended
 undecided because the run fell short: `unimplemented`, `inconclusive`, or
 `error`. An `admin-only` rule ended undecided because it requires admin access
-to verify; that expected access boundary carries no information about repository
-conformance, so it leaves the run complete at every severity. A run is
-nonconformant when a rule at a gating severity ended in `fail`. Incompleteness
-outranks nonconformance in the verdict, which is one
-of `conformant`, `nonconformant`, or `incomplete`.
+to verify; making the read-only verdict permanently red would carry no
+information, so it leaves the run complete at every severity. The missing
+answer is still missing. A run is nonconformant when a rule at a gating
+severity ended in `fail`. Incompleteness outranks nonconformance in the verdict,
+which is one of `conformant`, `nonconformant`, or `incomplete`.
 
 An unanswered question is still not a clean repository, whichever kind it is.
 `conformant` therefore states that nothing the run could answer went
@@ -280,8 +280,8 @@ it.
   `UNDECIDED` (makes the run incomplete at a gating severity, unless the fact
   requires admin access to verify). The undecided heading carries the
   qualifier, because an undecided result at a severity the effective gate does
-  not enforce leaves the run complete, and so does one no credential here could
-  ever have settled.
+  not enforce leaves the run complete, and so does one that requires admin
+  access to verify.
 - When this run fell short of evaluating a rule at a gating severity, a blocker
   banner naming each such rule, its status, and what stopped it. The banner
   states that `complete` is false and that no verdict below it can be certified.

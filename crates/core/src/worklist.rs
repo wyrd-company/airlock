@@ -175,9 +175,8 @@ pub struct AgentWorkList {
     /// These never gate — a permanently red lane says nothing — but they are
     /// listed at every severity, because an admin-only rule is not a passing
     /// rule and a clear lane is not an aligned repository. The remaining move
-    /// is to verify them on a surface that can see them: the interactive
-    /// session.
-    #[serde(rename = "admin-only")]
+    /// is to verify them on the surface declared by each rule's disclosure
+    /// gate.
     pub admin_only: WorkGroup<UnsettledItem>,
     /// Manual judgments still awaiting a person.
     pub manual: WorkGroup<AttentionItem>,
@@ -563,7 +562,7 @@ mod tests {
         assert_eq!(list.admin_only.count, 1);
         let text = crate::render::agent_work_list_text(&list);
         assert!(
-            text.contains("admin-only (requires interactive admin mode; never gates) (1)"),
+            text.contains("admin-only (requires admin access; never gates) (1)"),
             "{text}"
         );
         assert!(text.contains("REPO-GIT-04"), "{text}");
