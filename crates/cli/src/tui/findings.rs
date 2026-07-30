@@ -1269,12 +1269,25 @@ fn row_lines(
     let spent = marks + RULE_WIDTH + STATUS_WIDTH;
     match density {
         Density::Full => {
+            // The fact is allocated out of everything the row has left, before
+            // the section takes its column, for the same reason the narrow
+            // reading does it: a wider terminal must never show less of a fact
+            // than a narrower one. Reserving the section first would withhold a
+            // fact at the reference that the floor prints whole.
+            let room = width.saturating_sub(spent);
+            let fact = fact(row, room);
+            let taken = fact.as_ref().map_or(0, |fact| fact.chars().count());
+            let section = SECTION_WIDTH.min(room.saturating_sub(taken));
             spans.push(Span::styled(
-                format!("{:<SECTION_WIDTH$}", fit(&row.section, SECTION_WIDTH - 1)),
+                format!(
+                    "{:<section$}",
+                    fit(&row.section, section.saturating_sub(1)),
+                    section = section
+                ),
                 styles.of(Role::Faint),
             ));
             spans.push(Span::styled(
-                detail(row, width.saturating_sub(spent + SECTION_WIDTH)),
+                detail(fact, &row.statement, room - section),
                 styles.of(Role::Dim),
             ));
             vec![Line::from(spans)]
@@ -1313,19 +1326,20 @@ fn row_lines(
 
 /// What a row says after its section: its own fact, then its statement.
 ///
-/// The fact is allocated first, because it is what the group exists to carry —
+/// The fact arrives already allocated, because which of the two is allocated
+/// first is the whole question: the fact is what the group exists to carry —
 /// the delivery state of a file-level gap, the grant an admin-only fact
 /// requires, or why airlock declares no remediation. A statement the width
 /// cannot hold is shortened; a fact is never shortened to make room for one.
-fn detail(row: &Row, room: usize) -> String {
-    let Some(fact) = fact(row, room) else {
-        return fit(&row.statement, room);
+fn detail(fact: Option<String>, statement: &str, room: usize) -> String {
+    let Some(fact) = fact else {
+        return fit(statement, room);
     };
     let left = room.saturating_sub(fact.chars().count());
     if left <= 4 {
         return fact;
     }
-    format!("{fact} \u{b7} {}", fit(&row.statement, left - 3))
+    format!("{fact} \u{b7} {}", fit(statement, left - 3))
 }
 
 /// What the row prints where its own fact will not fit at all.
@@ -1592,6 +1606,7 @@ mod tests {
         condition_undecided, file_failure, finding, report, settings_failure, suppressed,
     };
     use super::*;
+    use crate::tui::chrome::{FLOOR_WIDTH, REFERENCE_WIDTH};
     use crate::tui::theme::{ColorMode, Theme};
     use airlock_core::findings::{Evidence, FindingError, RemediationClass};
 
@@ -2287,6 +2302,80 @@ mod tests {
             // And the row still says which rule it is about, and its section.
             assert!(rendered.contains("REPO-DOCS-05"), "at {width}");
             assert!(rendered.contains("docs"), "at {width}");
+        }
+    }
+
+    /// A row carrying a fact of a chosen length, and nothing else unusual.
+    fn carrying(fact: &str) -> Row {
+        Row {
+            rule: "REPO-DOCS-05".to_owned(),
+            statement: "the condition REPO-DOCS-05 states".to_owned(),
+            severity: Severity::Required,
+            status: Status::Fail,
+            section: "docs".to_owned(),
+            gate: Gate::Required,
+            group: Group::Judgment,
+            delivery: Delivery::Unknown,
+            note: Some(fact.to_owned()),
+        }
+    }
+
+    /// The row as drawn at a width, both of its lines where it has two.
+    fn drawn(row: &Row, width: u16) -> String {
+        let width = width as usize;
+        row_lines(styles(), width, row, false, panel::density(width))
+            .iter()
+            .flat_map(|line| line.spans.iter())
+            .map(|span| span.content.as_ref())
+            .collect()
+    }
+
+    #[test]
+    fn a_wider_screen_never_shows_less_of_a_fact_than_a_narrower_one() {
+        // The two readings allocate differently, and the one thing that must
+        // hold across them is monotonicity: widening a terminal can add a fact
+        // to a row and can never take one away. A section column reserved
+        // before the fact is what breaks this, and it is what this asserts is
+        // not happening.
+        for length in 1..=90usize {
+            let fact = "f".repeat(length);
+            let row = carrying(&fact);
+            let floor = drawn(&row, FLOOR_WIDTH).contains(&fact);
+            let reference = drawn(&row, REFERENCE_WIDTH).contains(&fact);
+            assert!(
+                !floor || reference,
+                "a fact of {length} characters is whole at {FLOOR_WIDTH} and \
+                 withheld at {REFERENCE_WIDTH}"
+            );
+        }
+    }
+
+    #[test]
+    fn each_reading_carries_a_fact_up_to_the_room_it_actually_has() {
+        // The boundary, stated rather than implied: everything the row spends
+        // before the fact, and nothing else, is what decides where a fact stops
+        // fitting. Both readings spend the same marks, so both boundaries are
+        // the width less what stands to the left of the fact.
+        let marks = UNFOCUSED.len() + 2 + 4 + LANES_WIDTH + 1;
+        for (width, room) in [
+            (FLOOR_WIDTH, FLOOR_WIDTH as usize - marks),
+            (
+                REFERENCE_WIDTH,
+                REFERENCE_WIDTH as usize - (marks + RULE_WIDTH + STATUS_WIDTH),
+            ),
+        ] {
+            let fits = "f".repeat(room);
+            assert!(
+                drawn(&carrying(&fits), width).contains(&fits),
+                "a fact of exactly {room} characters is withheld at {width}"
+            );
+            let over = "f".repeat(room + 1);
+            let rendered = drawn(&carrying(&over), width);
+            assert!(
+                !rendered.contains(&over) && rendered.contains("fact withheld"),
+                "a fact of {} characters was not withheld at {width}: {rendered}",
+                room + 1
+            );
         }
     }
 

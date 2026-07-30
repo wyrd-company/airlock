@@ -31,7 +31,7 @@ showing       the whole working set · 9 of 9 shown · gate required · f select
   ┃- 6 ADMIN-ONLY  1  facts that require admin access to verify, answered on the surface the gate names                 
     ██░       │ ◍ │ REPO-GIT-04    admin-only    git            grant contents:write · verified by interactive-session  
    - 7 AUTHORIZED BUT NOT ALIGNED  1  the policy permitted the failure; it did not close the gap, and the remediation i…
-    ███     ⊘ │   │ REPO-CI-02     suppressed    automation     fact withheld for width · ↵ shows it whole · the condit…
+    ███     ⊘ │   │ REPO-CI-02     suppressed    automation   still on offer: Set workflow-level `permissions:` to `{}`.
    + 8 ALIGNED  2  passing rules, and rules skipped because a capability condition does not apply                       
 0 above · 0 below · working set 9 of 9 · ↑↓ moves through the rest                                                      
                                                                                                                         
@@ -72,7 +72,7 @@ ppqeeeeeeeeeeerfffreeeeeeeeeeeeeeeeffffffffffffffkkkkkkkkkkkkkkkgggggggggggggggg
 pppppppppppppppppnnnnnkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkeeeeeeeeeeeeeeeee
 ppqeeeeeeeeeeermmmreeeeeeeeeeeeeeeemmmmmmmmmmmmmmkkkkkkkkkkkkkkkggggggggggggggggggggggggggggggggggggggggggggggggggggggee
 iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiinnnnnkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk
-ppqeeeeeeeetttreeereeeeeeeeeeeeeeeettttttttttttttkkkkkkkkkkkkkkkgggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+ppqeeeeeeeetttreeereeeeeeeeeeeeeeeettttttttttttttkkkkkkkkkkkkkgggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
 iiiiiiiiiiiiiinnnnnkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkeeeeeeeeeeeeeeeeeeeeeee
 ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee

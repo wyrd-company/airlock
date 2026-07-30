@@ -20,7 +20,7 @@ LOOKUP  every finding, ordered by rule id — the predictable address for every 
 showing       lookup · every finding ordered by rule id · all 9 shown, never narrowed · gate required · l returns to the
               queue                                                                                                     
 ▸ ▌ ███       │ ▢ │ REPO-CI-02     unimplemented automation     the condition REPO-CI-02 states                         
-    ███     ⊘ │   │ REPO-CI-02     suppressed    automation     fact withheld for width · ↵ shows it whole · the condit…
+    ███     ⊘ │   │ REPO-CI-02     suppressed    automation   still on offer: Set workflow-level `permissions:` to `{}`.
   ▌ ███  ✗    │   │ REPO-GIT-01    fail          git            the condition REPO-GIT-01 states                        
     ██░       │ ◍ │ REPO-GIT-04    admin-only    git            grant contents:write · verified by interactive-session  
   ▌ ██░  ✗    │   │ REPO-LIC-01    fail          licensing      pull request open · the condition REPO-LIC-01 states    
@@ -61,7 +61,7 @@ iiiiiiiikkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk
 kkkkkkkkkkkkkkgggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
 kkkkkkkkkkkkkkgggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 ppqeeeeeeeeeeerfffreiiiiiiiiiiiiiiiffffffffffffffkkkkkkkkkkkkkkkgggggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeee
-ppqeeeeeeeesssreeereeeeeeeeeeeeeeeesssssssssssssskkkkkkkkkkkkkkkgggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+ppqeeeeeeeesssreeereeeeeeeeeeeeeeeesssssssssssssskkkkkkkkkkkkkgggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
 ppqeeeeeqqqeeereeereeeeeeeeeeeeeeeeqqqqqqqqqqqqqqkkkkkkkkkkkkkkkggggggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeee
 ppqeeeeeeeeeeermmmreeeeeeeeeeeeeeeemmmmmmmmmmmmmmkkkkkkkkkkkkkkkggggggggggggggggggggggggggggggggggggggggggggggggggggggee
 ppqeeeeeqqqeeereeereeeeeeeeeeeeeeeeqqqqqqqqqqqqqqkkkkkkkkkkkkkkkggggggggggggggggggggggggggggggggggggggggggggggggggggeeee
