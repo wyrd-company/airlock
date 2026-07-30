@@ -554,11 +554,12 @@ suppressions marked as policy-sourced rather than registry-sourced.
 A run provenance block repeats airlock's version, the registry version, the
 schema version, the audited commit, and the time the settings were observed.
 
-The rule table is the only part of the screen that scrolls, and it scrolls
-under the blocks rather than taking them off the screen: the digest, the
-sources, and the run provenance are what the table is to be read against, and
-a table read without them is a list of rule ids. The table states how many
-rules lie above the window and how many below.
+The digest, the sources, the run provenance, and the table are one reading and
+scroll as one. None of them is a decoration of the others: a table read
+without the digest is a list of rule ids, and a digest read without the table
+is a number. Where the reading is longer than the terminal is tall, `↑↓` moves
+the window over it and the screen states how many lines lie above and how many
+below.
 
 **Keymap.** `esc` back · `↑↓` move · `y` copy digest.
 
