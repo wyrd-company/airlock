@@ -1,0 +1,64 @@
+finding-detail-suppressed-80x24-dark · 80x24 · theme dark · colour
+--- text ---
+AIRLOCK 0.0.0  …indings › finding detail  no credential stored · theme t · dark 
+  REPO-CI-02      ⊘ │   │  suppressed  ███ blocking                             
+does not gate: suppressed never gates and never affects completeness            
+                                                                                
+the condition REPO-CI-02 states                                                 
+                                                                                
+EVIDENCE                                                                        
+evidence              null — a failure the policy authorized                    
+                                                                                
+SUPPRESSION                                                                     
+suppression.source    policy                                                    
+requested_reason      null — the repository asked for nothing; the policy       
+                      suppressed it directly                                    
+policy_reason         migration in flight                                       
+authorized_by         policy                                                    
+                                                                                
+REMEDIATION                                                                     
+retained              the failure is authorized and the fix for it is not       
+                      deleted by that. Applying it ends the suppression by      
+                      closing the gap.                                          
+remediation_class                                                               
+— 0 lines above · 25 below · ↑↓ moves the window —                              
+esc back · a remediation transcript · o re-observe this rule · 3 more…          
+decided · inert · does not gate · authorized by policy                          
+--- style keys ---
+aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+cdeeeeeeeeeedddddcccfdddfddggggggggggddddddhhhhhhhhddddddddddddddddddddddddddddd
+hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhdddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+iiiiiiiidddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+jjjjjjjjjjjjjjjjjjjjjjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhdddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+iiiiiiiiiiiddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+jjjjjjjjjjjjjjjjjjjjjjhhhhhhdddddddddddddddddddddddddddddddddddddddddddddddddddd
+jjjjjjjjjjjjjjjjjjjjjjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhddddddd
+jjjjjjjjjjjjjjjjjjjjjjhhhhhhhhhhhhhhhhhhhhhhdddddddddddddddddddddddddddddddddddd
+jjjjjjjjjjjjjjjjjjjjjjhhhhhhhhhhhhhhhhhhhddddddddddddddddddddddddddddddddddddddd
+jjjjjjjjjjjjjjjjjjjjjjhhhhhhdddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+iiiiiiiiiiiddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+jjjjjjjjjjjjjjjjjjjjjjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhddddddd
+jjjjjjjjjjjjjjjjjjjjjjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhdddddd
+jjjjjjjjjjjjjjjjjjjjjjhhhhhhhhhhhhhhhhdddddddddddddddddddddddddddddddddddddddddd
+jjjjjjjjjjjjjjjjjddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjdddddddddddddddddddddddddddddd
+eeedhhhhjjjedhhhhhhhhhhhhhhhhhhhhhhjjjedhhhhhhhhhhhhhhhhhhhhjjjkkkkkkkdddddddddd
+llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+--- legend ---
+a fg=#CBD3DD bg=#14181D BOLD
+b fg=#CBD3DD bg=#14181D
+c fg=#A886D8 bg=#0B0D10
+d fg=#CBD3DD bg=#0B0D10
+e fg=#E8B84B bg=#0B0D10 BOLD
+f fg=#232A33 bg=#0B0D10
+g fg=#A886D8 bg=#0B0D10 BOLD
+h fg=#79838F bg=#0B0D10
+i fg=#CBD3DD bg=#0B0D10 BOLD
+j fg=#4C5661 bg=#0B0D10
+k fg=#4C5661 bg=#0B0D10 ITALIC
+l fg=#79838F bg=#101419

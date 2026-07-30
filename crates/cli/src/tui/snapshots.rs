@@ -60,7 +60,8 @@ struct Run {
     deliveries: super::findings::Deliveries,
     /// How many times `↓` has been pressed.
     moved: usize,
-    /// The keys pressed after moving.
+    /// The keys pressed after moving. A newline stands for `↵`, which is how a
+    /// recorded case reaches a screen the queue opens.
     keys: &'static str,
 }
 
@@ -234,7 +235,11 @@ fn render(case: &Case) -> String {
             press(KeyCode::Down);
         }
         for character in run.keys.chars() {
-            press(KeyCode::Char(character));
+            press(if character == '\n' {
+                KeyCode::Enter
+            } else {
+                KeyCode::Char(character)
+            });
         }
     }
     let app = app;
@@ -565,6 +570,68 @@ fn cases() -> Vec<Case> {
         }
     }
     cases.extend(queues());
+    cases.extend(readings());
+    cases
+}
+
+/// The two screens that answer why a run says what it says.
+///
+/// The three detail kinds are recorded because they are the three that have to
+/// read differently and the ways of getting them wrong all look like each
+/// other: a suppression that reads as absent, an error that reads as a failure,
+/// a failure that reads as an incomplete run. Each is drawn at both sizes and
+/// without colour, because none of the three is told apart by hue.
+#[cfg_attr(feature = "test-identity", allow(dead_code))]
+fn readings() -> Vec<Case> {
+    use super::findings::fixture;
+
+    let mut cases = Vec::new();
+    // Every case starts on the queue and is driven to the screen by the keys
+    // the specification binds, so a recorded screen is one the interface can
+    // actually be reached on rather than one the suite placed the operator in.
+    for (name, run) in [
+        // The queue's first row is the settings failure.
+        (
+            "finding-detail-fail",
+            Run::of(fixture::mixed()).driven(1, "\n"),
+        ),
+        // Group seven is the standing debt, and its row is the suppression.
+        (
+            "finding-detail-suppressed",
+            Run::of(fixture::mixed()).driven(13, "\n"),
+        ),
+        // The run that fell short carries the errored rule in group five.
+        (
+            "finding-detail-error",
+            Run::of(fixture::incomplete()).driven(7, "\n"),
+        ),
+        (
+            "policy-inspector-read",
+            Run::of(fixture::mixed()).driven(0, "p"),
+        ),
+    ] {
+        for (theme, color, slug) in [
+            (Theme::Dark, ColorMode::Color, "dark"),
+            (Theme::Dark, ColorMode::NoColor, "no-color"),
+        ] {
+            for (width, height) in [
+                (REFERENCE_WIDTH, REFERENCE_HEIGHT),
+                (FLOOR_WIDTH, FLOOR_HEIGHT),
+            ] {
+                cases.push(Case {
+                    name: Box::leak(format!("{name}-{}-{slug}", size_slug(width)).into_boxed_str()),
+                    screen: Screen::Findings,
+                    theme,
+                    color,
+                    width,
+                    height,
+                    flow: None,
+                    selection: None,
+                    run: Some(run.clone()),
+                });
+            }
+        }
+    }
     cases
 }
 
