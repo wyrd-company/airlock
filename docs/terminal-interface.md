@@ -101,7 +101,7 @@ carries it alone.
 | `skipped` | `○` | inert | Never gates, never affects completeness |
 | `unimplemented` | `▢` | undecided | Makes the run incomplete at a gating severity |
 | `inconclusive` | `◑` | undecided | Makes the run incomplete at a gating severity |
-| `unobservable` | `◍` | undecided | Never affects completeness; this credential can never read the fact |
+| `unobservable` | `◍` | undecided | Never affects completeness; the rule's declared disclosure gate withholds the fact from this credential |
 | `error` | `!` | undecided | Makes the run incomplete at a gating severity |
 
 The three lanes read as three shape families: the gating lane uses stroke
@@ -119,8 +119,9 @@ The glosses the interface prints for each status are:
 - `skipped` — `condition_not_met`, the capability condition did not apply
 - `unimplemented` — registered and enabled, not yet evaluated
 - `inconclusive` — the question could not be established
-- `unobservable` — the credential this surface mandates can never read the
-  fact, so the question is answered elsewhere and never here
+- `unobservable` — the rule's declared disclosure gate withholds the fact from
+  the credential this surface mandates, so the question is answered on the
+  verification surface the gate names and never here
 - `error` — the call did not complete, so no evidence exists
 
 ## Severity and the gate
@@ -291,11 +292,18 @@ its count and a one-line gloss of the work:
    outside the repository — a plan change, a grant change, a rule not yet
    built. A row in this group that does not block says so on the row: it is
    still an unanswered question, and it is not a pass.
-6. **Not verifiable here.** Rules whose fact the credential this surface
-   mandates can never read. They never gate — a permanently unanswerable
-   question is not a finding about the repository — and they are never folded
-   in with passing rules, because nothing observed them. The row says where the
-   answer is taken.
+6. **Not verifiable here.** Rules the registry declares behind a disclosure
+   gate — a fact the platform reveals only to a grant the observing surface is
+   not allowed to hold. They never gate, because a permanently unanswerable
+   question is not a finding about the repository, and they are never folded in
+   with passing rules, because nothing observed them. Each row states the grant
+   the fact requires and the verification surface the gate names, both read from
+   the registry declaration rather than composed here; the interface writes no
+   guidance of its own. A gate applies only to a credential that cannot hold the
+   grant it requires, and this session's credential is write-capable, so under
+   its own observation these rules resolve to `pass` or `fail` and the group is
+   empty. It is populated when the interface displays a report a read-only
+   surface produced.
 7. **Authorized but not aligned.** Suppressed failures. The policy permitted
    the failure; it did not close the gap, and the remediation is still on
    offer. This is standing debt and is never folded in with passing rules.

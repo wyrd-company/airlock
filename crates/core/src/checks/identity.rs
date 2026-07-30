@@ -2,6 +2,7 @@
 
 use crate::findings::Remediation;
 use crate::policy::RuleInstance;
+use crate::registry::CheckDefinition;
 use crate::yaml::Yaml;
 use crate::ActionGroup;
 
@@ -18,7 +19,7 @@ pub(crate) fn run(id: &str, rule: &RuleInstance, context: &AuditContext) -> Opti
         "REPO-META-10" => no_org_topic(rule, context),
         "REPO-META-11" => merge_settings_declared(context),
         "REPO-META-12" => no_visibility_declared(context),
-        "REPO-META-13" => live_matches_declared(context),
+        "REPO-META-13" => live_matches_declared(rule.def, context),
         _ => return None,
     })
 }
@@ -415,7 +416,7 @@ fn no_visibility_declared(context: &AuditContext) -> Verdict {
     }
 }
 
-fn live_matches_declared(context: &AuditContext) -> Verdict {
+fn live_matches_declared(def: &CheckDefinition, context: &AuditContext) -> Verdict {
     let settings = try_verdict!(repo_settings(context));
     let live = &context.snapshot.repository;
 
@@ -496,7 +497,7 @@ fn live_matches_declared(context: &AuditContext) -> Verdict {
     }
 
     if merge_settings_undisclosed {
-        return super::merge_settings_unavailable("the declared merge settings");
+        return super::undisclosed(def, context, "the merge settings the declared file names");
     }
 
     Verdict::pass(
@@ -560,7 +561,7 @@ features:
         assert_eq!(verdict.status, Status::Unobservable);
         assert_eq!(
             verdict.evidence.expect("unobservable evidence").code,
-            super::super::MERGE_SETTINGS_UNAVAILABLE
+            crate::registry::MERGE_SETTINGS_DISCLOSURE.evidence_code
         );
     }
 

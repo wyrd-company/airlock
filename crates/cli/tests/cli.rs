@@ -1183,6 +1183,10 @@ async fn agent_work_names_unverifiable_gaps_as_their_own_group_without_gating_on
         assert_eq!(item["undecided"], "structural");
         assert_eq!(item["gating"], false);
         assert_eq!(item["evidence_code"], "merge_settings_unavailable");
+        assert_eq!(
+            item["verified_by"], "interactive-session",
+            "the group carries where the answer is taken, from the registry declaration"
+        );
     }
 }
 
@@ -1194,9 +1198,13 @@ async fn plan_names_what_this_surface_can_never_verify() {
     for rule in ["REPO-GIT-04", "REPO-GIT-05", "REPO-GIT-06"] {
         assert!(text.contains(rule), "{rule} must be named: {text}");
     }
+    // The guidance is the registry declaration's sentence, not one this test
+    // or the renderer wrote.
+    let surface = airlock_core::registry::MERGE_SETTINGS_DISCLOSURE.verified_by;
+    assert!(text.contains(surface.code()), "{text}");
     assert!(
-        text.contains("interactive session"),
-        "the plan must say where the answer lives: {text}"
+        text.contains(surface.guidance()),
+        "the plan must say where the answer lives, in the declaration's words: {text}"
     );
     assert!(
         text.contains("Every rule the policy asked about was decided"),

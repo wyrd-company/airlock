@@ -127,8 +127,11 @@ pub fn report_text(report: &Report) -> String {
         let _ = writeln!(
             out,
             "{unobservable} rule(s) this credential can never observe — named, never gating, \
-             and never a pass;\nverify them in the interactive session."
+             and never a pass."
         );
+        for surface in verification_surfaces(report) {
+            let _ = writeln!(out, "  {}: {}", surface.code(), surface.guidance());
+        }
     }
 
     out
@@ -210,7 +213,7 @@ pub fn agent_work_list_text(list: &AgentWorkList) -> String {
     let _ = writeln!(out, "\nunsettled gating questions: {gating_unsettled}");
     let _ = writeln!(
         out,
-        "unverifiable with this credential: {} (verify in the interactive session)",
+        "unverifiable with this credential: {}",
         list.unverifiable.count
     );
     let _ = writeln!(
@@ -238,6 +241,22 @@ fn render_unsettled_group(
             item.evidence_code.as_deref().unwrap_or("none"),
             item.source.as_deref().unwrap_or("not observed")
         );
+        // Where the answer is taken, when the registry named a surface that
+        // can take it. The wording is the declaration's, not this renderer's.
+        if let Some(surface) = item.verified_by.as_deref() {
+            let guidance = registry::VerificationSurface::ALL
+                .iter()
+                .find(|declared| declared.code() == surface)
+                .map(|declared| declared.guidance());
+            match guidance {
+                Some(guidance) => {
+                    let _ = writeln!(out, "      {surface}: {guidance}");
+                }
+                None => {
+                    let _ = writeln!(out, "      {surface}");
+                }
+            }
+        }
     }
 }
 
@@ -393,14 +412,19 @@ pub fn plan_text(report: &Report) -> String {
             out,
             "unverifiable here ({}) — the credential this surface mandates can never \
              observe\nthese, so looking again here will not answer them. They are not \
-             passes, and\nthey do not make the run incomplete; verify them in the \
-             interactive session.",
+             passes, and\nthey do not make the run incomplete.",
             plan.unverifiable.len()
         );
         for rule in &plan.unverifiable {
             let _ = writeln!(out, "  {:<16} {:<13}", rule.rule, rule.severity);
             if let Some(detail) = rule.detail {
                 let _ = writeln!(out, "      {detail}");
+            }
+            // The destination and the sentence about it both come from the
+            // rule's declared gate, so the plan cannot offer advice the
+            // registry did not give it.
+            if let Some(surface) = rule.verified_by {
+                let _ = writeln!(out, "      {}: {}", surface.code(), surface.guidance());
             }
         }
     }
@@ -503,6 +527,19 @@ pub fn list_checks_text() -> String {
                 }
                 None => {}
             }
+            // A policy author has to be able to see, before running anything,
+            // which rules a headless run can never settle and where they are
+            // settled instead.
+            if let Some(gate) = check.disclosure_gate() {
+                let _ = writeln!(
+                    out,
+                    "  {:<16} ⊗ requires {} — {}; verified by {}",
+                    "",
+                    gate.requires,
+                    gate.rationale(),
+                    gate.verified_by.code()
+                );
+            }
         }
         let _ = writeln!(out);
     }
@@ -528,9 +565,41 @@ fn check_json(check: &CheckDefinition) -> serde_json::Value {
         "remediation_class": RemediationClass::for_rule(check.id),
         "evaluation": check.evaluation.code(),
         "evaluation_reason": check.evaluation_reason(),
+        "disclosure_gate": check.disclosure_gate().map(|gate| serde_json::json!({
+            "fact": gate.fact,
+            "evidence_code": gate.evidence_code,
+            "requires": gate.requires.code(),
+            "insufficient": gate
+                .insufficient
+                .iter()
+                .map(|grant| grant.code())
+                .collect::<Vec<_>>(),
+            "verified_by": gate.verified_by.code(),
+            "rationale": gate.rationale(),
+        })),
         "implemented": check.evaluation != registry::Evaluation::Unimplemented,
         "params": check.params,
     })
+}
+
+/// The surfaces that verify what this run could not observe, in declaration
+/// order and named once each.
+///
+/// Read from the gate each rule declares, so no renderer writes the guidance
+/// sentence itself.
+fn verification_surfaces(report: &Report) -> Vec<registry::VerificationSurface> {
+    registry::VerificationSurface::ALL
+        .iter()
+        .copied()
+        .filter(|surface| {
+            report.findings.iter().any(|finding| {
+                finding.names_a_structural_gap()
+                    && registry::find(&finding.rule)
+                        .and_then(registry::CheckDefinition::disclosure_gate)
+                        .is_some_and(|gate| gate.verified_by == *surface)
+            })
+        })
+        .collect()
 }
 
 fn short(sha: &str) -> &str {
@@ -679,17 +748,21 @@ mod tests {
 
     #[test]
     fn the_report_and_the_plan_both_name_a_rule_this_credential_can_never_read() {
-        let mut unobservable = report();
-        unobservable.findings[0].status = Status::Unobservable;
+        // A rule the registry declares gated, so the guidance the surfaces
+        // print has a declaration to come from.
+        let mut source = report();
+        source.findings[0].rule = "REPO-GIT-04".to_owned();
+        source.findings[0].status = Status::Unobservable;
         let unobservable = crate::findings::Report::assemble(
-            unobservable.airlock.clone(),
-            unobservable.repository.clone(),
-            unobservable.observation.clone(),
-            unobservable.policy.clone(),
+            source.airlock.clone(),
+            source.repository.clone(),
+            source.observation.clone(),
+            source.policy.clone(),
             Vec::new(),
             Vec::new(),
-            unobservable.findings.clone(),
+            source.findings.clone(),
         );
+        let surface = registry::MERGE_SETTINGS_DISCLOSURE.verified_by;
 
         assert!(
             unobservable.complete,
@@ -701,18 +774,94 @@ mod tests {
             text.contains("never gating, and never a pass"),
             "the run is complete, so the report itself must name the gap: {text}"
         );
+        assert!(
+            text.contains(surface.guidance()),
+            "the report takes its guidance from the declaration: {text}"
+        );
 
         let plan = plan_text(&unobservable);
         assert!(plan.contains("unverifiable here (1)"), "{plan}");
-        assert!(plan.contains("REPO-LIC-01"), "{plan}");
+        assert!(plan.contains("REPO-GIT-04"), "{plan}");
+        assert!(plan.contains(surface.code()), "{plan}");
         assert!(
-            plan.contains("interactive session"),
-            "the plan says where the answer lives: {plan}"
+            plan.contains(surface.guidance()),
+            "the plan says where the answer lives, in the declaration's words: {plan}"
         );
         assert!(
-            !plan.contains("undecided: REPO-LIC-01"),
+            !plan.contains("undecided: REPO-GIT-04"),
             "it is not filed with the questions a retry here could answer: {plan}"
         );
+    }
+
+    #[test]
+    fn a_structural_gap_no_rule_declares_promises_no_destination() {
+        // The checks make this unreachable, and if it ever happened the
+        // surfaces must say what they know and no more: the gap is named, and
+        // no destination is invented for it.
+        let mut source = report();
+        source.findings[0].status = Status::Unobservable;
+        let undeclared = crate::findings::Report::assemble(
+            source.airlock.clone(),
+            source.repository.clone(),
+            source.observation.clone(),
+            source.policy.clone(),
+            Vec::new(),
+            Vec::new(),
+            source.findings.clone(),
+        );
+
+        assert!(registry::find("REPO-LIC-01")
+            .and_then(registry::CheckDefinition::disclosure_gate)
+            .is_none());
+        let text = report_text(&undeclared);
+        assert!(text.contains("1 unobservable"), "{text}");
+        assert!(
+            !text.contains(registry::VerificationSurface::InteractiveSession.guidance()),
+            "no surface was declared, so none is promised: {text}"
+        );
+        let plan = plan_text(&undeclared);
+        assert!(plan.contains("unverifiable here (1)"), "{plan}");
+        assert!(plan.contains("REPO-LIC-01"), "{plan}");
+        assert!(
+            !plan.contains(registry::VerificationSurface::InteractiveSession.code()),
+            "{plan}"
+        );
+    }
+
+    #[test]
+    fn the_check_listing_publishes_every_declared_disclosure_gate() {
+        let text = list_checks_text();
+        let json = list_checks_json();
+        let gate = &registry::MERGE_SETTINGS_DISCLOSURE;
+
+        // A policy author reads this before pointing airlock at anything, so
+        // which rules a headless run can never settle has to be in it.
+        assert!(text.contains(gate.requires.code()), "{text}");
+        assert!(text.contains(gate.verified_by.code()), "{text}");
+        assert!(
+            text.contains(registry::Grant::ADMINISTRATION_READ.code()),
+            "the grant that looks sufficient and is not must be named: {text}"
+        );
+
+        let checks = json["checks"].as_array().expect("checks are an array");
+        let git04 = checks
+            .iter()
+            .find(|check| check["id"] == "REPO-GIT-04")
+            .expect("REPO-GIT-04 is registered");
+        assert_eq!(git04["disclosure_gate"]["requires"], "contents:write");
+        assert_eq!(
+            git04["disclosure_gate"]["verified_by"],
+            "interactive-session"
+        );
+        assert_eq!(
+            git04["disclosure_gate"]["evidence_code"],
+            "merge_settings_unavailable"
+        );
+        let lic01 = checks
+            .iter()
+            .find(|check| check["id"] == "REPO-LIC-01")
+            .expect("REPO-LIC-01 is registered");
+        assert!(lic01["disclosure_gate"].is_null());
     }
 
     #[test]

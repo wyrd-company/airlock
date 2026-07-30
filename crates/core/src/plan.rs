@@ -14,6 +14,7 @@
 //! take before anything is done about it.
 
 use crate::findings::{Report, Status, Undecided};
+use crate::registry::{self, VerificationSurface};
 use crate::remediation::Lane;
 
 /// One change airlock would make, and the observation that calls for it.
@@ -79,6 +80,12 @@ pub struct UnverifiableRule<'a> {
     /// What the run said about why it could not be seen, when it said
     /// anything.
     pub detail: Option<&'a str>,
+    /// Where the rule is verified instead, from the gate the registry declares.
+    ///
+    /// Null only for a rule that reported a structural gap the registry does
+    /// not declare, which the checks make unreachable — a plan invents no
+    /// destination it was not given.
+    pub verified_by: Option<VerificationSurface>,
 }
 
 /// An open gap airlock declares it cannot close, and why.
@@ -163,6 +170,9 @@ impl<'a> Plan<'a> {
                             .evidence
                             .as_ref()
                             .map(|evidence| evidence.detail.as_str()),
+                        verified_by: registry::find(&finding.rule)
+                            .and_then(registry::CheckDefinition::disclosure_gate)
+                            .map(|gate| gate.verified_by),
                     });
                     continue;
                 }

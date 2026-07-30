@@ -206,14 +206,31 @@ undecided it is.
 
 `unimplemented`, `inconclusive`, and `error` are *circumstantial*: this run did
 not establish what it can normally establish, so at a gating severity they make
-the whole audit incomplete. `unobservable` is *structural*: GitHub discloses
-merge settings only to write-capable tokens and the headless audit proves its
+the whole audit incomplete. `unobservable` is *structural*: the registry
+declares, per rule, a **disclosure gate** — a fact the platform reveals only to
+a grant the audit is not allowed to hold, plus the surface that verifies it
+instead. GitHub discloses merge settings only to `contents: write`
+(`administration: read` does not expose them), and the headless audit proves its
 credential read-only before it runs, so those facts are undisclosed on every
 scheduled run by construction. A verdict that is permanently red carries no
-information, so a structural gap does not make the audit incomplete. It is
-never a pass either: it is named as its own group by `plan` and `agent-work`,
-counted in the summary, and the answer is taken in the interactive session,
-which holds a credential that can see it.
+information, so a structural gap does not make the audit incomplete.
+
+A check reports one observation — the platform did not disclose this field —
+and the declaration decides what it means. A structural gap needs both halves:
+a rule that declares the gate, and a credential airlock enumerated and found
+unable to hold the grant the gate requires. An absent field with no declaration
+behind it is a run that fell short and keeps blocking, and so is one missing
+from a write-capable credential that should have been shown it — the
+interactive session inherits no exemption.
+
+A structural gap is never a pass either: it is named as its own group by `plan`
+and `agent-work`, counted in the summary, and pointed at the verification
+surface its gate declares — today the interactive session, which holds a
+credential that can both read and align the setting. Every surface takes its
+wording from the declaration rather than writing its own.
+`airlock audit --list-checks` prints each rule's gate, the grant it requires,
+and where it is verified, so which rules a scheduled run can never settle is
+readable before pointing airlock at anything.
 
 Incomplete input can never produce a clean result. A listing that stopped at
 the page budget, a recursive tree GitHub truncated, or a response airlock could

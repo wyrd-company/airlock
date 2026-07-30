@@ -236,6 +236,210 @@ impl Observation {
     }
 }
 
+/// A permission a platform credential can carry.
+///
+/// Declared as typed constants for the same reason action groups are: a grant
+/// airlock reasons about must be one it has named, so an undeclared grant is a
+/// compile error rather than a string nobody validated.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct Grant {
+    code: &'static str,
+    writes: bool,
+}
+
+impl Grant {
+    /// The stable machine-readable name, as GitHub spells the permission.
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        self.code
+    }
+
+    /// Whether holding this grant means holding write access.
+    ///
+    /// Declared rather than parsed out of the name: what counts as write is a
+    /// fact about the permission, and airlock refuses write access, so it is
+    /// not something to infer from a string.
+    #[must_use]
+    pub const fn writes(self) -> bool {
+        self.writes
+    }
+}
+
+impl fmt::Display for Grant {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.code())
+    }
+}
+
+macro_rules! grants {
+    ($($name:ident => $code:literal, writes: $writes:literal),+ $(,)?) => {
+        impl Grant {
+            $(
+                #[doc = concat!("The `", $code, "` permission.")]
+                pub const $name: Self = Self { code: $code, writes: $writes };
+            )+
+
+            /// Every declared grant.
+            pub const ALL: &'static [Self] = &[$(Self::$name),+];
+        }
+    };
+}
+
+grants! {
+    ADMINISTRATION_READ => "administration:read", writes: false,
+    CONTENTS_WRITE => "contents:write", writes: true,
+}
+
+/// What the credential a run presented was enumerated to be able to do.
+///
+/// Airlock enumerates a credential's whole grant before first use and refuses
+/// one it cannot enumerate, so this is a read fact rather than an assumption.
+/// It is what decides whether an absent field is evidence of a disclosure gate:
+/// a credential that provably cannot hold the required grant explains the
+/// absence, and one that might hold it does not.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CredentialCapability {
+    /// No credential was presented, so nothing was observed through one.
+    Unauthenticated,
+    /// Every permission in the enumerated grant is a read.
+    ReadOnly,
+    /// The enumerated grant carries at least one write.
+    WriteCapable,
+}
+
+impl CredentialCapability {
+    /// The stable machine-readable name.
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::Unauthenticated => "unauthenticated",
+            Self::ReadOnly => "read-only",
+            Self::WriteCapable => "write-capable",
+        }
+    }
+}
+
+/// The surface that verifies a fact the audit's credential is not allowed to
+/// read.
+///
+/// A gated fact is not unknowable; it is unknowable *here*. Naming where it is
+/// knowable is what keeps a gap from reading as an unanswerable question, and
+/// it is where every surface takes the guidance it prints from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VerificationSurface {
+    /// The interactive airlock session, which holds an operator's
+    /// write-capable credential and can both read and align the setting.
+    InteractiveSession,
+}
+
+impl VerificationSurface {
+    /// The stable machine-readable name.
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::InteractiveSession => "interactive-session",
+        }
+    }
+
+    /// What a reader should do about a gap this surface verifies.
+    ///
+    /// Declared once, here. No check, projection, or renderer writes this
+    /// sentence itself, so the guidance cannot say different things in
+    /// different places.
+    #[must_use]
+    pub const fn guidance(self) -> &'static str {
+        match self {
+            Self::InteractiveSession => {
+                "run the interactive airlock session to verify and align it"
+            }
+        }
+    }
+
+    /// Every declared verification surface.
+    pub const ALL: &'static [Self] = &[Self::InteractiveSession];
+}
+
+/// A fact the platform discloses only to a credential the audit surface is not
+/// allowed to hold.
+///
+/// This is rule metadata, not check trivia: it says the audit can never settle
+/// the rule, whatever it retries, and it names the surface that can. The audit
+/// derives a structurally undecided finding from it, and every projection
+/// derives what it prints from it. A check may not decide on its own that its
+/// missing input was gated — a rule with no declaration whose input is absent
+/// is a run that fell short, and stays blocking.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DisclosureGate {
+    /// The fact the gate withholds, as a phrase a sentence can be built
+    /// around, for example `the repository's merge settings`.
+    pub fact: &'static str,
+    /// The stable evidence code a finding carries when the gate withheld the
+    /// fact.
+    pub evidence_code: &'static str,
+    /// The grant the platform requires before it discloses the fact.
+    pub requires: Grant,
+    /// Grants that plainly ought to disclose the fact and, as verified
+    /// empirically, do not. Naming them is what stops the gate being
+    /// "fixed" by a permission change that cannot work.
+    pub insufficient: &'static [Grant],
+    /// Where the fact is verified instead.
+    pub verified_by: VerificationSurface,
+}
+
+impl DisclosureGate {
+    /// Whether this gate provably withholds the fact from a credential with
+    /// `capability`.
+    ///
+    /// A credential enumerated as read-only cannot hold a grant that writes, so
+    /// the absence of the fact is explained and permanent on that surface. A
+    /// write-capable credential may hold it, so an absent field is not evidence
+    /// of the gate — something else went wrong, and a run that fell short is
+    /// circumstantial, not structural. This is what stops the interactive
+    /// session, which holds a write-capable credential, from excusing a field it
+    /// should have been shown.
+    #[must_use]
+    pub fn withholds_from(&self, capability: CredentialCapability) -> bool {
+        self.requires.writes() && capability != CredentialCapability::WriteCapable
+    }
+
+    /// Why the platform withholds the fact, as a sentence built from the
+    /// declaration.
+    #[must_use]
+    pub fn rationale(&self) -> String {
+        let mut rationale = format!(
+            "GitHub discloses {} only to a credential with {}",
+            self.fact, self.requires
+        );
+        if !self.insufficient.is_empty() {
+            let names: Vec<&str> = self.insufficient.iter().map(|grant| grant.code()).collect();
+            rationale.push_str(&format!(", and {} does not expose it", names.join(" or ")));
+        }
+        rationale.push_str(
+            ", while the headless audit accepts only a credential it has proved cannot write",
+        );
+        rationale
+    }
+}
+
+/// Merge behaviour is disclosed to write-capable credentials only.
+///
+/// `allow_squash_merge`, `allow_rebase_merge`, `allow_merge_commit`, and
+/// `delete_branch_on_merge` are absent from the repository payload unless the
+/// credential carries `contents: write`. `administration: read`, which reads as
+/// though it should serve settings, does not expose them. The headless audit
+/// proves its credential read-only before it runs, so these fields are
+/// undisclosed on every headless run by construction rather than by accident.
+pub const MERGE_SETTINGS_DISCLOSURE: DisclosureGate = DisclosureGate {
+    fact: "a repository's merge settings",
+    evidence_code: "merge_settings_unavailable",
+    requires: Grant::CONTENTS_WRITE,
+    insufficient: &[Grant::ADMINISTRATION_READ],
+    verified_by: VerificationSurface::InteractiveSession,
+};
+
+/// Every declared disclosure gate.
+pub const DISCLOSURE_GATES: &[&DisclosureGate] = &[&MERGE_SETTINGS_DISCLOSURE];
+
 /// One registered check definition.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CheckDefinition {
@@ -1178,6 +1382,33 @@ impl CheckDefinition {
         }
     }
 
+    /// The platform disclosure gate standing between this rule and the audit's
+    /// credential, when there is one.
+    ///
+    /// Declared here, per rule, so the classification has one home: the checks
+    /// derive a structurally undecided finding from this rather than knowing
+    /// privately that they are special, the projections derive what they print
+    /// from it, and a policy author reading `--list-checks` can see which rules
+    /// no scheduled run will ever settle.
+    ///
+    /// Like [`Self::observation`] and remediation classification, a gate is not
+    /// part of the registry digest: it says which credential can look, not what
+    /// the rule means, and a rule's statement is the same whoever is allowed to
+    /// read the answer.
+    #[must_use]
+    pub fn disclosure_gate(&self) -> Option<&'static DisclosureGate> {
+        match self.id {
+            // The three merge-behaviour rules read the gated fields directly.
+            // REPO-META-13 compares the whole declared settings file against
+            // live metadata, and its merge clause reads the same fields, so it
+            // meets the same wall.
+            "REPO-GIT-04" | "REPO-GIT-05" | "REPO-GIT-06" | "REPO-META-13" => {
+                Some(&MERGE_SETTINGS_DISCLOSURE)
+            }
+            _ => None,
+        }
+    }
+
     /// What the rule observes.
     ///
     /// Declared here, per rule, and read everywhere — the audit gates
@@ -1287,6 +1518,120 @@ mod tests {
                 "REPO-GIT-10",
             ]
         );
+    }
+
+    #[test]
+    fn exactly_the_merge_behaviour_rules_declare_a_disclosure_gate() {
+        // The drift guard. A rule joining this list stops being able to fail a
+        // scheduled audit, so the list is stated here and a change to it is a
+        // deliberate edit rather than a side effect.
+        let gated: Vec<&str> = CHECKS
+            .iter()
+            .filter(|check| check.disclosure_gate().is_some())
+            .map(|check| check.id)
+            .collect();
+        assert_eq!(
+            gated,
+            ["REPO-META-13", "REPO-GIT-04", "REPO-GIT-05", "REPO-GIT-06"]
+        );
+    }
+
+    #[test]
+    fn a_gated_rule_reads_platform_state_and_is_evaluated_mechanically() {
+        // A gate is about which credential the platform answers. A judgment
+        // rule has no credential in the story, and a file-tree rule is not
+        // asking the platform anything, so either would be a declaration that
+        // could not be true.
+        for check in CHECKS {
+            if check.disclosure_gate().is_some() {
+                assert_eq!(check.observation(), Observation::Platform, "{}", check.id);
+                assert_eq!(check.evaluation, Evaluation::Mechanical, "{}", check.id);
+            }
+        }
+    }
+
+    #[test]
+    fn every_declared_gate_names_a_reachable_destination_and_a_grant_it_lacks() {
+        for gate in DISCLOSURE_GATES {
+            assert!(!gate.fact.trim().is_empty());
+            assert!(!gate.evidence_code.trim().is_empty());
+            assert!(Grant::ALL.contains(&gate.requires));
+            assert!(VerificationSurface::ALL.contains(&gate.verified_by));
+            assert!(
+                !gate.verified_by.guidance().trim().is_empty(),
+                "a destination with no guidance names nowhere to go"
+            );
+            for grant in gate.insufficient {
+                assert!(Grant::ALL.contains(grant));
+                assert_ne!(
+                    *grant, gate.requires,
+                    "a grant cannot both suffice and not suffice"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_gate_withholds_only_from_a_credential_that_cannot_hold_its_grant() {
+        let gate = &MERGE_SETTINGS_DISCLOSURE;
+        assert!(gate.requires.writes());
+        assert!(gate.withholds_from(CredentialCapability::ReadOnly));
+        assert!(gate.withholds_from(CredentialCapability::Unauthenticated));
+        assert!(
+            !gate.withholds_from(CredentialCapability::WriteCapable),
+            "a credential that may hold the grant is not excused by the gate"
+        );
+    }
+
+    #[test]
+    fn a_gates_rationale_is_built_from_its_declaration() {
+        let rationale = MERGE_SETTINGS_DISCLOSURE.rationale();
+        assert!(rationale.contains(MERGE_SETTINGS_DISCLOSURE.fact));
+        assert!(rationale.contains(Grant::CONTENTS_WRITE.code()));
+        assert!(
+            rationale.contains(Grant::ADMINISTRATION_READ.code()),
+            "the grant that reads as though it should serve settings is named: {rationale}"
+        );
+    }
+
+    #[test]
+    fn a_disclosure_gate_is_not_part_of_the_registry_digest() {
+        // The digest attests what every rule means, which is the contract a
+        // policy binds to with `requires-registry`. Who is allowed to read the
+        // answer is not part of the statement, exactly as the observation
+        // domain and the remediation classification are not.
+        let before = digest();
+        assert!(CHECKS.iter().any(|check| check.disclosure_gate().is_some()));
+        assert_eq!(before, digest());
+        for check in CHECKS {
+            let tuple = format!(
+                "{}\u{1f}{}\u{1f}{}\u{1f}{}\u{1f}{}\u{1f}{}",
+                check.id,
+                check.statement,
+                check.severity.code(),
+                check.evaluation.code(),
+                check.evaluation_reason().unwrap_or_default(),
+                check.applicability().code()
+            );
+            if let Some(gate) = check.disclosure_gate() {
+                assert!(
+                    !tuple.contains(gate.evidence_code),
+                    "{} contributes its gate to the digest",
+                    check.id
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn grants_and_verification_surfaces_are_uniquely_coded() {
+        let grants: BTreeSet<&str> = Grant::ALL.iter().map(|grant| grant.code()).collect();
+        assert_eq!(grants.len(), Grant::ALL.len());
+        let surfaces: BTreeSet<&str> = VerificationSurface::ALL
+            .iter()
+            .map(|surface| surface.code())
+            .collect();
+        assert_eq!(surfaces.len(), VerificationSurface::ALL.len());
     }
 
     #[test]

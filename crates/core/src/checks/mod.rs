@@ -34,7 +34,9 @@ use crate::github::{
 };
 use crate::limits::Limits;
 use crate::policy::{Condition, ResolvedPolicy, RuleInstance};
-use crate::registry::{Applicability, Evaluation};
+use crate::registry::{
+    Applicability, CheckDefinition, CredentialCapability, DisclosureGate, Evaluation,
+};
 use crate::snapshot::{FileState, RepoSnapshot};
 use crate::yaml::{self, Yaml};
 use crate::ActionGroup;
@@ -167,20 +169,24 @@ impl Verdict {
         }
     }
 
-    /// The credential this surface mandates can never observe the fact.
+    /// The gate the rule declares withheld the fact.
     ///
-    /// Only a check that knows *why* its input was absent may say this, and
-    /// only when the absence is a documented property of the credential rather
-    /// than of this run: GitHub discloses merge settings to write-capable
-    /// tokens only, and the headless audit refuses write-capable tokens, so on
-    /// that surface the fields are undisclosed on every run, forever. A check
-    /// that merely found nothing says [`Verdict::inconclusive`] instead — the
-    /// difference is the whole point, and it is only knowable here.
+    /// A structurally undecided verdict cannot be written without a
+    /// [`DisclosureGate`] in hand, so no check can privately decide that its
+    /// missing input was permanently out of reach. Both the evidence code and
+    /// the detail come from the declaration; nothing about which rules are
+    /// gated, or why, lives here.
     #[must_use]
-    pub fn unobservable(code: &str, detail: impl Into<String>) -> Self {
+    pub fn withheld(gate: &DisclosureGate, subject: &str) -> Self {
         Self {
             status: Status::Unobservable,
-            evidence: Some(Evidence::new(code, detail)),
+            evidence: Some(Evidence::new(
+                gate.evidence_code,
+                format!(
+                    "{subject} was not disclosed to this credential: {}",
+                    gate.rationale()
+                ),
+            )),
             remediation: None,
             error: None,
         }
@@ -346,6 +352,12 @@ pub struct AuditContext<'a> {
     pub rulesets: Result<Paged<Ruleset>, ApiError>,
     /// The effective rules on the default branch.
     pub branch_rules: Result<Paged<BranchRule>, ApiError>,
+    /// What the credential this run presented was enumerated to be able to do.
+    ///
+    /// A check never sees the credential; it sees what the credential can do,
+    /// which is all that decides whether a declared disclosure gate explains an
+    /// absent field.
+    pub credential: CredentialCapability,
 }
 
 /// What airlock knows about a YAML file it wanted to read.
@@ -732,26 +744,30 @@ pub(crate) fn repo_settings(context: &AuditContext) -> Result<Yaml, Box<Verdict>
 /// understand.
 pub(crate) const MALFORMED_DECLARATION: &str = "malformed_declaration";
 
-/// The stable evidence code for merge settings the credential could not observe.
-pub(crate) const MERGE_SETTINGS_UNAVAILABLE: &str = "merge_settings_unavailable";
-
-/// Merge settings are structurally unobservable to the audit's credential.
+/// The verdict for a field the credential did not disclose.
 ///
-/// GitHub discloses `allow_*_merge` and `delete_branch_on_merge` only to a
-/// token with `contents: write`; `administration: read` does not expose them.
-/// The headless audit proves its credential read-only before it runs, so these
-/// fields are absent on every headless run by construction rather than by
-/// accident. The interactive session, which holds a write-capable credential,
-/// is where the fact is observable — so the gap is named, never gated, and
-/// never claimed as a pass.
-pub(crate) fn merge_settings_unavailable(subject: &str) -> Verdict {
-    Verdict::unobservable(
-        MERGE_SETTINGS_UNAVAILABLE,
-        format!(
-            "{subject} cannot be verified with this credential; run the interactive airlock \
-             session to verify and align it"
+/// The check reports the observation — "the platform did not give me this
+/// field" — and the registry decides what that means. A rule the registry
+/// declares gated is structurally undecided: no retry on this surface can
+/// answer it, and the declaration names the surface that can. A rule with no
+/// declaration is a run that fell short of what it can normally do, so it stays
+/// circumstantially undecided and keeps blocking. A check cannot promote itself
+/// out of that by knowing something the registry does not.
+pub(crate) fn undisclosed(def: &CheckDefinition, context: &AuditContext, subject: &str) -> Verdict {
+    match def.disclosure_gate() {
+        Some(gate) if gate.withholds_from(context.credential) => Verdict::withheld(gate, subject),
+        // Either the rule declares no gate, or it declares one this run's
+        // credential could have satisfied. Both mean the same thing: the field
+        // should have been there and was not, which is a run that fell short.
+        _ => Verdict::inconclusive(
+            "field_undisclosed",
+            format!(
+                "{subject} was not disclosed to this credential ({}), and no declared \
+                 disclosure gate explains it, so this run did not establish it",
+                context.credential.code()
+            ),
         ),
-    )
+    }
 }
 
 /// Collect a sequence of strings, refusing one that is not entirely strings.
@@ -1043,6 +1059,9 @@ pub(crate) mod fixtures {
             history: Ok(Paged::complete(Vec::new())),
             rulesets: Ok(Paged::complete(Vec::new())),
             branch_rules: Ok(Paged::complete(Vec::new())),
+            // The audit surface: a credential enumerated and proved read-only
+            // before first use.
+            credential: CredentialCapability::ReadOnly,
         }
     }
 }
@@ -1051,6 +1070,68 @@ pub(crate) mod fixtures {
 mod tests {
     use super::fixtures::*;
     use super::*;
+    use crate::findings::Undecided;
+
+    #[test]
+    fn a_withheld_field_is_structural_only_where_the_registry_declares_a_gate() {
+        // The check reports one observation — the platform did not give me
+        // this field — and the registry decides what it means. A rule that
+        // declares the gate can never be settled here, so it is structural. A
+        // rule that declares none is a run that fell short, so it stays
+        // circumstantial and keeps blocking. No check can promote itself.
+        let snapshot = snapshot(&[]);
+        let policy = policy();
+        let read_only = context(&snapshot, &policy, Vec::new());
+
+        let declared = crate::registry::find("REPO-GIT-04").expect("registered");
+        let verdict = undisclosed(declared, &read_only, "the merge-commit setting");
+        assert_eq!(verdict.status, Status::Unobservable);
+        assert_eq!(verdict.status.undecided(), Some(Undecided::Structural));
+        let evidence = verdict.evidence.expect("evidence");
+        assert_eq!(
+            evidence.code,
+            crate::registry::MERGE_SETTINGS_DISCLOSURE.evidence_code
+        );
+        assert!(
+            evidence
+                .detail
+                .contains(crate::registry::Grant::CONTENTS_WRITE.code()),
+            "the detail is built from the declaration: {}",
+            evidence.detail
+        );
+
+        let undeclared = crate::registry::find("REPO-GIT-01").expect("registered");
+        assert!(undeclared.disclosure_gate().is_none());
+        let verdict = undisclosed(undeclared, &read_only, "the default branch");
+        assert_ne!(verdict.status, Status::Unobservable);
+        assert_eq!(verdict.status.undecided(), Some(Undecided::Circumstantial));
+        assert_eq!(
+            verdict.evidence.expect("evidence").code,
+            "field_undisclosed"
+        );
+    }
+
+    #[test]
+    fn a_credential_that_could_have_seen_the_field_is_not_excused_by_the_gate() {
+        // The interactive session holds a write-capable credential, so the gate
+        // does not apply to it. A field missing there is a run that fell short,
+        // and it must keep blocking rather than inherit the audit surface's
+        // permanent exemption.
+        let snapshot = snapshot(&[]);
+        let policy = policy();
+        let mut write_capable = context(&snapshot, &policy, Vec::new());
+        write_capable.credential = CredentialCapability::WriteCapable;
+
+        let declared = crate::registry::find("REPO-GIT-04").expect("registered");
+        let verdict = undisclosed(declared, &write_capable, "the merge-commit setting");
+
+        assert_eq!(verdict.status, Status::Inconclusive);
+        assert_eq!(verdict.status.undecided(), Some(Undecided::Circumstantial));
+        assert!(declared.disclosure_gate().is_some_and(|gate| {
+            !gate.withholds_from(CredentialCapability::WriteCapable)
+                && gate.withholds_from(CredentialCapability::ReadOnly)
+        }));
+    }
 
     #[test]
     fn a_judgment_rule_reports_manual_without_running_anything() {

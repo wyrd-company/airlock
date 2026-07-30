@@ -16,6 +16,7 @@ use std::collections::BTreeSet;
 use std::fmt;
 
 use crate::github::{ApiError, ErrorCause, GitHub, Installation, OAuthScopeHeader};
+use crate::registry::CredentialCapability;
 
 /// The client id of the Airlock Safe GitHub App.
 ///
@@ -216,6 +217,29 @@ pub struct VerifiedGrant {
 }
 
 impl VerifiedGrant {
+    /// What the enumerated grant lets this credential do.
+    ///
+    /// Derived from the permissions GitHub attested, not asserted from the fact
+    /// that verification passed. Every path that produces a `VerifiedGrant`
+    /// today refuses write access, so the answer is `ReadOnly` — but a future
+    /// path that admits a write-capable credential must not inherit that answer
+    /// silently, because it is what decides whether an undisclosed field is a
+    /// permanent gate or a run that fell short.
+    #[must_use]
+    pub fn capability(&self) -> CredentialCapability {
+        let writes = self.installations.iter().any(|installation| {
+            installation
+                .permissions
+                .iter()
+                .any(|permission| !permission.ends_with("=read"))
+        });
+        if writes {
+            CredentialCapability::WriteCapable
+        } else {
+            CredentialCapability::ReadOnly
+        }
+    }
+
     /// The accounts this credential can see, for diagnosing a 404.
     #[must_use]
     pub fn visible_accounts(&self) -> Vec<String> {
@@ -570,6 +594,36 @@ mod tests {
     fn a_scope_with_whitespace_inside_it_is_malformed() {
         let refusal = parse_scopes("read org").unwrap_err();
         assert_eq!(refusal.code, RefusalCode::MalformedScopeHeader);
+    }
+
+    #[test]
+    fn a_credentials_capability_is_read_from_its_enumerated_permissions() {
+        // Not asserted from "verification passed". A grant carrying a write is
+        // write-capable whatever path produced it, and that is what decides
+        // whether a disclosure gate explains an absent field.
+        let grant = |permissions: &[&str]| VerifiedGrant {
+            kind: TokenKind::AppUser,
+            issuer: Some(AIRLOCK_SAFE_APP_SLUG.to_owned()),
+            login: None,
+            scopes: Vec::new(),
+            installations: vec![InstallationGrant {
+                id: 7,
+                account: Some("owner".to_owned()),
+                permissions: permissions
+                    .iter()
+                    .map(|entry| (*entry).to_owned())
+                    .collect(),
+            }],
+        };
+
+        assert_eq!(
+            grant(&["metadata=read", "contents=read"]).capability(),
+            CredentialCapability::ReadOnly
+        );
+        assert_eq!(
+            grant(&["metadata=read", "contents=write"]).capability(),
+            CredentialCapability::WriteCapable
+        );
     }
 
     #[test]

@@ -105,6 +105,9 @@ pub struct UnsettledItem {
     pub severity: String,
     /// Whether this unanswered question blocks completeness under the gate.
     pub gating: bool,
+    /// Where the question is answered instead, when the registry declares that
+    /// this surface's credential can never answer it.
+    pub verified_by: Option<String>,
     /// The evidence classification, when one was available.
     pub evidence_code: Option<String>,
     /// What decided the finding, if anything did.
@@ -204,6 +207,9 @@ impl AgentWorkList {
                     undecided: Some(kind),
                     severity: finding.severity.clone(),
                     gating: finding.blocks_completeness(report.policy.gate),
+                    verified_by: crate::registry::find(&finding.rule)
+                        .and_then(crate::registry::CheckDefinition::disclosure_gate)
+                        .map(|gate| gate.verified_by.code().to_owned()),
                     evidence_code: finding
                         .evidence
                         .as_ref()
@@ -270,6 +276,7 @@ impl AgentWorkList {
                     undecided: None,
                     severity: finding.severity.clone(),
                     gating: true,
+                    verified_by: None,
                     evidence_code: Some("remediation_class_undecided".to_owned()),
                     source: finding.source.clone(),
                 });
@@ -283,6 +290,7 @@ impl AgentWorkList {
                     undecided: None,
                     severity: finding.severity.clone(),
                     gating: true,
+                    verified_by: None,
                     evidence_code: Some("remediation_lane_unknown".to_owned()),
                     source: finding.source.clone(),
                 });
