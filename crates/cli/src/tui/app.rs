@@ -454,12 +454,18 @@ impl App {
 
     /// Whether the focused finding has a settings-level change to carry out.
     ///
-    /// Both halves are required: a remediation must be on offer, and its
-    /// declared lane must be the one this interface may act in. A file-level
-    /// gap leaves as a pull request and nothing here offers to author it.
+    /// Both halves of the specification's condition are required, and they are
+    /// separate facts on separate fields. A remediation must be on offer, which
+    /// is the contextual `remediation` this run produced; and its declared lane
+    /// must be the one this interface may act in, which is the rule-level
+    /// classification. A rule classified `operator-setting` that this run
+    /// offered no remedy for has nothing for a transcript to carry out, and a
+    /// file-level gap leaves as a pull request that nothing here offers to
+    /// author.
     fn applicable(&self) -> bool {
         self.focused_row().is_some_and(|row| {
             row.status == Status::Fail
+                && row.detail.remediation.on_offer()
                 && row.detail.remediation.class_lane.as_deref() == Some("operator-setting")
         })
     }
@@ -1100,6 +1106,28 @@ mod tests {
         assert_eq!(app.screen(), Screen::FindingDetail);
         press(&mut app, KeyCode::Char('a'));
         assert_eq!(app.screen(), Screen::Remediation);
+    }
+
+    #[test]
+    fn apply_declines_a_settings_rule_this_run_offered_no_remedy_for() {
+        // The rule's declared lane is the one this interface may act in, and
+        // the run produced nothing to carry out. A transcript opened here would
+        // offer to apply a change nothing described.
+        let mut app = app();
+        app.observed_run(
+            &findings::fixture::report(
+                airlock_core::findings::Gate::Required,
+                vec![findings::fixture::settings_failure_without_a_remedy()],
+            ),
+            &findings::Deliveries::default(),
+        );
+        app.screen = Screen::Findings;
+        press(&mut app, KeyCode::Down);
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(app.screen(), Screen::FindingDetail);
+        press(&mut app, KeyCode::Char('a'));
+        assert_eq!(app.screen(), Screen::FindingDetail, "nothing was opened");
+        assert!(app.status().contains("airlock closes"), "{}", app.status());
     }
 
     #[test]

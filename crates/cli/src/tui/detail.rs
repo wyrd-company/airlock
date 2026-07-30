@@ -161,6 +161,18 @@ impl Remediation {
     pub const fn offered(&self) -> bool {
         self.class_lane.is_some() || self.code.is_some()
     }
+
+    /// Whether this run offered a contextual remedy for this failure.
+    ///
+    /// The narrower of the two questions, and the one the transcript turns on.
+    /// A declared classification says what the rule's gap always takes; it does
+    /// not say that this run produced something to carry out. Opening a
+    /// transcript on a classification alone would offer to apply a change
+    /// nothing described.
+    #[must_use]
+    pub const fn on_offer(&self) -> bool {
+        self.code.is_some()
+    }
 }
 
 /// Everything about one finding the queue's row does not already carry.

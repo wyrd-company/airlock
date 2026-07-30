@@ -12,16 +12,16 @@ evidence.path         null
 evidence.detail       no ruleset applies                                        
                                                                                 
 REMEDIATION                                                                     
+remediation.code      tighten_ruleset                                           
+remediation.detail    Protect the default branch with a ruleset that requires a 
+                      pull request.                                             
 remediation_class                                                               
   code                set-default-branch-main                                   
   change              Rename the default branch to `main`.                      
   lane                operator-setting                                          
   reversible          yes                                                       
                                                                                 
-WHY THIS RULE APPLIES                                                           
-severity              blocking                                                  
-evaluation            mechanical                                                
-— 0 lines above · 17 below · ↑↓ moves the window —                              
+— 0 lines above · 20 below · ↑↓ moves the window —                              
 esc back · a remediation transcript · o re-observe this rule · 3 more…          
 decided · gating · gates the run                                                
 --- style keys ---
@@ -37,15 +37,15 @@ jjjjjjjjjjjjjjjjjjjjjjhhhhdddddddddddddddddddddddddddddddddddddddddddddddddddddd
 jjjjjjjjjjjjjjjjjjjjjjhhhhhhhhhhhhhhhhhhdddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 iiiiiiiiiiiddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+jjjjjjjjjjjjjjjjjjjjjjhhhhhhhhhhhhhhhddddddddddddddddddddddddddddddddddddddddddd
+jjjjjjjjjjjjjjjjjjjjjjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhd
+jjjjjjjjjjjjjjjjjjjjjjhhhhhhhhhhhhhddddddddddddddddddddddddddddddddddddddddddddd
 jjjjjjjjjjjjjjjjjddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 jjjjjjjjjjjjjjjjjjjjjjhhhhhhhhhhhhhhhhhhhhhhhddddddddddddddddddddddddddddddddddd
 jjjjjjjjjjjjjjjjjjjjjjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhdddddddddddddddddddddd
 jjjjjjjjjjjjjjjjjjjjjjhhhhhhhhhhhhhhhhdddddddddddddddddddddddddddddddddddddddddd
 jjjjjjjjjjjjjjjjjjjjjjhhhddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-iiiiiiiiiiiiiiiiiiiiiddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-jjjjjjjjjjjjjjjjjjjjjjhhhhhhhhdddddddddddddddddddddddddddddddddddddddddddddddddd
-jjjjjjjjjjjjjjjjjjjjjjhhhhhhhhhhdddddddddddddddddddddddddddddddddddddddddddddddd
 jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjdddddddddddddddddddddddddddddd
 eeedhhhhjjjedhhhhhhhhhhhhhhhhhhhhhhjjjedhhhhhhhhhhhhhhhhhhhhjjjkkkkkkkdddddddddd
 llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll

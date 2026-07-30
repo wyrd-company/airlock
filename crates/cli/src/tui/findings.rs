@@ -1537,10 +1537,32 @@ pub mod fixture {
     }
 
     /// A failure whose declared lane is a setting: airlock closes it.
+    ///
+    /// It carries a contextual remediation as well as the rule's declared
+    /// classification, because a real failing rule does: the classification
+    /// says what the rule's gap always takes, and the remediation is what this
+    /// run produced to carry out.
     #[must_use]
     pub fn settings_failure() -> Finding {
         let mut finding = finding("REPO-GIT-01", Severity::Blocking, Status::Fail);
         finding.evidence = Some(Evidence::new("branch_unprotected", "no ruleset applies"));
+        finding.remediation = Some(Remediation::new(
+            ActionGroup::TIGHTEN_RULESET,
+            "Protect the default branch with a ruleset that requires a pull request.",
+        ));
+        finding
+    }
+
+    /// A settings-level failure this run produced no remedy for.
+    ///
+    /// The rule is classified `operator-setting` and the run offered nothing to
+    /// carry out. The two facts live on different fields and a surface that
+    /// reads only the classification cannot tell this apart from the case
+    /// above — which is the whole reason it is a fixture.
+    #[must_use]
+    pub fn settings_failure_without_a_remedy() -> Finding {
+        let mut finding = settings_failure();
+        finding.remediation = None;
         finding
     }
 
