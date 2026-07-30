@@ -13,6 +13,16 @@ use ratatui::widgets::{Paragraph, Widget as _, Wrap};
 /// The column the emptiness values start in.
 const FIELD_LABEL_WIDTH: usize = 16;
 
+/// What an unselected installation reaches: nothing, completely.
+///
+/// Complete rather than truncated: there is no listing here to be a prefix of,
+/// and saying "a prefix" would claim airlock fell short of something.
+const EMPTY_REACH: catalogue::Reach = catalogue::Reach {
+    collected: 0,
+    total: 0,
+    truncated: false,
+};
+
 use airlock_core::findings::Status;
 use airlock_core::registry::Severity;
 
@@ -24,7 +34,7 @@ use crate::admin::sign_in::Reason;
 
 use super::organizations;
 use super::repositories::{self, Filter};
-use super::screen::Screen;
+use super::screen::{Key, Screen, INPUT_KEYS};
 use super::sign_in;
 use super::theme::{ColorMode, Role, Styles, Theme};
 
@@ -161,8 +171,9 @@ impl App {
 
     /// Apply a key.
     ///
-    /// Two keys are live on every screen in every state: `t` switches theme and
-    /// `ctrl-c` exits. Everything else is the open screen's own.
+    /// `ctrl-c` exits from every state without exception, and it is taken
+    /// first, before anything can capture it. `t` switches theme everywhere
+    /// else. Everything after that is the open state's own.
     pub fn handle_key(&mut self, event: KeyEvent) -> Flow {
         // A terminal that reports key releases would otherwise act twice.
         if event.kind == KeyEventKind::Release {
@@ -173,12 +184,9 @@ impl App {
         {
             return Flow::Exit;
         }
-        // An open filter takes printable keys, including `t`. The specification
-        // requires a state in which one of the two universal keys is not live
-        // to be named on the screen with its reason, and the filter names this
-        // one: a filter that could not type `t` could not find a repository
-        // whose name has one in it. `ctrl-c` stays live, so the way out of
-        // every state is the way out of this one.
+        // A focused text input takes printable keys as text, `t` included. The
+        // footer stops advertising the theme toggle for exactly as long as
+        // this holds, so nothing on screen names a key this state has taken.
         if self.screen == Screen::Repositories && self.filter.is_open() {
             return self.filtering(event.code);
         }
@@ -306,6 +314,16 @@ impl App {
         self.catalogue.installations().get(self.installation)
     }
 
+    /// How far the selected installation's listing got.
+    ///
+    /// Read from the listing rather than counted off the rows, so a walk that
+    /// stopped at the page budget is reported as the prefix it is instead of
+    /// as a complete account of a smaller installation.
+    fn reach(&self) -> catalogue::Reach {
+        self.selected_installation()
+            .map_or(EMPTY_REACH, |installation| installation.listing.reach())
+    }
+
     /// The rows of the selected installation, narrowed by the filter.
     fn visible_rows(&self) -> Vec<Row> {
         self.selected_installation()
@@ -418,7 +436,7 @@ impl App {
         for rule in [frame.rule_top, frame.rule_bottom].into_iter().flatten() {
             Paragraph::new(chrome::rule_line(styles, area.width)).render(rule, buffer);
         }
-        Paragraph::new(chrome::keymap_line(self.screen, styles, area.width))
+        Paragraph::new(chrome::keymap_line(&self.keymap(), styles, area.width))
             .render(frame.keymap, buffer);
         Paragraph::new(chrome::status_line(&self.status(), styles, area.width))
             .render(frame.status, buffer);
@@ -482,6 +500,19 @@ impl App {
     /// empty, and what can be done next. Only the findings screen draws
     /// anything more, because the status vocabulary is the one thing this task
     /// does own.
+    /// The keys live in the state that is open.
+    ///
+    /// While the filter has focus the footer shows the filter's own keys and
+    /// stops advertising `t theme`, because the filter has captured it: every
+    /// printable key there is typing. `ctrl-c` is in both readings, because it
+    /// is live without exception.
+    fn keymap(&self) -> Vec<Key> {
+        if self.screen == Screen::Repositories && self.filter.is_open() {
+            return INPUT_KEYS.to_vec();
+        }
+        chrome::keys_of(self.screen)
+    }
+
     /// The status line for the open screen.
     ///
     /// Two screens now know something the shell did not, and they say it. The
@@ -489,12 +520,7 @@ impl App {
     fn status(&self) -> String {
         match self.screen {
             Screen::Organizations => organizations::status(&self.catalogue),
-            Screen::Repositories => {
-                let available = self
-                    .selected_installation()
-                    .map_or(0, |installation| installation.listing.repositories().len());
-                repositories::status(self.visible_rows().len(), available)
-            }
+            Screen::Repositories => repositories::status(self.visible_rows().len(), self.reach()),
             other => chrome::status_text(other),
         }
     }
@@ -509,8 +535,6 @@ impl App {
         }
         if self.screen == Screen::Repositories {
             let installation = self.selected_installation();
-            let available =
-                installation.map_or(0, |installation| installation.listing.repositories().len());
             return repositories::body(
                 styles,
                 width,
@@ -519,7 +543,7 @@ impl App {
                     installation,
                     catalogue: self.catalogue.catalogue(),
                     rows: &self.visible_rows(),
-                    available,
+                    reach: self.reach(),
                     filter: &self.filter,
                     selected: self.repository,
                 },
@@ -1029,10 +1053,9 @@ mod tests {
 
     #[test]
     fn an_open_filter_types_the_theme_key_and_esc_closes_it_rather_than_navigating() {
-        // The one state in which a universal key is not live, and the screen
-        // names it: a filter that could not type `t` could not find a
-        // repository with one in its name. `ctrl-c` is untouched, so the way
-        // out of every other state is still the way out of this one.
+        // A focused text input takes printable keys as text, `t` included, and
+        // the footer stops advertising the toggle for as long as it does.
+        // `ctrl-c` is untouched: it is live without exception.
         let mut app = app()
             .with_catalogue(catalogue())
             .at(Screen::Repositories, Theme::Dark);
@@ -1052,6 +1075,114 @@ mod tests {
         assert_eq!(app.screen(), Screen::Repositories, "esc closed the filter");
         press(&mut app, KeyCode::Esc);
         assert_eq!(app.screen(), Screen::Organizations, "and then it goes back");
+    }
+
+    fn footer(app: &App) -> String {
+        chrome::keymap_line(&app.keymap(), app.styles(), chrome::REFERENCE_WIDTH)
+            .spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect()
+    }
+
+    #[test]
+    fn the_footer_never_advertises_a_key_the_open_state_has_captured() {
+        let mut app = app()
+            .with_catalogue(catalogue())
+            .at(Screen::Repositories, Theme::Dark);
+
+        let unfocused = footer(&app);
+        assert!(unfocused.contains("t theme"), "{unfocused}");
+        assert!(unfocused.contains("/ filter"), "{unfocused}");
+        assert!(unfocused.contains("esc back"), "{unfocused}");
+        assert!(unfocused.contains("ctrl-c exit"), "{unfocused}");
+
+        press(&mut app, KeyCode::Char('/'));
+        let focused = footer(&app);
+        assert!(
+            !focused.contains("t theme"),
+            "the filter has taken `t`, and a footer that still offered it \
+             would describe a different program: {focused}"
+        );
+        assert!(
+            !focused.contains("esc back"),
+            "esc closes the filter here rather than leaving the screen: {focused}"
+        );
+        assert!(focused.contains("esc close the filter"), "{focused}");
+        assert!(focused.contains("backspace delete"), "{focused}");
+        assert!(
+            focused.contains("ctrl-c exit"),
+            "ctrl-c is live without exception: {focused}"
+        );
+
+        // The toggle comes back the moment focus leaves the input.
+        press(&mut app, KeyCode::Esc);
+        assert_eq!(footer(&app), unfocused);
+    }
+
+    #[test]
+    fn esc_closes_a_focused_filter_and_only_then_leaves_the_screen() {
+        let mut app = app()
+            .with_catalogue(catalogue())
+            .at(Screen::Repositories, Theme::Dark);
+        press(&mut app, KeyCode::Char('/'));
+        press(&mut app, KeyCode::Char('w'));
+        press(&mut app, KeyCode::Esc);
+        assert!(!app.filter.is_open());
+        assert_eq!(app.screen(), Screen::Repositories);
+        assert_eq!(
+            press(&mut app, KeyCode::Char('t')),
+            Flow::Continue,
+            "the toggle is live again"
+        );
+        assert_eq!(app.theme(), Theme::Light);
+        press(&mut app, KeyCode::Esc);
+        assert_eq!(app.screen(), Screen::Organizations);
+    }
+
+    #[test]
+    fn ctrl_c_leaves_from_a_focused_filter_too() {
+        let mut app = app()
+            .with_catalogue(catalogue())
+            .at(Screen::Repositories, Theme::Dark);
+        press(&mut app, KeyCode::Char('/'));
+        assert_eq!(
+            app.handle_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)),
+            Flow::Exit
+        );
+    }
+
+    #[test]
+    fn a_truncated_listing_reaches_the_screen_as_the_prefix_it_is() {
+        use airlock_core::github::{AccountKind, RepositorySelection};
+        let mut installation = installation(
+            "acme-industries",
+            AccountKind::Organization,
+            RepositorySelection::All,
+            &["widget", "sprocket"],
+        );
+        installation.listing = catalogue::Listing::Read {
+            repositories: installation.listing.repositories().to_vec(),
+            total: 400,
+            truncated: true,
+        };
+        let app = app()
+            .with_catalogue(catalogue::Catalogue::of(vec![installation]))
+            .at(Screen::Repositories, Theme::Dark);
+
+        assert_eq!(app.reach().total, 400);
+        assert!(app.reach().truncated);
+        let status = app.status();
+        assert!(status.contains("2 of 400 shown"), "{status}");
+        assert!(status.contains("a prefix"), "{status}");
+        let text = body_text(&app);
+        assert!(text.contains("2 of 400 read"), "{text}");
+
+        // And the organizations row, which is where the operator decides
+        // whether the screen behind it is the whole installation.
+        let organizations = app.at(Screen::Organizations, Theme::Dark);
+        let text = body_text(&organizations);
+        assert!(text.contains("400 repositories, 2 read"), "{text}");
     }
 
     #[test]

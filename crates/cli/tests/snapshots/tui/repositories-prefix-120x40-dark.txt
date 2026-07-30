@@ -1,9 +1,10 @@
-repositories-listed-120x40-dark · 120x40 · theme dark · colour
+repositories-prefix-120x40-dark · 120x40 · theme dark · colour
 --- text ---
 AIRLOCK 0.0.0  sign-in › organizations › repositories              no credential stored · tty required · theme t · dark 
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 REPOSITORIES  acme-industries  organization                                                                             
-filter        / to filter by name · all 3 repositories                                                                  
+filter        / to filter by name · 3 of 400 read — the listing stopped at airlock's page budget, so what is missing is 
+              the listing rather than the repositories                                                                  
                                                                                                                         
   NAME                                                            VISIBILITY  DEFAULT BRANCH  LAST AUDIT  PRIOR VERDICT 
 ▸ widget                                                          private     main            never       never observed
@@ -36,21 +37,20 @@ opening a repository re-observes it in full.
                                                                                                                         
                                                                                                                         
                                                                                                                         
-                                                                                                                        
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 ↑↓ select · / filter · ↵ observe · esc back · t theme · ctrl-c exit                                                     
-3 of 3 shown · prior verdicts are shown for orientation only                                                            
+3 of 400 shown, a prefix · prior verdicts are shown for orientation only                                                
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 ddddddddddddeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+eeeeeeeeeeeeeegggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggf
 eeeeeeeeeeeeeeggggggggggggggggggggggggggggggggggggggggffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhf
 iiddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeee
 iiffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeee
 iiffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeee
-ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff

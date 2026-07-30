@@ -3,7 +3,7 @@ repositories-120x40-dark · 120x40 · theme dark · colour
 AIRLOCK 0.0.0  sign-in › organizations › repositories              no credential stored · tty required · theme t · dark 
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 REPOSITORIES                                                                                                            
-filter        / to filter by name · showing all 0                                                                       
+filter        / to filter by name · no repository                                                                       
                                                                                                                         
               no installation is selected. Choose one on the organizations screen; the repositories shown here are the  
               ones that installation reaches, and that is not the same set as the ones the account has.                 

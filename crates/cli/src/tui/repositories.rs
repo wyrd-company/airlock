@@ -14,7 +14,7 @@
 use ratatui::style::Modifier;
 use ratatui::text::{Line, Span};
 
-use crate::admin::catalogue::{Catalogue, Installation, Listing, Row};
+use crate::admin::catalogue::{Catalogue, Installation, Listing, Reach, Row};
 use crate::admin::sign_in::Density;
 
 use super::chrome::{fit, wrap};
@@ -127,8 +127,8 @@ pub struct View<'a> {
     pub catalogue: Option<&'a Catalogue>,
     /// The rows to draw, already narrowed by the filter.
     pub rows: &'a [Row],
-    /// How many the installation reaches in all.
-    pub available: usize,
+    /// How far the listing of that installation got.
+    pub reach: Reach,
     /// The filter in force.
     pub filter: &'a Filter,
     /// Which row is selected.
@@ -142,7 +142,7 @@ pub fn body(styles: Styles, width: u16, height: u16, view: &View<'_>) -> Vec<Lin
         installation,
         catalogue,
         rows,
-        available,
+        reach,
         filter,
         selected,
     } = *view;
@@ -158,7 +158,7 @@ pub fn body(styles: Styles, width: u16, height: u16, view: &View<'_>) -> Vec<Lin
             styles.of(Role::Faint),
         ),
     ])];
-    head.extend(filter_line(styles, width, filter, rows.len(), available));
+    head.extend(filter_line(styles, width, filter, rows.len(), reach));
     head.push(Line::default());
 
     let mut tail = vec![Line::default()];
@@ -195,7 +195,7 @@ pub fn body(styles: Styles, width: u16, height: u16, view: &View<'_>) -> Vec<Lin
         head.extend(panel::field(
             styles,
             "",
-            &empty(installation, catalogue, filter, available),
+            &empty(installation, catalogue, filter, reach),
             width,
         ));
         head.extend(tail);
@@ -227,9 +227,17 @@ pub fn body(styles: Styles, width: u16, height: u16, view: &View<'_>) -> Vec<Lin
 
 /// The status line: what is shown against what is available, and the standing
 /// statement that a prior verdict is orientation only.
+///
+/// The count available is the installation's, not the screen's. A listing
+/// airlock walked only part of says so here, because a prefix presented as a
+/// whole is the one reading from which an operator concludes that a repository
+/// is not there.
 #[must_use]
-pub fn status(shown: usize, available: usize) -> String {
-    format!("{shown} of {available} shown \u{b7} prior verdicts are shown for orientation only")
+pub fn status(shown: usize, reach: Reach) -> String {
+    format!(
+        "{} \u{b7} prior verdicts are shown for orientation only",
+        reach.against(shown)
+    )
 }
 
 /// The rows of one installation, narrowed by the filter.
@@ -245,7 +253,7 @@ fn empty(
     installation: &Installation,
     catalogue: Option<&Catalogue>,
     filter: &Filter,
-    available: usize,
+    reach: Reach,
 ) -> String {
     if !filter.text().is_empty() {
         // What the filter hid, and — for a name typed in full — whether not
@@ -262,10 +270,11 @@ fn empty(
             )
         });
         return format!(
-            "no repository in {} has `{}` in its name. {available} are reachable here; \
-             esc clears the filter and shows them.{absence}",
+            "no repository in {} has `{}` in its name. Airlock has {} here; esc clears \
+             the filter and shows them.{absence}",
             installation.account,
-            filter.text()
+            filter.text(),
+            reach.statement()
         );
     }
     format!(
@@ -281,23 +290,27 @@ fn filter_line(
     width: usize,
     filter: &Filter,
     shown: usize,
-    available: usize,
+    reach: Reach,
 ) -> Vec<Line<'static>> {
     let value = if filter.is_open() {
-        format!(
-            "{}\u{2588}   typing filters as you go \u{b7} esc closes the filter and \
-             clears it \u{b7} ctrl-c exits",
-            filter.text()
-        )
+        // The keys live here are the footer's business, and the footer now
+        // lists them. Repeating them costs the row the whole reading at the
+        // floor, where the line elides rather than wraps.
+        format!("{}\u{2588}   typing filters as you go", filter.text())
     } else if filter.text().is_empty() {
-        format!("/ to filter by name \u{b7} showing all {available}")
+        // Never "all" of something airlock read part of: the whole point of
+        // this line is what the table below it is a table of.
+        format!("/ to filter by name \u{b7} {}", reach.statement())
     } else {
         format!(
-            "{} \u{b7} {shown} of {available} \u{b7} / to edit, esc to clear",
-            filter.text()
+            "{} \u{b7} {} \u{b7} / to edit, esc to clear",
+            filter.text(),
+            reach.against(shown)
         )
     };
-    panel::field(styles, "filter", &fit(&value, width), width)
+    // Wrapped rather than cut: the line that says what the table below is a
+    // table of is the one line here that must survive the floor intact.
+    panel::field(styles, "filter", &value, width)
 }
 
 fn header(styles: Styles, width: usize) -> Line<'static> {
@@ -396,6 +409,15 @@ mod tests {
         Styles::new(Theme::Dark, ColorMode::Color)
     }
 
+    /// A listing airlock walked to the end of.
+    fn complete(total: u64) -> Reach {
+        Reach {
+            collected: total as usize,
+            total,
+            truncated: false,
+        }
+    }
+
     fn installation(names: &[&str]) -> Installation {
         Installation {
             id: 7,
@@ -421,7 +443,7 @@ mod tests {
     fn rendered(
         installation: Option<&Installation>,
         rows: &[Row],
-        available: usize,
+        reach: Reach,
         filter: &Filter,
         width: u16,
     ) -> String {
@@ -434,7 +456,7 @@ mod tests {
                 installation,
                 catalogue: catalogue.as_ref(),
                 rows,
-                available,
+                reach,
                 filter,
                 selected: 0,
             },
@@ -452,7 +474,13 @@ mod tests {
     fn a_repository_never_audited_says_so_rather_than_showing_a_blank() {
         let installation = installation(&["widget"]);
         let rows = Row::of(&installation, &Observations::default());
-        let text = rendered(Some(&installation), &rows, 1, &Filter::default(), 120);
+        let text = rendered(
+            Some(&installation),
+            &rows,
+            complete(1),
+            &Filter::default(),
+            120,
+        );
         assert!(text.contains("never observed"), "{text}");
         assert!(text.contains("NAME"), "{text}");
         assert!(text.contains("VISIBILITY"), "{text}");
@@ -468,7 +496,13 @@ mod tests {
         let installation = installation(&["widget"]);
         let rows = Row::of(&installation, &Observations::default());
         for width in [120, 80] {
-            let text = rendered(Some(&installation), &rows, 1, &Filter::default(), width);
+            let text = rendered(
+                Some(&installation),
+                &rows,
+                complete(1),
+                &Filter::default(),
+                width,
+            );
             assert!(text.contains("orientation only"), "{text}");
             assert!(text.contains("re-observes it in full"), "{text}");
         }
@@ -494,7 +528,13 @@ mod tests {
                 verdict: "nonconformant".to_owned()
             }
         );
-        let text = rendered(Some(&installation), &rows, 1, &Filter::default(), 120);
+        let text = rendered(
+            Some(&installation),
+            &rows,
+            complete(1),
+            &Filter::default(),
+            120,
+        );
         assert!(text.contains("2026-01-02"), "{text}");
         assert!(text.contains("nonconformant"), "{text}");
     }
@@ -510,7 +550,13 @@ mod tests {
         }
         let shown = visible(&all, &filter);
         assert_eq!(shown.len(), 2);
-        let text = rendered(Some(&installation), &shown, all.len(), &filter, 120);
+        let text = rendered(
+            Some(&installation),
+            &shown,
+            complete(all.len() as u64),
+            &filter,
+            120,
+        );
         assert!(text.contains("widget"), "{text}");
         assert!(!text.contains("sprocket"), "{text}");
     }
@@ -523,7 +569,13 @@ mod tests {
         filter.push('z');
         let shown = visible(&all, &filter);
         assert!(shown.is_empty());
-        let text = rendered(Some(&installation), &shown, all.len(), &filter, 120);
+        let text = rendered(
+            Some(&installation),
+            &shown,
+            complete(all.len() as u64),
+            &filter,
+            120,
+        );
         assert!(text.contains("no repository"), "{text}");
         assert!(text.contains("esc clears the filter"), "{text}");
     }
@@ -531,7 +583,13 @@ mod tests {
     #[test]
     fn an_installation_that_reaches_nothing_says_what_that_means() {
         let installation = installation(&[]);
-        let text = rendered(Some(&installation), &[], 0, &Filter::default(), 120);
+        let text = rendered(
+            Some(&installation),
+            &[],
+            complete(0),
+            &Filter::default(),
+            120,
+        );
         assert!(text.contains("reaches no repository"), "{text}");
         assert!(text.contains("repository selection"), "{text}");
     }
@@ -542,27 +600,25 @@ mod tests {
             listing: Listing::Refused("rate_limit on GET /user/installations".to_owned()),
             ..installation(&[])
         };
-        let text = rendered(Some(&refused), &[], 0, &Filter::default(), 120);
+        let text = rendered(Some(&refused), &[], complete(0), &Filter::default(), 120);
         assert!(text.contains("listing failed"), "{text}");
         assert!(text.contains("rate_limit"), "{text}");
     }
 
     #[test]
     fn no_installation_selected_says_which_set_this_screen_is_about() {
-        let text = rendered(None, &[], 0, &Filter::default(), 120);
+        let text = rendered(None, &[], complete(0), &Filter::default(), 120);
         assert!(text.contains("no installation is selected"), "{text}");
     }
 
     #[test]
-    fn an_open_filter_says_that_a_key_types_and_how_to_leave() {
+    fn an_open_filter_says_that_a_key_types() {
         let installation = installation(&["widget"]);
         let rows = Row::of(&installation, &Observations::default());
         let mut filter = Filter::default();
         filter.open();
-        let text = rendered(Some(&installation), &rows, 1, &filter, 120);
+        let text = rendered(Some(&installation), &rows, complete(1), &filter, 120);
         assert!(text.contains("typing filters as you go"), "{text}");
-        assert!(text.contains("esc closes the filter"), "{text}");
-        assert!(text.contains("ctrl-c exits"), "{text}");
     }
 
     #[test]
@@ -581,9 +637,72 @@ mod tests {
 
     #[test]
     fn the_status_line_states_what_is_shown_against_what_is_available() {
-        let line = status(2, 12);
+        let line = status(2, complete(12));
         assert!(line.contains("2 of 12 shown"), "{line}");
         assert!(line.contains("orientation only"), "{line}");
+    }
+
+    /// An installation of four hundred repositories, of which airlock read a
+    /// hundred before its page budget ran out.
+    fn prefix() -> (Installation, Reach) {
+        let names: Vec<String> = (0..100)
+            .map(|index| format!("repository-{index}"))
+            .collect();
+        let borrowed: Vec<&str> = names.iter().map(String::as_str).collect();
+        let mut installation = installation(&borrowed);
+        installation.listing = Listing::Read {
+            repositories: installation.listing.repositories().to_vec(),
+            total: 400,
+            truncated: true,
+        };
+        let reach = installation.listing.reach();
+        (installation, reach)
+    }
+
+    #[test]
+    fn a_listing_airlock_read_only_part_of_is_never_presented_as_the_whole() {
+        let (installation, reach) = prefix();
+        assert_eq!(reach.collected, 100);
+        assert_eq!(reach.total, 400);
+        assert!(reach.truncated);
+
+        let rows = Row::of(&installation, &Observations::default());
+        let text = rendered(Some(&installation), &rows, reach, &Filter::default(), 120);
+        assert!(
+            !text.contains("all 100"),
+            "a prefix presented as the whole is how an operator concludes a \
+             repository is not there: {text}"
+        );
+        assert!(text.contains("100 of 400 read"), "{text}");
+        assert!(text.contains("page budget"), "{text}");
+
+        let line = status(100, reach);
+        assert!(line.contains("100 of 400 shown"), "{line}");
+        assert!(line.contains("a prefix"), "{line}");
+    }
+
+    #[test]
+    fn a_complete_listing_says_one_number_because_both_are_the_same_one() {
+        let installation = installation(&["widget", "sprocket"]);
+        let reach = installation.listing.reach();
+        let rows = Row::of(&installation, &Observations::default());
+        let text = rendered(Some(&installation), &rows, reach, &Filter::default(), 120);
+        assert!(text.contains("all 2 repositories"), "{text}");
+        assert!(!text.contains("prefix"), "{text}");
+        assert!(status(2, reach).contains("2 of 2 shown"));
+    }
+
+    #[test]
+    fn a_filtered_prefix_counts_against_what_the_installation_reaches() {
+        let (installation, reach) = prefix();
+        let all = Row::of(&installation, &Observations::default());
+        let mut filter = Filter::default();
+        for character in "repository-1".chars() {
+            filter.push(character);
+        }
+        let shown = visible(&all, &filter);
+        let text = rendered(Some(&installation), &shown, reach, &filter, 120);
+        assert!(text.contains("of 400"), "{text}");
     }
 
     #[test]
@@ -598,7 +717,7 @@ mod tests {
                 installation: Some(&installation),
                 catalogue: None,
                 rows: &rows,
-                available: 1,
+                reach: complete(1),
                 filter: &Filter::default(),
                 selected: 0,
             },

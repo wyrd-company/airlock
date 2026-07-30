@@ -10,7 +10,7 @@ use ratatui::layout::Rect;
 use ratatui::style::Modifier;
 use ratatui::text::{Line, Span};
 
-use super::screen::{Screen, UNIVERSAL_KEYS};
+use super::screen::{Key, Screen, UNIVERSAL_KEYS};
 use super::theme::{Role, Styles};
 
 /// The reference width.
@@ -171,14 +171,31 @@ pub fn rule_line(styles: Styles, width: u16) -> Line<'static> {
     ))
 }
 
-/// The keymap footer: the screen's own keys, then the two that are always live.
+/// The keys a screen prints when no state has captured them: its own, then the
+/// two that are otherwise always live.
+#[must_use]
+pub fn keys_of(screen: Screen) -> Vec<Key> {
+    screen
+        .keys()
+        .iter()
+        .chain(UNIVERSAL_KEYS.iter())
+        .copied()
+        .collect()
+}
+
+/// The keymap footer: the keys live in this state, and only those.
+///
+/// The caller supplies them rather than the footer reading them off the screen,
+/// because which keys are live is a property of the state and not of the
+/// screen. A footer that advertised a key the open text input has captured
+/// would be a footer describing a different program.
 ///
 /// Entries are dropped from the end rather than clipped mid-word, and the line
 /// says how many it dropped, because a keymap that silently omits a key is
 /// worse than one that admits it.
 #[must_use]
-pub fn keymap_line(screen: Screen, styles: Styles, width: u16) -> Line<'static> {
-    let entries: Vec<_> = screen.keys().iter().chain(UNIVERSAL_KEYS.iter()).collect();
+pub fn keymap_line(entries: &[Key], styles: Styles, width: u16) -> Line<'static> {
+    let entries: Vec<_> = entries.iter().collect();
     let width = width as usize;
 
     let mut spans = Vec::new();
@@ -423,7 +440,7 @@ mod tests {
             for screen in Screen::ALL {
                 for line in [
                     header_line(screen, "0.0.0", styles(), width),
-                    keymap_line(screen, styles(), width),
+                    keymap_line(&keys_of(screen), styles(), width),
                     status_line(&status_text(screen), styles(), width),
                     rule_line(styles(), width),
                 ] {
@@ -490,7 +507,7 @@ mod tests {
     #[test]
     fn a_keymap_that_fits_is_printed_whole() {
         let text = rendered(&keymap_line(
-            Screen::Organizations,
+            &keys_of(Screen::Organizations),
             styles(),
             REFERENCE_WIDTH,
         ));
@@ -510,10 +527,18 @@ mod tests {
 
     #[test]
     fn a_dropped_key_is_admitted_rather_than_silently_omitted() {
-        let narrow = rendered(&keymap_line(Screen::Findings, styles(), FLOOR_WIDTH));
+        let narrow = rendered(&keymap_line(
+            &keys_of(Screen::Findings),
+            styles(),
+            FLOOR_WIDTH,
+        ));
         assert!(narrow.contains("more\u{2026}"), "{narrow}");
         // Narrowing never hides more quietly than widening does.
-        let wide = rendered(&keymap_line(Screen::Findings, styles(), REFERENCE_WIDTH));
+        let wide = rendered(&keymap_line(
+            &keys_of(Screen::Findings),
+            styles(),
+            REFERENCE_WIDTH,
+        ));
         assert!(
             wide.matches('\u{b7}').count() >= narrow.matches('\u{b7}').count(),
             "{wide} / {narrow}"
@@ -523,7 +548,7 @@ mod tests {
     #[test]
     fn the_universal_keys_are_printed_where_they_fit() {
         let text = rendered(&keymap_line(
-            Screen::Organizations,
+            &keys_of(Screen::Organizations),
             styles(),
             REFERENCE_WIDTH,
         ));

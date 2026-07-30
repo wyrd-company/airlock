@@ -73,6 +73,53 @@ pub enum Listing {
     Refused(String),
 }
 
+/// How far a listing got: what airlock has, against what GitHub reported.
+///
+/// The two are carried together because they answer different questions and
+/// only one of them is about the account. A screen holding a hundred rows of a
+/// four-hundred-repository installation has seen a prefix, and a count read off
+/// the rows it holds would report a page budget as a fact about the account.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Reach {
+    /// How many repositories airlock actually collected.
+    pub collected: usize,
+    /// How many GitHub said the installation reaches.
+    pub total: u64,
+    /// True when what airlock collected is a prefix rather than the whole.
+    pub truncated: bool,
+}
+
+impl Reach {
+    /// What the count is, against what it is a count of.
+    ///
+    /// A complete listing says one number because the two are the same one. A
+    /// prefix says both, and says which is which.
+    #[must_use]
+    pub fn against(&self, shown: usize) -> String {
+        if self.truncated {
+            return format!("{shown} of {} shown, a prefix", self.total);
+        }
+        format!("{shown} of {} shown", self.total)
+    }
+
+    /// What the installation reaches, said in full.
+    #[must_use]
+    pub fn statement(&self) -> String {
+        if self.truncated {
+            return format!(
+                "{} of {} read \u{2014} the listing stopped at airlock's page budget, so \
+                 what is missing is the listing rather than the repositories",
+                self.collected, self.total
+            );
+        }
+        match self.total {
+            0 => "no repository".to_owned(),
+            1 => "all 1 repository".to_owned(),
+            total => format!("all {total} repositories"),
+        }
+    }
+}
+
 impl Listing {
     /// The repositories, or nothing when the listing failed.
     #[must_use]
@@ -83,10 +130,43 @@ impl Listing {
         }
     }
 
+    /// How far the listing got.
+    ///
+    /// A refused listing reaches nothing and is truncated by definition: what
+    /// airlock has is not the whole of it, and it does not know what the whole
+    /// of it would be.
+    #[must_use]
+    pub fn reach(&self) -> Reach {
+        match self {
+            Self::Read {
+                repositories,
+                total,
+                truncated,
+            } => Reach {
+                collected: repositories.len(),
+                total: *total,
+                truncated: *truncated,
+            },
+            Self::Refused(_) => Reach {
+                collected: 0,
+                total: 0,
+                truncated: true,
+            },
+        }
+    }
+
     /// The count for the row, in the terms the listing can support.
     #[must_use]
     pub fn count(&self) -> String {
         match self {
+            // A prefix says both numbers on the row, because the row is where
+            // an operator decides whether the screen behind it is the whole
+            // installation or the part of it airlock could read.
+            Self::Read {
+                repositories,
+                total,
+                truncated: true,
+            } => format!("{total} repositories, {} read", repositories.len()),
             Self::Read { total, .. } if *total == 1 => "1 repository".to_owned(),
             Self::Read { total, .. } => format!("{total} repositories"),
             Self::Refused(_) => "repositories not listed".to_owned(),

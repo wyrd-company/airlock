@@ -2,7 +2,7 @@ repositories-listed-80x24-dark · 80x24 · theme dark · colour
 --- text ---
 AIRLOCK 0.0.0  …nizations › repositories  no credential stored · theme t · dark 
 REPOSITORIES  acme-industries  organization                                     
-filter        / to filter by name · showing all 3                               
+filter        / to filter by name · all 3 repositories                          
                                                                                 
   NAME                    VISIBILITY  DEFAULT BRANCH  LAST AUDIT  PRIOR VERDICT 
 ▸ widget                  private     main            never       never observed
@@ -27,7 +27,7 @@ repository re-observes it in full; nothing is acted on from memory.
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 ccccccccccccdddddddddddddddddddddddddddddddeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-ddddddddddddddfffffffffffffffffffffffffffffffffffeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+ddddddddddddddffffffffffffffffffffffffffffffffffffffffeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 ggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggge
 hhccccccccccccccccccccccccffffffffffffffffffffffffffffdddddddddddddddddddddddddd

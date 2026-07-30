@@ -1,12 +1,15 @@
-repositories-filtered-80x24-dark · 80x24 · theme dark · colour
+repositories-prefix-80x24-dark · 80x24 · theme dark · colour
 --- text ---
 AIRLOCK 0.0.0  …nizations › repositories  no credential stored · theme t · dark 
 REPOSITORIES  acme-industries  organization                                     
-filter        et█ typing filters as you go                                      
+filter        / to filter by name · 3 of 400 read — the listing stopped at      
+              airlock's page budget, so what is missing is the listing rather   
+              than the repositories                                             
                                                                                 
   NAME                    VISIBILITY  DEFAULT BRANCH  LAST AUDIT  PRIOR VERDICT 
 ▸ widget                  private     main            never       never observed
   sprocket                private     main            never       never observed
+  public-flywheel         public      main            never       never observed
                                                                                 
 Prior verdicts are orientation only, and only from this session. Opening a      
 repository re-observes it in full; nothing is acted on from memory.             
@@ -19,18 +22,18 @@ repository re-observes it in full; nothing is acted on from memory.
                                                                                 
                                                                                 
                                                                                 
-                                                                                
-                                                                                
-                                                                                
-↵ observe · ↑↓ select · backspace delete · esc close the filter · ctrl-c exit   
-2 of 3 shown · prior verdicts are shown for orientation only                    
+↑↓ select · / filter · ↵ observe · esc back · t theme · ctrl-c exit             
+3 of 400 shown, a prefix · prior verdicts are shown for orientation only        
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 ccccccccccccdddddddddddddddddddddddddddddddeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-ddddddddddddddffffffffffffffffffffffffffffeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+ddddddddddddddffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeeeeee
+ddddddddddddddfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeee
+ddddddddddddddfffffffffffffffffffffeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 ggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggge
 hhccccccccccccccccccccccccffffffffffffffffffffffffffffdddddddddddddddddddddddddd
+hheeeeeeeeeeeeeeeeeeeeeeeeffffffffffffffffffffffffffffdddddddddddddddddddddddddd
 hheeeeeeeeeeeeeeeeeeeeeeeeffffffffffffffffffffffffffffdddddddddddddddddddddddddd
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
@@ -44,10 +47,7 @@ eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-hefffffffdddhheffffffdddhhhhhhhhheffffffdddhhheffffffffffffffffdddhhhhhheffffeee
+hheffffffdddheffffffdddhefffffffdddhhheffffdddhefffffdddhhhhhheffffeeeeeeeeeeeee
 iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii
 --- legend ---
 a fg=#CBD3DD bg=#14181D BOLD

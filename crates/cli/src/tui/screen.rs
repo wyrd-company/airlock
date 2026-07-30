@@ -46,8 +46,31 @@ macro_rules! key {
     };
 }
 
+/// The key that leaves. Live in every state without exception.
+pub const EXIT_KEY: Key = key!("ctrl-c", "exit");
+
+/// The key that switches palette.
+///
+/// Live everywhere except while a text input holds focus, where a printable
+/// key is text. The footer stops advertising it there rather than naming a key
+/// the state has captured.
+pub const THEME_KEY: Key = key!("t", "theme");
+
 /// The two keys live on every screen in every state.
-pub const UNIVERSAL_KEYS: [Key; 2] = [key!("t", "theme"), key!("ctrl-c", "exit")];
+pub const UNIVERSAL_KEYS: [Key; 2] = [THEME_KEY, EXIT_KEY];
+
+/// The keys live while a text input holds focus.
+///
+/// The input's own keys, in place of the screen's. Every printable key is
+/// typing, so nothing that types is listed as a key; what is listed is the four
+/// that still act, and `ctrl-c`, which is live without exception.
+pub const INPUT_KEYS: [Key; 5] = [
+    key!("\u{21b5}", "observe"),
+    key!("\u{2191}\u{2193}", "select"),
+    key!("backspace", "delete"),
+    key!("esc", "close the filter"),
+    EXIT_KEY,
+];
 
 impl Screen {
     /// Every screen, in the order the specification introduces them.
@@ -228,6 +251,33 @@ mod tests {
                     entry.key
                 );
             }
+        }
+    }
+
+    #[test]
+    fn a_focused_input_offers_its_own_keys_and_never_the_one_it_captured() {
+        assert!(
+            !INPUT_KEYS.iter().any(|entry| entry.key == THEME_KEY.key),
+            "the input takes printable keys as text, so the footer must not offer `t`"
+        );
+        assert!(
+            INPUT_KEYS.contains(&EXIT_KEY),
+            "ctrl-c is live without exception, in this state as in every other"
+        );
+        // Nothing that types is listed as a key. A single printable character
+        // in this footer would name something the input would have typed
+        // instead — which is the whole class of mistake `t theme` was.
+        for entry in INPUT_KEYS {
+            let mut characters = entry.key.chars();
+            let single_printable = characters
+                .next()
+                .is_some_and(|first| first.is_ascii_graphic())
+                && characters.next().is_none();
+            assert!(
+                !single_printable,
+                "{} reads as a character the input would have typed",
+                entry.key
+            );
         }
     }
 

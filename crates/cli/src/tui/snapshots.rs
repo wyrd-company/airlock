@@ -92,6 +92,26 @@ fn installation(
     }
 }
 
+/// An installation of four hundred repositories that airlock read part of.
+///
+/// The reading that matters is that neither screen calls what it holds the
+/// whole of it: the row says both numbers and the table counts against the
+/// installation rather than against itself.
+fn prefix() -> Catalogue {
+    let mut installation = installation(
+        "acme-industries",
+        AccountKind::Organization,
+        RepositorySelection::All,
+        &["widget", "sprocket", "public-flywheel"],
+    );
+    installation.listing = Listing::Read {
+        repositories: installation.listing.repositories().to_vec(),
+        total: 400,
+        truncated: true,
+    };
+    Catalogue::of(vec![installation])
+}
+
 /// An organization reaching everything, and a scoped user account beside it.
 fn catalogue() -> Catalogue {
     Catalogue::of(vec![
@@ -459,6 +479,24 @@ fn cases() -> Vec<Case> {
                     catalogue: catalogue(),
                     moved: 0,
                     filter: "et",
+                },
+            ),
+            (
+                "repositories-prefix",
+                Screen::Repositories,
+                Selection {
+                    catalogue: prefix(),
+                    moved: 0,
+                    filter: "",
+                },
+            ),
+            (
+                "organizations-prefix",
+                Screen::Organizations,
+                Selection {
+                    catalogue: prefix(),
+                    moved: 0,
+                    filter: "",
                 },
             ),
         ] {
