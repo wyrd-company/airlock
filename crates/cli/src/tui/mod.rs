@@ -9,6 +9,9 @@
 mod app;
 mod chrome;
 mod lane;
+mod organizations;
+mod panel;
+mod repositories;
 mod screen;
 mod sign_in;
 mod terminal;
@@ -25,8 +28,10 @@ use crossterm::event::{self, Event};
 
 use self::app::{App, Flow};
 use self::theme::ColorMode;
+use crate::admin::catalogue::{self, Reading};
 use crate::admin::flow::{Authorizing, Report};
 use crate::admin::session::SessionCredential;
+use crate::admin::text::{self, CAUSE_LIMIT};
 
 /// How long the loop waits for a key before it looks at the clock again.
 ///
@@ -85,6 +90,10 @@ pub fn run(version: &str) -> Result<u8> {
 /// on the error path, and on the panic that unwinds through it.
 fn drive(app: &mut App, session: &mut terminal::Session, authorizing: &Authorizing) -> Result<u8> {
     let mut credential: Option<SessionCredential> = None;
+    // The one reader of the credential. It is started from the grant and owns
+    // the only client built from it, so the token is spent at the boundary
+    // rather than carried around by anything that draws.
+    let mut reading: Option<Reading> = None;
     let mut last = Instant::now();
     loop {
         session
@@ -116,14 +125,34 @@ fn drive(app: &mut App, session: &mut terminal::Session, authorizing: &Authorizi
                 // The grant is taken here and the interface is only told that
                 // one exists. `App::report` names no type that could carry it.
                 Report::Granted(grant) => {
-                    credential = Some(SessionCredential::from_device_grant(*grant));
+                    let session = SessionCredential::from_device_grant(*grant);
                     app.authorization_granted();
+                    // Started from the credential rather than given it: what
+                    // the worker keeps is a client, and the interface is told
+                    // only that a read is in flight.
+                    match Reading::start(&session) {
+                        Ok(started) => reading = Some(started),
+                        Err(error) => app.catalogue_read(catalogue::Read::Failed(text::sanitize(
+                            &format!("{error:#}"),
+                            CAUSE_LIMIT,
+                        ))),
+                    }
+                    credential = Some(session);
                 }
                 Report::Progress(progress) => app.report(progress),
             }
         }
-        // Held only so the credential's lifetime is this loop's. Nothing reads
-        // it yet: the screens that would are the tasks after this one.
+
+        // The catalogue read, on the same terms: everything it has, without
+        // waiting, because the wait above is the loop's only one.
+        if let Some(worker) = reading.as_ref() {
+            while let Some(read) = worker.next_report(Duration::ZERO) {
+                app.catalogue_read(read);
+            }
+        }
+
+        // Held so the credential's lifetime is this loop's, and so it is
+        // dropped — and zeroized — however this function returns.
         let _ = &credential;
     }
 }

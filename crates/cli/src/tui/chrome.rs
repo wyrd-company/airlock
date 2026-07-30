@@ -223,20 +223,26 @@ fn overflow_note(dropped: usize) -> String {
     format!("{dropped} more{ELLIPSIS}")
 }
 
-/// The status line for a screen.
+/// The status line a screen carries when it has nothing of its own to say.
 ///
 /// Sign-in's is fixed by the specification. The rest state what the shell
-/// actually knows, which is that no observation has been made yet.
+/// actually knows, which is that no observation has been made yet. A screen
+/// that does know something states it and passes the text to [`status_line`].
 #[must_use]
-pub fn status_line(screen: Screen, styles: Styles, width: u16) -> Line<'static> {
-    let text = match screen {
+pub fn status_text(screen: Screen) -> String {
+    match screen {
         Screen::SignIn => format!("no credential on disk{FACT_SEPARATOR}tty required"),
         _ => format!(
             "no repository observed{FACT_SEPARATOR}\
              this shell renders the frame only{FACT_SEPARATOR}tty required"
         ),
-    };
-    let text = fit(&text, width as usize);
+    }
+}
+
+/// The status line, filling its row.
+#[must_use]
+pub fn status_line(text: &str, styles: Styles, width: u16) -> Line<'static> {
+    let text = fit(text, width as usize);
     let padding = (width as usize).saturating_sub(text.chars().count());
     Line::from(vec![
         Span::styled(text, styles.of(Role::Bar)),
@@ -418,7 +424,7 @@ mod tests {
                 for line in [
                     header_line(screen, "0.0.0", styles(), width),
                     keymap_line(screen, styles(), width),
-                    status_line(screen, styles(), width),
+                    status_line(&status_text(screen), styles(), width),
                     rule_line(styles(), width),
                 ] {
                     assert!(
@@ -530,7 +536,7 @@ mod tests {
         for width in [REFERENCE_WIDTH, FLOOR_WIDTH] {
             for screen in Screen::ALL {
                 assert_eq!(
-                    rendered(&status_line(screen, styles(), width))
+                    rendered(&status_line(&status_text(screen), styles(), width))
                         .chars()
                         .count(),
                     width as usize,
@@ -542,7 +548,11 @@ mod tests {
 
     #[test]
     fn sign_in_carries_the_status_line_the_specification_fixes() {
-        let text = rendered(&status_line(Screen::SignIn, styles(), REFERENCE_WIDTH));
+        let text = rendered(&status_line(
+            &status_text(Screen::SignIn),
+            styles(),
+            REFERENCE_WIDTH,
+        ));
         assert!(
             text.starts_with("no credential on disk \u{b7} tty required"),
             "{text}"

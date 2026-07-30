@@ -17,8 +17,12 @@ use ratatui::buffer::Buffer;
 use ratatui::style::{Color, Modifier};
 use ratatui::Terminal;
 
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+use crate::admin::catalogue::{Catalogue, Installation, Listing, Repository};
 use crate::admin::flow::Issued;
 use crate::admin::sign_in::SignIn;
+use airlock_core::github::{AccountKind, RepositorySelection};
 
 use super::app::App;
 use super::chrome::{FLOOR_HEIGHT, FLOOR_WIDTH, REFERENCE_HEIGHT, REFERENCE_WIDTH};
@@ -40,6 +44,70 @@ struct Case {
     height: u16,
     /// The sign-in state to open on, where the case is one of the five.
     flow: Option<SignIn>,
+    /// The catalogue to open on, where the case is a selection screen.
+    selection: Option<Selection>,
+}
+
+/// A catalogue, and where the operator has moved to inside it.
+///
+/// Reached by pressing the keys rather than by setting the fields, so a
+/// recorded screen is one the interface can actually be driven to.
+#[derive(Clone)]
+struct Selection {
+    catalogue: Catalogue,
+    /// How many times `↓` has been pressed.
+    moved: usize,
+    /// What has been typed into the repository filter, if anything.
+    filter: &'static str,
+}
+
+fn installation(
+    account: &str,
+    kind: AccountKind,
+    selection: RepositorySelection,
+    names: &[&str],
+) -> Installation {
+    Installation {
+        id: 7,
+        account: account.to_owned(),
+        kind,
+        selection,
+        listing: Listing::Read {
+            repositories: names
+                .iter()
+                .map(|name| Repository {
+                    owner: account.to_owned(),
+                    name: (*name).to_owned(),
+                    visibility: if name.starts_with("public") {
+                        "public".to_owned()
+                    } else {
+                        "private".to_owned()
+                    },
+                    default_branch: Some("main".to_owned()),
+                })
+                .collect(),
+            total: names.len() as u64,
+            truncated: false,
+        },
+    }
+}
+
+/// An organization reaching everything, and a scoped user account beside it.
+fn catalogue() -> Catalogue {
+    Catalogue::of(vec![
+        installation(
+            "acme-industries",
+            AccountKind::Organization,
+            RepositorySelection::All,
+            &["widget", "sprocket", "public-flywheel"],
+        ),
+        installation(
+            "sample-operator",
+            AccountKind::UserAccount,
+            RepositorySelection::Selected,
+            &["notes"],
+        ),
+    ])
 }
 
 /// The device code every sign-in snapshot is drawn from.
@@ -81,12 +149,30 @@ fn flows() -> Vec<(&'static str, SignIn)> {
 fn render(case: &Case) -> String {
     let backend = TestBackend::new(case.width, case.height);
     let mut terminal = Terminal::new(backend).expect("a test terminal");
-    let app = match case.flow.clone() {
+    let mut app = match case.flow.clone() {
         Some(state) => App::new(VERSION, case.color)
             .at(case.screen, case.theme)
             .signing_in(state),
         None => App::new(VERSION, case.color).at(case.screen, case.theme),
     };
+    if let Some(selection) = case.selection.clone() {
+        app = app
+            .with_catalogue(selection.catalogue)
+            .at(case.screen, case.theme);
+        let mut press = |code| {
+            app.handle_key(KeyEvent::new(code, KeyModifiers::NONE));
+        };
+        for _ in 0..selection.moved {
+            press(KeyCode::Down);
+        }
+        if !selection.filter.is_empty() {
+            press(KeyCode::Char('/'));
+            for character in selection.filter.chars() {
+                press(KeyCode::Char(character));
+            }
+        }
+    }
+    let app = app;
     terminal
         .draw(|frame| app.render(frame.area(), frame.buffer_mut()))
         .expect("the interface draws");
@@ -237,6 +323,7 @@ fn cases() -> Vec<Case> {
                 width,
                 height,
                 flow: None,
+                selection: None,
             });
         }
     }
@@ -258,6 +345,7 @@ fn cases() -> Vec<Case> {
                 width,
                 height,
                 flow: Some(state.clone()),
+                selection: None,
             });
         }
     }
@@ -276,6 +364,7 @@ fn cases() -> Vec<Case> {
         width: REFERENCE_WIDTH,
         height: REFERENCE_HEIGHT,
         flow: Some(awaiting.clone()),
+        selection: None,
     });
     cases.push(Case {
         name: "sign-in-awaiting-120x40-no-color",
@@ -285,6 +374,7 @@ fn cases() -> Vec<Case> {
         width: REFERENCE_WIDTH,
         height: REFERENCE_HEIGHT,
         flow: Some(awaiting),
+        selection: None,
     });
     for screen in [Screen::SignIn, Screen::Findings] {
         for (width, height) in [
@@ -301,6 +391,7 @@ fn cases() -> Vec<Case> {
                 width,
                 height,
                 flow: None,
+                selection: None,
             });
             cases.push(Case {
                 name: Box::leak(
@@ -312,6 +403,74 @@ fn cases() -> Vec<Case> {
                 width,
                 height,
                 flow: None,
+                selection: None,
+            });
+        }
+    }
+    // The four selection readings the definition of done names: an empty
+    // installation list, a scoped installation, a user account beside an
+    // organization, and a filtered repository table. Each at both sizes,
+    // because the table and the three causes are what the floor squeezes.
+    for (width, height) in [
+        (REFERENCE_WIDTH, REFERENCE_HEIGHT),
+        (FLOOR_WIDTH, FLOOR_HEIGHT),
+    ] {
+        for (name, screen, selection) in [
+            (
+                "organizations-empty",
+                Screen::Organizations,
+                Selection {
+                    catalogue: Catalogue::of(Vec::new()),
+                    moved: 0,
+                    filter: "",
+                },
+            ),
+            (
+                "organizations-reachable",
+                Screen::Organizations,
+                Selection {
+                    catalogue: catalogue(),
+                    moved: 0,
+                    filter: "",
+                },
+            ),
+            (
+                "organizations-scoped-user-account",
+                Screen::Organizations,
+                Selection {
+                    catalogue: catalogue(),
+                    moved: 1,
+                    filter: "",
+                },
+            ),
+            (
+                "repositories-listed",
+                Screen::Repositories,
+                Selection {
+                    catalogue: catalogue(),
+                    moved: 0,
+                    filter: "",
+                },
+            ),
+            (
+                "repositories-filtered",
+                Screen::Repositories,
+                Selection {
+                    catalogue: catalogue(),
+                    moved: 0,
+                    filter: "et",
+                },
+            ),
+        ] {
+            cases.push(Case {
+                name: Box::leak(format!("{name}-{}-dark", size_slug(width)).into_boxed_str()),
+                screen,
+                theme: Theme::Dark,
+                color: ColorMode::Color,
+                width,
+                height,
+                flow: None,
+                selection: Some(selection),
             });
         }
     }
@@ -342,6 +501,7 @@ fn a_test_build_names_the_test_identity_on_the_screen() {
         width: REFERENCE_WIDTH,
         height: REFERENCE_HEIGHT,
         flow: None,
+        selection: None,
     });
     assert!(rendered.contains("Airlock Test"), "{rendered}");
     assert!(!rendered.contains("Airlock Admin"), "{rendered}");
@@ -367,6 +527,15 @@ fn the_reading_is_the_same_text_in_both_palettes_and_without_colour() {
             (REFERENCE_WIDTH, REFERENCE_HEIGHT),
             (FLOOR_WIDTH, FLOOR_HEIGHT),
         ] {
+            // The two selection screens are compared populated as well as
+            // empty: they are the ones that draw a table, and a table is where
+            // a palette could quietly become the thing carrying a column.
+            let selection =
+                matches!(screen, Screen::Organizations | Screen::Repositories).then(|| Selection {
+                    catalogue: catalogue(),
+                    moved: 0,
+                    filter: "",
+                });
             let case = |theme, color| Case {
                 name: "comparison",
                 screen,
@@ -375,6 +544,7 @@ fn the_reading_is_the_same_text_in_both_palettes_and_without_colour() {
                 width,
                 height,
                 flow: None,
+                selection: selection.clone(),
             };
             let dark = reading(&case(Theme::Dark, ColorMode::Color));
             let light = reading(&case(Theme::Light, ColorMode::Color));
@@ -394,6 +564,7 @@ fn awaiting_case(theme: Theme, color: ColorMode) -> Case {
         color,
         width: REFERENCE_WIDTH,
         height: REFERENCE_HEIGHT,
+        selection: None,
         flow: flows()
             .into_iter()
             .find(|(name, _)| *name == "awaiting")
@@ -433,6 +604,7 @@ fn the_two_palettes_never_paint_a_screen_the_same_way() {
             width: REFERENCE_WIDTH,
             height: REFERENCE_HEIGHT,
             flow: None,
+            selection: None,
         };
         assert_ne!(
             legend(&case(Theme::Dark)),
@@ -457,6 +629,7 @@ fn no_color_emits_no_colour_at_all() {
                 width,
                 height,
                 flow: None,
+                selection: None,
             });
             for entry in &entries {
                 assert!(
@@ -480,6 +653,7 @@ fn the_whole_vocabulary_is_legible_at_the_floor_without_colour() {
         width: FLOOR_WIDTH,
         height: FLOOR_HEIGHT,
         flow: None,
+        selection: None,
     });
     for status in airlock_core::findings::Status::ALL {
         assert!(
@@ -503,6 +677,7 @@ fn a_terminal_under_the_floor_is_told_so_rather_than_drawn_into() {
         width: 60,
         height: 20,
         flow: None,
+        selection: None,
     });
     assert!(rendered.contains("TERMINAL TOO SMALL"), "{rendered}");
     assert!(!rendered.contains("STATUS VOCABULARY"), "{rendered}");

@@ -1,60 +1,61 @@
 organizations-80x24-dark · 80x24 · theme dark · colour
 --- text ---
 AIRLOCK 0.0.0  sign-in › organizations    no credential stored · theme t · dark 
-ORGANIZATIONS                                                                   
-Choose which installation to work in.                                           
-                                                                                
-NOTHING OBSERVED YET                                                            
-would show      the reachable installations, each with its kind and its         
-                repository count                                                
-empty because   this build is the interface shell. It draws the frame, the      
-                status vocabulary, and the navigation between screens. No       
-                authorization is requested and no repository is observed, so    
-                there is nothing for this region to hold.                       
-next            navigate with ↵ and esc to read the frame on every screen, press
-                t to compare the palettes, and ctrl-c to leave.                 
-                                                                                
-                                                                                
-                                                                                
-                                                                                
-                                                                                
-                                                                                
+REACHABLE INSTALLATIONS                                                         
+              nothing has been asked for yet: no authorization exists, and the  
+              list is read with the session's own grant.                        
+The list is where airlock is installed crossed with what this account reaches.  
+An absent organization is not evidence of absence.                              
+AN ABSENT ORGANIZATION HAS THREE CAUSES, AND THREE DIFFERENT REMEDIES           
+1  not installed there — install airlock; an owner or admin can.                
+2  installed, but this account is not a member or lacks the role — ask an owner.
+3  installed and reachable, but scoped away from those repositories — widen the 
+   selection.                                                                   
+CREDENTIAL                                                                      
+source        GitHub App Airlock Admin · device flow                            
+grant         read: metadata, actions · write: administration, contents,        
+              environments, repository_custom_properties, secrets, variables,   
+              workflows, organization_administration, organization_secrets ·    
+              admin: organization_custom_properties                             
+storage       none. No credential of any kind is stored, anywhere, ever. Its    
+              value is never displayed.                                         
                                                                                 
                                                                                 
                                                                                 
 ↑↓ select · ↵ open · t theme · ctrl-c exit                                      
-no repository observed · this shell renders the frame only · tty required       
+no authorization yet · the list is the intersection of install and access       
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-cccccccccccccddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+cccccccccccccccccccccccddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+eeeeeeeeeeeeeeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffdd
+eeeeeeeeeeeeeeffffffffffffffffffffffffffffffffffffffffffdddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-eeeeeeeeeeeeeeeeeeeedddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-ffffffffffffffffgggggggggggggggggggggggggggggggggggggggggggggggggggggggddddddddd
-ffffffffffffffffggggggggggggggggdddddddddddddddddddddddddddddddddddddddddddddddd
-ffffffffffffffffggggggggggggggggggggggggggggggggggggggggggggggggggggggggggdddddd
-ffffffffffffffffgggggggggggggggggggggggggggggggggggggggggggggggggggggggggddddddd
-ffffffffffffffffggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggdddd
-ffffffffffffffffgggggggggggggggggggggggggggggggggggggggggddddddddddddddddddddddd
-ffffffffffffffffgggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
-ffffffffffffffffgggggggggggggggggggggggggggggggggggggggggggggggddddddddddddddddd
+cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccddddddddddd
+gggfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffdddddddddddddddd
+gggfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+gggffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffd
+gggffffffffffddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+ccccccccccdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+eeeeeeeeeeeeeeffffffffffffffffffffffffffffffffffffffdddddddddddddddddddddddddddd
+eeeeeeeeeeeeeeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffdddddddd
+eeeeeeeeeeeeeefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffddd
+eeeeeeeeeeeeeeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffdddd
+eeeeeeeeeeeeeefffffffffffffffffffffffffffffffffffffddddddddddddddddddddddddddddd
+eeeeeeeeeeeeeeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffdddd
+eeeeeeeeeeeeeefffffffffffffffffffffffffddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-ccdggggggfffcdggggfffcdgggggfffccccccdggggdddddddddddddddddddddddddddddddddddddd
-hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh
+hhdffffffeeehdffffeeehdfffffeeehhhhhhdffffdddddddddddddddddddddddddddddddddddddd
+iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii
 --- legend ---
 a fg=#CBD3DD bg=#14181D BOLD
 b fg=#CBD3DD bg=#14181D
-c fg=#E8B84B bg=#0B0D10 BOLD
+c fg=#CBD3DD bg=#0B0D10 BOLD
 d fg=#CBD3DD bg=#0B0D10
-e fg=#CBD3DD bg=#0B0D10 BOLD
-f fg=#4C5661 bg=#0B0D10
-g fg=#79838F bg=#0B0D10
-h fg=#79838F bg=#101419
+e fg=#4C5661 bg=#0B0D10
+f fg=#79838F bg=#0B0D10
+g fg=#E8B84B bg=#0B0D10
+h fg=#E8B84B bg=#0B0D10 BOLD
+i fg=#79838F bg=#101419

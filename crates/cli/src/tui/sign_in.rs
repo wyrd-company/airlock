@@ -18,10 +18,8 @@ use crate::admin::sign_in::{humanize, Density, SignIn};
 use crate::admin::{flow, text};
 
 use super::chrome::wrap;
+use super::panel;
 use super::theme::{Role, Styles};
-
-/// The column the field values start in.
-const LABEL_WIDTH: usize = 14;
 
 /// The columns a scan code occupies, quiet zone included.
 const SCAN_COLUMNS: usize = 33;
@@ -389,11 +387,16 @@ impl Screen {
         if density == Density::Full {
             lines.push(Line::default());
         }
-        lines.extend(self.field(styles, "remedy", &self.state.remedy(density), width));
+        lines.extend(panel::field(
+            styles,
+            "remedy",
+            &self.state.remedy(density),
+            width,
+        ));
         if density == Density::Full {
             lines.push(Line::default());
         }
-        lines.extend(self.credential(styles, width, density));
+        lines.extend(panel::credential(styles, self.identity, width, density));
         lines
     }
 
@@ -458,8 +461,8 @@ impl Screen {
             .code()
             .map_or("not issued yet", |code| code.verification_uri.as_str())
             .to_owned();
-        lines.extend(self.field(styles, "address", &address, width));
-        lines.extend(self.field(
+        lines.extend(panel::field(styles, "address", &address, width));
+        lines.extend(panel::field(
             styles,
             "code",
             match density {
@@ -479,13 +482,13 @@ impl Screen {
                 remaining,
                 ..
             } => {
-                lines.extend(self.field(
+                lines.extend(panel::field(
                     styles,
                     "polling",
                     &format!("attempt {poll}, every {}", humanize(*interval)),
                     width,
                 ));
-                lines.extend(self.field(
+                lines.extend(panel::field(
                     styles,
                     "code expires",
                     &format!("in {}", humanize(*remaining)),
@@ -499,14 +502,14 @@ impl Screen {
                 code,
                 ..
             } => {
-                lines.extend(self.field(
+                lines.extend(panel::field(
                     styles,
                     "polling",
                     &format!("attempt {poll} failed, retrying in {}", humanize(*backoff)),
                     width,
                 ));
                 if code.is_some() {
-                    lines.extend(self.field(
+                    lines.extend(panel::field(
                         styles,
                         "code expires",
                         &match density {
@@ -535,9 +538,9 @@ impl Screen {
         // needs.
         match density {
             Density::Full => {
-                lines.extend(self.field(styles, "scan code", &scan, width));
+                lines.extend(panel::field(styles, "scan code", &scan, width));
                 if self.state.has_code() {
-                    lines.extend(self.field(styles, "", self.scan.offer(density), width));
+                    lines.extend(panel::field(styles, "", self.scan.offer(density), width));
                 }
             }
             Density::Tight => {
@@ -546,84 +549,15 @@ impl Screen {
                 } else {
                     String::new()
                 };
-                lines.extend(self.field(styles, "scan code", &format!("{scan}{offer}"), width));
+                lines.extend(panel::field(
+                    styles,
+                    "scan code",
+                    &format!("{scan}{offer}"),
+                    width,
+                ));
             }
         }
         lines
-    }
-
-    fn credential(&self, styles: Styles, width: usize, density: Density) -> Vec<Line<'static>> {
-        let mut lines = vec![Line::from(Span::styled(
-            "CREDENTIAL",
-            styles.bold(Role::Text),
-        ))];
-        lines.extend(self.field(styles, "source", &self.identity.source(), width));
-        lines.extend(self.field(styles, "grant", &self.grant(density), width));
-        lines.extend(self.field(
-            styles,
-            "storage",
-            match density {
-                Density::Full => {
-                    "none. No credential of any kind is stored: not in a file, not in \
-                     the environment, not in a child process, and not after this \
-                     session ends. Its value is never displayed."
-                }
-                Density::Tight => {
-                    "none. No credential of any kind is stored, anywhere, ever. Its \
-                     value is never displayed."
-                }
-            },
-            width,
-        ));
-        lines
-    }
-
-    /// The grant, by permission and level.
-    ///
-    /// Every permission is named at both densities, because the grant is the
-    /// screen's answer to what this credential can do and a summary of it is
-    /// not that answer. What the tight reading drops is the repetition: the
-    /// permissions are gathered under their level instead of each carrying it.
-    fn grant(&self, density: Density) -> String {
-        if density == Density::Full {
-            return self
-                .identity
-                .grant
-                .iter()
-                .map(|permission| format!("{} {}", permission.name, permission.level))
-                .collect::<Vec<_>>()
-                .join(" \u{b7} ");
-        }
-        let mut levels: Vec<(&str, Vec<&str>)> = Vec::new();
-        for permission in self.identity.grant {
-            match levels
-                .iter_mut()
-                .find(|(level, _)| *level == permission.level)
-            {
-                Some((_, names)) => names.push(permission.name),
-                None => levels.push((permission.level, vec![permission.name])),
-            }
-        }
-        levels
-            .into_iter()
-            .map(|(level, names)| format!("{level}: {}", names.join(", ")))
-            .collect::<Vec<_>>()
-            .join(" \u{b7} ")
-    }
-
-    fn field(&self, styles: Styles, label: &str, text: &str, width: usize) -> Vec<Line<'static>> {
-        let room = width.saturating_sub(LABEL_WIDTH).max(1);
-        wrap(text, room)
-            .into_iter()
-            .enumerate()
-            .map(|(index, part)| {
-                let label = if index == 0 { label } else { "" };
-                Line::from(vec![
-                    Span::styled(format!("{label:<LABEL_WIDTH$}"), styles.of(Role::Faint)),
-                    Span::styled(part, styles.of(Role::Dim)),
-                ])
-            })
-            .collect()
     }
 }
 

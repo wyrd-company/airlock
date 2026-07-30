@@ -18,9 +18,12 @@ use airlock_core::registry::Severity;
 
 use super::chrome::{self, wrap};
 use super::lane::{self, Lane};
+use crate::admin::catalogue::{self, Observations, Observe, Row};
 use crate::admin::flow::Progress;
 use crate::admin::sign_in::Reason;
 
+use super::organizations;
+use super::repositories::{self, Filter};
 use super::screen::Screen;
 use super::sign_in;
 use super::theme::{ColorMode, Role, Styles, Theme};
@@ -45,6 +48,19 @@ pub struct App {
     version: String,
     sign_in: sign_in::Screen,
     authorized: bool,
+    /// The installations this credential reaches, and what is in each.
+    catalogue: catalogue::State,
+    /// Which installation is selected on the organizations screen.
+    installation: usize,
+    /// Which repository is selected on the repositories screen.
+    repository: usize,
+    /// The incremental filter over the repository name.
+    filter: Filter,
+    /// What this session has observed. Nothing else can populate it: there is
+    /// no store behind it and nothing reads one.
+    observations: Observations,
+    /// The observation the last `↵` on a repository asked for.
+    requested: Option<Observe>,
 }
 
 impl App {
@@ -58,7 +74,47 @@ impl App {
             version: version.into(),
             sign_in: sign_in::Screen::default(),
             authorized: false,
+            catalogue: catalogue::State::Unauthorized,
+            installation: 0,
+            repository: 0,
+            filter: Filter::default(),
+            observations: Observations::default(),
+            requested: None,
         }
+    }
+
+    /// Open the interface with a catalogue already read.
+    ///
+    /// The snapshot suite and the key tests need every state of these two
+    /// screens, and the state they need is what GitHub answered — which is
+    /// exactly what neither of them has.
+    #[cfg_attr(not(test), allow(dead_code))]
+    #[must_use]
+    pub fn with_catalogue(mut self, catalogue: catalogue::Catalogue) -> Self {
+        self.catalogue = catalogue::State::Ready(Box::new(catalogue));
+        self
+    }
+
+    /// Record what an observation made in this session reached.
+    ///
+    /// The one way the journal is populated, and it takes an observation rather
+    /// than a repository: a verdict airlock did not produce in this session is
+    /// not a verdict it has.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn observed(
+        &mut self,
+        observe: &Observe,
+        at: impl Into<String>,
+        verdict: impl Into<String>,
+    ) {
+        self.observations.record(observe, at, verdict);
+    }
+
+    /// The observation the interface last asked for.
+    #[cfg_attr(not(test), allow(dead_code))]
+    #[must_use]
+    pub const fn requested(&self) -> Option<&Observe> {
+        self.requested.as_ref()
     }
 
     /// Open the interface with the sign-in flow in a given state.
@@ -117,13 +173,21 @@ impl App {
         {
             return Flow::Exit;
         }
+        // An open filter takes printable keys, including `t`. The specification
+        // requires a state in which one of the two universal keys is not live
+        // to be named on the screen with its reason, and the filter names this
+        // one: a filter that could not type `t` could not find a repository
+        // whose name has one in it. `ctrl-c` stays live, so the way out of
+        // every state is the way out of this one.
+        if self.screen == Screen::Repositories && self.filter.is_open() {
+            return self.filtering(event.code);
+        }
         match event.code {
             KeyCode::Char('t') => self.theme = self.theme.toggled(),
-            KeyCode::Enter => {
-                if let Some(next) = self.screen.forward() {
-                    self.screen = next;
-                }
-            }
+            KeyCode::Enter => return self.forward(),
+            KeyCode::Up => self.move_selection(-1),
+            KeyCode::Down => self.move_selection(1),
+            KeyCode::Char('/') if self.screen == Screen::Repositories => self.filter.open(),
             KeyCode::Esc => {
                 if let Some(previous) = self.screen.back() {
                     self.screen = previous;
@@ -152,6 +216,102 @@ impl App {
             _ => {}
         }
         Flow::Continue
+    }
+
+    /// Keys while the repository filter is open.
+    fn filtering(&mut self, code: KeyCode) -> Flow {
+        match code {
+            KeyCode::Esc => {
+                self.filter.close();
+                self.repository = 0;
+            }
+            KeyCode::Backspace => {
+                self.filter.backspace();
+                self.repository = 0;
+            }
+            KeyCode::Enter => return self.forward(),
+            KeyCode::Up => self.move_selection(-1),
+            KeyCode::Down => self.move_selection(1),
+            KeyCode::Char(character) => {
+                self.filter.push(character);
+                self.repository = 0;
+            }
+            _ => {}
+        }
+        Flow::Continue
+    }
+
+    /// What `↵` opens from here.
+    ///
+    /// Sign-in is not on this path: the screen after it is opened by an
+    /// authorization arriving, not by a key, because there is nothing to choose
+    /// from until one does. The two selection screens open only what they have
+    /// selected, so a key press on an empty list opens nothing rather than an
+    /// empty screen about nothing.
+    fn forward(&mut self) -> Flow {
+        match self.screen {
+            Screen::SignIn => {}
+            Screen::Organizations => {
+                if self.selected_installation().is_some() {
+                    self.screen = Screen::Repositories;
+                    self.repository = 0;
+                    self.filter.close();
+                }
+            }
+            Screen::Repositories => return self.observe(),
+            other => {
+                if let Some(next) = other.forward() {
+                    self.screen = next;
+                }
+            }
+        }
+        Flow::Continue
+    }
+
+    /// Open the selected repository, which is to observe it in full.
+    ///
+    /// The request is [`Row::observe`], which is built from the row's
+    /// coordinates alone. Nothing the screen remembers about the repository
+    /// travels with it, so no prior verdict can shorten or steer what follows.
+    fn observe(&mut self) -> Flow {
+        if let Some(row) = self.visible_rows().get(self.repository) {
+            self.requested = Some(row.observe());
+            self.screen = Screen::Findings;
+        }
+        Flow::Continue
+    }
+
+    fn move_selection(&mut self, delta: isize) {
+        let (selected, len) = match self.screen {
+            Screen::Organizations => (&mut self.installation, organizations::len(&self.catalogue)),
+            Screen::Repositories => {
+                let len = self.visible_rows().len();
+                (&mut self.repository, len)
+            }
+            _ => return,
+        };
+        if len == 0 {
+            *selected = 0;
+            return;
+        }
+        let last = len - 1;
+        *selected = match delta {
+            d if d < 0 => selected.saturating_sub(1),
+            _ => (*selected + 1).min(last),
+        }
+        .min(last);
+    }
+
+    fn selected_installation(&self) -> Option<&catalogue::Installation> {
+        self.catalogue.installations().get(self.installation)
+    }
+
+    /// The rows of the selected installation, narrowed by the filter.
+    fn visible_rows(&self) -> Vec<Row> {
+        self.selected_installation()
+            .map_or_else(Vec::new, |installation| {
+                repositories::visible(&Row::of(installation, &self.observations), &self.filter)
+            })
     }
 
     /// Advance every clock the interface shows.
@@ -204,6 +364,25 @@ impl App {
     pub fn authorization_granted(&mut self) {
         self.authorized = true;
         self.screen = Screen::Organizations;
+        // The read is in flight from here. Said as its own state rather than as
+        // an empty list, because an answer that has not arrived and an answer of
+        // "nothing" are two different things to put on a screen.
+        self.catalogue = catalogue::State::Reading;
+    }
+
+    /// Apply what the catalogue worker reported.
+    ///
+    /// Like [`App::report`], this names no type that could carry a credential:
+    /// the worker owns the only client, and what crosses the channel is a read
+    /// model whose every server-supplied string was sanitized on the way out.
+    pub fn catalogue_read(&mut self, read: catalogue::Read) {
+        self.catalogue = match read {
+            catalogue::Read::Ready(catalogue) => catalogue::State::Ready(catalogue),
+            catalogue::Read::Failed(cause) => catalogue::State::Failed(cause),
+        };
+        self.installation = 0;
+        self.repository = 0;
+        self.filter.close();
     }
 
     /// Whether the session holds an authorization.
@@ -241,7 +420,7 @@ impl App {
         }
         Paragraph::new(chrome::keymap_line(self.screen, styles, area.width))
             .render(frame.keymap, buffer);
-        Paragraph::new(chrome::status_line(self.screen, styles, area.width))
+        Paragraph::new(chrome::status_line(&self.status(), styles, area.width))
             .render(frame.status, buffer);
         // The body is wrapped here rather than by the paragraph, so a
         // continuation line lands under the text it continues instead of under
@@ -303,10 +482,48 @@ impl App {
     /// empty, and what can be done next. Only the findings screen draws
     /// anything more, because the status vocabulary is the one thing this task
     /// does own.
+    /// The status line for the open screen.
+    ///
+    /// Two screens now know something the shell did not, and they say it. The
+    /// rest still state that nothing has been observed, which remains true.
+    fn status(&self) -> String {
+        match self.screen {
+            Screen::Organizations => organizations::status(&self.catalogue),
+            Screen::Repositories => {
+                let available = self
+                    .selected_installation()
+                    .map_or(0, |installation| installation.listing.repositories().len());
+                repositories::status(self.visible_rows().len(), available)
+            }
+            other => chrome::status_text(other),
+        }
+    }
+
     fn body(&self, width: u16, height: u16) -> Vec<Line<'static>> {
         let styles = self.styles();
         if self.screen == Screen::SignIn {
             return self.sign_in.body(styles, width, height);
+        }
+        if self.screen == Screen::Organizations {
+            return organizations::body(styles, width, height, &self.catalogue, self.installation);
+        }
+        if self.screen == Screen::Repositories {
+            let installation = self.selected_installation();
+            let available =
+                installation.map_or(0, |installation| installation.listing.repositories().len());
+            return repositories::body(
+                styles,
+                width,
+                height,
+                &repositories::View {
+                    installation,
+                    catalogue: self.catalogue.catalogue(),
+                    rows: &self.visible_rows(),
+                    available,
+                    filter: &self.filter,
+                    selected: self.repository,
+                },
+            );
         }
         let width = width as usize;
         let mut lines = vec![Line::from(Span::styled(
@@ -512,9 +729,15 @@ mod tests {
 
     #[test]
     fn enter_and_esc_walk_the_chain_and_stop_at_its_ends() {
-        let mut app = app();
+        // The walk starts from an authorization and a catalogue, because that
+        // is what the chain is made of now: the screen after sign-in is opened
+        // by a grant arriving, and the two selection screens open what they
+        // have selected rather than an empty screen about nothing.
+        let mut app = app().with_catalogue(catalogue());
+        app.authorization_granted();
+        app.catalogue_read(catalogue::Read::Ready(Box::new(catalogue())));
+        assert_eq!(app.screen(), Screen::Organizations);
         for expected in [
-            Screen::Organizations,
             Screen::Repositories,
             Screen::Findings,
             Screen::FindingDetail,
@@ -637,9 +860,12 @@ mod tests {
 
     #[test]
     fn every_screen_states_what_would_have_populated_it() {
-        // Sign-in is excluded because it is no longer empty: it draws the
-        // device flow, and a region that has content states its content.
-        for screen in Screen::ALL.into_iter().filter(|s| *s != Screen::SignIn) {
+        // Three screens are excluded because they are no longer empty: sign-in
+        // draws the device flow, and the two selection screens draw what the
+        // catalogue holds. A region that has content states its content, and
+        // each of the three states its own emptiness in its own terms.
+        let drawn = [Screen::SignIn, Screen::Organizations, Screen::Repositories];
+        for screen in Screen::ALL.into_iter().filter(|s| !drawn.contains(s)) {
             let app = app().at(screen, Theme::Dark);
             let text: String = app
                 .body(chrome::REFERENCE_WIDTH, chrome::REFERENCE_HEIGHT)
@@ -672,6 +898,277 @@ mod tests {
             30,
             "room to spare is untouched"
         );
+    }
+
+    // ---------------------------------------------------------------------
+    // Choosing an organization, and then a repository
+    // ---------------------------------------------------------------------
+
+    fn installation(
+        account: &str,
+        kind: airlock_core::github::AccountKind,
+        selection: airlock_core::github::RepositorySelection,
+        names: &[&str],
+    ) -> catalogue::Installation {
+        catalogue::Installation {
+            id: 7,
+            account: account.to_owned(),
+            kind,
+            selection,
+            listing: catalogue::Listing::Read {
+                repositories: names
+                    .iter()
+                    .map(|name| catalogue::Repository {
+                        owner: account.to_owned(),
+                        name: (*name).to_owned(),
+                        visibility: "private".to_owned(),
+                        default_branch: Some("main".to_owned()),
+                    })
+                    .collect(),
+                total: names.len() as u64,
+                truncated: false,
+            },
+        }
+    }
+
+    /// An organization and a user account, the second scoped.
+    fn catalogue() -> catalogue::Catalogue {
+        use airlock_core::github::{AccountKind, RepositorySelection};
+        catalogue::Catalogue::of(vec![
+            installation(
+                "acme-industries",
+                AccountKind::Organization,
+                RepositorySelection::All,
+                &["widget", "sprocket"],
+            ),
+            installation(
+                "sample-operator",
+                AccountKind::UserAccount,
+                RepositorySelection::Selected,
+                &["notes"],
+            ),
+        ])
+    }
+
+    fn selected(app: &App) -> catalogue::Catalogue {
+        catalogue::Catalogue::of(vec![app
+            .selected_installation()
+            .expect("an installation is selected")
+            .clone()])
+    }
+
+    #[test]
+    fn an_authorization_puts_the_catalogue_read_in_flight_rather_than_showing_an_empty_list() {
+        let mut app = app();
+        app.authorization_granted();
+        assert_eq!(app.catalogue, catalogue::State::Reading);
+        assert!(
+            organizations::status(&app.catalogue).contains("reading"),
+            "an answer that has not arrived is not an answer of none"
+        );
+        app.catalogue_read(catalogue::Read::Failed("rate_limit".to_owned()));
+        assert!(matches!(app.catalogue, catalogue::State::Failed(_)));
+    }
+
+    #[test]
+    fn the_arrows_move_the_selection_and_stop_at_both_ends() {
+        let mut app = app()
+            .with_catalogue(catalogue())
+            .at(Screen::Organizations, Theme::Dark);
+        assert_eq!(app.installation, 0);
+        press(&mut app, KeyCode::Up);
+        assert_eq!(app.installation, 0, "the top of the list is the top");
+        press(&mut app, KeyCode::Down);
+        assert_eq!(app.installation, 1);
+        press(&mut app, KeyCode::Down);
+        assert_eq!(app.installation, 1, "the end of the list is the end");
+    }
+
+    #[test]
+    fn enter_opens_nothing_when_there_is_nothing_selected() {
+        let mut app = app()
+            .with_catalogue(catalogue::Catalogue::of(Vec::new()))
+            .at(Screen::Organizations, Theme::Dark);
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(
+            app.screen(),
+            Screen::Organizations,
+            "an empty list opens nothing rather than an empty screen about nothing"
+        );
+    }
+
+    #[test]
+    fn opening_an_installation_shows_the_repositories_it_reaches() {
+        let mut app = app()
+            .with_catalogue(catalogue())
+            .at(Screen::Organizations, Theme::Dark);
+        press(&mut app, KeyCode::Down);
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(app.screen(), Screen::Repositories);
+        let rows = app.visible_rows();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].repository.name, "notes");
+    }
+
+    #[test]
+    fn the_filter_narrows_the_rows_as_it_is_typed() {
+        let mut app = app()
+            .with_catalogue(catalogue())
+            .at(Screen::Repositories, Theme::Dark);
+        assert_eq!(app.visible_rows().len(), 2);
+        press(&mut app, KeyCode::Char('/'));
+        assert!(app.filter.is_open());
+        for character in "spro".chars() {
+            press(&mut app, KeyCode::Char(character));
+        }
+        assert_eq!(app.visible_rows().len(), 1);
+        assert_eq!(app.visible_rows()[0].repository.name, "sprocket");
+        press(&mut app, KeyCode::Backspace);
+        assert_eq!(app.filter.text(), "spr");
+    }
+
+    #[test]
+    fn an_open_filter_types_the_theme_key_and_esc_closes_it_rather_than_navigating() {
+        // The one state in which a universal key is not live, and the screen
+        // names it: a filter that could not type `t` could not find a
+        // repository with one in its name. `ctrl-c` is untouched, so the way
+        // out of every other state is still the way out of this one.
+        let mut app = app()
+            .with_catalogue(catalogue())
+            .at(Screen::Repositories, Theme::Dark);
+        press(&mut app, KeyCode::Char('/'));
+        press(&mut app, KeyCode::Char('t'));
+        assert_eq!(app.theme(), Theme::Dark, "the key was typed, not acted on");
+        assert_eq!(app.filter.text(), "t");
+        assert_eq!(
+            app.handle_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)),
+            Flow::Exit,
+            "ctrl-c leaves from every state, including this one"
+        );
+
+        press(&mut app, KeyCode::Esc);
+        assert!(!app.filter.is_open());
+        assert_eq!(app.filter.text(), "", "closing the filter clears it");
+        assert_eq!(app.screen(), Screen::Repositories, "esc closed the filter");
+        press(&mut app, KeyCode::Esc);
+        assert_eq!(app.screen(), Screen::Organizations, "and then it goes back");
+    }
+
+    #[test]
+    fn opening_a_repository_asks_for_a_full_observation_whatever_is_remembered() {
+        // The contract in the interface's own terms: a repository this session
+        // observed and found conformant produces exactly the request an
+        // unobserved one does. Nothing is acted upon from memory.
+        let coordinates = Observe {
+            owner: "acme-industries".to_owned(),
+            name: "widget".to_owned(),
+        };
+
+        let mut fresh = app()
+            .with_catalogue(catalogue())
+            .at(Screen::Repositories, Theme::Dark);
+        press(&mut fresh, KeyCode::Enter);
+        assert_eq!(fresh.requested(), Some(&coordinates));
+        assert_eq!(fresh.screen(), Screen::Findings);
+
+        let mut remembered = app()
+            .with_catalogue(catalogue())
+            .at(Screen::Repositories, Theme::Dark);
+        remembered.observed(&coordinates, "2026-01-02", "conformant");
+        assert_eq!(
+            remembered.visible_rows()[0].prior.verdict(),
+            "conformant",
+            "the row does display what the session remembers"
+        );
+        press(&mut remembered, KeyCode::Enter);
+        assert_eq!(
+            remembered.requested(),
+            fresh.requested(),
+            "a remembered verdict changed what airlock asked for"
+        );
+    }
+
+    #[test]
+    fn a_repository_scoped_out_of_an_installation_is_told_apart_from_an_absent_one() {
+        use airlock_core::github::{AccountKind, RepositorySelection};
+        let scoped = catalogue::Catalogue::of(vec![installation(
+            "acme-industries",
+            AccountKind::Organization,
+            RepositorySelection::Selected,
+            &["widget"],
+        )]);
+        let mut scoped = app()
+            .with_catalogue(scoped)
+            .at(Screen::Repositories, Theme::Dark);
+        press(&mut scoped, KeyCode::Char('/'));
+        for character in "sprocket".chars() {
+            press(&mut scoped, KeyCode::Char(character));
+        }
+        let text = body_text(&scoped);
+        assert!(
+            text.contains("installation scope rather than absence"),
+            "{text}"
+        );
+        assert!(text.contains("repository selection"), "{text}");
+
+        let everything = catalogue::Catalogue::of(vec![installation(
+            "acme-industries",
+            AccountKind::Organization,
+            RepositorySelection::All,
+            &["widget"],
+        )]);
+        let mut everything = app()
+            .with_catalogue(everything)
+            .at(Screen::Repositories, Theme::Dark);
+        press(&mut everything, KeyCode::Char('/'));
+        for character in "sprocket".chars() {
+            press(&mut everything, KeyCode::Char(character));
+        }
+        let text = body_text(&everything);
+        assert!(text.contains("absent rather than out of scope"), "{text}");
+    }
+
+    #[test]
+    fn the_status_line_says_what_each_selection_screen_knows() {
+        let app = app()
+            .with_catalogue(catalogue())
+            .at(Screen::Organizations, Theme::Dark);
+        assert!(app.status().contains("2 installations"), "{}", app.status());
+        assert!(app.status().contains("intersection"), "{}", app.status());
+        let app = app.at(Screen::Repositories, Theme::Dark);
+        assert!(app.status().contains("2 of 2 shown"), "{}", app.status());
+        assert!(
+            app.status().contains("orientation only"),
+            "{}",
+            app.status()
+        );
+    }
+
+    #[test]
+    fn the_catalogue_is_what_the_organizations_screen_draws() {
+        let app = app()
+            .with_catalogue(catalogue())
+            .at(Screen::Organizations, Theme::Dark);
+        let text = body_text(&app);
+        assert!(text.contains("acme-industries"), "{text}");
+        assert!(text.contains("organization"), "{text}");
+        assert!(text.contains("user account"), "{text}");
+        assert!(text.contains("2 repositories"), "{text}");
+        assert!(text.contains("THREE CAUSES"), "{text}");
+        // The selected installation is the one the repositories screen is
+        // about, and the catalogue it draws from is the same one.
+        assert_eq!(selected(&app).installations().len(), 1);
+    }
+
+    fn body_text(app: &App) -> String {
+        app.body(chrome::REFERENCE_WIDTH, chrome::REFERENCE_HEIGHT)
+            .iter()
+            .flat_map(|line| line.spans.iter())
+            .map(|span| span.content.as_ref())
+            .collect::<String>()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
     }
 
     #[test]
