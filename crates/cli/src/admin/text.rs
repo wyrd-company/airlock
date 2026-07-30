@@ -71,6 +71,11 @@ fn is_drawable(character: char) -> bool {
 /// included deliberately: this interface lays out its own lines, and a string
 /// that could introduce one could push a row out of the column its meaning
 /// depends on.
+///
+/// The bound is a layout decision and not a safety one: it exists so a value
+/// cannot become a paragraph on a row that has one line for it. Use
+/// [`drawable`] where the surface has room for whatever the run said, because
+/// the two concerns are separable and only one of them is about the terminal.
 #[must_use]
 pub fn sanitize(text: &str, limit: usize) -> String {
     let mut out = String::with_capacity(text.len().min(limit));
@@ -86,6 +91,31 @@ pub fn sanitize(text: &str, limit: usize) -> String {
         });
     }
     out
+}
+
+/// Make a server-supplied string safe to draw, whole.
+///
+/// The same examination [`sanitize`] makes and none of its shortening. A
+/// surface that promises to carry a fact whole cannot also impose a length on
+/// it: a bound there would make the promise false for exactly the values it
+/// most matters for, and it would be silent about having done so, because an
+/// ellipsis at four hundred characters looks like a value that happened to end.
+///
+/// This is not a weaker guarantee than the bounded form. Every character a
+/// terminal reads as an instruction is refused here too; what is not refused is
+/// length, which no terminal interprets. Bounding what a run may report belongs
+/// where the run is assembled, not where it is drawn.
+#[must_use]
+pub fn drawable(text: &str) -> String {
+    text.chars()
+        .map(|character| {
+            if is_drawable(character) {
+                character
+            } else {
+                REPLACEMENT
+            }
+        })
+        .collect()
 }
 
 /// Whether an address is at the origin airlock asked, and so is safe to encode.
@@ -126,6 +156,30 @@ mod tests {
 
     /// GitHub's origin, which is what a shipped run expects.
     const GITHUB: &str = "https://github.com";
+
+    #[test]
+    fn the_unbounded_form_refuses_everything_the_bounded_one_does_and_shortens_nothing() {
+        let hostile = format!(
+            "{}\u{1b}[2J\u{202e}head\u{200b}tail{}",
+            "a".repeat(500),
+            "b".repeat(500)
+        );
+        let safe = drawable(&hostile);
+        assert_eq!(
+            safe.chars().count(),
+            hostile.chars().count(),
+            "nothing was dropped and nothing was added"
+        );
+        assert!(!safe.contains('\u{2026}'), "nothing was elided: {safe}");
+        for refused in ['\u{1b}', '\u{202e}', '\u{200b}'] {
+            assert!(!safe.contains(refused), "{refused:?} survived");
+        }
+        assert_eq!(safe.matches(REPLACEMENT).count(), 3);
+        // The two forms agree wherever the bound is not reached, so the
+        // unbounded one is the same examination and not a second one.
+        let ordinary = "connection reset by peer";
+        assert_eq!(drawable(ordinary), sanitize(ordinary, CAUSE_LIMIT));
+    }
 
     #[test]
     fn only_an_address_at_the_expected_origin_is_encodable() {

@@ -24,7 +24,7 @@ use airlock_core::findings::{Finding, Gate, Outcome, Report, Status, Summary};
 use airlock_core::registry::{self, Severity};
 
 use crate::admin::sign_in::Density;
-use crate::admin::text::sanitize;
+use crate::admin::text::{drawable, sanitize};
 
 use super::chrome::fit;
 use super::detail::Detail;
@@ -32,11 +32,12 @@ use super::lane::{self, Lane, GATING_RAIL, LANES_WIDTH};
 use super::panel::{self, Provenance};
 use super::theme::{Role, Styles};
 
-/// The most a rule id may be. The registry's longest is fourteen characters.
+/// The most a rule id may be on a line the queue writes for itself.
+///
+/// The registry's longest is fourteen characters. It bounds the queue's own
+/// prose about a rule — a blocker banner, a repository name — and never the
+/// rule id a row draws, which is bounded by the column it draws it in.
 const RULE_LIMIT: usize = 24;
-
-/// The most a rule statement may be on a row that has one line for it.
-const STATEMENT_LIMIT: usize = 300;
 
 /// The most a reported reason may be.
 const REASON_LIMIT: usize = 200;
@@ -614,8 +615,12 @@ fn row(
     let severity = Severity::parse(&finding.severity).unwrap_or(Severity::Observation);
     let group = group_of(finding);
     Row {
-        rule: sanitize(&finding.rule, RULE_LIMIT),
-        statement: sanitize(&finding.statement, STATEMENT_LIMIT),
+        // Whole in the model and shortened only where a column requires it.
+        // The row has one line and bounds these at the moment it draws them;
+        // the finding detail has the whole screen and carries them whole, and
+        // it reads them from here.
+        rule: drawable(&finding.rule),
+        statement: drawable(&finding.statement),
         severity,
         status: finding.status,
         section: registry::find(&finding.rule).map_or_else(
@@ -1451,10 +1456,11 @@ pub mod fixture {
     use super::{Deliveries, Delivery};
     use airlock_core::findings::{
         AirlockIdentity, AuditedRepository, EffectiveRule, Evidence, Finding, FindingError, Gate,
-        ObservationRecord, PolicyIdentity, PolicySourceIdentity, RemediationClass, Report, Status,
-        Suppression, SuppressionSource,
+        ObservationRecord, PolicyIdentity, PolicySourceIdentity, Remediation, RemediationClass,
+        Report, Status, Suppression, SuppressionSource,
     };
     use airlock_core::registry::{self, Severity};
+    use airlock_core::remediation::ActionGroup;
 
     /// One finding, with the registry's own classification joined onto it.
     #[must_use]
@@ -1646,6 +1652,79 @@ pub mod fixture {
                 finding("REPO-META-01", Severity::Blocking, Status::Pass),
             ],
         )
+    }
+
+    /// A run whose every server-supplied string is long and hostile.
+    ///
+    /// Long past any bound the queue imposes for its own layout, so a surface
+    /// that promises to carry a fact whole is actually tested on one it could
+    /// have shortened; and carrying the characters a terminal reads as
+    /// instructions, so completeness and safety are proven on the same value
+    /// rather than on two convenient ones.
+    #[must_use]
+    pub fn hostile() -> Report {
+        // Long enough that no layout bound in the interface could have been
+        // reached honestly, and seeded so no two values are prefixes of one
+        // another: a test asserting a value survived would otherwise pass on a
+        // different value that happened to contain it.
+        let long = |seed: &str| format!("{seed}\u{1b}[2J\u{200b}\u{202e}{}", seed.repeat(120));
+        let mut failed = finding("REPO-GIT-01", Severity::Blocking, Status::Fail);
+        failed.statement = long("statement");
+        failed.evidence = Some(Evidence::at(
+            long("evidence-code"),
+            long("evidence-path"),
+            long("evidence-detail"),
+        ));
+        failed.remediation = Some(Remediation::new(
+            ActionGroup::TIGHTEN_RULESET,
+            long("remediation-detail"),
+        ));
+        failed.remediation_class = RemediationClass {
+            lane: Some("operator-setting".to_owned()),
+            code: Some(long("class-code")),
+            change: Some(long("class-change")),
+            reversible: Some(true),
+            none_reason: None,
+        };
+        let mut errored = finding("REPO-GIT-09", Severity::Blocking, Status::Error);
+        errored.statement = long("error-statement");
+        errored.remediation_class = RemediationClass {
+            lane: None,
+            code: None,
+            change: None,
+            reversible: None,
+            none_reason: Some(long("no-remediation-reason")),
+        };
+        errored.error = Some(FindingError {
+            cause: long("cause"),
+            endpoint: long("endpoint"),
+            status: Some(403),
+            message: Some(long("message")),
+            documentation_url: Some(long("documentation")),
+            accepted_permissions: Some(long("accepted")),
+            request_id: Some(long("request")),
+            message_hints_version: 1,
+        });
+        let mut suppressed = finding("REPO-CI-02", Severity::Blocking, Status::Suppressed);
+        suppressed.statement = long("suppressed-statement");
+        suppressed.remediation_class = RemediationClass {
+            lane: Some("deterministic-file".to_owned()),
+            code: Some(long("suppressed-class-code")),
+            change: Some(long("suppressed-class-change")),
+            reversible: Some(false),
+            none_reason: None,
+        };
+        suppressed.suppression = Some(Suppression {
+            source: SuppressionSource::RepositoryRequest,
+            requested_reason: Some(long("requested")),
+            policy_reason: Some(long("policy-reason")),
+            authorized_by: long("authorized-by"),
+        });
+        let mut report = report(Gate::Required, vec![failed, errored, suppressed]);
+        for entry in &mut report.effective_policy {
+            entry.provenance = long("provenance");
+        }
+        report
     }
 
     /// A repository with nothing left to close.

@@ -19,15 +19,19 @@
 //! * an **error** is undecided, and what it reports is why airlock did not
 //!   look. It is never rendered as a failure, at any severity, for any cause.
 //!
-//! Everything drawn here was sanitized where the run became a read model. This
-//! module takes values and returns lines; it asks nothing else a question.
+//! Everything drawn here was made safe where the run became a read model, and
+//! made safe without being shortened: a surface that promises to carry a fact
+//! whole cannot also impose a length on it, and a bound would be silent about
+//! having been reached, because an ellipsis looks like a value that ended.
+//! Length is a layout concern, and this screen scrolls rather than eliding.
+//! This module takes values and returns lines; it asks nothing else a question.
 
 use ratatui::text::{Line, Span};
 
 use airlock_core::findings::{EffectiveRule, Finding, Status, Undecided};
 use airlock_core::registry;
 
-use crate::admin::text::sanitize;
+use crate::admin::text::drawable;
 
 use super::lane::{self, Lane};
 use super::panel::{self, field_at, heading, Provenance, Scroll};
@@ -42,9 +46,6 @@ pub const LABEL_WIDTH: usize = 22;
 
 /// The indent under a heading that names the block its fields belong to.
 const NESTED: &str = "  ";
-
-/// The most any one value may be.
-const VALUE_LIMIT: usize = 400;
 
 /// The mark that stands where the run recorded no value.
 ///
@@ -153,6 +154,9 @@ pub struct Remediation {
 
 impl Remediation {
     /// Whether anything at all is on offer for this rule.
+    ///
+    /// Either vocabulary will do: the region is drawn where there is something
+    /// to say about closing the gap, whichever of the two said it.
     #[must_use]
     pub const fn offered(&self) -> bool {
         self.class_lane.is_some() || self.code.is_some()
@@ -197,47 +201,35 @@ impl Detail {
             policy_provenance: effective_policy
                 .iter()
                 .find(|rule| rule.rule == finding.rule)
-                .map(|rule| sanitize(&rule.provenance, VALUE_LIMIT)),
+                .map(|rule| drawable(&rule.provenance)),
             evidence: finding.evidence.as_ref().map(|evidence| Evidence {
-                code: sanitize(&evidence.code, VALUE_LIMIT),
-                path: evidence
-                    .path
-                    .as_ref()
-                    .map(|path| sanitize(path, VALUE_LIMIT)),
-                detail: sanitize(&evidence.detail, VALUE_LIMIT),
+                code: drawable(&evidence.code),
+                path: evidence.path.as_ref().map(|path| drawable(path)),
+                detail: drawable(&evidence.detail),
             }),
             error: finding.error.as_ref().map(|error| Error {
-                cause: sanitize(&error.cause, VALUE_LIMIT),
+                cause: drawable(&error.cause),
                 status: error.status,
-                endpoint: sanitize(&error.endpoint, VALUE_LIMIT),
-                request_id: error
-                    .request_id
-                    .as_ref()
-                    .map(|id| sanitize(id, VALUE_LIMIT)),
-                message: error
-                    .message
-                    .as_ref()
-                    .map(|message| sanitize(message, VALUE_LIMIT)),
+                endpoint: drawable(&error.endpoint),
+                request_id: error.request_id.as_ref().map(|id| drawable(id)),
+                message: error.message.as_ref().map(|message| drawable(message)),
                 accepted_permissions: error
                     .accepted_permissions
                     .as_ref()
-                    .map(|grants| sanitize(grants, VALUE_LIMIT)),
-                documentation_url: error
-                    .documentation_url
-                    .as_ref()
-                    .map(|url| sanitize(url, VALUE_LIMIT)),
+                    .map(|grants| drawable(grants)),
+                documentation_url: error.documentation_url.as_ref().map(|url| drawable(url)),
             }),
             suppression: finding.suppression.as_ref().map(|suppression| Suppression {
                 source: suppression.source.code(),
                 requested_reason: suppression
                     .requested_reason
                     .as_ref()
-                    .map(|reason| sanitize(reason, VALUE_LIMIT)),
+                    .map(|reason| drawable(reason)),
                 policy_reason: suppression
                     .policy_reason
                     .as_ref()
-                    .map(|reason| sanitize(reason, VALUE_LIMIT)),
-                authorized_by: sanitize(&suppression.authorized_by, VALUE_LIMIT),
+                    .map(|reason| drawable(reason)),
+                authorized_by: drawable(&suppression.authorized_by),
             }),
             remediation: Remediation {
                 code: finding
@@ -247,28 +239,28 @@ impl Detail {
                 detail: finding
                     .remediation
                     .as_ref()
-                    .map(|remediation| sanitize(&remediation.detail, VALUE_LIMIT)),
+                    .map(|remediation| drawable(&remediation.detail)),
                 class_code: finding
                     .remediation_class
                     .code
                     .as_ref()
-                    .map(|code| sanitize(code, VALUE_LIMIT)),
+                    .map(|code| drawable(code)),
                 class_change: finding
                     .remediation_class
                     .change
                     .as_ref()
-                    .map(|change| sanitize(change, VALUE_LIMIT)),
+                    .map(|change| drawable(change)),
                 class_lane: finding
                     .remediation_class
                     .lane
                     .as_ref()
-                    .map(|lane| sanitize(lane, VALUE_LIMIT)),
+                    .map(|lane| drawable(lane)),
                 class_reversible: finding.remediation_class.reversible,
                 class_none_reason: finding
                     .remediation_class
                     .none_reason
                     .as_ref()
-                    .map(|reason| sanitize(reason, VALUE_LIMIT)),
+                    .map(|reason| drawable(reason)),
             },
         }
     }
@@ -1181,6 +1173,102 @@ mod tests {
         assert!(!rendered.contains("lines above"), "{rendered}");
     }
 
+    /// Every string the run supplied for a rule, as the run wrote it.
+    ///
+    /// Read off the finding rather than off the read model, so the test
+    /// compares what was drawn against the source and not against another copy
+    /// of the drawing.
+    fn supplied(finding: &Finding) -> Vec<String> {
+        let mut values = vec![finding.statement.clone()];
+        if let Some(evidence) = finding.evidence.as_ref() {
+            values.push(evidence.code.clone());
+            values.extend(evidence.path.clone());
+            values.push(evidence.detail.clone());
+        }
+        if let Some(error) = finding.error.as_ref() {
+            values.push(error.cause.clone());
+            values.push(error.endpoint.clone());
+            values.extend(error.message.clone());
+            values.extend(error.documentation_url.clone());
+            values.extend(error.accepted_permissions.clone());
+            values.extend(error.request_id.clone());
+        }
+        if let Some(suppression) = finding.suppression.as_ref() {
+            values.extend(suppression.requested_reason.clone());
+            values.extend(suppression.policy_reason.clone());
+            values.push(suppression.authorized_by.clone());
+        }
+        if let Some(remediation) = finding.remediation.as_ref() {
+            values.push(remediation.detail.clone());
+        }
+        values.extend(finding.remediation_class.code.clone());
+        values.extend(finding.remediation_class.change.clone());
+        values.extend(finding.remediation_class.none_reason.clone());
+        values
+    }
+
+    /// What a value looks like once the unexaminable characters are refused.
+    fn expected(value: &str) -> String {
+        crate::admin::text::drawable(value).replace(' ', "")
+    }
+
+    #[test]
+    fn a_value_longer_than_any_layout_bound_is_still_carried_whole() {
+        // The surface of last resort, tested on values it could have shortened.
+        // Every one of these is far past the bound the queue imposes for its
+        // own layout, which is exactly the case the guarantee is for and
+        // exactly the case a fixture of convenient lengths cannot reach.
+        let report = fixture::hostile();
+        let queue = queue(&report);
+        for finding in &report.findings {
+            let row = row_for(&queue, &finding.rule);
+            for width in [REFERENCE_WIDTH, FLOOR_WIDTH] {
+                let rendered = text(&regions(styles(), width as usize, row, &queue.provenance))
+                    .replace(' ', "");
+                for value in supplied(finding) {
+                    assert!(
+                        value.chars().count() > 400,
+                        "the fixture must exceed any layout bound: {}",
+                        value.chars().count()
+                    );
+                    assert!(
+                        rendered.contains(&expected(&value)),
+                        "{} at {width} lost a value it promised to carry whole",
+                        finding.rule
+                    );
+                }
+                assert!(
+                    !rendered.contains('\u{2026}'),
+                    "{} at {width} elided something",
+                    finding.rule
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_hostile_value_is_carried_whole_and_still_cannot_instruct_the_terminal() {
+        // Completeness and safety on the same value: the guarantee is that
+        // nothing is shortened, never that nothing is examined.
+        let report = fixture::hostile();
+        let queue = queue(&report);
+        for row in &queue.rows {
+            for width in [REFERENCE_WIDTH, FLOOR_WIDTH] {
+                let rendered = text(&regions(styles(), width as usize, row, &queue.provenance));
+                for refused in ['\u{1b}', '\u{202e}', '\u{200b}'] {
+                    assert!(
+                        !rendered.contains(refused),
+                        "{} at {width}: {refused:?} reached a cell",
+                        row.rule
+                    );
+                }
+                // Refused rather than dropped, so the operator has a sign that
+                // something was removed.
+                assert!(rendered.contains('\u{fffd}'), "{} at {width}", row.rule);
+            }
+        }
+    }
+
     #[test]
     fn nothing_on_this_screen_is_ever_elided() {
         // The queue elides a statement to keep a fact. Here there is nothing to
@@ -1191,6 +1279,7 @@ mod tests {
             fixture::mixed(),
             fixture::incomplete(),
             fixture::long_fact(),
+            fixture::hostile(),
             only(fixture::suppressed()),
         ] {
             let queue = queue(&report);
