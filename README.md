@@ -514,8 +514,14 @@ Worked examples are in [`docs/examples/`](docs/examples/).
 
 ## Credentials
 
-Airlock reads a token from `--token`, `--token-file`, or `--token-stdin` first,
-then `AIRLOCK_TOKEN`, then the profile written by `airlock auth login`.
+Airlock has two credential paths. They share no code, no storage, and no
+identity, and neither can reach the other's.
+
+### The read path
+
+Every subcommand runs on it. Airlock reads a token from `--token`,
+`--token-file`, or `--token-stdin` first, then `AIRLOCK_TOKEN`, then the profile
+written by `airlock auth login`.
 
 It deliberately ignores `GH_TOKEN`, `GITHUB_TOKEN`, the `gh` credential store,
 and git credential helpers. A tool that refuses write access should not quietly
@@ -588,3 +594,67 @@ leave later and concurrent jobs with a stale token. The accepted trade-off is
 a long-lived token whose permissions are read-only by app registration and are
 verified again by Airlock before every audit. To rotate it, repeat the device
 flow and replace the repository secret.
+
+### The write path
+
+The interactive console runs on it, and reads with it too, so a session never
+acquires a second token.
+
+It has exactly one source: the GitHub App device flow, approved by you in a
+browser. There is no config file entry, no environment variable, and no
+command-line flag, because the type that holds the credential can be built from
+nothing else. Everything below is a property of the code rather than a policy
+it follows:
+
+- **It is never stored.** Not in a file, not in the environment, not in a child
+  process, and not after the session ends. Its bytes are overwritten when it
+  goes. A session creates no file at all.
+- **No refresh token is kept.** GitHub sends one alongside the access token; it
+  is overwritten on arrival and never reaches the session.
+- **No child process is started**, so there is nothing to export it to. The
+  console does not open your browser for you, for exactly that reason.
+- **Its value is never displayed.** The sign-in screen shows the credential's
+  source and its grant, and nothing else.
+- **There is no subcommand and no flag** that acquires it, and none that
+  mutates. `--yes` exists on nothing.
+
+The grant is write-capable because applying a repository or organisation
+setting requires `administration: write`, which GitHub does not subdivide. That
+grant belongs to the interactive session alone. `airlock audit` refuses any
+token carrying write access, and does so before its first request.
+
+The accepted app is bound at compile time, by both its numeric id and its slug —
+an id survives a rename and a slug does not, so neither alone is sufficient. A
+runtime override would be a way to point airlock at an app of someone's
+choosing, which is the whole thing the binding prevents.
+
+| App | App id | Slug | Client id | Build |
+| --- | ---: | --- | --- | --- |
+| Airlock Admin | `4409767` | `airlock-admin` | `Iv23li6LeVszqbchI9Ah` | shipped |
+| Airlock Test | `4419504` | `airlock-test` | `Iv23liTl9KRNwxjFhrfA` | `--features test-identity` |
+
+**Airlock Test is a development affordance**, not a supported configuration. It
+is installed on `mmenm` only, and that bound is the point of it: while the
+aligning code is least trustworthy, a wrong repository selection cannot reach a
+production account, because the console's organization list is the set of
+reachable installations and no production account is on it. A shipped binary is
+built without the feature and contains no code, and no string, that could accept
+it; the test suite asserts that against the built artifact rather than against a
+setting.
+
+Airlock Admin's registered grant is:
+
+| Permission | Level |
+| --- | --- |
+| `metadata` | read |
+| `actions` | read |
+| `administration` | write |
+| `contents` | write |
+| `environments` | write |
+| `repository_custom_properties` | write |
+| `secrets` | write |
+| `variables` | write |
+| `workflows` | write |
+| `organization_administration` | write |
+| `organization_secrets` | write |
+| `organization_custom_properties` | admin |
