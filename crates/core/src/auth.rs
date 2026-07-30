@@ -219,24 +219,54 @@ pub struct VerifiedGrant {
 impl VerifiedGrant {
     /// What the enumerated grant lets this credential do.
     ///
-    /// Derived from the permissions GitHub attested, not asserted from the fact
-    /// that verification passed. Every path that produces a `VerifiedGrant`
-    /// today refuses write access, so the answer is `ReadOnly` — but a future
-    /// path that admits a write-capable credential must not inherit that answer
-    /// silently, because it is what decides whether an undisclosed field is a
-    /// permanent gate or a run that fell short.
+    /// Derived from what GitHub attested, in whichever representation carries
+    /// this credential's grant: installation permissions for an app user token,
+    /// the scope list for a scoped one. Both are read, so a credential cannot
+    /// be classified from a representation that happens to be empty.
+    ///
+    /// `ReadOnly` is the answer that excuses: it is what lets a rule's declared
+    /// disclosure gate turn an undisclosed field into a permanent, non-blocking
+    /// gap. So the errors here are not symmetric. Calling a write-capable
+    /// credential read-only excuses a field that credential should have been
+    /// shown, which converts a real gap into a claim that nobody need look
+    /// again; calling a read-only credential write-capable only turns a
+    /// permanent gap into a blocking one, which is an honest overstatement of
+    /// what a retry might achieve. Every uncertain case therefore resolves to
+    /// `WriteCapable`: a scope airlock's reviewed list does not classify as a
+    /// read, and a credential whose grant representation cannot be read at all.
+    ///
+    /// This is the same rule [`verify_scoped`] applies when accepting a token —
+    /// a scope it cannot classify as read-only is refused rather than assumed
+    /// safe — asked of the capability rather than of admission.
     #[must_use]
     pub fn capability(&self) -> CredentialCapability {
+        let read_only_scopes: BTreeSet<&str> = READ_ONLY_SCOPES.iter().copied().collect();
+        // Either representation carrying something that is not provably a read
+        // settles it, whatever kind of token claims to be presenting it.
         let writes = self.installations.iter().any(|installation| {
             installation
                 .permissions
                 .iter()
                 .any(|permission| !permission.ends_with("=read"))
-        });
+        }) || self
+            .scopes
+            .iter()
+            .any(|scope| !read_only_scopes.contains(scope.as_str()));
         if writes {
-            CredentialCapability::WriteCapable
-        } else {
-            CredentialCapability::ReadOnly
+            return CredentialCapability::WriteCapable;
+        }
+
+        match self.kind {
+            // An app user token's grant is its installation permissions, and
+            // verification refuses a token whose app is installed nowhere, so
+            // an empty list is not an enumerated grant.
+            TokenKind::AppUser if !self.installations.is_empty() => CredentialCapability::ReadOnly,
+            // A scoped token's grant is its scope list, and an empty list is a
+            // real answer rather than a missing one: a classic token with no
+            // scopes reads public repository data and nothing else.
+            TokenKind::ClassicPat | TokenKind::OAuthUser => CredentialCapability::ReadOnly,
+            // Nothing left to read the grant from. Excuse nothing.
+            _ => CredentialCapability::WriteCapable,
         }
     }
 
@@ -622,6 +652,98 @@ mod tests {
         );
         assert_eq!(
             grant(&["metadata=read", "contents=write"]).capability(),
+            CredentialCapability::WriteCapable
+        );
+    }
+
+    /// A scoped credential, whose grant is its scope list and whose
+    /// installation list is empty.
+    fn scoped_grant(kind: TokenKind, scopes: &[&str]) -> VerifiedGrant {
+        VerifiedGrant {
+            kind,
+            issuer: None,
+            login: Some("operator".to_owned()),
+            scopes: scopes.iter().map(|scope| (*scope).to_owned()).collect(),
+            installations: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn a_scoped_write_capable_credential_is_not_excused_by_a_disclosure_gate() {
+        // The interactive session authorises per launch through the device
+        // flow, so this is the credential shape most likely to be write-capable
+        // — and the one that must not inherit the audit surface's exemption. A
+        // scope the reviewed read-only list does not contain is not a read, so
+        // the gate does not explain a field this credential was not shown.
+        for scope in ["repo", "public_repo", "admin:org", "write:discussion"] {
+            let grant = scoped_grant(TokenKind::ClassicPat, &[scope]);
+            assert_eq!(
+                grant.capability(),
+                CredentialCapability::WriteCapable,
+                "{scope}"
+            );
+            assert!(
+                !crate::registry::MERGE_SETTINGS_DISCLOSURE.withholds_from(grant.capability()),
+                "{scope} must not be excused by the merge-settings gate"
+            );
+        }
+    }
+
+    #[test]
+    fn an_unclassifiable_scope_resolves_to_the_capability_that_excuses_nothing() {
+        // Airlock refuses a scope it cannot classify as a read rather than
+        // assuming it safe. The capability answer follows the same rule: an
+        // unknown scope is not evidence of read-only access, and read-only is
+        // the answer that turns a gap into one nobody need look at again.
+        let grant = scoped_grant(TokenKind::OAuthUser, &["gist"]);
+        assert_eq!(grant.capability(), CredentialCapability::WriteCapable);
+    }
+
+    #[test]
+    fn a_scoped_read_only_credential_is_read_only_including_an_empty_scope_list() {
+        // An empty scope list is an enumerated answer, not a missing one: a
+        // classic token with no scopes reads public data and nothing else.
+        for scopes in [&["read:org", "user:email"][..], &[][..]] {
+            let grant = scoped_grant(TokenKind::ClassicPat, scopes);
+            assert_eq!(
+                grant.capability(),
+                CredentialCapability::ReadOnly,
+                "{scopes:?}"
+            );
+            assert!(
+                crate::registry::MERGE_SETTINGS_DISCLOSURE.withholds_from(grant.capability()),
+                "{scopes:?} provably cannot hold contents:write"
+            );
+        }
+    }
+
+    #[test]
+    fn every_read_only_scope_reads_as_read_only() {
+        // The capability derivation and the admission rule share one list, so a
+        // scope airlock accepts can never be classified write-capable and a
+        // scope it refuses can never be classified read-only.
+        for scope in READ_ONLY_SCOPES {
+            assert_eq!(
+                scoped_grant(TokenKind::ClassicPat, &[scope]).capability(),
+                CredentialCapability::ReadOnly,
+                "{scope}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_grant_with_no_readable_representation_excuses_nothing() {
+        // Neither representation carries a grant here. There is nothing to
+        // derive read-only access from, so nothing is excused.
+        assert_eq!(
+            VerifiedGrant {
+                kind: TokenKind::AppUser,
+                issuer: Some(AIRLOCK_SAFE_APP_SLUG.to_owned()),
+                login: None,
+                scopes: Vec::new(),
+                installations: Vec::new(),
+            }
+            .capability(),
             CredentialCapability::WriteCapable
         );
     }

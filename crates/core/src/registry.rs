@@ -297,13 +297,21 @@ grants! {
 /// It is what decides whether an absent field is evidence of a disclosure gate:
 /// a credential that provably cannot hold the required grant explains the
 /// absence, and one that might hold it does not.
+///
+/// `ReadOnly` is therefore the excusing answer, and the two ways of being wrong
+/// do not cost the same. A write-capable credential mislabelled `ReadOnly`
+/// excuses a field it should have been shown, retiring a real gap; a read-only
+/// one mislabelled `WriteCapable` only reports a permanent gap as a blocking
+/// one, which overstates what a retry might achieve and hides nothing. Every
+/// uncertain grant resolves to `WriteCapable`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CredentialCapability {
     /// No credential was presented, so nothing was observed through one.
     Unauthenticated,
-    /// Every permission in the enumerated grant is a read.
+    /// Every entry in the enumerated grant is a read.
     ReadOnly,
-    /// The enumerated grant carries at least one write.
+    /// The enumerated grant carries something that is not a read, or it could
+    /// not be read as a whole.
     WriteCapable,
 }
 

@@ -228,6 +228,15 @@ behind it is a run that fell short and keeps blocking, and so is one missing
 from a write-capable credential that should have been shown it — the
 interactive session inherits no exemption.
 
+Which half a credential falls in is read from whichever representation carries
+its grant: installation permissions for an app credential, the scope list for a
+scoped one. A grant airlock cannot classify as entirely reads is treated as
+write-capable, including a scope its reviewed read-only list does not name.
+Read-only is the answer that excuses a gap, so an uncertain grant never earns
+it: reporting a permanent gap as a blocking one overstates what a retry can
+achieve, while excusing a field a credential should have been shown retires a
+gap that is real.
+
 A structural gap is never a pass either: it is named as its own group by `plan`
 and `agent-work`, counted in the summary, and pointed at the verification
 surface its gate declares — today the interactive session, which holds a
