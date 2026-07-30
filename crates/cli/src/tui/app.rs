@@ -426,18 +426,19 @@ impl App {
             return;
         }
         let frame = chrome::layout(area);
+        let keys = self.keymap();
         Paragraph::new(chrome::header_line(
             self.screen,
             &self.version,
             styles,
             area.width,
+            &keys,
         ))
         .render(frame.header, buffer);
         for rule in [frame.rule_top, frame.rule_bottom].into_iter().flatten() {
             Paragraph::new(chrome::rule_line(styles, area.width)).render(rule, buffer);
         }
-        Paragraph::new(chrome::keymap_line(&self.keymap(), styles, area.width))
-            .render(frame.keymap, buffer);
+        Paragraph::new(chrome::keymap_line(&keys, styles, area.width)).render(frame.keymap, buffer);
         Paragraph::new(chrome::status_line(&self.status(), styles, area.width))
             .render(frame.status, buffer);
         // The body is wrapped here rather than by the paragraph, so a
@@ -1118,6 +1119,52 @@ mod tests {
         // The toggle comes back the moment focus leaves the input.
         press(&mut app, KeyCode::Esc);
         assert_eq!(footer(&app), unfocused);
+    }
+
+    fn header(app: &App) -> String {
+        chrome::header_line(
+            app.screen(),
+            "0.0.0",
+            app.styles(),
+            chrome::REFERENCE_WIDTH,
+            &app.keymap(),
+        )
+        .spans
+        .iter()
+        .map(|span| span.content.as_ref())
+        .collect()
+    }
+
+    #[test]
+    fn the_header_withdraws_the_theme_key_with_the_footer_and_holds_its_geometry() {
+        let mut app = app()
+            .with_catalogue(catalogue())
+            .at(Screen::Repositories, Theme::Dark);
+
+        let unfocused = header(&app);
+        assert!(unfocused.contains("theme t"), "{unfocused}");
+
+        press(&mut app, KeyCode::Char('/'));
+        let focused = header(&app);
+        assert!(
+            !focused.contains("theme t"),
+            "the header advertised a key the filter had captured: {focused}"
+        );
+        assert!(focused.contains("theme \u{2014}"), "{focused}");
+        assert!(
+            !footer(&app).contains("t theme"),
+            "the two surfaces disagreed about the same key"
+        );
+
+        // Nothing moved: a filter opening must repaint the header, never
+        // reflow it.
+        assert_eq!(unfocused.chars().count(), focused.chars().count());
+        assert_eq!(unfocused.find("theme"), focused.find("theme"));
+
+        // And the key comes back with focus leaving, on both surfaces at once.
+        press(&mut app, KeyCode::Esc);
+        assert_eq!(header(&app), unfocused);
+        assert!(footer(&app).contains("t theme"));
     }
 
     #[test]

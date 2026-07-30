@@ -10,7 +10,7 @@ use ratatui::layout::Rect;
 use ratatui::style::Modifier;
 use ratatui::text::{Line, Span};
 
-use super::screen::{Key, Screen, UNIVERSAL_KEYS};
+use super::screen::{Key, Screen, THEME_KEY, UNIVERSAL_KEYS};
 use super::theme::{Role, Styles};
 
 /// The reference width.
@@ -46,6 +46,19 @@ const FULL_FACTS_NEED_WIDTH: u16 = 100;
 /// the header rather than reflowing it. Text that moves when a palette changes
 /// reads as a layout bug even when it is not.
 const THEME_NAME_WIDTH: usize = 5;
+
+/// What stands in the header's key slot while the open state has captured it.
+///
+/// One column, which is what the key it replaces occupies, so the facts group
+/// is the same width whether or not the key is live. The header holds its
+/// geometry through a focus change for the same reason it holds it through a
+/// palette change: text that moves reads as a fault even when it is not, and
+/// here it would move on every keystroke that opens or closes a filter.
+///
+/// A mark rather than a blank. A slot left empty reads as a header that forgot
+/// to print something; a mark reads as a key that is not available, which is
+/// what it is. It survives `NO_COLOR` because it is a glyph and not a style.
+const KEY_WITHDRAWN: &str = "\u{2014}";
 
 /// Where each part of the frame is drawn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -128,11 +141,23 @@ pub fn breadcrumb(screen: Screen) -> String {
 /// The right-hand group states the session facts that hold whatever screen is
 /// open. This shell holds no credential, and it says exactly that rather than
 /// printing a grant or an expiry it does not have.
+///
+/// The keys live in the open state are passed in, and the header reads its own
+/// key slot out of them rather than assuming the toggle is available. The
+/// header and the footer are then two renderings of one fact and cannot
+/// disagree: whatever captures a key removes it from both at once.
 #[must_use]
-pub fn header_line(screen: Screen, version: &str, styles: Styles, width: u16) -> Line<'static> {
+pub fn header_line(
+    screen: Screen,
+    version: &str,
+    styles: Styles,
+    width: u16,
+    keys: &[Key],
+) -> Line<'static> {
     let identity = format!("AIRLOCK {version}");
     let theme = format!(
-        "theme t \u{b7} {:<THEME_NAME_WIDTH$}",
+        "theme {} \u{b7} {:<THEME_NAME_WIDTH$}",
+        theme_slot(keys),
         styles.theme().name()
     );
     let facts = if width >= FULL_FACTS_NEED_WIDTH {
@@ -160,6 +185,18 @@ pub fn header_line(screen: Screen, version: &str, styles: Styles, width: u16) ->
     spans.push(Span::styled(" ".repeat(gap), chrome));
     spans.push(Span::styled(facts, styles.of(Role::Faint).patch(chrome)));
     Line::from(spans)
+}
+
+/// The header's key slot: the theme key, or the mark that stands where it is
+/// not available.
+///
+/// Both are one column wide, so which one is drawn never moves anything.
+fn theme_slot(keys: &[Key]) -> &'static str {
+    if keys.contains(&THEME_KEY) {
+        THEME_KEY.key
+    } else {
+        KEY_WITHDRAWN
+    }
 }
 
 /// A horizontal rule across the frame.
@@ -439,7 +476,7 @@ mod tests {
         for width in [REFERENCE_WIDTH, FLOOR_WIDTH] {
             for screen in Screen::ALL {
                 for line in [
-                    header_line(screen, "0.0.0", styles(), width),
+                    header_line(screen, "0.0.0", styles(), width, &keys_of(screen)),
                     keymap_line(&keys_of(screen), styles(), width),
                     status_line(&status_text(screen), styles(), width),
                     rule_line(styles(), width),
@@ -457,7 +494,13 @@ mod tests {
     #[test]
     fn the_header_keeps_its_identity_and_its_session_facts_at_the_floor() {
         for screen in Screen::ALL {
-            let text = rendered(&header_line(screen, "0.0.0", styles(), FLOOR_WIDTH));
+            let text = rendered(&header_line(
+                screen,
+                "0.0.0",
+                styles(),
+                FLOOR_WIDTH,
+                &keys_of(screen),
+            ));
             assert!(text.starts_with("AIRLOCK 0.0.0"), "{screen:?}: {text}");
             assert!(text.contains("no credential stored"), "{screen:?}: {text}");
             assert!(
@@ -471,12 +514,19 @@ mod tests {
     fn the_header_does_not_reflow_when_the_palette_changes() {
         for width in [REFERENCE_WIDTH, FLOOR_WIDTH] {
             for screen in Screen::ALL {
-                let dark = rendered(&header_line(screen, "0.0.0", styles(), width));
+                let dark = rendered(&header_line(
+                    screen,
+                    "0.0.0",
+                    styles(),
+                    width,
+                    &keys_of(screen),
+                ));
                 let light = rendered(&header_line(
                     screen,
                     "0.0.0",
                     Styles::new(Theme::Light, ColorMode::Color),
                     width,
+                    &keys_of(screen),
                 ));
                 assert_eq!(dark.chars().count(), light.chars().count(), "{screen:?}");
                 assert_eq!(
@@ -489,12 +539,70 @@ mod tests {
     }
 
     #[test]
+    fn a_captured_theme_key_leaves_the_header_and_takes_no_width_with_it() {
+        // The header and the footer read the same list, so nothing can capture
+        // a key from one and leave it advertised on the other.
+        for width in [REFERENCE_WIDTH, FLOOR_WIDTH] {
+            let live = keys_of(Screen::Repositories);
+            let captured: Vec<Key> = live
+                .iter()
+                .copied()
+                .filter(|entry| *entry != THEME_KEY)
+                .collect();
+
+            let offered = rendered(&header_line(
+                Screen::Repositories,
+                "0.0.0",
+                styles(),
+                width,
+                &live,
+            ));
+            let withdrawn = rendered(&header_line(
+                Screen::Repositories,
+                "0.0.0",
+                styles(),
+                width,
+                &captured,
+            ));
+
+            assert!(offered.contains("theme t \u{b7} dark"), "{offered}");
+            assert!(
+                !withdrawn.contains("theme t"),
+                "the header offered a key the open state had taken: {withdrawn}"
+            );
+            assert!(
+                withdrawn.contains("theme \u{2014} \u{b7} dark"),
+                "the slot is marked rather than left blank: {withdrawn}"
+            );
+
+            // The geometry is the whole point of a slot: same width, same
+            // column, so a focus change repaints the header and never moves it.
+            assert_eq!(
+                offered.chars().count(),
+                withdrawn.chars().count(),
+                "at {width}"
+            );
+            assert_eq!(
+                offered.find("theme"),
+                withdrawn.find("theme"),
+                "the facts group moved at {width}"
+            );
+            assert_eq!(
+                offered.find("no credential stored"),
+                withdrawn.find("no credential stored"),
+                "the facts group moved at {width}"
+            );
+        }
+    }
+
+    #[test]
     fn the_breadcrumb_gives_up_its_head_first() {
         let text = rendered(&header_line(
             Screen::FindingDetail,
             "0.0.0",
             styles(),
             FLOOR_WIDTH,
+            &keys_of(Screen::FindingDetail),
         ));
         assert!(text.contains("finding detail"), "{text}");
         assert!(text.contains(ELLIPSIS), "the head was dropped: {text}");

@@ -1,6 +1,6 @@
 repositories-filtered-120x40-dark · 120x40 · theme dark · colour
 --- text ---
-AIRLOCK 0.0.0  sign-in › organizations › repositories              no credential stored · tty required · theme t · dark 
+AIRLOCK 0.0.0  sign-in › organizations › repositories              no credential stored · tty required · theme — · dark 
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 REPOSITORIES  acme-industries  organization                                                                             
 filter        et█ typing filters as you go                                                                              
