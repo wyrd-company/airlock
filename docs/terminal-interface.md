@@ -168,7 +168,10 @@ because an empty result cannot distinguish between them.
 ## Screens
 
 Two keys are live on every screen in every state: `t` switches theme and
-`ctrl-c` exits. Each screen's keymap below lists the keys it adds, and names
+`ctrl-c` exits. `ctrl-c` is live without exception. While a text input holds
+focus, printable keys are text: `t` inserts a `t`, the keymap shows the input's
+own keys rather than advertising `t theme`, and the toggle returns when focus
+leaves the input. Each screen's keymap below lists the keys it adds, and names
 any state in which one of those keys is not live and why.
 
 ### Sign-in
@@ -253,6 +256,9 @@ A prior verdict is displayed for orientation only. Nothing is acted upon from
 memory: opening a repository re-observes it in full.
 
 **Keymap.** `↑↓` select · `/` filter · `↵` observe · `esc` back.
+
+While the filter is focused, printable keys type into it, `esc` closes it, and
+`t` is not live as the theme toggle; the keymap says so.
 
 **Status line.** The count shown against the count available in the
 installation, and the note that prior verdicts are shown for orientation only.
