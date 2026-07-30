@@ -7,6 +7,7 @@
 mod config;
 mod credential;
 mod device;
+mod tui;
 
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
@@ -371,8 +372,7 @@ fn restore_sigpipe_default() {}
 
 async fn run(cli: Cli, interactive: bool) -> Result<u8> {
     let Some(command) = cli.command else {
-        eprintln!("{}", bare_invocation_message(interactive));
-        return Ok(EXIT_OPERATIONAL);
+        return bare_invocation(interactive);
     };
 
     match command {
@@ -957,17 +957,22 @@ fn print_grant(grant: &VerifiedGrant) {
     }
 }
 
-/// What to say when `airlock` is run with no subcommand.
+/// What a bare `airlock` does.
 ///
-/// There is no interactive mode yet, so a bare invocation can never do work.
-/// It says so and exits 2 either way; on a terminal it also points at the help.
-fn bare_invocation_message(interactive: bool) -> &'static str {
-    if interactive {
-        "airlock has no interactive mode yet. Run a subcommand — \
-         `airlock audit <owner/repo>` — or `airlock --help` to see them all."
-    } else {
-        "TUI not yet available; use a subcommand."
+/// This is the whole entry point to the interactive console, and it is the only
+/// one. There is no subcommand for it and no flag that makes it run headlessly,
+/// so an agent holding this binary has nothing to invoke: the guarantee is the
+/// absence of the code path rather than a check declining to take it.
+///
+/// Off a terminal it exits non-zero without rendering anything at all. A
+/// scheduler that captured a half-drawn alternate screen would be worse served
+/// than one that captured an error naming what to run instead.
+fn bare_invocation(interactive: bool) -> Result<u8> {
+    if !interactive || !tui::is_interactive() {
+        eprintln!("{}", tui::non_interactive_message());
+        return Ok(EXIT_OPERATIONAL);
     }
+    tui::run(VERSION)
 }
 
 #[cfg(test)]
@@ -981,17 +986,30 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn bare_invocation_is_an_operational_error() {
+    async fn a_bare_invocation_off_a_terminal_is_an_operational_error() {
         let cli = Cli::parse_from(["airlock"]);
         assert_eq!(run(cli, false).await.unwrap(), EXIT_OPERATIONAL);
     }
 
     #[test]
-    fn bare_invocation_messages_differ_by_terminal() {
-        assert_ne!(
-            bare_invocation_message(true),
-            bare_invocation_message(false)
-        );
+    fn no_subcommand_and_no_flag_reaches_the_interface() {
+        // The console has no invocation of its own. If one is ever added, this
+        // fails, because the boundary is that there is nothing to invoke.
+        let command = Cli::command();
+        for subcommand in command.get_subcommands() {
+            let name = subcommand.get_name();
+            assert!(
+                !name.contains("tui") && !name.contains("console"),
+                "{name} would give an agent something to invoke"
+            );
+        }
+        for argument in command.get_arguments() {
+            let name = argument.get_id().as_str();
+            assert!(
+                !name.contains("tui") && !name.contains("interactive"),
+                "{name} would make the console reachable by flag"
+            );
+        }
     }
 
     #[test]

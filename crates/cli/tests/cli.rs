@@ -131,11 +131,37 @@ async fn agent_work_json(repo: FakeRepo, policy: &str, exit_code: i32) -> Value 
 // ---------------------------------------------------------------------------
 
 #[test]
-fn bare_invocation_exits_two_and_says_why() {
-    offline()
+fn bare_invocation_under_a_pipe_refuses_before_rendering_anything() {
+    // assert_cmd captures both streams, so this run is exactly the pipe,
+    // redirect, or scheduler case: neither stdin nor stdout is a terminal.
+    let assertion = offline()
         .assert()
         .code(2)
-        .stderr(contains("TUI not yet available; use a subcommand."));
+        .stderr(contains("airlock requires an interactive terminal"))
+        .stderr(contains("airlock audit"));
+    let output = assertion.get_output();
+    // Nothing is drawn: no alternate screen, no raw mode, no cursor move.
+    assert!(output.stdout.is_empty(), "the console wrote to stdout");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains('\u{1b}'),
+        "the console emitted escapes: {stderr}"
+    );
+}
+
+#[test]
+fn no_subcommand_reaches_the_console() {
+    // The mutating surface has no subcommand, so an agent holding this binary
+    // has nothing to invoke. Help is the whole surface, and the console is not
+    // in it.
+    let assertion = offline().arg("--help").assert().success();
+    let help = String::from_utf8_lossy(&assertion.get_output().stdout).to_lowercase();
+    for word in ["tui", "console", "interactive"] {
+        assert!(
+            !help.contains(word),
+            "`{word}` appears in the command surface"
+        );
+    }
 }
 
 #[test]

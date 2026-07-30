@@ -1,0 +1,60 @@
+sign-in-80x24-dark · 80x24 · theme dark · colour
+--- text ---
+AIRLOCK 0.0.0  sign-in                    no credential stored · theme t · dark 
+SIGN-IN                                                                         
+Obtain an authorization for this session through the device flow.               
+                                                                                
+NOTHING OBSERVED YET                                                            
+would show      the device code, the address to enter it at, and the scan code  
+                where width allows                                              
+empty because   this build is the interface shell. It draws the frame, the      
+                status vocabulary, and the navigation between screens. No       
+                authorization is requested and no repository is observed, so    
+                there is nothing for this region to hold.                       
+next            navigate with ↵ and esc to read the frame on every screen, press
+                t to compare the palettes, and ctrl-c to leave.                 
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+r issue a new code · q show or hide the scan code · t theme · ctrl-c exit       
+no credential on disk · tty required                                            
+--- style keys ---
+aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+cccccccddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+eeeeeeeeeeeeeeeeeeeedddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+ffffffffffffffffggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggdd
+ffffffffffffffffggggggggggggggggggdddddddddddddddddddddddddddddddddddddddddddddd
+ffffffffffffffffggggggggggggggggggggggggggggggggggggggggggggggggggggggggggdddddd
+ffffffffffffffffgggggggggggggggggggggggggggggggggggggggggggggggggggggggggddddddd
+ffffffffffffffffggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggdddd
+ffffffffffffffffgggggggggggggggggggggggggggggggggggggggggddddddddddddddddddddddd
+ffffffffffffffffgggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+ffffffffffffffffgggggggggggggggggggggggggggggggggggggggggggggggddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+cdggggggggggggggggfffcdggggggggggggggggggggggggggfffcdgggggfffccccccdggggddddddd
+hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh
+--- legend ---
+a fg=#CBD3DD bg=#14181D BOLD
+b fg=#CBD3DD bg=#14181D
+c fg=#E8B84B bg=#0B0D10 BOLD
+d fg=#CBD3DD bg=#0B0D10
+e fg=#CBD3DD bg=#0B0D10 BOLD
+f fg=#4C5661 bg=#0B0D10
+g fg=#79838F bg=#0B0D10
+h fg=#79838F bg=#101419

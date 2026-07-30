@@ -56,6 +56,34 @@ airlock auth login
 airlock audit wyrd-company/airlock
 ```
 
+## The console
+
+Bare `airlock`, with no arguments, opens the interactive release-readiness
+console:
+
+```sh
+airlock
+```
+
+The console is the only surface that carries out the closing moves a person
+must make, and it has no subcommand and no flag. An agent holding this binary
+therefore has nothing to invoke: the guarantee is that the code path does not
+exist, not that a check declines to take it.
+
+It requires an interactive terminal on both stdin and stdout. Under a pipe, a
+redirect, or a scheduler it exits non-zero without rendering anything, and names
+what to run instead. `airlock audit` is the complete unattended findings
+surface, and `airlock agent-work` is its lane-scoped projection for an executing
+agent.
+
+Two keys are live everywhere: `t` switches between the dark and light palettes,
+and `ctrl-c` exits. `NO_COLOR` is honoured, and every distinction the interface
+draws survives it. The terminal is restored on every exit path, including a
+panic and a signal.
+
+See [`docs/terminal-interface.md`](docs/terminal-interface.md) for what each
+screen shows and why.
+
 ## GitHub Action
 
 The Action audits through the GitHub REST API, so the repository being audited
