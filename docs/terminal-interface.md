@@ -82,6 +82,13 @@ offers to draw it below the code instead, and states the width at which it
 would sit alongside. A partially drawn scan code is never rendered, because a
 code that cannot be scanned is worse than an address the operator types.
 
+Width and height are answered differently, and on purpose. A rendering too
+wide for the terminal cannot be drawn at all, so it is withheld. A reading
+longer than the terminal is tall is still entirely drawable, so it scrolls:
+the screen moves under the frame and states how many lines lie above the
+window and how many below. Nothing is shortened or dropped to make a reading
+fit a height.
+
 Type is monospaced throughout, and the device code is rendered in a face that
 distinguishes `0` from `O` and `1` from `l` and `I`.
 
@@ -164,6 +171,23 @@ names the count.
 have populated it, why it is empty, and what the operator can do next. Where
 an emptiness has more than one possible cause, all of the causes are listed,
 because an empty result cannot distinguish between them.
+
+## The copy action
+
+Two screens offer to copy a value: the finding detail copies the rule id, and
+the policy inspector copies the registry digest. Nothing else is ever
+copyable, and no credential is, because no credential is on any screen to
+copy.
+
+The copy is a request made to the terminal with the terminal's own clipboard
+facility. Airlock runs no subprocess to make it, and a terminal that does not
+carry the request out ignores it silently. The value being copied is
+therefore always printed on the screen in full as well, so the copy is a
+convenience and never the only way to obtain it.
+
+The interface reports the request and never the result. It states what it
+asked the terminal to hold, because whether the terminal complied is not
+something it can observe, and it does not claim observations it did not make.
 
 ## Screens
 
@@ -446,9 +470,24 @@ rule's statement, followed by:
 - **Effect on the run.** A sentence stating in plain terms what this status at
   this severity does to `complete` and to `conformant`.
 
-**Keymap.** `esc` back · `a` open the remediation transcript, where a
-remediation is on offer and its lane is `operator-setting` · `o` re-observe
-this rule · `y` copy the rule id.
+Every fact here is printed whole. This is the screen a fact the queue could
+not carry is read on, so nothing is shortened to fit a width and nothing is
+dropped to fit a height; where the reading is longer than the terminal is
+tall, the screen scrolls.
+
+Only the regions the finding has are drawn. A region is absent because the
+finding has no such fact, never because there was no room for it, and the
+regions that are always present — evidence, remediation, why the rule
+applies, and the effect on the run — state their own absence in the terms the
+emptiness rule requires rather than being omitted.
+
+**Keymap.** `esc` back · `↑↓` scroll · `a` open the remediation transcript,
+where a remediation is on offer and its lane is `operator-setting` · `o`
+re-observe this rule · `y` copy the rule id.
+
+`o` records the request and says so. It never reports a result it has not
+observed: what a re-observation concluded is shown when the observation
+returns, and not before.
 
 **Status line.** The finding's lane and gating effect, and for a suppressed
 finding, what authorized it.
@@ -514,6 +553,12 @@ suppressions marked as policy-sourced rather than registry-sourced.
 
 A run provenance block repeats airlock's version, the registry version, the
 schema version, the audited commit, and the time the settings were observed.
+
+The rule table is the only part of the screen that scrolls, and it scrolls
+under the blocks rather than taking them off the screen: the digest, the
+sources, and the run provenance are what the table is to be read against, and
+a table read without them is a list of rule ids. The table states how many
+rules lie above the window and how many below.
 
 **Keymap.** `esc` back · `↑↓` move · `y` copy digest.
 
