@@ -582,22 +582,18 @@ fn decode_ruleset(endpoint: &str, item: &Value) -> ApiResult<Ruleset> {
 
 fn decode_branch_rule(endpoint: &str, item: &Value) -> ApiResult<BranchRule> {
     let rule_type = require_string(endpoint, item, "type")?;
-    let parameters = match item.get("parameters") {
-        Some(Value::Object(parameters))
-            if rule_type != "pull_request" || parameters.contains_key("allowed_merge_methods") =>
-        {
-            Value::Object(parameters.clone())
-        }
-        Some(parameters) if rule_type != "pull_request" => parameters.clone(),
-        _ if rule_type == "pull_request" => {
-            return Err(malformed(
-                endpoint,
-                "the pull request rule is missing the parameter `allowed_merge_methods`",
-            ))
-        }
-        None => Value::Null,
-        Some(_) => unreachable!("the pull request case returned above"),
-    };
+    if rule_type == "pull_request"
+        && !item
+            .get("parameters")
+            .and_then(Value::as_object)
+            .is_some_and(|parameters| parameters.contains_key("allowed_merge_methods"))
+    {
+        return Err(malformed(
+            endpoint,
+            "the pull request rule is missing the parameter `allowed_merge_methods`",
+        ));
+    }
+    let parameters = item.get("parameters").cloned().unwrap_or(Value::Null);
     Ok(BranchRule {
         rule_type,
         parameters,
