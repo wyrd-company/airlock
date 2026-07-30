@@ -179,6 +179,19 @@ fn drive(app: &mut App, session: &mut terminal::Session, authorizing: &Authorizi
                 app.operation_failed(text::sanitize(&format!("{error:#}"), CAUSE_LIMIT));
             }
         }
+        if let (Some(worker), Some((observe, remediation))) =
+            (working.as_ref(), app.take_preparation_request())
+        {
+            if let Err(error) = worker.request(WorkerRequest::Prepare {
+                target: Target {
+                    owner: observe.owner,
+                    repo: observe.name,
+                },
+                remediation,
+            }) {
+                app.operation_failed(text::sanitize(&format!("{error:#}"), CAUSE_LIMIT));
+            }
+        }
         if let (Some(worker), Some(request)) = (working.as_ref(), app.take_remediation_request()) {
             let target = Target {
                 owner: request.owner,
@@ -186,10 +199,12 @@ fn drive(app: &mut App, session: &mut terminal::Session, authorizing: &Authorizi
             };
             let work = if request.items.len() == 1 {
                 let item = request.items.into_iter().next().expect("one item");
+                let argument = item.argument();
                 WorkerRequest::Apply {
                     target,
                     rule: item.rule,
                     remediation: item.remediation,
+                    argument,
                 }
             } else {
                 WorkerRequest::ApplyGroup {
@@ -197,11 +212,27 @@ fn drive(app: &mut App, session: &mut terminal::Session, authorizing: &Authorizi
                     requests: request
                         .items
                         .into_iter()
-                        .map(|item| (item.rule, item.remediation))
+                        .map(|item| {
+                            let argument = item.argument();
+                            (item.rule, item.remediation, argument)
+                        })
                         .collect(),
                 }
             };
             if let Err(error) = worker.request(work) {
+                app.operation_failed(text::sanitize(&format!("{error:#}"), CAUSE_LIMIT));
+            }
+        }
+        if let (Some(worker), Some(request)) = (working.as_ref(), app.take_undo_request()) {
+            if let Err(error) = worker.request(WorkerRequest::Undo {
+                target: Target {
+                    owner: request.owner,
+                    repo: request.repo,
+                },
+                rule: request.rule,
+                remediation: request.remediation,
+                undo: request.undo,
+            }) {
                 app.operation_failed(text::sanitize(&format!("{error:#}"), CAUSE_LIMIT));
             }
         }
@@ -215,6 +246,9 @@ fn drive(app: &mut App, session: &mut terminal::Session, authorizing: &Authorizi
                         };
                         app.observed(&observe, "this session", report.outcome.code());
                         app.observed_run(&report, &Default::default());
+                    }
+                    WorkerResponse::Prepared { remediation, input } => {
+                        app.remediation_prepared(&remediation, input)
                     }
                     WorkerResponse::Applied { target, transcript } => {
                         app.remediation_complete(transcript);

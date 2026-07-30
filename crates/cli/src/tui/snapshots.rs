@@ -347,6 +347,44 @@ fn check(case: &Case) {
     );
 }
 
+#[cfg_attr(feature = "test-identity", allow(dead_code))]
+fn check_remediation(
+    name: &'static str,
+    width: u16,
+    height: u16,
+    state: super::remediation::State,
+) {
+    let case = Case {
+        name,
+        screen: Screen::Remediation,
+        theme: Theme::Dark,
+        color: ColorMode::Color,
+        width,
+        height,
+        flow: None,
+        selection: None,
+        run: None,
+    };
+    let backend = TestBackend::new(width, height);
+    let mut terminal = Terminal::new(backend).expect("a test terminal");
+    let app = App::new(VERSION, ColorMode::Color)
+        .at(Screen::Remediation, Theme::Dark)
+        .with_remediation(state);
+    terminal
+        .draw(|frame| app.render(frame.area(), frame.buffer_mut()))
+        .expect("the frame draws");
+    let rendered = serialise(&case, terminal.backend().buffer());
+    let path = path(name);
+    if std::env::var_os("UPDATE_SNAPSHOTS").is_some() {
+        std::fs::write(&path, rendered).expect("the snapshot is writable");
+    } else {
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("the snapshot is recorded"),
+            rendered
+        );
+    }
+}
+
 fn slug(screen: Screen) -> &'static str {
     match screen {
         Screen::SignIn => "sign-in",
@@ -972,4 +1010,139 @@ fn legend(case: &Case) -> Vec<String> {
         .lines()
         .map(str::to_string)
         .collect()
+}
+
+#[test]
+#[cfg(not(feature = "test-identity"))]
+fn remediation_input_and_result_frames_match_recordings() {
+    use super::remediation::{Input, Item, State};
+    use crate::admin::remediation::{ObservedStatus, Step, Transcript};
+
+    let item = |code: &str, input| Item {
+        rule: "REPO-SAMPLE-01".to_owned(),
+        remediation: code.to_owned(),
+        change: "Apply the observed settings change.".to_owned(),
+        reversible: true,
+        input,
+    };
+    let frames = [
+        (
+            "remediation-rename-input-120x40-dark",
+            State::confirm(
+                "generic-owner".to_owned(),
+                "sample-repository".to_owned(),
+                vec![item(
+                    "rename-repository-kebab",
+                    Input::Text {
+                        draft: "sample-repository".to_owned(),
+                        error: None,
+                    },
+                )],
+            ),
+        ),
+        (
+            "remediation-ruleset-choice-120x40-dark",
+            State::confirm(
+                "generic-owner".to_owned(),
+                "sample-repository".to_owned(),
+                vec![item(
+                    "attach-org-rulesets",
+                    Input::Choice {
+                        values: vec![
+                            "41 — protected branches".to_owned(),
+                            "create — Airlock default branch".to_owned(),
+                        ],
+                        selected: 0,
+                        empty: String::new(),
+                    },
+                )],
+            ),
+        ),
+        (
+            "remediation-transfer-120x40-dark",
+            State::confirm(
+                "generic-owner".to_owned(),
+                "sample-repository".to_owned(),
+                vec![item(
+                    "transfer-repository",
+                    Input::Transfer {
+                        destinations: vec!["destination-owner".to_owned()],
+                        selected: 0,
+                        typed_name: "sample-repository".to_owned(),
+                    },
+                )],
+            ),
+        ),
+        (
+            "remediation-variable-secret-deferral-120x40-dark",
+            State::confirm(
+                "generic-owner".to_owned(),
+                "sample-repository".to_owned(),
+                vec![item(
+                    "rename-app-credentials",
+                    Input::VariableRename {
+                        names: vec!["LEGACY_NAME".to_owned()],
+                        selected: 0,
+                        draft: "CURRENT_NAME".to_owned(),
+                        notice: "deferred: secret values require task 97's masked entry".to_owned(),
+                        error: None,
+                    },
+                )],
+            ),
+        ),
+    ];
+    for (name, state) in frames {
+        check_remediation(name, REFERENCE_WIDTH, REFERENCE_HEIGHT, state.clone());
+        let floor_name = Box::leak(name.replace("120x40", "80x24").into_boxed_str());
+        check_remediation(floor_name, FLOOR_WIDTH, FLOOR_HEIGHT, state);
+    }
+
+    let mut complete = State::confirm(
+        "generic-owner".to_owned(),
+        "sample-repository".to_owned(),
+        vec![item("disable-merge-commits", Input::None)],
+    );
+    let _ = complete.take_confirmation();
+    complete.complete(Transcript {
+        rule: "REPO-SAMPLE-01".to_owned(),
+        remediation: "disable-merge-commits".to_owned(),
+        proposed_change: "disable merge commits".to_owned(),
+        steps: vec![Step {
+            detail: "re-observation reports pass".to_owned(),
+            elapsed: std::time::Duration::from_millis(25),
+            succeeded: true,
+        }],
+        observed: ObservedStatus::Pass,
+        undo: None,
+    });
+    check_remediation(
+        "remediation-complete-120x40-dark",
+        REFERENCE_WIDTH,
+        REFERENCE_HEIGHT,
+        complete,
+    );
+    let mut floor_complete = State::confirm(
+        "generic-owner".to_owned(),
+        "sample-repository".to_owned(),
+        vec![item("disable-merge-commits", Input::None)],
+    );
+    let _ = floor_complete.take_confirmation();
+    floor_complete.complete(Transcript {
+        rule: "REPO-SAMPLE-01".to_owned(),
+        remediation: "disable-merge-commits".to_owned(),
+        proposed_change: "disable merge commits".to_owned(),
+        steps: vec![Step {
+            detail: "re-observation reports pass".to_owned(),
+            elapsed: std::time::Duration::from_millis(25),
+            succeeded: true,
+        }],
+        observed: ObservedStatus::Pass,
+        undo: None,
+    });
+    check_remediation(
+        "remediation-complete-80x24-dark",
+        FLOOR_WIDTH,
+        FLOOR_HEIGHT,
+        floor_complete,
+    );
 }

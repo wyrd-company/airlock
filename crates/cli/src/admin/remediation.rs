@@ -114,6 +114,36 @@ pub struct Transcript {
     pub steps: Vec<Step>,
     /// Derived only from the final re-observation.
     pub observed: ObservedStatus,
+    /// A credential-free inverse request, present only when Airlock can
+    /// reconstruct the previous value without guessing.
+    pub undo: Option<Undo>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Undo {
+    RenameBranch {
+        owner: String,
+        repo: String,
+        from: String,
+        to: String,
+    },
+    PatchRepository {
+        owner: String,
+        repo: String,
+        field: String,
+        value: bool,
+    },
+    RenameRepository {
+        owner: String,
+        from: String,
+        to: String,
+    },
+    RenameVariable {
+        owner: String,
+        repo: String,
+        from: String,
+        to: String,
+    },
 }
 
 /// Repository coordinates, kept out of the rendering layer's credential fence.
@@ -123,21 +153,40 @@ pub struct Target {
     pub repo: String,
 }
 
+/// Freshly observed values that the rendering layer may offer as choices.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PreparedInput {
+    Rulesets(Vec<String>),
+    Variables(Vec<String>),
+}
+
 /// Work the terminal loop asks the credential-owning worker to do.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Request {
     /// Observe a repository in full under its owner's default policy.
     Observe(Target),
+    /// Read the choices for an input-bearing remediation immediately before it
+    /// is shown. These values are never cached as an executable plan.
+    Prepare { target: Target, remediation: String },
     /// Apply one freshly re-observed rule.
     Apply {
         target: Target,
         rule: String,
         remediation: String,
+        argument: Option<String>,
     },
     /// Apply a confirmed same-lane group, re-observing per rule.
     ApplyGroup {
         target: Target,
-        requests: Vec<(String, String)>,
+        requests: Vec<(String, String, Option<String>)>,
+    },
+    /// Apply an inverse captured from the immediately preceding fresh
+    /// observation.
+    Undo {
+        target: Target,
+        rule: String,
+        remediation: String,
+        undo: Undo,
     },
 }
 
@@ -146,6 +195,11 @@ pub enum Request {
 pub enum Response {
     /// A complete fresh observation.
     Observed { target: Target, report: Box<Report> },
+    /// Sanitized choices from a fresh settings observation.
+    Prepared {
+        remediation: String,
+        input: PreparedInput,
+    },
     /// One remediation transcript.
     Applied {
         target: Target,
@@ -210,6 +264,16 @@ impl WriteClient {
     }
 
     async fn rename_branch(&self, owner: &str, repo: &str, branch: &str) -> anyhow::Result<()> {
+        self.rename_branch_to(owner, repo, branch, "main").await
+    }
+
+    async fn rename_branch_to(
+        &self,
+        owner: &str,
+        repo: &str,
+        branch: &str,
+        new_name: &str,
+    ) -> anyhow::Result<()> {
         let response = self
             .http
             .post(format!(
@@ -222,7 +286,7 @@ impl WriteClient {
             .bearer_auth(&self.token)
             .header("Accept", "application/vnd.github+json")
             .header("X-GitHub-Api-Version", "2022-11-28")
-            .json(&serde_json::json!({ "new_name": "main" }))
+            .json(&serde_json::json!({ "new_name": new_name }))
             .send()
             .await?;
         accepted(
@@ -230,6 +294,267 @@ impl WriteClient {
             "POST /repos/{owner}/{repo}/branches/{branch}/rename",
         )
     }
+
+    async fn rename_repository(&self, owner: &str, repo: &str, name: &str) -> anyhow::Result<()> {
+        self.patch_repository(
+            owner,
+            repo,
+            &RepositoryPatch {
+                name: Some(name.to_owned()),
+                ..RepositoryPatch::default()
+            },
+        )
+        .await
+    }
+
+    async fn transfer_repository(
+        &self,
+        owner: &str,
+        repo: &str,
+        destination: &str,
+    ) -> anyhow::Result<()> {
+        self.send_json(
+            reqwest::Method::POST,
+            &format!("/repos/{}/{}/transfer", segment(owner), segment(repo)),
+            &serde_json::json!({"new_owner": destination}),
+            "POST /repos/{owner}/{repo}/transfer",
+        )
+        .await
+    }
+
+    async fn attach_ruleset(&self, owner: &str, repo: &str, id: &str) -> anyhow::Result<()> {
+        let body = ruleset_body(Some(repo));
+        if id == "create" {
+            self.send_json(
+                reqwest::Method::POST,
+                &format!("/orgs/{}/rulesets", segment(owner)),
+                &body,
+                "POST /orgs/{org}/rulesets",
+            )
+            .await
+        } else {
+            let existing = self
+                .get_json(&format!(
+                    "/orgs/{}/rulesets/{}",
+                    segment(owner),
+                    segment(id)
+                ))
+                .await?;
+            let body = ruleset_update_body(existing, Some(repo))?;
+            self.send_json(
+                reqwest::Method::PUT,
+                &format!("/orgs/{}/rulesets/{}", segment(owner), segment(id)),
+                &body,
+                "PUT /orgs/{org}/rulesets/{id}",
+            )
+            .await
+        }
+    }
+
+    async fn tighten_ruleset(&self, owner: &str, id: &str) -> anyhow::Result<()> {
+        let existing = self
+            .get_json(&format!(
+                "/orgs/{}/rulesets/{}",
+                segment(owner),
+                segment(id)
+            ))
+            .await?;
+        self.send_json(
+            reqwest::Method::PUT,
+            &format!("/orgs/{}/rulesets/{}", segment(owner), segment(id)),
+            &ruleset_update_body(existing, None)?,
+            "PUT /orgs/{org}/rulesets/{id}",
+        )
+        .await
+    }
+
+    async fn rename_variable(&self, owner: &str, repo: &str, input: &str) -> anyhow::Result<()> {
+        let mut lines = input.lines();
+        let old = lines.next().unwrap_or_default();
+        let new = lines.next().unwrap_or_default();
+        anyhow::ensure!(
+            !old.is_empty() && !new.is_empty(),
+            "variable rename needs old and new names"
+        );
+        let response = self
+            .http
+            .get(format!(
+                "{}/repos/{}/{}/actions/variables/{}",
+                self.base_url,
+                segment(owner),
+                segment(repo),
+                segment(old)
+            ))
+            .bearer_auth(&self.token)
+            .send()
+            .await?;
+        anyhow::ensure!(
+            response.status().is_success(),
+            "the variable value could not be read"
+        );
+        let value: serde_json::Value = response.json().await?;
+        let value = value
+            .get("value")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| anyhow::anyhow!("the variable response carried no value"))?;
+        self.send_json(
+            reqwest::Method::POST,
+            &format!(
+                "/repos/{}/{}/actions/variables",
+                segment(owner),
+                segment(repo)
+            ),
+            &serde_json::json!({"name": new, "value": value}),
+            "POST /repos/{owner}/{repo}/actions/variables",
+        )
+        .await?;
+        let response = self
+            .http
+            .delete(format!(
+                "{}/repos/{}/{}/actions/variables/{}",
+                self.base_url,
+                segment(owner),
+                segment(repo),
+                segment(old)
+            ))
+            .bearer_auth(&self.token)
+            .send()
+            .await?;
+        accepted(
+            response.status(),
+            "DELETE /repos/{owner}/{repo}/actions/variables/{name}",
+        )
+    }
+
+    async fn rulesets(&self, owner: &str) -> anyhow::Result<Vec<String>> {
+        let value = self
+            .get_json(&format!("/orgs/{}/rulesets?per_page=100", segment(owner)))
+            .await?;
+        let rows = value
+            .as_array()
+            .ok_or_else(|| anyhow::anyhow!("the ruleset response was not a list"))?;
+        Ok(rows
+            .iter()
+            .filter_map(|row| {
+                let id = row.get("id")?.as_u64()?;
+                let name = row.get("name")?.as_str()?;
+                Some(format!("{id} — {}", text::sanitize(name, NAME_LIMIT)))
+            })
+            .collect())
+    }
+
+    async fn variables(&self, owner: &str, repo: &str) -> anyhow::Result<Vec<String>> {
+        let value = self
+            .get_json(&format!(
+                "/repos/{}/{}/actions/variables?per_page=100",
+                segment(owner),
+                segment(repo)
+            ))
+            .await?;
+        let rows = value
+            .get("variables")
+            .and_then(serde_json::Value::as_array)
+            .ok_or_else(|| anyhow::anyhow!("the variable response carried no list"))?;
+        Ok(rows
+            .iter()
+            .filter_map(|row| row.get("name").and_then(serde_json::Value::as_str))
+            .map(|name| text::sanitize(name, NAME_LIMIT))
+            .collect())
+    }
+
+    async fn get_json(&self, path: &str) -> anyhow::Result<serde_json::Value> {
+        let response = self
+            .http
+            .get(format!("{}{}", self.base_url, path))
+            .bearer_auth(&self.token)
+            .header("Accept", "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .send()
+            .await?;
+        anyhow::ensure!(
+            response.status().is_success(),
+            "the settings observation returned HTTP {}",
+            response.status().as_u16()
+        );
+        response.json().await.map_err(Into::into)
+    }
+
+    async fn send_json(
+        &self,
+        method: reqwest::Method,
+        path: &str,
+        body: &serde_json::Value,
+        endpoint: &str,
+    ) -> anyhow::Result<()> {
+        let response = self
+            .http
+            .request(method, format!("{}{}", self.base_url, path))
+            .bearer_auth(&self.token)
+            .header("Accept", "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .json(body)
+            .send()
+            .await?;
+        accepted(response.status(), endpoint)
+    }
+}
+
+fn ruleset_update_body(
+    existing: serde_json::Value,
+    repository: Option<&str>,
+) -> anyhow::Result<serde_json::Value> {
+    let mut body = serde_json::Map::new();
+    for field in [
+        "name",
+        "target",
+        "enforcement",
+        "bypass_actors",
+        "conditions",
+    ] {
+        if let Some(value) = existing.get(field) {
+            body.insert(field.to_owned(), value.clone());
+        }
+    }
+    anyhow::ensure!(
+        body.contains_key("name")
+            && body.contains_key("target")
+            && body.contains_key("enforcement")
+            && body.contains_key("conditions"),
+        "the observed ruleset omitted a required field"
+    );
+    if let Some(repository) = repository {
+        let include = body
+            .get_mut("conditions")
+            .and_then(|value| value.get_mut("repository_name"))
+            .and_then(|value| value.get_mut("include"))
+            .and_then(serde_json::Value::as_array_mut)
+            .ok_or_else(|| anyhow::anyhow!("the observed ruleset has no repository-name choice"))?;
+        if !include
+            .iter()
+            .any(|value| value.as_str() == Some(repository))
+        {
+            include.push(serde_json::Value::String(repository.to_owned()));
+        }
+    }
+    let mut rules = existing
+        .get("rules")
+        .and_then(serde_json::Value::as_array)
+        .cloned()
+        .ok_or_else(|| anyhow::anyhow!("the observed ruleset omitted its rules"))?;
+    let compiled = ruleset_body(None);
+    let required = compiled["rules"]
+        .as_array()
+        .expect("compiled rules are an array");
+    for required_rule in required {
+        let kind = required_rule.get("type");
+        if let Some(position) = rules.iter().position(|rule| rule.get("type") == kind) {
+            rules[position] = required_rule.clone();
+        } else {
+            rules.push(required_rule.clone());
+        }
+    }
+    body.insert("rules".to_owned(), serde_json::Value::Array(rules));
+    Ok(serde_json::Value::Object(body))
 }
 
 impl Drop for WriteClient {
@@ -241,11 +566,41 @@ impl Drop for WriteClient {
 #[derive(Debug, Default, Serialize)]
 struct RepositoryPatch {
     #[serde(skip_serializing_if = "Option::is_none")]
+    name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     allow_merge_commit: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     allow_squash_merge: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     delete_branch_on_merge: Option<bool>,
+}
+
+pub(crate) fn ruleset_body(repository: Option<&str>) -> serde_json::Value {
+    let conditions = repository.map_or_else(
+        || serde_json::json!({}),
+        |name| {
+            serde_json::json!({
+                "repository_name": {"include": [name], "exclude": [], "protected": false}
+            })
+        },
+    );
+    serde_json::json!({
+        "name": "Airlock default branch",
+        "target": "branch",
+        "enforcement": "active",
+        "conditions": conditions,
+        "rules": [
+            {"type": "pull_request", "parameters": {
+                "allowed_merge_methods": ["squash", "rebase"],
+                "required_approving_review_count": 0,
+                "dismiss_stale_reviews_on_push": false,
+                "require_code_owner_review": false,
+                "require_last_push_approval": false,
+                "required_review_thread_resolution": false
+            }},
+            {"type": "required_linear_history"}
+        ]
+    })
 }
 
 /// The credential-owning remediation session.
@@ -307,6 +662,27 @@ impl Session {
         .map_err(Into::into)
     }
 
+    async fn prepare(&self, target: &Target, remediation: &str) -> anyhow::Result<PreparedInput> {
+        match remediation {
+            "attach-org-rulesets" => {
+                let mut choices = self.writer.rulesets(&target.owner).await?;
+                choices.push("create — Airlock default branch".to_owned());
+                Ok(PreparedInput::Rulesets(choices))
+            }
+            "tighten-org-rulesets" => self
+                .writer
+                .rulesets(&target.owner)
+                .await
+                .map(PreparedInput::Rulesets),
+            "rename-app-credentials" | "rename-task-named-credentials" => self
+                .writer
+                .variables(&target.owner, &target.repo)
+                .await
+                .map(PreparedInput::Variables),
+            _ => anyhow::bail!("this remediation has no observed choice input"),
+        }
+    }
+
     /// Apply one rule under the re-observation contract.
     pub async fn apply(
         &self,
@@ -314,6 +690,7 @@ impl Session {
         repo: &str,
         rule: &str,
         remediation: &str,
+        argument: Option<&str>,
     ) -> Transcript {
         let started = Instant::now();
         let action = Action::for_code(remediation);
@@ -327,8 +704,9 @@ impl Session {
             proposed_change,
             steps: Vec::new(),
             observed: ObservedStatus::Inconclusive,
+            undo: None,
         };
-        let Some(action) = action else {
+        if action.is_none() && argument.is_none() {
             transcript.steps.push(step(
                 started,
                 false,
@@ -340,7 +718,101 @@ impl Session {
                 "re-observation did not run because no executable change was selected",
             ));
             return transcript;
-        };
+        }
+
+        if action.is_none() {
+            let before = match self
+                .observe(&Target {
+                    owner: owner.to_owned(),
+                    repo: repo.to_owned(),
+                })
+                .await
+            {
+                Ok(report) => report,
+                Err(error) => {
+                    transcript.steps.push(step(
+                        started,
+                        false,
+                        &format!("pre-change re-observation failed: {error:#}"),
+                    ));
+                    transcript
+                        .steps
+                        .push(step(started, false, "no write was attempted"));
+                    return transcript;
+                }
+            };
+            let before_status = before
+                .findings
+                .iter()
+                .find(|finding| finding.rule == rule)
+                .map(|finding| finding.status);
+            transcript.steps.push(step(
+                started,
+                before_status.is_some(),
+                "re-observed the rule immediately before acting",
+            ));
+            if before_status != Some(airlock_core::findings::Status::Fail) {
+                transcript.steps.push(step(
+                    started,
+                    before_status == Some(airlock_core::findings::Status::Pass),
+                    "the fresh observation does not report a gap; no write was made",
+                ));
+            } else {
+                let changed = self
+                    .change_with_input(owner, repo, remediation, argument.unwrap_or_default())
+                    .await;
+                let accepted = changed.is_ok();
+                if accepted {
+                    transcript.undo = input_undo(owner, repo, remediation, argument);
+                }
+                transcript.steps.push(step(
+                    started,
+                    accepted,
+                    &changed.map_or_else(
+                        |error| format!("the change request failed: {error:#}"),
+                        |()| "github accepted the change request".to_owned(),
+                    ),
+                ));
+            }
+
+            let (observed_owner, observed_repo) =
+                observed_target(owner, repo, remediation, argument);
+            match self
+                .observe(&Target {
+                    owner: observed_owner,
+                    repo: observed_repo,
+                })
+                .await
+            {
+                Ok(report) => {
+                    let finding = report.findings.iter().find(|finding| finding.rule == rule);
+                    transcript.observed = match finding.map(|finding| finding.status) {
+                        Some(airlock_core::findings::Status::Pass) => ObservedStatus::Pass,
+                        Some(airlock_core::findings::Status::Fail) => ObservedStatus::Fail,
+                        _ => ObservedStatus::Inconclusive,
+                    };
+                    transcript.steps.push(step(
+                        started,
+                        transcript.observed == ObservedStatus::Pass,
+                        match transcript.observed {
+                            ObservedStatus::Pass => "re-observation reports pass",
+                            ObservedStatus::Fail => {
+                                "re-observation reports fail; the gap remains open"
+                            }
+                            ObservedStatus::Inconclusive => {
+                                "re-observation could not establish the rule"
+                            }
+                        },
+                    ));
+                }
+                Err(error) => transcript.steps.push(step(
+                    started,
+                    false,
+                    &format!("post-change re-observation failed: {error:#}"),
+                )),
+            }
+            return transcript;
+        }
 
         let reader = match self.reader() {
             Ok(reader) => reader,
@@ -373,7 +845,8 @@ impl Session {
             "re-observed the rule immediately before acting",
         ));
 
-        match action.satisfied_by(&before) {
+        let satisfied = action.map_or(Some(false), |action| action.satisfied_by(&before));
+        match satisfied {
             Some(true) => {
                 transcript.steps.push(step(
                     started,
@@ -389,15 +862,25 @@ impl Session {
                 ));
             }
             Some(false) => {
-                let changed = self.change(owner, repo, action, &before).await;
+                let changed = if let Some(action) = action {
+                    self.change(owner, repo, action, &before).await
+                } else {
+                    self.change_with_input(owner, repo, remediation, argument.unwrap_or_default())
+                        .await
+                };
+                let accepted = changed.is_ok();
                 transcript.steps.push(step(
                     started,
-                    changed.is_ok(),
+                    accepted,
                     &changed.map_or_else(
                         |error| format!("the change request failed: {error:#}"),
                         |()| "github accepted the change request".to_owned(),
                     ),
                 ));
+                if accepted {
+                    transcript.undo =
+                        action.and_then(|action| action_undo(owner, repo, action, &before));
+                }
             }
         }
 
@@ -413,7 +896,7 @@ impl Session {
             }
         };
         match reader.repository(owner, repo).await {
-            Ok(repository) => match action.satisfied_by(&repository) {
+            Ok(repository) => match action.and_then(|action| action.satisfied_by(&repository)) {
                 Some(true) => {
                     transcript.observed = ObservedStatus::Pass;
                     transcript
@@ -448,11 +931,11 @@ impl Session {
         &self,
         owner: &str,
         repo: &str,
-        requests: impl IntoIterator<Item = (&'a str, &'a str)>,
+        requests: impl IntoIterator<Item = (&'a str, &'a str, Option<&'a str>)>,
     ) -> Vec<Transcript> {
         let mut transcripts = Vec::new();
-        for (rule, remediation) in requests {
-            transcripts.push(self.apply(owner, repo, rule, remediation).await);
+        for (rule, remediation, argument) in requests {
+            transcripts.push(self.apply(owner, repo, rule, remediation, argument).await);
         }
         transcripts
     }
@@ -507,6 +990,215 @@ impl Session {
                     .await
             }
         }
+    }
+
+    async fn change_with_input(
+        &self,
+        owner: &str,
+        repo: &str,
+        remediation: &str,
+        argument: &str,
+    ) -> anyhow::Result<()> {
+        match remediation {
+            "transfer-repository" => {
+                let destination = argument.lines().next().unwrap_or_default();
+                self.writer
+                    .transfer_repository(owner, repo, destination)
+                    .await
+            }
+            "rename-repository-kebab"
+            | "rename-repository-undotted"
+            | "rename-repository-family-prefix" => {
+                self.writer.rename_repository(owner, repo, argument).await
+            }
+            "attach-org-rulesets" => {
+                let id = argument.split_whitespace().next().unwrap_or_default();
+                self.writer.attach_ruleset(owner, repo, id).await
+            }
+            "tighten-org-rulesets" => {
+                let id = argument.split_whitespace().next().unwrap_or_default();
+                self.writer.tighten_ruleset(owner, id).await
+            }
+            "rename-app-credentials" | "rename-task-named-credentials" => {
+                self.writer.rename_variable(owner, repo, argument).await
+            }
+            _ => anyhow::bail!("the remediation has no executable input contract"),
+        }
+    }
+
+    async fn undo(&self, undo: &Undo) -> anyhow::Result<()> {
+        match undo {
+            Undo::RenameBranch {
+                owner,
+                repo,
+                from,
+                to,
+            } => self.writer.rename_branch_to(owner, repo, from, to).await,
+            Undo::PatchRepository {
+                owner,
+                repo,
+                field,
+                value,
+            } => {
+                let mut patch = RepositoryPatch::default();
+                match field.as_str() {
+                    "allow_merge_commit" => patch.allow_merge_commit = Some(*value),
+                    "allow_squash_merge" => patch.allow_squash_merge = Some(*value),
+                    "delete_branch_on_merge" => patch.delete_branch_on_merge = Some(*value),
+                    _ => anyhow::bail!("the undo field is not supported"),
+                }
+                self.writer.patch_repository(owner, repo, &patch).await
+            }
+            Undo::RenameRepository { owner, from, to } => {
+                self.writer.rename_repository(owner, from, to).await
+            }
+            Undo::RenameVariable {
+                owner,
+                repo,
+                from,
+                to,
+            } => {
+                self.writer
+                    .rename_variable(owner, repo, &format!("{from}\n{to}"))
+                    .await
+            }
+        }
+    }
+
+    async fn apply_undo(
+        &self,
+        target: &Target,
+        rule: &str,
+        remediation: &str,
+        undo: &Undo,
+    ) -> Transcript {
+        let started = Instant::now();
+        let changed = self.undo(undo).await;
+        let mut transcript = Transcript {
+            rule: text::sanitize(rule, NAME_LIMIT),
+            remediation: text::sanitize(remediation, NAME_LIMIT),
+            proposed_change: "restore the freshly observed previous value".to_owned(),
+            steps: vec![step(
+                started,
+                changed.is_ok(),
+                &changed.map_or_else(
+                    |error| format!("the undo request failed: {error:#}"),
+                    |()| "github accepted the undo request".to_owned(),
+                ),
+            )],
+            observed: ObservedStatus::Inconclusive,
+            undo: None,
+        };
+        match self.observe(target).await {
+            Ok(report) => {
+                transcript.observed = match report
+                    .findings
+                    .iter()
+                    .find(|finding| finding.rule == rule)
+                    .map(|finding| finding.status)
+                {
+                    Some(airlock_core::findings::Status::Fail) => ObservedStatus::Fail,
+                    Some(airlock_core::findings::Status::Pass) => ObservedStatus::Pass,
+                    _ => ObservedStatus::Inconclusive,
+                };
+                transcript.steps.push(step(
+                    started,
+                    true,
+                    "re-observed the rule after undo; status follows that observation",
+                ));
+            }
+            Err(error) => transcript.steps.push(step(
+                started,
+                false,
+                &format!("post-undo re-observation failed: {error:#}"),
+            )),
+        }
+        transcript
+    }
+}
+
+fn action_undo(owner: &str, repo: &str, action: Action, before: &Repository) -> Option<Undo> {
+    match action {
+        Action::DefaultBranchMain => Some(Undo::RenameBranch {
+            owner: owner.to_owned(),
+            repo: repo.to_owned(),
+            from: "main".to_owned(),
+            to: before.default_branch.clone(),
+        }),
+        Action::DisableMergeCommits => {
+            before
+                .allow_merge_commit
+                .map(|value| Undo::PatchRepository {
+                    owner: owner.to_owned(),
+                    repo: repo.to_owned(),
+                    field: "allow_merge_commit".to_owned(),
+                    value,
+                })
+        }
+        Action::EnableSquashMerge => before
+            .allow_squash_merge
+            .map(|value| Undo::PatchRepository {
+                owner: owner.to_owned(),
+                repo: repo.to_owned(),
+                field: "allow_squash_merge".to_owned(),
+                value,
+            }),
+        Action::EnableHeadBranchAutoDelete => {
+            before
+                .delete_branch_on_merge
+                .map(|value| Undo::PatchRepository {
+                    owner: owner.to_owned(),
+                    repo: repo.to_owned(),
+                    field: "delete_branch_on_merge".to_owned(),
+                    value,
+                })
+        }
+    }
+}
+
+fn input_undo(owner: &str, repo: &str, remediation: &str, argument: Option<&str>) -> Option<Undo> {
+    let argument = argument?;
+    match remediation {
+        "rename-repository-kebab"
+        | "rename-repository-undotted"
+        | "rename-repository-family-prefix" => Some(Undo::RenameRepository {
+            owner: owner.to_owned(),
+            from: argument.to_owned(),
+            to: repo.to_owned(),
+        }),
+        "rename-app-credentials" | "rename-task-named-credentials" => {
+            let mut names = argument.lines();
+            Some(Undo::RenameVariable {
+                owner: owner.to_owned(),
+                repo: repo.to_owned(),
+                from: names.nth(1)?.to_owned(),
+                to: argument.lines().next()?.to_owned(),
+            })
+        }
+        _ => None,
+    }
+}
+
+fn observed_target(
+    owner: &str,
+    repo: &str,
+    remediation: &str,
+    argument: Option<&str>,
+) -> (String, String) {
+    match remediation {
+        "transfer-repository" => (
+            argument
+                .and_then(|value| value.lines().next())
+                .unwrap_or(owner)
+                .to_owned(),
+            repo.to_owned(),
+        ),
+        "rename-repository-kebab"
+        | "rename-repository-undotted"
+        | "rename-repository-family-prefix" => {
+            (owner.to_owned(), argument.unwrap_or(repo).to_owned())
+        }
+        _ => (owner.to_owned(), repo.to_owned()),
     }
 }
 
@@ -592,29 +1284,57 @@ fn run(session: Session, requests: Receiver<Request>, responses: &Sender<Respons
                     CAUSE_LIMIT,
                 )),
             },
-            Request::Apply {
+            Request::Prepare {
                 target,
+                remediation,
+            } => match runtime.block_on(session.prepare(&target, &remediation)) {
+                Ok(input) => Response::Prepared { remediation, input },
+                Err(error) => Response::Failed(text::sanitize(
+                    &format!("the remediation choices could not be observed: {error:#}"),
+                    CAUSE_LIMIT,
+                )),
+            },
+            Request::Apply {
+                mut target,
                 rule,
                 remediation,
+                argument,
             } => {
                 let transcript = runtime.block_on(session.apply(
                     &target.owner,
                     &target.repo,
                     &rule,
                     &remediation,
+                    argument.as_deref(),
                 ));
+                (target.owner, target.repo) = observed_target(
+                    &target.owner,
+                    &target.repo,
+                    &remediation,
+                    argument.as_deref(),
+                );
                 Response::Applied { target, transcript }
             }
             Request::ApplyGroup { target, requests } => {
-                let borrowed = requests
-                    .iter()
-                    .map(|(rule, remediation)| (rule.as_str(), remediation.as_str()));
+                let borrowed = requests.iter().map(|(rule, remediation, argument)| {
+                    (rule.as_str(), remediation.as_str(), argument.as_deref())
+                });
                 let transcripts =
                     runtime.block_on(session.apply_group(&target.owner, &target.repo, borrowed));
                 Response::GroupApplied {
                     target,
                     transcripts,
                 }
+            }
+            Request::Undo {
+                target,
+                rule,
+                remediation,
+                undo,
+            } => {
+                let transcript =
+                    runtime.block_on(session.apply_undo(&target, &rule, &remediation, &undo));
+                Response::Applied { target, transcript }
             }
         };
         if responses.send(response).is_err() {
@@ -745,6 +1465,115 @@ mod tests {
         }
     }
 
+    fn writer(server: &MockServer) -> WriteClient {
+        WriteClient {
+            http: reqwest::Client::builder()
+                .redirect(reqwest::redirect::Policy::none())
+                .build()
+                .unwrap(),
+            token: "ghu_test_only".to_owned(),
+            base_url: server.uri(),
+        }
+    }
+
+    #[tokio::test]
+    async fn input_mutations_have_fixture_shaped_requests() {
+        let server = MockServer::start().await;
+        Mock::given(method("PATCH"))
+            .and(path("/repos/generic-owner/sample-repository"))
+            .and(body_json(serde_json::json!({"name": "renamed-repository"})))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/repos/generic-owner/sample-repository/transfer"))
+            .and(body_json(
+                serde_json::json!({"new_owner": "destination-owner"}),
+            ))
+            .respond_with(ResponseTemplate::new(202))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let writer = writer(&server);
+        writer
+            .rename_repository("generic-owner", "sample-repository", "renamed-repository")
+            .await
+            .unwrap();
+        writer
+            .transfer_repository("generic-owner", "sample-repository", "destination-owner")
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn ruleset_choices_are_fresh_and_creation_is_policy_shaped() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/orgs/generic-owner/rulesets"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([
+                {"id": 41, "name": "protected branches"}
+            ])))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/orgs/generic-owner/rulesets"))
+            .and(body_json(ruleset_body(Some("sample-repository"))))
+            .respond_with(ResponseTemplate::new(201))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let writer = writer(&server);
+        assert_eq!(
+            writer.rulesets("generic-owner").await.unwrap(),
+            vec!["41 — protected branches"]
+        );
+        writer
+            .attach_ruleset("generic-owner", "sample-repository", "create")
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn variable_rename_preserves_the_worker_only_value() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path(
+                "/repos/generic-owner/sample-repository/actions/variables/OLD_NAME",
+            ))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({"name":"OLD_NAME","value":"opaque-value"})),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path(
+                "/repos/generic-owner/sample-repository/actions/variables",
+            ))
+            .and(body_json(
+                serde_json::json!({"name":"NEW_NAME","value":"opaque-value"}),
+            ))
+            .respond_with(ResponseTemplate::new(201))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("DELETE"))
+            .and(path(
+                "/repos/generic-owner/sample-repository/actions/variables/OLD_NAME",
+            ))
+            .respond_with(ResponseTemplate::new(204))
+            .expect(1)
+            .mount(&server)
+            .await;
+        writer(&server)
+            .rename_variable("generic-owner", "sample-repository", "OLD_NAME\nNEW_NAME")
+            .await
+            .unwrap();
+    }
+
     #[tokio::test]
     async fn an_accepted_write_that_does_not_close_the_gap_reports_fail() {
         let server = MockServer::start().await;
@@ -769,6 +1598,7 @@ mod tests {
                 "sample-repository",
                 "REPO-GIT-04",
                 "disable-merge-commits",
+                None,
             )
             .await;
 
@@ -800,6 +1630,7 @@ mod tests {
                 "sample-repository",
                 "REPO-GIT-04",
                 "disable-merge-commits",
+                None,
             )
             .await;
 

@@ -1,12 +1,12 @@
-remediation-80x24-dark · 80x24 · theme dark · colour
+remediation-rename-input-80x24-dark · 80x24 · theme dark · colour
 --- text ---
 AIRLOCK 0.0.0  …› findings › remediation  no credential stored · theme t · dark 
 SETTINGS REMEDIATION                                                            
-would show      the proposed change and transcript                              
-empty because   no applicable settings remediation is selected                  
-next            return to findings and select a settings row                    
+repository      generic-owner/sample-repository                                 
+rules           1                                                               
+REPO-SAMPLE-01 · rename-repository-kebab · Apply the observed settings change. ·
                                                                                 
-                                                                                
+new name        sample-repository                                               
                                                                                 
                                                                                 
                                                                                 
@@ -23,10 +23,12 @@ next            return to findings and select a settings row
                                                                                 
                                                                                 
 esc back · ↵ next in queue · u undo · o re-observe · t theme · ctrl-c exit      
-no settings remediation selected                                                
+input required before confirmation                                              
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 ccccccccccccccccccccdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+eeeeeeeeeeeeeeeedddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+eeeeeeeeeeeeeeeedddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
@@ -45,15 +47,13 @@ dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-cccdeeeefffcdeeeeeeeeeeeeefffcdeeeefffcdeeeeeeeeeefffcdeeeeefffccccccdeeeedddddd
+cccdffffeeecdfffffffffffffeeecdffffeeecdffffffffffeeecdfffffeeeccccccdffffdddddd
 gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
 --- legend ---
 a fg=#CBD3DD bg=#14181D BOLD
 b fg=#CBD3DD bg=#14181D
 c fg=#E8B84B bg=#0B0D10 BOLD
 d fg=#CBD3DD bg=#0B0D10
-e fg=#79838F bg=#0B0D10
-f fg=#4C5661 bg=#0B0D10
+e fg=#4C5661 bg=#0B0D10
+f fg=#79838F bg=#0B0D10
 g fg=#79838F bg=#101419

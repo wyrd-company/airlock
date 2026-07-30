@@ -117,6 +117,8 @@ pub struct App {
     note: Option<String>,
     remediation: remediation::State,
     pending_remediation: Option<remediation::Request>,
+    pending_preparation: Option<(Observe, String)>,
+    pending_undo: Option<remediation::UndoRequest>,
 }
 
 impl App {
@@ -146,6 +148,8 @@ impl App {
             note: None,
             remediation: remediation::State::default(),
             pending_remediation: None,
+            pending_preparation: None,
+            pending_undo: None,
         }
     }
 
@@ -158,6 +162,14 @@ impl App {
     #[must_use]
     pub fn with_catalogue(mut self, catalogue: catalogue::Catalogue) -> Self {
         self.catalogue = catalogue::State::Ready(Box::new(catalogue));
+        self
+    }
+
+    #[cfg(test)]
+    #[cfg_attr(feature = "test-identity", allow(dead_code))]
+    #[must_use]
+    pub fn with_remediation(mut self, remediation: remediation::State) -> Self {
+        self.remediation = remediation;
         self
     }
 
@@ -191,6 +203,49 @@ impl App {
     /// Take a confirmed remediation exactly once.
     pub fn take_remediation_request(&mut self) -> Option<remediation::Request> {
         self.pending_remediation.take()
+    }
+
+    pub fn take_preparation_request(&mut self) -> Option<(Observe, String)> {
+        self.pending_preparation.take()
+    }
+
+    pub fn take_undo_request(&mut self) -> Option<remediation::UndoRequest> {
+        self.pending_undo.take()
+    }
+
+    pub fn remediation_prepared(
+        &mut self,
+        remediation_code: &str,
+        input: crate::admin::remediation::PreparedInput,
+    ) {
+        let remediation::State::Input { request } = &mut self.remediation else {
+            return;
+        };
+        let Some(item) = request
+            .items
+            .iter_mut()
+            .find(|item| item.remediation == remediation_code)
+        else {
+            return;
+        };
+        item.input = match input {
+            crate::admin::remediation::PreparedInput::Rulesets(values) => {
+                remediation::Input::Choice {
+                    values,
+                    selected: 0,
+                    empty: "no freshly observed organization rulesets are available".to_owned(),
+                }
+            }
+            crate::admin::remediation::PreparedInput::Variables(names) => {
+                remediation::Input::VariableRename {
+                    names,
+                    selected: 0,
+                    draft: String::new(),
+                    notice: "deferred: secret values require task 97's masked entry".to_owned(),
+                    error: None,
+                }
+            }
+        };
     }
 
     /// Close the remediation screen with the post-write observation.
@@ -297,6 +352,15 @@ impl App {
         {
             return Flow::Exit;
         }
+        if self.screen == Screen::Remediation && self.remediation.is_input() {
+            if event.code == KeyCode::Esc {
+                self.screen = Screen::Findings;
+                return Flow::Continue;
+            }
+            if self.remediation.input_key(event.code) {
+                return Flow::Continue;
+            }
+        }
         // A focused text input takes printable keys as text, `t` included. The
         // footer stops advertising the theme toggle for exactly as long as
         // this holds, so nothing on screen names a key this state has taken.
@@ -323,6 +387,13 @@ impl App {
         }
         if self.screen == Screen::Remediation && matches!(event.code, KeyCode::Enter) {
             self.pending_remediation = self.remediation.take_confirmation();
+            return Flow::Continue;
+        }
+        if self.screen == Screen::Remediation && event.code == KeyCode::Char('u') {
+            self.pending_undo = self.remediation.take_undo();
+            if self.pending_undo.is_none() {
+                self.note = Some("undo is unavailable for this change".to_owned());
+            }
             return Flow::Continue;
         }
         match event.code {
@@ -545,6 +616,16 @@ impl App {
             self.note = Some("this rule declares no settings remediation".to_owned());
             return;
         };
+        let input = self.remediation_input(&code, &target);
+        if matches!(
+            code.as_str(),
+            "attach-org-rulesets"
+                | "tighten-org-rulesets"
+                | "rename-app-credentials"
+                | "rename-task-named-credentials"
+        ) {
+            self.pending_preparation = Some((target.clone(), code.clone()));
+        }
         self.remediation = remediation::State::confirm(
             target.owner,
             target.name,
@@ -553,9 +634,48 @@ impl App {
                 remediation: code,
                 change,
                 reversible,
+                input,
             }],
         );
         self.screen = Screen::Remediation;
+    }
+
+    fn remediation_input(&self, code: &str, target: &Observe) -> remediation::Input {
+        match code {
+            "rename-repository-kebab"
+            | "rename-repository-undotted"
+            | "rename-repository-family-prefix" => remediation::Input::Text {
+                draft: remediation::rename_candidate(code, &target.name, None),
+                error: None,
+            },
+            "transfer-repository" => remediation::Input::Transfer {
+                destinations: self
+                    .catalogue
+                    .installations()
+                    .iter()
+                    .map(|installation| installation.account.clone())
+                    .filter(|account| account != &target.owner)
+                    .collect(),
+                selected: 0,
+                typed_name: String::new(),
+            },
+            "attach-org-rulesets" | "tighten-org-rulesets" => remediation::Input::Choice {
+                values: Vec::new(),
+                selected: 0,
+                empty: "no freshly observed organization ruleset choices are available".to_owned(),
+            },
+            "rename-app-credentials" | "rename-task-named-credentials" => {
+                remediation::Input::VariableRename {
+                    names: Vec::new(),
+                    selected: 0,
+                    draft: String::new(),
+                    notice: "loading variables; secret values remain deferred to task 97"
+                        .to_owned(),
+                    error: None,
+                }
+            }
+            _ => remediation::Input::None,
+        }
     }
 
     fn open_remediation_group(&mut self) {
@@ -598,6 +718,7 @@ impl App {
                     remediation: code,
                     change: row.change.clone()?,
                     reversible: row.reversible?,
+                    input: remediation::Input::None,
                 })
             })
             .collect();

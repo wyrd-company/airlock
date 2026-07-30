@@ -22,7 +22,7 @@ showing       the whole working set · 3 of 3 · gate required · f
 0 above · 0 below · working set 3 of 3 · ↑↓ moves through the rest              
                                                                                 
                                                                                 
-↑↓/j/k move · space collapse or expand · ↵ finding detail · f filter · 7 more…  
+↑↓/j/k move · space collapse or expand · ↵ finding detail · f filter · 8 more…  
 conformant · complete true · 3 rules · registry 0.4.0 · gate required           
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
