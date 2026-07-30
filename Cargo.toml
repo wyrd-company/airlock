@@ -44,6 +44,9 @@ sha2 = "0.10"
 thiserror = "2.0"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
 toml = "0.8"
+# url is the parser reqwest resolves with. The write path validates its OAuth
+# host with the same type the request will use, so the two cannot disagree.
+url = "2.5"
 # zeroize overwrites the write credential rather than only dropping it.
 zeroize = "1"
 

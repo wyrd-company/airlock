@@ -15,6 +15,7 @@ use ratatui::text::{Line, Span};
 use crate::admin::identity::{self, WriteIdentity};
 use crate::admin::scan::{self, ScanCode};
 use crate::admin::sign_in::{humanize, Density, SignIn};
+use crate::admin::text;
 
 use super::chrome::wrap;
 use super::theme::{Role, Styles};
@@ -95,8 +96,7 @@ enum Withheld {
     TooShort(usize),
     /// Colour is off, and the code paints its own field in colour.
     NoColor,
-    /// The address would not encode. It always does; this is the arm that
-    /// keeps a change of address from taking the screen down.
+    /// The address is not one a browser would open, or would not encode.
     Unencodable,
 }
 
@@ -138,7 +138,9 @@ impl Withheld {
                     .to_owned()
             }
             Self::Unencodable => {
-                "withheld: the address did not encode. Type it from the line above.".to_owned()
+                "withheld: the address above is not one a browser would open, so there \
+                 is nothing safe to encode. Read it before you act on it."
+                    .to_owned()
             }
         }
     }
@@ -291,8 +293,18 @@ impl Screen {
         }
     }
 
+    /// The scan code for the address on screen, where there is one worth
+    /// encoding.
+    ///
+    /// The address is checked for shape as well as for characters. A scanner
+    /// that followed a code airlock drew would go wherever it pointed, so a
+    /// value that is not a web address is printed and not encoded: reading it
+    /// is the operator's, and following it is not something this screen offers.
     fn encoded(&self) -> Option<ScanCode> {
         let address = &self.state.code()?.verification_uri;
+        if !text::is_web_address(address) {
+            return None;
+        }
         ScanCode::encode(address).ok()
     }
 
@@ -899,6 +911,25 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn an_address_a_browser_would_not_open_is_never_encoded() {
+        let mut screen = Screen::default();
+        screen.state_mut().code_issued(&Issued {
+            user_code: "WDJB-MJHT".to_owned(),
+            verification_uri: "javascript:alert(1)".to_owned(),
+            expires_in: std::time::Duration::from_secs(900),
+            interval: std::time::Duration::from_secs(5),
+        });
+        let text = flat(&screen, styles(), REFERENCE_WIDTH, 35);
+        assert!(text.contains("not one a browser would open"), "{text}");
+        assert!(
+            !rendered(&screen, styles(), REFERENCE_WIDTH, 35).contains(scan::glyph()),
+            "a scanner must not be pointed somewhere a server chose"
+        );
+        // The address itself is still printed: reading it is the operator's.
+        assert!(text.contains("javascript:alert(1)"), "{text}");
     }
 
     #[test]

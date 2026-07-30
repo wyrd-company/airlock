@@ -46,12 +46,6 @@ use super::text::{self, ADDRESS_LIMIT, CAUSE_LIMIT, CODE_LIMIT};
 /// machine.
 const LOGIN_URL_OVERRIDE: &str = "AIRLOCK_GITHUB_LOGIN_URL";
 
-/// The registered names the override may use.
-const LOOPBACK_NAMES: &[&str] = &["127.0.0.1", "localhost"];
-
-/// The IPv6 literals the override may use, unbracketed.
-const LOOPBACK_LITERALS: &[&str] = &["::1", "0:0:0:0:0:0:0:1"];
-
 /// How long the worker is given to notice that the session has gone.
 ///
 /// Every await on it is selecting against the request channel, so it returns as
@@ -70,59 +64,42 @@ pub fn login_base() -> String {
 
 /// Whether a base URL names a host on this machine.
 ///
-/// The authority is taken apart rather than matched against: `localhost` is a
-/// prefix of a great many hostnames, and it is also legal userinfo. The three
-/// shapes that have to be refused and would otherwise pass a prefix test are
-/// `http://localhost:80@attacker.example`, where the loopback name is a
-/// username; `http://localhost.attacker.example`, where it is a label; and
-/// `http://attacker.example/?x=localhost`, where it is in the path.
-fn is_loopback(base: &str) -> bool {
-    let Some(rest) = base
-        .strip_prefix("http://")
-        .or_else(|| base.strip_prefix("https://"))
-    else {
-        return false;
-    };
-    // Whitespace and controls have no place in a URL and are refused before
-    // anything is read out of it.
-    if base.chars().any(|c| c.is_control() || c.is_whitespace()) {
-        return false;
-    }
-    // The authority ends at the first delimiter, whichever comes first.
-    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
-    // Userinfo is refused outright rather than parsed past. A base URL for the
-    // device flow has no business carrying credentials, and `@` is the whole of
-    // the `localhost:80@attacker.example` trick.
-    if authority.contains('@') {
-        return false;
-    }
-    if let Some(rest) = authority.strip_prefix('[') {
-        let Some((literal, after)) = rest.split_once(']') else {
-            return false;
-        };
-        return is_port(after)
-            && LOOPBACK_LITERALS
-                .iter()
-                .any(|allowed| literal.eq_ignore_ascii_case(allowed));
-    }
-    let (host, port) = match authority.split_once(':') {
-        Some((host, port)) => (host, port),
-        None => (authority, ""),
-    };
-    // An unbracketed IPv6 literal has more colons, so its "port" is not digits.
-    is_port(if port.is_empty() { "" } else { port })
-        && LOOPBACK_NAMES
-            .iter()
-            .any(|allowed| host.eq_ignore_ascii_case(allowed))
-}
-
-/// Whether what follows the host is nothing, or a port.
+/// Parsed with `url`, which is the crate reqwest resolves with, rather than
+/// taken apart by hand, so there is no gap between what is validated and what is
+/// dialled. A hand-rolled reading of the authority is what let
+/// `http://localhost:80@attacker.example` through: the loopback name was
+/// userinfo, and the host was somebody else's.
 ///
-/// Accepts `""` for the empty tail of a bracketed literal too, so both call
-/// sites read the same.
-fn is_port(tail: &str) -> bool {
-    let tail = tail.strip_prefix(':').unwrap_or(tail);
-    tail.is_empty() || (tail.len() <= 5 && tail.bytes().all(|byte| byte.is_ascii_digit()))
+/// Three things are required, and each refuses a different attack: no userinfo,
+/// because that is where a loopback name can be hidden; a host that *is* a
+/// loopback address or is exactly `localhost`, because `localhost.attacker
+/// .example` merely begins with one; and nothing in the path or the query,
+/// because this value is concatenated with a path and a base carrying its own
+/// would not mean what it reads as.
+fn is_loopback(base: &str) -> bool {
+    let Ok(url) = url::Url::parse(base) else {
+        return false;
+    };
+    if !matches!(url.scheme(), "http" | "https") {
+        return false;
+    }
+    if !url.username().is_empty() || url.password().is_some() {
+        return false;
+    }
+    if url.query().is_some() || url.fragment().is_some() {
+        return false;
+    }
+    if !matches!(url.path(), "" | "/") {
+        return false;
+    }
+    match url.host() {
+        // `url` lower-cases and normalises the host before this sees it, so
+        // `LocalHost` and `127.000.000.001` are already resolved.
+        Some(url::Host::Domain(host)) => host == "localhost",
+        Some(url::Host::Ipv4(address)) => address.is_loopback(),
+        Some(url::Host::Ipv6(address)) => address.is_loopback(),
+        None => false,
+    }
 }
 
 /// A device code, as the operator sees it.
@@ -757,7 +734,7 @@ mod tests {
             "https://localhost:443/",
             "http://[::1]:9000",
             "http://LocalHost:1234",
-            "http://127.0.0.1:8080/login",
+            "http://127.0.0.2:9",
         ] {
             assert!(is_loopback(allowed), "{allowed}");
         }
@@ -771,6 +748,10 @@ mod tests {
             "http://127.0.0.1.attacker.example",
             "http://attacker.example/localhost",
             "http://attacker.example/?x=localhost",
+            // A base that carries its own path or query, which is concatenated
+            // with one and would not mean what it reads as.
+            "http://127.0.0.1:8080/login",
+            "http://localhost/?redirect=https://attacker.example",
             // Not a loopback at all.
             "https://github.com",
             // Malformed, and refused rather than guessed at.
@@ -781,6 +762,7 @@ mod tests {
             "http://local host",
             "127.0.0.1:8080",
             "file:///etc/passwd",
+            "javascript:alert(1)",
             "",
         ] {
             assert!(!is_loopback(refused), "{refused}");

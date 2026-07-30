@@ -37,6 +37,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "toml",
+ "url",
  "wiremock",
  "zeroize",
 ]

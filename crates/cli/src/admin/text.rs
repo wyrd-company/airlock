@@ -81,9 +81,43 @@ pub fn sanitize(text: &str, limit: usize) -> String {
     out
 }
 
+/// Whether an address is one a browser would open.
+///
+/// The scan code exists to save the operator typing this, so a scanner that
+/// followed it would go wherever it points. Encoding a string only because a
+/// server sent it would make that a redirect somebody else chooses, so an
+/// address that is not an `http` or `https` URL is not encoded at all — it is
+/// still printed, as the text it is, which is what a suspicious operator needs
+/// to see.
+#[must_use]
+pub fn is_web_address(text: &str) -> bool {
+    url::Url::parse(text)
+        .is_ok_and(|url| matches!(url.scheme(), "http" | "https") && url.host().is_some())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_a_web_address_is_worth_encoding() {
+        for address in [
+            "https://github.com/login/device",
+            "http://127.0.0.1:8080/login/device",
+        ] {
+            assert!(is_web_address(address), "{address}");
+        }
+        for refused in [
+            "javascript:alert(1)",
+            "file:///etc/passwd",
+            "data:text/html,<script>",
+            "github.com/login/device",
+            "not an address at all",
+            "",
+        ] {
+            assert!(!is_web_address(refused), "{refused}");
+        }
+    }
 
     #[test]
     fn ordinary_text_is_returned_as_it_stands() {
