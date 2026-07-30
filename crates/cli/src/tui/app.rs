@@ -241,7 +241,7 @@ impl App {
                     names,
                     selected: 0,
                     draft: String::new(),
-                    notice: "airlock cannot read a secret's value back, so this rename needs the value re-entered by a person; the gap stays in the queue until it is".to_owned(),
+                    notice: remediation::SECRET_DEFERRAL_NOTICE.to_owned(),
                     error: None,
                 }
             }
@@ -674,7 +674,7 @@ impl App {
                     names: Vec::new(),
                     selected: 0,
                     draft: String::new(),
-                    notice: "airlock cannot read a secret's value back, so this rename needs the value re-entered by a person; the gap stays in the queue until it is".to_owned(),
+                    notice: remediation::SECRET_DEFERRAL_NOTICE.to_owned(),
                     error: None,
                 }
             }

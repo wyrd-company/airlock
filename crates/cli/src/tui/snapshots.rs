@@ -1085,7 +1085,7 @@ fn remediation_input_and_result_frames_match_recordings() {
                         names: vec!["LEGACY_NAME".to_owned()],
                         selected: 0,
                         draft: "CURRENT_NAME".to_owned(),
-                        notice: "deferred: secret values require task 97's masked entry".to_owned(),
+                        notice: super::remediation::SECRET_DEFERRAL_NOTICE.to_owned(),
                         error: None,
                     },
                 )],

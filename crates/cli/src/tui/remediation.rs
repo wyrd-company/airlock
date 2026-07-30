@@ -6,6 +6,8 @@ use super::chrome::wrap;
 use super::theme::{Role, Styles};
 use crate::admin::remediation::{ObservedStatus, Transcript};
 
+pub(super) const SECRET_DEFERRAL_NOTICE: &str = "airlock cannot read a secret's value back, so this rename needs the value re-entered by a person; the gap stays in the queue until it is";
+
 /// The input a remediation needs before it can be confirmed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Input {
@@ -749,6 +751,45 @@ mod tests {
             empty: String::new(),
         })
         .captures_text());
+    }
+
+    #[test]
+    fn secret_deferral_notice_renders_the_person_and_queue_contract() {
+        let state = State::confirm(
+            "generic-owner".to_owned(),
+            "sample-repository".to_owned(),
+            vec![Item {
+                rule: "REPO-SAMPLE-01".to_owned(),
+                remediation: "rename-app-credentials".to_owned(),
+                change: "sample".to_owned(),
+                reversible: true,
+                input: Input::VariableRename {
+                    names: vec!["LEGACY_NAME".to_owned()],
+                    selected: 0,
+                    draft: "CURRENT_NAME".to_owned(),
+                    notice: SECRET_DEFERRAL_NOTICE.to_owned(),
+                    error: None,
+                },
+            }],
+        );
+        let rendered = body(
+            Styles::new(
+                super::super::theme::Theme::Dark,
+                super::super::theme::ColorMode::Color,
+            ),
+            120,
+            &state,
+        )
+        .into_iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+        assert!(
+            rendered.contains(&format!("secret values   {SECRET_DEFERRAL_NOTICE}")),
+            "{rendered}"
+        );
+        assert!(!rendered.contains("task 97"), "{rendered}");
     }
 
     #[test]
