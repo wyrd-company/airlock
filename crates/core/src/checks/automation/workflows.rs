@@ -1,6 +1,8 @@
 use super::*;
 use crate::ActionGroup;
 
+const CANONICAL_AIRLOCK_REPOSITORY: &str = "wyrd-company/airlock";
+
 pub(super) fn readable_workflows<'a>(
     context: &'a AuditContext<'_>,
 ) -> Result<Vec<&'a Workflow>, Box<Verdict>> {
@@ -455,38 +457,27 @@ pub(super) fn audit_uses_airlock_token(context: &AuditContext) -> Verdict {
                 .collect()
         })
         .unwrap_or_default();
-    let has_local_action = steps.iter().any(|step| {
-        step.get("uses")
-            .and_then(Yaml::as_str)
-            .is_some_and(|uses| uses == "./")
-    });
-    let local_action_is_airlock = if has_local_action {
-        match context.yaml("action.yml") {
-            ParsedFile::Parsed(action) => {
-                action.get("name").and_then(Yaml::as_str) == Some("Airlock audit")
-            }
-            ParsedFile::Missing | ParsedFile::NotAFile(_) => false,
-            ParsedFile::Undecided(verdict) => return *verdict,
-        }
-    } else {
-        false
-    };
+    // Repository identity is authoritative and default-deny: an unknown remote or a fork cannot
+    // claim the canonical repository's local self-reference.
+    let local_action_is_canonical = context
+        .full_name()
+        .eq_ignore_ascii_case(CANONICAL_AIRLOCK_REPOSITORY);
     let audit_steps: Vec<&Yaml> = steps
         .into_iter()
         .filter(|step| {
             step.get("uses").and_then(Yaml::as_str).is_some_and(|uses| {
-                (uses == "./" && local_action_is_airlock) || is_remote_airlock_action(uses)
+                (uses == "./" && local_action_is_canonical) || is_remote_airlock_action(uses)
             })
         })
         .collect();
 
     if audit_steps.is_empty() {
         return Verdict::fail(
-            "local_audit_action_missing",
+            "audit_action_missing",
             format!("{} does not invoke the Airlock audit action", workflow.path),
             Remediation::new(
                 ActionGroup::SUPPLY_AIRLOCK_TOKEN,
-                "Invoke the local audit action and supply `secrets.AIRLOCK_TOKEN`.",
+                "Invoke the canonical Airlock audit action and supply `secrets.AIRLOCK_TOKEN`.",
             ),
         );
     }
@@ -502,13 +493,13 @@ pub(super) fn audit_uses_airlock_token(context: &AuditContext) -> Verdict {
         Verdict::pass_at(
             "audit_uses_airlock_token",
             &workflow.path,
-            "the local audit action receives secrets.AIRLOCK_TOKEN as AIRLOCK_TOKEN",
+            "the Airlock audit action receives secrets.AIRLOCK_TOKEN as AIRLOCK_TOKEN",
         )
     } else {
         Verdict::fail_at(
             "audit_token_missing",
             &workflow.path,
-            "the local audit action does not receive secrets.AIRLOCK_TOKEN as AIRLOCK_TOKEN",
+            "the Airlock audit action does not receive secrets.AIRLOCK_TOKEN as AIRLOCK_TOKEN",
             Remediation::new(
                 ActionGroup::SUPPLY_AIRLOCK_TOKEN,
                 "Set the action step's `AIRLOCK_TOKEN` environment variable to \
@@ -522,17 +513,26 @@ fn is_remote_airlock_action(uses: &str) -> bool {
     let Some((repository, reference)) = uses.rsplit_once('@') else {
         return false;
     };
-    !reference.is_empty() && repository.eq_ignore_ascii_case("wyrd-company/airlock")
+    !reference.is_empty() && repository.eq_ignore_ascii_case(CANONICAL_AIRLOCK_REPOSITORY)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::super::super::evaluate;
     use super::super::super::fixtures::*;
+    use super::super::super::{evaluate, Verdict};
     use crate::findings::Status;
 
     fn verdict(id: &str, files: &[(&str, &str)]) -> Status {
         CheckFixture::new(files).verdict(id).status
+    }
+
+    fn evaluate_for_repository(id: &str, repository: &str, files: &[(&str, &str)]) -> Verdict {
+        let mut snapshot = snapshot(files);
+        snapshot.repository.full_name = repository.to_owned();
+        let workflows = workflows(&snapshot);
+        let policy = policy();
+        let context = context(&snapshot, &policy, workflows);
+        evaluate(&rule(id), &context)
     }
 
     use super::super::decided;
@@ -737,7 +737,7 @@ jobs:
     }
 
     #[test]
-    fn the_local_audit_action_must_receive_airlock_token() {
+    fn the_canonical_repository_may_invoke_its_local_audit_action() {
         let configured = "\
 on: workflow_dispatch
 permissions: {}
@@ -751,29 +751,83 @@ jobs:
           AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}
 ";
         assert_eq!(
-            verdict(
+            evaluate_for_repository(
                 "REPO-CI-09",
-                &[
-                    (".github/workflows/audit.yml", configured),
-                    (
-                        "action.yml",
-                        "name: Airlock audit\nruns:\n  using: composite\n"
-                    ),
-                ]
-            ),
+                "wyrd-company/airlock",
+                &[(".github/workflows/audit.yml", configured)]
+            )
+            .status,
             Status::Pass
         );
-        let unconfigured = configured.replace(
-            "        env:\n          AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}\n",
-            "",
+    }
+
+    #[test]
+    fn the_canonical_local_action_must_receive_airlock_token() {
+        let workflow = "\
+on: workflow_dispatch
+permissions: {}
+jobs:
+  audit:
+    permissions:
+      contents: read
+    steps:
+      - uses: ./
+";
+        let verdict = evaluate_for_repository(
+            "REPO-CI-09",
+            "wyrd-company/airlock",
+            &[(".github/workflows/audit.yml", workflow)],
         );
+        assert_eq!(verdict.status, Status::Fail);
+        assert_eq!(verdict.evidence.unwrap().code, "audit_token_missing");
+    }
+
+    #[test]
+    fn another_repository_cannot_invoke_a_local_action_as_airlock() {
+        let workflow = "\
+on: workflow_dispatch
+permissions: {}
+jobs:
+  audit:
+    permissions:
+      contents: read
+    steps:
+      - uses: ./
+        env:
+          AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}
+";
         assert_eq!(
-            verdict(
+            evaluate_for_repository(
                 "REPO-CI-09",
-                &[(".github/workflows/audit.yml", &unconfigured)]
-            ),
+                "example/example",
+                &[(".github/workflows/audit.yml", workflow)]
+            )
+            .status,
             Status::Fail
         );
+    }
+
+    #[test]
+    fn the_canonical_repository_may_only_use_the_exact_local_self_reference() {
+        let workflow = "\
+on: workflow_dispatch
+permissions: {}
+jobs:
+  audit:
+    permissions:
+      contents: read
+    steps:
+      - uses: ./.github/actions/audit
+        env:
+          AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}
+";
+        let verdict = evaluate_for_repository(
+            "REPO-CI-09",
+            "wyrd-company/airlock",
+            &[(".github/workflows/audit.yml", workflow)],
+        );
+        assert_eq!(verdict.status, Status::Fail);
+        assert_eq!(verdict.evidence.unwrap().code, "audit_action_missing");
     }
 
     #[test]
@@ -790,10 +844,17 @@ jobs:
         env:
           AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}
 ";
-        assert_eq!(
-            verdict("REPO-CI-09", &[(".github/workflows/audit.yml", configured)]),
-            Status::Pass
+        let fixture = CheckFixture::new(&[(".github/workflows/audit.yml", configured)]);
+        assert_eq!(fixture.verdict("REPO-CI-09").status, Status::Pass);
+
+        let unconfigured = configured.replace(
+            "        env:\n          AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}\n",
+            "",
         );
+        let fixture = CheckFixture::new(&[(".github/workflows/audit.yml", &unconfigured)]);
+        let verdict = fixture.verdict("REPO-CI-09");
+        assert_eq!(verdict.status, Status::Fail);
+        assert_eq!(verdict.evidence.unwrap().code, "audit_token_missing");
     }
 
     #[test]
@@ -813,82 +874,6 @@ jobs:
         assert_eq!(
             verdict("REPO-CI-09", &[(".github/workflows/audit.yml", workflow)]),
             Status::Fail
-        );
-    }
-
-    #[test]
-    fn an_unrelated_local_action_is_not_the_airlock_action() {
-        let workflow = "\
-on: workflow_dispatch
-permissions: {}
-jobs:
-  audit:
-    permissions:
-      contents: read
-    steps:
-      - uses: ./
-        env:
-          AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}
-";
-        assert_eq!(
-            verdict(
-                "REPO-CI-09",
-                &[
-                    (".github/workflows/audit.yml", workflow),
-                    ("action.yml", "name: Deploy\nruns:\n  using: composite\n"),
-                ]
-            ),
-            Status::Fail
-        );
-    }
-
-    #[test]
-    fn a_truncated_tree_cannot_disprove_the_local_airlock_action() {
-        let workflow = "\
-on: workflow_dispatch
-permissions: {}
-jobs:
-  audit:
-    permissions:
-      contents: read
-    steps:
-      - uses: ./
-        env:
-          AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}
-";
-        let mut snapshot = snapshot(&[(".github/workflows/audit.yml", workflow)]);
-        snapshot.tree.truncated = true;
-        let workflows = workflows(&snapshot);
-        let policy = policy();
-        let context = context(&snapshot, &policy, workflows);
-        let verdict = evaluate(&rule("REPO-CI-09"), &context);
-        assert_eq!(verdict.status, Status::Inconclusive);
-        assert_eq!(verdict.evidence.unwrap().code, "tree_truncated");
-    }
-
-    #[test]
-    fn an_unparseable_local_action_is_inconclusive() {
-        let workflow = "\
-on: workflow_dispatch
-permissions: {}
-jobs:
-  audit:
-    permissions:
-      contents: read
-    steps:
-      - uses: ./
-        env:
-          AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}
-";
-        assert_eq!(
-            verdict(
-                "REPO-CI-09",
-                &[
-                    (".github/workflows/audit.yml", workflow),
-                    ("action.yml", "name: one\nname: two\n"),
-                ]
-            ),
-            Status::Inconclusive
         );
     }
 

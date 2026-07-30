@@ -84,7 +84,7 @@ that registry projection.
 | `REPO-CI-06` | Workflow contents |
 | `REPO-CI-07` | Workflow contents |
 | `REPO-CI-08` | Workflow contents and ruleset |
-| `REPO-CI-09` | Workflow contents |
+| `REPO-CI-09` | Workflow contents and repository identity |
 | `REPO-CI-10` | Workflow contents |
 | `REPO-CD-01` | File presence |
 | `REPO-CD-02` | Workflow contents |
