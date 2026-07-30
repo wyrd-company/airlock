@@ -550,11 +550,16 @@ requires an admin of the destination — so its confirmation additionally
 requires the repository's name typed in full, and a transfer is never part of
 a bulk confirmation.
 
-**Bulk.** A bulk confirmation covers a group of same-kind remediations none of
-which takes an input. Each rule in the group keeps its own transcript lines and
-its own re-observation; bulk is one consent, never one observation. A
-remediation that takes an input is confirmed singly, because the input is the
-confirmation's substance.
+**Bulk.** A bulk confirmation covers remediations of the same kind, none of
+which takes an input. Two remediations are the same kind when they change the
+same object: the fields of the repository's settings are one kind, however
+many rules they close. The default branch is a ref, not a settings field, and
+an organization ruleset is the organization's object, not the repository's, so
+each of those confirms alone whatever it takes as input. The confirmation
+names every change in the group in full. Each rule in the group keeps its own
+transcript lines and its own re-observation; bulk is one consent, never one
+observation. A remediation that takes an input is confirmed singly, because
+the input is the confirmation's substance.
 
 The screen states the boundary plainly: file-level gaps leave as a pull
 request. They are proposed for review and are never written to the default
