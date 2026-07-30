@@ -28,27 +28,56 @@ use crossterm::ExecutableCommand as _;
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 
+/// Restores the terminal when dropped, whether or not acquisition ever
+/// finished.
+///
+/// Acquisition is several fallible calls, and the first of them already
+/// mutates the terminal. Arming this before that first call is what closes the
+/// window in which a later failure would return an error over a terminal left
+/// half-taken: every path out after the guard exists — `?`, panic, or a clean
+/// return — unwinds through it.
+struct Restorer;
+
+impl Drop for Restorer {
+    fn drop(&mut self) {
+        restore();
+    }
+}
+
 /// The terminal, taken for the duration of the interface.
 pub struct Session {
+    // Declared before the restorer, and therefore dropped before it: the
+    // backend flushes what it holds onto the alternate screen before the
+    // alternate screen is left.
     terminal: Terminal<CrosstermBackend<Stdout>>,
+    // Held for its `Drop` and nothing else.
+    _restorer: Restorer,
 }
 
 impl Session {
     /// Take the terminal: raw mode, the alternate screen, and no cursor.
     ///
-    /// Installs the panic and signal restorers first, so there is no window in
-    /// which the terminal is taken and nothing would give it back.
+    /// The panic and signal restorers are installed first, and the drop
+    /// restorer is armed before the first call that changes anything, so there
+    /// is no instant at which the terminal is altered and nothing would give it
+    /// back.
     pub fn take() -> Result<Self> {
+        Self::take_with(acquire)
+    }
+
+    /// The ordering under test: whatever `acquire` does, and however it fails,
+    /// it runs inside the guard.
+    fn take_with(
+        acquire: impl FnOnce() -> Result<Terminal<CrosstermBackend<Stdout>>>,
+    ) -> Result<Self> {
         install_panic_hook();
         install_signal_handlers();
-        enable_raw_mode().context("cannot put the terminal into raw mode")?;
-        let mut out = io::stdout();
-        out.execute(EnterAlternateScreen)
-            .context("cannot enter the alternate screen")?;
-        out.execute(Hide).context("cannot hide the cursor")?;
-        let terminal =
-            Terminal::new(CrosstermBackend::new(out)).context("cannot drive the terminal")?;
-        Ok(Self { terminal })
+        let restorer = Restorer;
+        let terminal = acquire()?;
+        Ok(Self {
+            terminal,
+            _restorer: restorer,
+        })
     }
 
     /// The terminal to draw on.
@@ -57,21 +86,35 @@ impl Session {
     }
 }
 
-impl Drop for Session {
-    fn drop(&mut self) {
-        restore();
-    }
+/// Every call that changes the terminal, in order.
+fn acquire() -> Result<Terminal<CrosstermBackend<Stdout>>> {
+    enable_raw_mode().context("cannot put the terminal into raw mode")?;
+    let mut out = io::stdout();
+    out.execute(EnterAlternateScreen)
+        .context("cannot enter the alternate screen")?;
+    out.execute(Hide).context("cannot hide the cursor")?;
+    Terminal::new(CrosstermBackend::new(out)).context("cannot drive the terminal")
 }
 
 /// Give the terminal back. Safe to call more than once, and on a terminal that
-/// was never taken.
+/// was never taken, which is what lets the guard be armed before the first
+/// change rather than after it.
 pub fn restore() {
     let mut out = io::stdout();
     let _ = out.execute(LeaveAlternateScreen);
     let _ = out.execute(Show);
     let _ = disable_raw_mode();
     let _ = out.flush();
+    #[cfg(test)]
+    RESTORES.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 }
+
+/// How many times the terminal has been given back.
+///
+/// Recorded only under test, where it is the one observable that distinguishes
+/// "the failure path restored" from "the failure path returned an error".
+#[cfg(test)]
+static RESTORES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 fn install_panic_hook() {
     static ONCE: std::sync::Once = std::sync::Once::new();
@@ -162,11 +205,52 @@ fn install_signal_handlers() {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::Ordering;
+    use std::sync::Mutex;
+
+    /// Restorations are counted process-wide, so the tests that read the count
+    /// take turns.
+    static COUNTING: Mutex<()> = Mutex::new(());
+
+    fn restorations() -> usize {
+        RESTORES.load(Ordering::SeqCst)
+    }
 
     #[test]
     fn restoring_a_terminal_that_was_never_taken_is_harmless() {
+        let _turn = COUNTING.lock().expect("the counting lock");
         restore();
         restore();
+    }
+
+    #[test]
+    fn a_failure_part_way_through_taking_the_terminal_still_gives_it_back() {
+        let _turn = COUNTING.lock().expect("the counting lock");
+        let before = restorations();
+        let outcome = Session::take_with(|| {
+            // Stands for any of the calls after raw mode is enabled: the
+            // alternate screen, the cursor, or constructing the terminal.
+            anyhow::bail!("the alternate screen refused")
+        });
+        assert!(outcome.is_err(), "the failure is reported");
+        assert_eq!(
+            restorations(),
+            before + 1,
+            "the guard was armed before the first change, so the failure restored"
+        );
+    }
+
+    #[test]
+    fn a_panic_gives_the_terminal_back_before_the_backtrace_prints() {
+        let _turn = COUNTING.lock().expect("the counting lock");
+        install_panic_hook();
+        let before = restorations();
+        let outcome = std::panic::catch_unwind(|| panic!("the interface came apart"));
+        assert!(outcome.is_err(), "the panic is a panic");
+        assert!(
+            restorations() > before,
+            "the hook restored on the way out; the previous hook then printed"
+        );
     }
 
     #[test]
