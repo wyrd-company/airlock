@@ -175,9 +175,13 @@ because an empty result cannot distinguish between them.
 ## The copy action
 
 Two screens offer to copy a value: the finding detail copies the rule id, and
-the policy inspector copies the registry digest. Nothing else is ever
-copyable, and no credential is, because no credential is on any screen to
-copy.
+the policy inspector copies the registry digest. This list is the whole
+copyable set: a screen gains a copyable value only by naming it here, so every
+copy travels the one reviewed path rather than constructing its own request. A
+copyable value is an identifier the operator will paste outside the session —
+never prose, never anything server-authored beyond the vetted identifiers, and
+never a credential, which is structural rather than promised: no credential is
+on any screen to copy.
 
 The copy is a request made to the terminal with the terminal's own clipboard
 facility. Airlock runs no subprocess to make it, and a terminal that does not
