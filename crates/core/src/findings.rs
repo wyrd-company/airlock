@@ -43,8 +43,47 @@ pub enum Status {
     /// Evaluation hit a resource bound, or a bounded scan could not prove the
     /// assertion. Inconclusive.
     Inconclusive,
+    /// The fact requires admin access to verify. Inconclusive, and structurally
+    /// so: this is the expected steady state of the read-only surface rather
+    /// than something this run failed at, so it never blocks completeness. It
+    /// is never a pass either — the assertion is still undecided, and it is
+    /// named as its own group wherever gaps are reported.
+    #[serde(rename = "admin-only")]
+    AdminOnly,
     /// An API failure prevented evaluation. Inconclusive.
     Error,
+}
+
+/// Why an undecided finding is undecided.
+///
+/// Both kinds leave the assertion undecided, and neither is ever reported as a
+/// pass. They differ in what a reader should conclude from seeing one, and
+/// therefore in whether the run can be certified: a run that failed at
+/// something it can normally do is not a result, while a run that reached the
+/// edge of what its credential is allowed to see is working exactly as
+/// mandated.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Undecided {
+    /// This run did not establish what it normally can: a truncated tree, a
+    /// transient API failure, a file over budget, a rule not built yet. It
+    /// blocks completeness, because retrying could answer it.
+    Circumstantial,
+    /// The fact requires admin access to verify, so no retry with this
+    /// surface's read-only credential answers it. It does not block
+    /// completeness; the answer lives on the interactive admin surface.
+    Structural,
+}
+
+impl Undecided {
+    /// The stable machine-readable name.
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::Circumstantial => "circumstantial",
+            Self::Structural => "structural",
+        }
+    }
 }
 
 impl Status {
@@ -59,21 +98,40 @@ impl Status {
             Status::Skipped => "skipped",
             Status::Unimplemented => "unimplemented",
             Status::Inconclusive => "inconclusive",
+            Status::AdminOnly => "admin-only",
             Status::Error => "error",
+        }
+    }
+
+    /// Why the status leaves the assertion undecided, when it does.
+    ///
+    /// This is the single typed source of the structural-versus-circumstantial
+    /// distinction. Every surface that treats undecided results differently —
+    /// the completeness predicate, the plan, the agent work list, the rendered
+    /// digest — asks this rather than matching evidence codes, so they cannot
+    /// disagree about which unanswered questions stop a run.
+    #[must_use]
+    pub fn undecided(self) -> Option<Undecided> {
+        match self {
+            Status::Unimplemented | Status::Inconclusive | Status::Error => {
+                Some(Undecided::Circumstantial)
+            }
+            Status::AdminOnly => Some(Undecided::Structural),
+            Status::Pass | Status::Fail | Status::Manual | Status::Suppressed | Status::Skipped => {
+                None
+            }
         }
     }
 
     /// Whether the status leaves the assertion undecided.
     ///
-    /// An undecided result at a gate-relevant severity makes the whole audit
-    /// incomplete. This is the property that stops airlock reporting success
-    /// for work it did not do.
+    /// A *circumstantially* undecided result at a gate-relevant severity makes
+    /// the whole audit incomplete. This is the property that stops airlock
+    /// reporting success for work it did not do; see [`Status::undecided`] for
+    /// which kind of undecided a status is.
     #[must_use]
     pub fn is_inconclusive(self) -> bool {
-        matches!(
-            self,
-            Status::Unimplemented | Status::Inconclusive | Status::Error
-        )
+        self.undecided().is_some()
     }
 
     /// Every status, in taxonomy order.
@@ -85,6 +143,7 @@ impl Status {
         Status::Skipped,
         Status::Unimplemented,
         Status::Inconclusive,
+        Status::AdminOnly,
         Status::Error,
     ];
 }
@@ -365,10 +424,28 @@ impl Finding {
     /// This is the single completeness predicate used when assembling an
     /// audit and by projections that must identify the questions behind an
     /// incomplete result.
+    ///
+    /// Only a *circumstantially* undecided finding blocks: this run failed to
+    /// establish something it can normally establish, so the result cannot be
+    /// certified. A structurally undecided finding — one whose fact requires
+    /// admin access to verify — is the read-only surface working as designed.
+    /// Blocking on it would make the verdict permanently red, which carries no
+    /// information, so it does not block. It is still never a pass, and
+    /// [`Self::names_a_structural_gap`] keeps it visible.
     #[must_use]
     pub fn blocks_completeness(&self, gate: Gate) -> bool {
         let severity = Severity::parse(&self.severity).unwrap_or(Severity::Observation);
-        gate.enforces(severity) && self.status.is_inconclusive()
+        gate.enforces(severity) && self.status.undecided() == Some(Undecided::Circumstantial)
+    }
+
+    /// Whether this finding names a gap that requires admin access to verify.
+    ///
+    /// The counterpart of [`Self::blocks_completeness`]: what does not gate
+    /// must still be named, at every severity, or "my lane is clear" quietly
+    /// becomes "the repository is aligned".
+    #[must_use]
+    pub fn names_a_structural_gap(&self) -> bool {
+        self.status.undecided() == Some(Undecided::Structural)
     }
 }
 
@@ -511,6 +588,9 @@ pub struct Summary {
     pub unimplemented: usize,
     /// Rules left undecided by a resource bound.
     pub inconclusive: usize,
+    /// Rules whose fact requires admin access to verify.
+    #[serde(rename = "admin-only")]
+    pub admin_only: usize,
     /// Rules an API failure prevented evaluating.
     pub error: usize,
 }
@@ -525,6 +605,7 @@ impl Summary {
             Status::Skipped => &mut self.skipped,
             Status::Unimplemented => &mut self.unimplemented,
             Status::Inconclusive => &mut self.inconclusive,
+            Status::AdminOnly => &mut self.admin_only,
             Status::Error => &mut self.error,
         }
     }
@@ -535,9 +616,9 @@ impl Summary {
 
     /// How many findings landed in one status.
     ///
-    /// Lets a renderer walk [`Status::ALL`] rather than restating the eight
-    /// fields, so a ninth status cannot be added without every reader of the
-    /// summary following it.
+    /// Lets a renderer walk [`Status::ALL`] rather than restating the fields,
+    /// so a status cannot be added without every reader of the summary
+    /// following it.
     #[must_use]
     pub fn count(&self, status: Status) -> usize {
         let mut copy = self.clone();
@@ -845,6 +926,61 @@ mod tests {
     }
 
     #[test]
+    fn a_structural_gap_at_a_gating_severity_leaves_the_run_complete() {
+        // This fact requires admin access to verify, so a red read-only run
+        // would be the permanent steady state and would carry no information.
+        // It is still not a pass, and it is still named.
+        let report = report(
+            Gate::Required,
+            vec![
+                finding("REPO-GIT-04", Severity::Required, Status::AdminOnly),
+                finding("REPO-LIC-01", Severity::Blocking, Status::Pass),
+            ],
+        );
+        assert!(report.complete);
+        assert!(report.conformant);
+        assert_eq!(report.outcome, Outcome::Conformant);
+        assert_eq!(report.exit_code(), 0);
+        assert_eq!(report.summary.admin_only, 1);
+        assert_eq!(report.summary.pass, 1);
+        assert_ne!(report.findings[0].status, Status::Pass);
+        assert!(report.findings[0].names_a_structural_gap());
+        assert!(!report.findings[0].blocks_completeness(Gate::Required));
+    }
+
+    #[test]
+    fn a_circumstantial_gap_at_a_gating_severity_still_stops_the_run() {
+        for status in [Status::Inconclusive, Status::Error, Status::Unimplemented] {
+            let report = report(
+                Gate::Required,
+                vec![finding("REPO-GIT-04", Severity::Required, status)],
+            );
+            assert!(!report.complete, "{status:?}");
+            assert_eq!(report.exit_code(), 2, "{status:?}");
+            assert!(!report.findings[0].names_a_structural_gap(), "{status:?}");
+        }
+    }
+
+    #[test]
+    fn every_undecided_status_declares_which_kind_of_undecided_it_is() {
+        // The distinction is a total function over the taxonomy: a status
+        // added without a kind cannot compile, and no surface has to guess.
+        for status in Status::ALL {
+            assert_eq!(
+                status.is_inconclusive(),
+                status.undecided().is_some(),
+                "{status:?}"
+            );
+        }
+        assert_eq!(Status::AdminOnly.undecided(), Some(Undecided::Structural));
+        assert_eq!(
+            Status::Inconclusive.undecided(),
+            Some(Undecided::Circumstantial)
+        );
+        assert_eq!(Status::Pass.undecided(), None);
+    }
+
+    #[test]
     fn findings_are_ordered_by_rule_id() {
         let report = report(
             Gate::Blocking,
@@ -870,7 +1006,8 @@ mod tests {
                 finding("REPO-AA-05", Severity::Observation, Status::Skipped),
                 finding("REPO-AA-06", Severity::Observation, Status::Unimplemented),
                 finding("REPO-AA-07", Severity::Observation, Status::Inconclusive),
-                finding("REPO-AA-08", Severity::Observation, Status::Error),
+                finding("REPO-AA-08", Severity::Observation, Status::AdminOnly),
+                finding("REPO-AA-09", Severity::Observation, Status::Error),
             ],
         );
         assert_eq!(report.summary.pass, 1);
@@ -880,6 +1017,7 @@ mod tests {
         assert_eq!(report.summary.skipped, 1);
         assert_eq!(report.summary.unimplemented, 1);
         assert_eq!(report.summary.inconclusive, 1);
+        assert_eq!(report.summary.admin_only, 1);
         assert_eq!(report.summary.error, 1);
         assert_eq!(report.findings.len(), Status::ALL.len());
     }

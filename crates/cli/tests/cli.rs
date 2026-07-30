@@ -1087,6 +1087,139 @@ async fn the_candidate_organisation_policy_compiles_and_resolves_its_reference_d
 }
 
 // ---------------------------------------------------------------------------
+// What requires admin access to verify
+// ---------------------------------------------------------------------------
+
+/// The git section under the gate the standards policy declares. The three
+/// merge-behaviour rules in it are graded `required`, so under this gate they
+/// would stop the run if an unanswered question stopped it regardless of why
+/// it was unanswered.
+const GIT_POLICY: &str = "\
+version: 1
+name: test-policy
+gate: required
+capabilities:
+  base: [git]
+";
+
+/// The shape of every scheduled run: read-only facts, merge settings
+/// undisclosed because GitHub discloses them to write-capable tokens only, and
+/// everything else in order.
+fn scheduled_audit_repo() -> FakeRepo {
+    FakeRepo::new("wyrd-company", "example")
+        .with_conforming_org_ruleset()
+        .with_undisclosed_merge_settings()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_scheduled_audit_is_not_failed_by_settings_that_require_admin_access() {
+    // The audit refuses write-capable credentials and GitHub discloses merge
+    // settings to write-capable credentials only, so these three rules are
+    // unanswered on every scheduled run, permanently. A permanently red
+    // scheduled audit carries no information, so this must exit 0 — while
+    // still never claiming the rules passed.
+    let report = audit_json(scheduled_audit_repo(), GIT_POLICY, 0).await;
+
+    assert_eq!(report["outcome"], "conformant");
+    assert_eq!(report["complete"], true);
+    assert_eq!(report["summary"]["admin-only"], 3);
+    for rule in ["REPO-GIT-04", "REPO-GIT-05", "REPO-GIT-06"] {
+        let finding = finding(&report, rule);
+        assert_eq!(finding["status"], "admin-only", "{rule}");
+        assert_ne!(finding["status"], "pass", "{rule}");
+        assert_eq!(
+            finding["evidence"]["code"], "merge_settings_unavailable",
+            "{rule}"
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_truncated_tree_still_stops_a_run_whose_only_other_gaps_are_admin_only() {
+    // A truncated tree is a run that fell short of what it can normally do:
+    // the capability condition that selects the release rules was never
+    // settled. That is circumstantial, and it still exits 2 — the structural
+    // gaps sitting beside it do not soften it, and it does not gate them.
+    let repo = scheduled_audit_repo().with_truncated_tree();
+    let report = audit_json(repo, GIT_POLICY, 2).await;
+
+    assert_eq!(report["outcome"], "incomplete");
+    assert_eq!(report["complete"], false);
+    assert_eq!(
+        report["summary"]["admin-only"], 3,
+        "the structural gaps are still reported; they are simply not what stopped this"
+    );
+    let git09 = finding(&report, "REPO-GIT-09");
+    assert_eq!(git09["status"], "inconclusive");
+    assert_eq!(git09["evidence"]["code"], "condition_undecided");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_transient_api_failure_still_stops_a_run_whose_other_gaps_are_admin_only() {
+    let repo = scheduled_audit_repo().with_rulesets(Response::Status(
+        502,
+        serde_json::json!({ "message": "Server Error" }),
+    ));
+    let report = audit_json(repo, GIT_POLICY, 2).await;
+
+    assert_eq!(report["outcome"], "incomplete");
+    assert_eq!(report["complete"], false);
+    assert_eq!(report["summary"]["admin-only"], 3);
+    assert_eq!(finding(&report, "REPO-GIT-02")["status"], "error");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn agent_work_names_admin_only_gaps_as_their_own_group_without_gating_on_them() {
+    let list = agent_work_json(scheduled_audit_repo(), GIT_POLICY, 0).await;
+
+    assert_eq!(list["outcome"], "agent_lane_clear");
+    assert_eq!(list["admin_only"]["count"], 3);
+    assert_eq!(
+        list["unsettled"]["count"], 0,
+        "a gap that requires admin access is not a question to ask again here"
+    );
+    for item in list["admin_only"]["items"].as_array().unwrap() {
+        assert_eq!(item["status"], "admin-only");
+        assert_eq!(item["undecided"], "structural");
+        assert_eq!(item["gating"], false);
+        assert_eq!(item["evidence_code"], "merge_settings_unavailable");
+        assert_eq!(
+            item["verified_by"], "interactive-session",
+            "the group carries where the answer is taken, from the registry declaration"
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn plan_names_what_requires_admin_access_to_verify() {
+    let text = plan_text(scheduled_audit_repo(), GIT_POLICY).await;
+
+    assert!(text.contains("admin-only (3)"), "{text}");
+    for rule in ["REPO-GIT-04", "REPO-GIT-05", "REPO-GIT-06"] {
+        assert!(text.contains(rule), "{rule} must be named: {text}");
+    }
+    // The guidance is the registry declaration's sentence, not one this test
+    // or the renderer wrote.
+    let surface = airlock_core::registry::MERGE_SETTINGS_DISCLOSURE.verified_by;
+    assert!(text.contains(surface.code()), "{text}");
+    assert!(
+        text.contains(surface.guidance()),
+        "the plan must say where the answer lives, in the declaration's words: {text}"
+    );
+    // The plan has just listed three rules that require admin access, so it may
+    // say that nothing the read-only surface could ask went unanswered, and it
+    // may not say that everything was decided.
+    assert!(
+        text.contains("Every question this read-only surface can ask was answered"),
+        "no circumstantial question was left open: {text}"
+    );
+    assert!(
+        !text.contains("Every rule the policy asked about was decided"),
+        "three rules remain undecided, so the plan must not claim otherwise: {text}"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Incomplete input must never look like a clean audit
 // ---------------------------------------------------------------------------
 

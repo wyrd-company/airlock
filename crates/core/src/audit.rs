@@ -17,7 +17,7 @@ use crate::findings::{
 use crate::github::{ApiError, ErrorCause, GitHub};
 use crate::limits::Limits;
 use crate::policy::ResolvedPolicy;
-use crate::registry::{Evaluation, Observation};
+use crate::registry::{CredentialCapability, Evaluation, Observation};
 use crate::snapshot::RepoSnapshot;
 use crate::yaml;
 use crate::{Error, Result};
@@ -68,6 +68,19 @@ pub struct AuditOptions {
     /// API tree. Platform rules stay with the API — or, without a
     /// credential, are reported as not observed.
     pub working_tree: Option<std::path::PathBuf>,
+}
+
+/// What the credential a run presented was enumerated to be able to do.
+///
+/// An absent grant is not a permissive one. Airlock refuses any credential it
+/// cannot enumerate before a run starts, so reaching here without one means no
+/// credential was presented, and a credential that does not exist holds no
+/// write permission.
+fn credential_capability(grant: Option<&VerifiedGrant>) -> CredentialCapability {
+    grant.map_or(
+        CredentialCapability::Unauthenticated,
+        VerifiedGrant::capability,
+    )
 }
 
 /// The source labels one run evaluates under.
@@ -163,6 +176,7 @@ pub async fn run<G: GitHub>(
         policy,
         options,
         Sources::api(),
+        credential_capability(grant),
         id,
         SuppressionInput::Snapshot,
     )
@@ -229,6 +243,7 @@ async fn run_mixed<G: GitHub>(
         policy,
         options,
         sources,
+        credential_capability(grant),
         id,
         SuppressionInput::Committed(facts.head_file(".github/airlock.yml")),
     )
@@ -318,6 +333,10 @@ pub fn run_local(
         policy,
         options,
         sources,
+        // A local run presents no credential, so nothing was enumerated. It
+        // observes no platform rule either: they are gated as not observed
+        // before any check reads them.
+        CredentialCapability::Unauthenticated,
         None,
         SuppressionInput::Committed(facts.head_file(".github/airlock.yml")),
     )
@@ -414,6 +433,7 @@ fn complete_run(
     policy: &ResolvedPolicy,
     options: &AuditOptions,
     sources: Sources,
+    credential: CredentialCapability,
     repository_id: Option<u64>,
     suppressions: SuppressionInput,
 ) -> Result<Report> {
@@ -429,6 +449,7 @@ fn complete_run(
         rulesets: platform.rulesets,
         branch_rules: platform.branch_rules,
         snapshot,
+        credential,
     };
 
     // Suppression is authorization, not observation. An API snapshot only

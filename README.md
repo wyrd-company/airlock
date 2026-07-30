@@ -132,11 +132,13 @@ Its `agent_lane` contains failed rules classified as `deterministic-file` or
 `judgment-file`, keyed by rule id and carrying the remediation code and the
 change it would make. `operator_deferred` separately identifies failed
 `operator-setting` rules and failures that declare no remediation; neither
-gates the command. `needs_decision`, `unsettled`, `manual`, and `suppressed`
-keep the other unfinished or authorized-but-unaligned findings visible with
-their counts and identities. Undecided items say whether they gate and retain
-their evidence code, so a missing capability declaration is distinct from a
-retryable observation failure. Every group retains each finding's observation
+gates the command. `needs_decision`, `unsettled`, `admin_only`, `manual`, and
+`suppressed` keep the other unfinished or authorized-but-unaligned findings
+visible with their counts and identities. Undecided items say whether they gate
+and retain their evidence code, so a missing capability declaration is distinct
+from a retryable observation failure, and `admin_only` holds the gaps that
+require admin access to verify — named, never gating, and never passing. Every
+group retains each finding's observation
 source, and the top-level `observation` block says whether file findings came
 from the API tree or the local working tree.
 
@@ -168,9 +170,14 @@ airlock align-files wyrd-company/airlock --working-tree .
 
 | Code | Outcome         | Meaning                                                  |
 | ---- | --------------- | -------------------------------------------------------- |
-| `0`  | `conformant`    | Every enabled rule was decided; the gate is satisfied     |
-| `1`  | `nonconformant` | Every enabled rule was decided; a gating rule failed      |
-| `2`  | `incomplete`    | A gating rule was left undecided, or the run never started |
+| `0`  | `conformant`    | Every question this run could settle was settled; the gate is satisfied |
+| `1`  | `nonconformant` | Every question this run could settle was settled; a gating rule failed |
+| `2`  | `incomplete`    | This run left a gating rule undecided, or never started    |
+
+A rule behind a declared disclosure gate requires admin access to verify. It is
+reported `admin-only`, named as its own group, and counted against no exit code
+— codes `0` and `1` therefore mean "nothing this run could answer went
+unanswered", never "every rule was decided".
 
 On Unix, a closed output pipe terminates silently on signal 13 (`SIGPIPE`),
 commonly reported by shells as status 141.
@@ -188,18 +195,56 @@ Operator-setting failures are always counted and identified in
 `operator_deferred`, but do not change code `0` to code `1`. Code `0` therefore
 means only “my lane is clear”; it never means “the repository is aligned.”
 
-The distinction is the point. An audit that could not evaluate an enabled rule
-— because it is not built yet, because a bounded scan ran out of budget, or
+The distinction is the point. An audit that fell short of evaluating an enabled
+rule — because it is not built yet, because a bounded scan ran out of budget, or
 because GitHub refused the request — never reports success. Every rule the
-policy enables produces exactly one finding, with one of eight statuses:
+policy enables produces exactly one finding, with one of nine statuses:
 
 `pass`, `fail`, `manual` (a judgment call for a human), `suppressed`,
 `skipped` (a capability condition was not met), `unimplemented`,
-`inconclusive` (a bound was hit), `error` (an API failure, with its cause).
+`inconclusive` (a bound was hit), `admin-only` (the fact requires admin access
+to verify), `error` (an API failure, with its cause).
 
 `manual`, `suppressed`, and `skipped` are conclusive and never gate. The other
-three leave the assertion undecided, and at a gating severity they make the
-whole audit incomplete.
+four leave the assertion undecided, and each one carries which kind of
+undecided it is.
+
+`unimplemented`, `inconclusive`, and `error` are *circumstantial*: this run did
+not establish what it can normally establish, so at a gating severity they make
+the whole audit incomplete. `admin-only` is *structural*: the registry
+declares, per rule, a **disclosure gate** — a fact the platform reveals only to
+a grant the audit is not allowed to hold, plus the surface that verifies it
+instead. GitHub discloses merge settings only to `contents: write`
+(`administration: read` does not expose them), and the headless audit proves its
+credential read-only before it runs, so those facts are undisclosed on every
+scheduled run by construction. A verdict that is permanently red carries no
+information, so a structural gap does not make the audit incomplete.
+
+A check reports one observation — the platform did not disclose this field —
+and the declaration decides what it means. A structural gap needs both halves:
+a rule that declares the gate, and a credential airlock enumerated and found
+unable to hold the grant the gate requires. An absent field with no declaration
+behind it is a run that fell short and keeps blocking, and so is one missing
+from a write-capable credential that should have been shown it — the
+interactive session inherits no exemption.
+
+Which half a credential falls in is read from whichever representation carries
+its grant: installation permissions for an app credential, the scope list for a
+scoped one. A grant airlock cannot classify as entirely reads is treated as
+write-capable, including a scope its reviewed read-only list does not name.
+Read-only is the answer that excuses a gap, so an uncertain grant never earns
+it: reporting a permanent gap as a blocking one overstates what a retry can
+achieve, while excusing a field a credential should have been shown retires a
+gap that is real.
+
+A structural gap is never a pass either: it is named as its own group by `plan`
+and `agent-work`, counted in the summary, and pointed at the verification
+surface its gate declares — today the interactive session, which holds a
+credential that can both read and align the setting. Every surface takes its
+wording from the declaration rather than writing its own.
+`airlock audit --list-checks` prints each rule's gate, the grant it requires,
+and where it is verified, so which rules require admin access, and where they
+are verified, is readable before pointing airlock at anything.
 
 Incomplete input can never produce a clean result. A listing that stopped at
 the page budget, a recursive tree GitHub truncated, or a response airlock could

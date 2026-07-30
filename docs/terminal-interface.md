@@ -87,7 +87,7 @@ distinguishes `0` from `O` and `1` from `l` and `I`.
 
 ## Status vocabulary
 
-A finding carries exactly one of eight statuses. Each status sits in one of
+A finding carries exactly one of nine statuses. Each status sits in one of
 three lanes, and the lane is a physical column position on every row that
 shows a status. Position carries the meaning; hue confirms it and never
 carries it alone.
@@ -101,6 +101,7 @@ carries it alone.
 | `skipped` | `○` | inert | Never gates, never affects completeness |
 | `unimplemented` | `▢` | undecided | Makes the run incomplete at a gating severity |
 | `inconclusive` | `◑` | undecided | Makes the run incomplete at a gating severity |
+| `admin-only` | `◍` | undecided | Never affects completeness; the rule requires admin access to verify |
 | `error` | `!` | undecided | Makes the run incomplete at a gating severity |
 
 The three lanes read as three shape families: the gating lane uses stroke
@@ -118,6 +119,8 @@ The glosses the interface prints for each status are:
 - `skipped` — `condition_not_met`, the capability condition did not apply
 - `unimplemented` — registered and enabled, not yet evaluated
 - `inconclusive` — the question could not be established
+- `admin-only` — the rule requires admin access to verify, so the question is
+  answered on the verification surface the gate names
 - `error` — the call did not complete, so no evidence exists
 
 ## Severity and the gate
@@ -130,18 +133,30 @@ reads at a glance and survives monochrome: `███ blocking`, `██░ requ
 The gate is severity times status. Severity alone is not consequence, and
 status alone is not consequence. A `fail` at `observation` severity is real
 information that stops nothing; an `inconclusive` at `observation` severity
-leaves the run complete. Rows that actually gate the run carry a solid left
-rail; nothing else does.
+leaves the run complete. Nor is the undecided lane one consequence: a rule left
+undecided because this run fell short of what it can normally do gates at a
+gating severity, and one left undecided because the rule's declared disclosure
+gate withholds the fact from this credential never does, at any severity. Rows
+that actually gate the run carry a solid left rail; nothing else does.
 
 The gate is a property of the effective policy, not of the session. The
 interface displays which gate is in force and never offers to change it.
 
 `complete` and `conformant` are separate facts and are always printed
-separately. A run is incomplete when a rule at a gating severity ended in the
-undecided lane. A run is nonconformant when a rule at a gating severity ended
-in `fail`. Incompleteness outranks nonconformance in the verdict, which is one
-of `conformant`, `nonconformant`, or `incomplete`. An unanswered question is
-not a clean repository.
+separately. A run is incomplete when a rule at a gating severity ended
+undecided because the run fell short: `unimplemented`, `inconclusive`, or
+`error`. An `admin-only` rule ended undecided because it requires admin access
+to verify; making the read-only verdict permanently red would carry no
+information, so it leaves the run complete at every severity. The missing
+answer is still missing. A run is nonconformant when a rule at a gating
+severity ended in `fail`. Incompleteness outranks nonconformance in the verdict,
+which is one of `conformant`, `nonconformant`, or `incomplete`.
+
+An unanswered question is still not a clean repository, whichever kind it is.
+`conformant` therefore states that nothing the run could answer went
+unanswered and the gate is satisfied — never that every rule was decided. The
+verdict region says so whenever the admin-only group is populated, and
+names the count.
 
 ## Emptiness
 
@@ -256,19 +271,25 @@ it.
 **Content.** Above the queue, unchanged by anything below it:
 
 - The verdict, its glyph, and the reason for it, stating `complete` and
-  `conformant` as separate facts.
-- The status summary — every one of the eight statuses with its glyph, its
+  `conformant` as separate facts. Where any rule ended `admin-only`, the
+  verdict states their count and that they are unanswered, so a `conformant`
+  verdict is never read as every rule having been decided.
+- The status summary — every one of the nine statuses with its glyph, its
   count, and its lane, under the three lane headings `DECIDED · GATING`
   (counts toward the verdict), `DECIDED · INERT` (never gates), and
-  `UNDECIDED` (makes the run incomplete at a gating severity). The undecided
-  heading carries the qualifier, because an undecided result at a severity the
-  effective gate does not enforce leaves the run complete.
-- When a rule at a gating severity could not be evaluated, a blocker banner
-  naming each such rule, its status, and why it could not be evaluated. The
-  banner states that `complete` is false and that no verdict below it can be
-  certified.
+  `UNDECIDED` (makes the run incomplete at a gating severity, unless the fact
+  requires admin access to verify). The undecided heading carries the
+  qualifier, because an undecided result at a severity the effective gate does
+  not enforce leaves the run complete, and so does one that requires admin
+  access to verify.
+- When this run fell short of evaluating a rule at a gating severity, a blocker
+  banner naming each such rule, its status, and what stopped it. The banner
+  states that `complete` is false and that no verdict below it can be certified.
+  A rule its declared disclosure gate withholds is not a blocker and is never
+  named here: the run is complete, and the admin-only group is where it
+  is accounted for.
 
-The queue itself is seven groups, in this order. Each group heading carries
+The queue itself is eight groups, in this order. Each group heading carries
 its count and a one-line gloss of the work:
 
 1. **Airlock closes this.** Settings-level changes applied directly from the
@@ -286,27 +307,40 @@ its count and a one-line gloss of the work:
    outside the repository — a plan change, a grant change, a rule not yet
    built. A row in this group that does not block says so on the row: it is
    still an unanswered question, and it is not a pass.
-6. **Authorized but not aligned.** Suppressed failures. The policy permitted
+6. **Admin-only.** Rules the registry declares behind a disclosure gate — a
+   fact that requires admin access to verify. They never gate because the
+   read-only run reaching its expected access boundary is not a finding about
+   the repository, and they are never folded in with passing rules because
+   they remain undecided. Each row states the grant
+   the fact requires and the verification surface the gate names, both read from
+   the registry declaration rather than composed here; the interface writes no
+   guidance of its own. A gate applies only to a credential that cannot hold the
+   grant it requires, and this session's credential is write-capable, so under
+   its own observation these rules resolve to `pass` or `fail` and the group is
+   empty. It is populated when the interface displays a report a read-only
+   surface produced.
+7. **Authorized but not aligned.** Suppressed failures. The policy permitted
    the failure; it did not close the gap, and the remediation is still on
    offer. This is standing debt and is never folded in with passing rules.
-7. **Aligned.** Passing rules, and rules skipped because a capability condition
+8. **Aligned.** Passing rules, and rules skipped because a capability condition
    genuinely does not apply.
 
 A finding takes the first group it matches, tested in this order:
 
-1. `suppressed` → group 6.
-2. `inconclusive` with `evidence.code` of `condition_undecided` → group 3.
-3. `unimplemented`, `inconclusive`, or `error` → group 5.
-4. `manual` → group 4.
-5. `pass` or `skipped` → group 7.
-6. `fail` whose `remediation_class.lane` is `operator-setting` → group 1.
-7. `fail` whose `remediation_class.lane` is `deterministic-file` or
+1. `suppressed` → group 7.
+2. `admin-only` → group 6.
+3. `inconclusive` with `evidence.code` of `condition_undecided` → group 3.
+4. `unimplemented`, `inconclusive`, or `error` → group 5.
+5. `manual` → group 4.
+6. `pass` or `skipped` → group 8.
+7. `fail` whose `remediation_class.lane` is `operator-setting` → group 1.
+8. `fail` whose `remediation_class.lane` is `deterministic-file` or
    `judgment-file` → group 2.
-8. `fail` for which `remediation_class` declares no remediation → group 4. The
+9. `fail` for which `remediation_class` declares no remediation → group 4. The
    declared reason is shown on the row, because the only remaining move is a
    person's.
 
-Only group 7 is done. Groups 3, 4, and 5 are where the operator's attention
+Only group 8 is done. Groups 3, 4, 5, and 6 are where the operator's attention
 goes.
 
 Each row carries its rule id, its severity bar, its three status lanes with
@@ -327,7 +361,7 @@ expanded or collapsed, so the whole standard is always in view. The aligned
 count is the score and reads as one: a fully aligned repository looks
 finished, not like an empty list.
 
-Collapsing is screen space, never a judgment. Group 7 starts collapsed because
+Collapsing is screen space, never a judgment. Group 8 starts collapsed because
 it needs no action. No other group starts collapsed.
 
 A filter narrows the working set across all groups: the whole working set,

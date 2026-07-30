@@ -13,7 +13,8 @@
 //! what the run observed, so that a person can see what closing the gaps would
 //! take before anything is done about it.
 
-use crate::findings::{Report, Status};
+use crate::findings::{Report, Status, Undecided};
+use crate::registry::{self, VerificationSurface};
 use crate::remediation::Lane;
 
 /// One change airlock would make, and the observation that calls for it.
@@ -64,6 +65,29 @@ pub struct UndecidedRule<'a> {
     pub blocks_completeness: bool,
 }
 
+/// A rule that requires admin access to verify.
+///
+/// It proposes nothing and it answers nothing, and unlike an undecided rule
+/// there is no point looking again with the read-only credential. The move is
+/// to use the interactive session (admin mode), so the plan names the rule and
+/// says so.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AdminOnlyRule<'a> {
+    /// The rule that requires admin access to verify.
+    pub rule: &'a str,
+    /// The severity the effective policy graded the rule at.
+    pub severity: &'a str,
+    /// What the run said about why it could not be seen, when it said
+    /// anything.
+    pub detail: Option<&'a str>,
+    /// Where the rule is verified instead, from the gate the registry declares.
+    ///
+    /// Null only for a rule that reported a structural gap the registry does
+    /// not declare, which the checks make unreachable — a plan invents no
+    /// destination it was not given.
+    pub verified_by: Option<VerificationSurface>,
+}
+
 /// An open gap airlock declares it cannot close, and why.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UnclosableGap<'a> {
@@ -99,7 +123,17 @@ pub struct Plan<'a> {
     /// and silently dropped every non-gating undecided rule. Ask
     /// [`Self::is_incomplete`] for the gate question and read this list for
     /// the other.
+    ///
+    /// Rules that require admin access to verify are not here; they are in
+    /// [`Self::admin_only`], because "look again" is advice only one of the
+    /// two lists can act on.
     pub undecided: Vec<UndecidedRule<'a>>,
+    /// Every rule whose fact requires admin access to verify.
+    ///
+    /// Named for the same reason [`Self::undecided`] is — a rule not verified
+    /// here is not a passing rule — and separately, because these do not leave
+    /// the run incomplete and no retry with read-only access will change them.
+    pub admin_only: Vec<AdminOnlyRule<'a>>,
 }
 
 impl<'a> Plan<'a> {
@@ -120,19 +154,37 @@ impl<'a> Plan<'a> {
         let mut proposed = Vec::new();
         let mut unclosable = Vec::new();
         let mut undecided = Vec::new();
+        let mut admin_only = Vec::new();
 
         for finding in &report.findings {
-            if finding.status.is_inconclusive() {
-                undecided.push(UndecidedRule {
-                    rule: &finding.rule,
-                    severity: &finding.severity,
-                    status: finding.status,
-                    // The audit's own completeness predicate, so a plan and
-                    // the report it came from cannot disagree about which
-                    // questions stop the run.
-                    blocks_completeness: finding.blocks_completeness(report.policy.gate),
-                });
-                continue;
+            // The audit's own typed distinction, so a plan and the report it
+            // came from cannot disagree about which unanswered questions stop
+            // the run and which are the surface working as mandated.
+            match finding.status.undecided() {
+                Some(Undecided::Structural) => {
+                    admin_only.push(AdminOnlyRule {
+                        rule: &finding.rule,
+                        severity: &finding.severity,
+                        detail: finding
+                            .evidence
+                            .as_ref()
+                            .map(|evidence| evidence.detail.as_str()),
+                        verified_by: registry::find(&finding.rule)
+                            .and_then(registry::CheckDefinition::disclosure_gate)
+                            .map(|gate| gate.verified_by),
+                    });
+                    continue;
+                }
+                Some(Undecided::Circumstantial) => {
+                    undecided.push(UndecidedRule {
+                        rule: &finding.rule,
+                        severity: &finding.severity,
+                        status: finding.status,
+                        blocks_completeness: finding.blocks_completeness(report.policy.gate),
+                    });
+                    continue;
+                }
+                None => {}
             }
             if !is_open_gap(finding.status) {
                 continue;
@@ -183,11 +235,13 @@ impl<'a> Plan<'a> {
                 .then_with(|| left.rule.cmp(right.rule))
         });
         unclosable.sort_by(|left, right| left.rule.cmp(right.rule));
+        admin_only.sort_by(|left, right| left.rule.cmp(right.rule));
 
         Self {
             proposed,
             unclosable,
             undecided,
+            admin_only,
         }
     }
 
@@ -396,6 +450,41 @@ mod tests {
         assert!(
             !plan.undecided[0].blocks_completeness,
             "it does not gate, and the plan must say so rather than omit it"
+        );
+    }
+
+    #[test]
+    fn an_admin_only_rule_is_named_separately_and_does_not_gate() {
+        let mut admin_only = finding("REPO-GIT-04", Status::AdminOnly);
+        admin_only.evidence = Some(crate::findings::Evidence::new(
+            "merge_settings_unavailable",
+            "the merge-commit setting cannot be verified with this credential",
+        ));
+        let report = report(vec![admin_only]);
+        let plan = Plan::derive(&report);
+
+        assert!(
+            plan.proposed.is_empty(),
+            "there is no observed gap to close"
+        );
+        assert!(
+            plan.undecided.is_empty(),
+            "a rule no retry here can answer is not filed with the ones a retry could"
+        );
+        assert_eq!(plan.admin_only.len(), 1);
+        assert_eq!(plan.admin_only[0].rule, "REPO-GIT-04");
+        assert!(plan.admin_only[0]
+            .detail
+            .expect("the run said why")
+            .contains("this credential"));
+        assert!(
+            !plan.is_incomplete(),
+            "the surface working as mandated does not make the run incomplete"
+        );
+        assert_eq!(
+            report.complete,
+            !plan.is_incomplete(),
+            "the plan and the report it came from must agree about the gate"
         );
     }
 

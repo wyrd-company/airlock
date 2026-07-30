@@ -2,6 +2,7 @@
 
 use crate::findings::Remediation;
 use crate::policy::RuleInstance;
+use crate::registry::CheckDefinition;
 use crate::ActionGroup;
 
 use super::{AuditContext, Verdict};
@@ -11,9 +12,9 @@ pub(crate) fn run(id: &str, rule: &RuleInstance, context: &AuditContext) -> Opti
         "REPO-GIT-01" => default_branch(context),
         "REPO-GIT-02" => org_ruleset_coverage(context),
         "REPO-GIT-03" => branch_rule_shape(context),
-        "REPO-GIT-04" => merge_commits_disabled(context),
-        "REPO-GIT-05" => squash_enabled(context),
-        "REPO-GIT-06" => auto_delete_enabled(context),
+        "REPO-GIT-04" => merge_commits_disabled(rule.def, context),
+        "REPO-GIT-05" => squash_enabled(rule.def, context),
+        "REPO-GIT-06" => auto_delete_enabled(rule.def, context),
         "REPO-GIT-07" => optional_features_off(context),
         "REPO-GIT-08" => tags_have_no_v_prefix(context),
         "REPO-GIT-09" => multi_unit_tag_shape(context),
@@ -166,66 +167,108 @@ fn report_branch_gaps(branch: &str, gaps: Vec<String>) -> Verdict {
     }
 }
 
+/// How one boolean repository setting reads in a finding.
+struct BooleanSetting {
+    /// The evidence code when the setting holds.
+    code_pass: &'static str,
+    /// The evidence code when it does not.
+    code_fail: &'static str,
+    /// The setting, as a noun a sentence can be built around.
+    subject: &'static str,
+    /// The same setting, named for the case where the platform withheld it.
+    undisclosed_subject: &'static str,
+    /// What to do about it.
+    remedy: &'static str,
+}
+
+const MERGE_COMMITS: BooleanSetting = BooleanSetting {
+    code_pass: "merge_commits_disabled",
+    code_fail: "merge_commits_enabled",
+    subject: "merge commits allowed",
+    undisclosed_subject: "the merge-commit setting",
+    remedy: "Disable merge commits on the repository.",
+};
+
+const SQUASH_MERGE: BooleanSetting = BooleanSetting {
+    code_pass: "squash_enabled",
+    code_fail: "squash_disabled",
+    subject: "squash merge allowed",
+    undisclosed_subject: "the squash-merge setting",
+    remedy: "Enable squash merging on the repository.",
+};
+
+const AUTO_DELETE: BooleanSetting = BooleanSetting {
+    code_pass: "auto_delete_enabled",
+    code_fail: "auto_delete_disabled",
+    subject: "auto-delete head branch on merge",
+    undisclosed_subject: "the auto-delete head branch setting",
+    remedy: "Enable auto-delete of head branches on merge.",
+};
+
+/// Compare one live boolean setting against what the standard expects.
+///
+/// An absent value is not a false one. What absence means is the registry's
+/// call, not this function's: it reports the field as undisclosed and the
+/// rule's declaration decides whether that is a permanent gate or a run that
+/// fell short.
 fn boolean_setting(
+    def: &CheckDefinition,
+    context: &AuditContext,
+    setting: &BooleanSetting,
     actual: Option<bool>,
     expected: bool,
-    code_pass: &str,
-    code_fail: &str,
-    subject: &str,
-    unavailable_subject: &str,
-    remedy: &str,
 ) -> Verdict {
     let Some(actual) = actual else {
-        return super::merge_settings_unavailable(unavailable_subject);
+        return super::undisclosed(def, context, setting.undisclosed_subject);
     };
 
     if actual == expected {
-        Verdict::pass(code_pass, format!("{subject} is {actual}"))
+        Verdict::pass(
+            setting.code_pass,
+            format!("{} is {actual}", setting.subject),
+        )
     } else {
         Verdict::fail(
-            code_fail,
-            format!("{subject} is {actual}, expected {expected}"),
-            Remediation::new(ActionGroup::CHANGE_REPOSITORY_SETTING, remedy.to_owned()),
+            setting.code_fail,
+            format!("{} is {actual}, expected {expected}", setting.subject),
+            Remediation::new(
+                ActionGroup::CHANGE_REPOSITORY_SETTING,
+                setting.remedy.to_owned(),
+            ),
         )
     }
 }
 
-fn merge_commits_disabled(context: &AuditContext) -> Verdict {
-    let setting = super::merge_setting("merge_commit");
+fn merge_commits_disabled(def: &CheckDefinition, context: &AuditContext) -> Verdict {
+    let live = super::merge_setting("merge_commit");
     boolean_setting(
-        setting.live(&context.snapshot.repository),
-        setting.expected,
-        "merge_commits_disabled",
-        "merge_commits_enabled",
-        "merge commits allowed",
-        "the merge-commit setting",
-        "Disable merge commits on the repository.",
+        def,
+        context,
+        &MERGE_COMMITS,
+        live.live(&context.snapshot.repository),
+        live.expected,
     )
 }
 
-fn squash_enabled(context: &AuditContext) -> Verdict {
-    let setting = super::merge_setting("squash");
+fn squash_enabled(def: &CheckDefinition, context: &AuditContext) -> Verdict {
+    let live = super::merge_setting("squash");
     boolean_setting(
-        setting.live(&context.snapshot.repository),
-        setting.expected,
-        "squash_enabled",
-        "squash_disabled",
-        "squash merge allowed",
-        "the squash-merge setting",
-        "Enable squash merging on the repository.",
+        def,
+        context,
+        &SQUASH_MERGE,
+        live.live(&context.snapshot.repository),
+        live.expected,
     )
 }
 
-fn auto_delete_enabled(context: &AuditContext) -> Verdict {
-    let setting = super::merge_setting("delete_branch_on_merge");
+fn auto_delete_enabled(def: &CheckDefinition, context: &AuditContext) -> Verdict {
+    let live = super::merge_setting("delete_branch_on_merge");
     boolean_setting(
-        setting.live(&context.snapshot.repository),
-        setting.expected,
-        "auto_delete_enabled",
-        "auto_delete_disabled",
-        "auto-delete head branch on merge",
-        "the auto-delete head branch setting",
-        "Enable auto-delete of head branches on merge.",
+        def,
+        context,
+        &AUTO_DELETE,
+        live.live(&context.snapshot.repository),
+        live.expected,
     )
 }
 
@@ -637,7 +680,7 @@ mod tests {
     }
 
     #[test]
-    fn undisclosed_merge_settings_make_all_merge_setting_rules_inconclusive() {
+    fn undisclosed_merge_settings_make_all_merge_setting_rules_admin_only() {
         let mut fixture = CheckFixture::new(&[]);
         fixture.snapshot.repository.allow_merge_commit = None;
         fixture.snapshot.repository.allow_squash_merge = None;
@@ -646,11 +689,11 @@ mod tests {
 
         for id in ["REPO-GIT-04", "REPO-GIT-05", "REPO-GIT-06"] {
             let verdict = evaluate(&rule(id), &context);
-            assert_eq!(verdict.status, Status::Inconclusive, "{id}");
-            let evidence = verdict.evidence.expect("inconclusive evidence");
+            assert_eq!(verdict.status, Status::AdminOnly, "{id}");
+            let evidence = verdict.evidence.expect("admin-only evidence");
             assert_eq!(
                 evidence.code,
-                super::super::MERGE_SETTINGS_UNAVAILABLE,
+                crate::registry::MERGE_SETTINGS_DISCLOSURE.evidence_code,
                 "{id}"
             );
             assert!(
