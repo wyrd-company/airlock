@@ -793,7 +793,7 @@ pub const CLASSIFICATIONS: &[Classification] = &[
         "supply-airlock-token",
         "REPO-CI-09",
         Lane::DeterministicFile,
-        "Supply `secrets.AIRLOCK_TOKEN` to the local audit action as `AIRLOCK_TOKEN`.",
+        "Supply `secrets.AIRLOCK_TOKEN` to the canonical Airlock audit action as `AIRLOCK_TOKEN`.",
         true,
     ),
     remediation(

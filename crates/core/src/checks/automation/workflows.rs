@@ -1,6 +1,8 @@
 use super::*;
 use crate::ActionGroup;
 
+const CANONICAL_AIRLOCK_REPOSITORY: &str = "wyrd-company/airlock";
+
 pub(super) fn readable_workflows<'a>(
     context: &'a AuditContext<'_>,
 ) -> Result<Vec<&'a Workflow>, Box<Verdict>> {
@@ -455,6 +457,8 @@ pub(super) fn audit_uses_airlock_token(context: &AuditContext) -> Verdict {
                 .collect()
         })
         .unwrap_or_default();
+    // Repository identity is authoritative and default-deny: an unknown remote or a fork cannot
+    // claim the canonical repository's local self-reference.
     let local_action_is_canonical = context
         .full_name()
         .eq_ignore_ascii_case(CANONICAL_AIRLOCK_REPOSITORY);
@@ -469,7 +473,7 @@ pub(super) fn audit_uses_airlock_token(context: &AuditContext) -> Verdict {
 
     if audit_steps.is_empty() {
         return Verdict::fail(
-            "local_audit_action_missing",
+            "audit_action_missing",
             format!("{} does not invoke the Airlock audit action", workflow.path),
             Remediation::new(
                 ActionGroup::SUPPLY_AIRLOCK_TOKEN,
@@ -505,8 +509,6 @@ pub(super) fn audit_uses_airlock_token(context: &AuditContext) -> Verdict {
     }
 }
 
-const CANONICAL_AIRLOCK_REPOSITORY: &str = "wyrd-company/airlock";
-
 fn is_remote_airlock_action(uses: &str) -> bool {
     let Some((repository, reference)) = uses.rsplit_once('@') else {
         return false;
@@ -516,21 +518,21 @@ fn is_remote_airlock_action(uses: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::super::super::evaluate;
     use super::super::super::fixtures::*;
+    use super::super::super::{evaluate, Verdict};
     use crate::findings::Status;
 
     fn verdict(id: &str, files: &[(&str, &str)]) -> Status {
         CheckFixture::new(files).verdict(id).status
     }
 
-    fn verdict_for_repository(id: &str, repository: &str, files: &[(&str, &str)]) -> Status {
+    fn evaluate_for_repository(id: &str, repository: &str, files: &[(&str, &str)]) -> Verdict {
         let mut snapshot = snapshot(files);
         snapshot.repository.full_name = repository.to_owned();
         let workflows = workflows(&snapshot);
         let policy = policy();
         let context = context(&snapshot, &policy, workflows);
-        evaluate(&rule(id), &context).status
+        evaluate(&rule(id), &context)
     }
 
     use super::super::decided;
@@ -749,11 +751,12 @@ jobs:
           AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}
 ";
         assert_eq!(
-            verdict_for_repository(
+            evaluate_for_repository(
                 "REPO-CI-09",
                 "wyrd-company/airlock",
                 &[(".github/workflows/audit.yml", configured)]
-            ),
+            )
+            .status,
             Status::Pass
         );
     }
@@ -770,14 +773,13 @@ jobs:
     steps:
       - uses: ./
 ";
-        assert_eq!(
-            verdict_for_repository(
-                "REPO-CI-09",
-                "wyrd-company/airlock",
-                &[(".github/workflows/audit.yml", workflow)]
-            ),
-            Status::Fail
+        let verdict = evaluate_for_repository(
+            "REPO-CI-09",
+            "wyrd-company/airlock",
+            &[(".github/workflows/audit.yml", workflow)],
         );
+        assert_eq!(verdict.status, Status::Fail);
+        assert_eq!(verdict.evidence.unwrap().code, "audit_token_missing");
     }
 
     #[test]
@@ -795,13 +797,37 @@ jobs:
           AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}
 ";
         assert_eq!(
-            verdict_for_repository(
+            evaluate_for_repository(
                 "REPO-CI-09",
                 "example/example",
                 &[(".github/workflows/audit.yml", workflow)]
-            ),
+            )
+            .status,
             Status::Fail
         );
+    }
+
+    #[test]
+    fn the_canonical_repository_may_only_use_the_exact_local_self_reference() {
+        let workflow = "\
+on: workflow_dispatch
+permissions: {}
+jobs:
+  audit:
+    permissions:
+      contents: read
+    steps:
+      - uses: ./.github/actions/audit
+        env:
+          AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}
+";
+        let verdict = evaluate_for_repository(
+            "REPO-CI-09",
+            "wyrd-company/airlock",
+            &[(".github/workflows/audit.yml", workflow)],
+        );
+        assert_eq!(verdict.status, Status::Fail);
+        assert_eq!(verdict.evidence.unwrap().code, "audit_action_missing");
     }
 
     #[test]
@@ -818,10 +844,17 @@ jobs:
         env:
           AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}
 ";
-        assert_eq!(
-            verdict("REPO-CI-09", &[(".github/workflows/audit.yml", configured)]),
-            Status::Pass
+        let fixture = CheckFixture::new(&[(".github/workflows/audit.yml", configured)]);
+        assert_eq!(fixture.verdict("REPO-CI-09").status, Status::Pass);
+
+        let unconfigured = configured.replace(
+            "        env:\n          AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}\n",
+            "",
         );
+        let fixture = CheckFixture::new(&[(".github/workflows/audit.yml", &unconfigured)]);
+        let verdict = fixture.verdict("REPO-CI-09");
+        assert_eq!(verdict.status, Status::Fail);
+        assert_eq!(verdict.evidence.unwrap().code, "audit_token_missing");
     }
 
     #[test]
