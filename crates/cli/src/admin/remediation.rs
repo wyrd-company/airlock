@@ -300,7 +300,9 @@ impl WriteClient {
             .json(body)
             .send()
             .await?;
-        accepted(&response, "PATCH /repos/{owner}/{repo}")
+        accepted(response, "PATCH /repos/{owner}/{repo}")
+            .await
+            .map(|_| ())
     }
 
     async fn rename_branch(&self, owner: &str, repo: &str, branch: &str) -> anyhow::Result<()> {
@@ -330,9 +332,11 @@ impl WriteClient {
             .send()
             .await?;
         accepted(
-            &response,
+            response,
             "POST /repos/{owner}/{repo}/branches/{branch}/rename",
         )
+        .await
+        .map(|_| ())
     }
 
     async fn rename_repository(&self, owner: &str, repo: &str, name: &str) -> anyhow::Result<()> {
@@ -428,10 +432,11 @@ impl WriteClient {
             .bearer_auth(&self.token)
             .send()
             .await?;
-        accepted(
-            &response,
+        let response = accepted(
+            response,
             "GET /repos/{owner}/{repo}/actions/variables/{name}",
-        )?;
+        )
+        .await?;
         let value: serde_json::Value = response.json().await?;
         let value = value
             .get("value")
@@ -461,9 +466,11 @@ impl WriteClient {
             .send()
             .await?;
         accepted(
-            &response,
+            response,
             "DELETE /repos/{owner}/{repo}/actions/variables/{name}",
         )
+        .await
+        .map(|_| ())
     }
 
     async fn rulesets(&self, owner: &str) -> anyhow::Result<Vec<String>> {
@@ -511,7 +518,8 @@ impl WriteClient {
             .header("X-GitHub-Api-Version", "2022-11-28")
             .send()
             .await?;
-        accepted(&response, path)
+        let response = accepted(response, path)
+            .await
             .map_err(|error| anyhow::anyhow!("the settings observation {error}"))?;
         response.json().await.map_err(Into::into)
     }
@@ -532,7 +540,7 @@ impl WriteClient {
             .json(body)
             .send()
             .await?;
-        accepted(&response, endpoint)
+        accepted(response, endpoint).await.map(|_| ())
     }
 }
 
@@ -1526,20 +1534,28 @@ fn step(started: Instant, succeeded: bool, detail: &str) -> Step {
     }
 }
 
-fn accepted(response: &reqwest::Response, endpoint: &str) -> anyhow::Result<()> {
+async fn accepted(
+    response: reqwest::Response,
+    endpoint: &str,
+) -> anyhow::Result<reqwest::Response> {
     if response.status().is_success() {
-        Ok(())
+        Ok(response)
     } else {
+        let status = response.status().as_u16();
         let permission_hint = response
             .headers()
             .get("x-accepted-github-permissions")
             .and_then(|value| value.to_str().ok())
             .map(|permissions| format!(" [endpoint accepts: {permissions}]"))
             .unwrap_or_default();
-        anyhow::bail!(
-            "{endpoint} returned HTTP {}{permission_hint}",
-            response.status().as_u16()
-        )
+        let message = response
+            .json::<serde_json::Value>()
+            .await
+            .ok()
+            .and_then(|body| body.get("message")?.as_str().map(ToOwned::to_owned))
+            .map(|message| format!(": {}", text::sanitize(&message, CAUSE_LIMIT)))
+            .unwrap_or_default();
+        anyhow::bail!("{endpoint} returned HTTP {status}{message}{permission_hint}")
     }
 }
 
@@ -1683,10 +1699,16 @@ mod tests {
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/orgs/generic-owner/rulesets"))
-            .respond_with(ResponseTemplate::new(403).insert_header(
-                "x-accepted-github-permissions",
-                "organization_administration=write",
-            ))
+            .respond_with(
+                ResponseTemplate::new(403)
+                    .insert_header(
+                        "x-accepted-github-permissions",
+                        "organization_administration=write",
+                    )
+                    .set_body_json(serde_json::json!({
+                        "message": "Upgrade to GitHub Team to enable this feature."
+                    })),
+            )
             .mount(&server)
             .await;
 
@@ -1696,6 +1718,10 @@ mod tests {
             .expect_err("a 403 must surface");
         let error = error.to_string();
         assert!(error.contains("/orgs/generic-owner/rulesets?per_page=100"));
+        assert!(
+            error.contains("Upgrade to GitHub Team to enable this feature."),
+            "the error omitted GitHub's message: {error}"
+        );
         assert!(
             error.contains("[endpoint accepts: organization_administration=write]"),
             "the error omitted GitHub's permission hint: {error}"
@@ -1707,7 +1733,7 @@ mod tests {
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/orgs/generic-owner/rulesets"))
-            .respond_with(ResponseTemplate::new(403))
+            .respond_with(ResponseTemplate::new(403).set_body_string("access denied"))
             .mount(&server)
             .await;
 
@@ -1718,6 +1744,7 @@ mod tests {
             .to_string();
         assert!(error.contains("/orgs/generic-owner/rulesets?per_page=100"));
         assert!(!error.contains("endpoint accepts"));
+        assert!(!error.contains("access denied"));
     }
 
     #[tokio::test]
@@ -1727,7 +1754,10 @@ mod tests {
             .and(path("/repos/generic-owner/sample-repository/transfer"))
             .respond_with(
                 ResponseTemplate::new(403)
-                    .insert_header("x-accepted-github-permissions", "administration=write"),
+                    .insert_header("x-accepted-github-permissions", "administration=write")
+                    .set_body_json(serde_json::json!({
+                        "message": "Repository transfers are disabled."
+                    })),
             )
             .mount(&server)
             .await;
@@ -1738,6 +1768,7 @@ mod tests {
             .expect_err("a 403 must surface")
             .to_string();
         assert!(error.contains("POST /repos/{owner}/{repo}/transfer"));
+        assert!(error.contains("Repository transfers are disabled."));
         assert!(error.contains("[endpoint accepts: administration=write]"));
     }
 
