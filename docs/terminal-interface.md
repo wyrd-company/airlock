@@ -99,17 +99,17 @@ three lanes, and the lane is a physical column position on every row that
 shows a status. Position carries the meaning; hue confirms it and never
 carries it alone.
 
-| Status | Glyph | Lane | Effect on the run |
-| --- | --- | --- | --- |
-| `pass` | `✓` | gating | Counts toward the verdict |
-| `fail` | `✗` | gating | Counts toward the verdict |
-| `manual` | `◆` | inert | Never gates, never affects completeness |
-| `suppressed` | `⊘` | inert | Never gates, never affects completeness |
-| `skipped` | `○` | inert | Never gates, never affects completeness |
-| `unimplemented` | `▢` | undecided | Makes the run incomplete at a gating severity |
-| `inconclusive` | `◑` | undecided | Makes the run incomplete at a gating severity |
-| `admin-only` | `◍` | undecided | Never affects completeness; the rule requires admin access to verify |
-| `error` | `!` | undecided | Makes the run incomplete at a gating severity |
+| Status          | Glyph | Lane      | Effect on the run                                                    |
+| --------------- | ----- | --------- | -------------------------------------------------------------------- |
+| `pass`          | `✓`   | gating    | Counts toward the verdict                                            |
+| `fail`          | `✗`   | gating    | Counts toward the verdict                                            |
+| `manual`        | `◆`   | inert     | Never gates, never affects completeness                              |
+| `suppressed`    | `⊘`   | inert     | Never gates, never affects completeness                              |
+| `skipped`       | `○`   | inert     | Never gates, never affects completeness                              |
+| `unimplemented` | `▢`   | undecided | Makes the run incomplete at a gating severity                        |
+| `inconclusive`  | `◑`   | undecided | Makes the run incomplete at a gating severity                        |
+| `admin-only`    | `◍`   | undecided | Never affects completeness; the rule requires admin access to verify |
+| `error`         | `!`   | undecided | Makes the run incomplete at a gating severity                        |
 
 The three lanes read as three shape families: the gating lane uses stroke
 marks, the inert lane uses closed outlines, and the undecided lane uses
@@ -592,17 +592,23 @@ the input is the confirmation's substance.
 
 The screen states the boundary plainly: file-level gaps leave as a pull
 request. They are proposed for review and are never written to the default
-branch, and this interface does not author them. Settings-level fixes are
-applied directly, because they are not files. There is no exception: the
-interface writes no file, in any flow, at any point.
+branch. Settings-level fixes are applied directly, because they are not files.
+The sole file-write exception is the first commit of an empty repository: an
+empty repository has no branch against which a pull request can be opened, so
+the interactive session creates that branch with one Git Data API commit. The
+exception is the branch-creating commit, not a repository Airlock created, an
+unprotected branch, or any later commit.
 
-Creating a repository is settings-level and is applied directly. Its first
-commit is not, and the interface does not make it. An empty repository has no
-branch to open a pull request against, so until a first commit exists the
-agentic path has nothing to deliver against. The screen names that step,
-states that it is performed outside this interface — by a person, or by the
-agentic path committing directly to the new repository — and re-observes until
-a default branch exists. The pull-request path resumes at that point.
+Repository scaffolding is align against the maximally unaligned case. The
+operator chooses the owner, visibility, and capability declarations, then
+confirms creation. Airlock creates the empty repository, assigns declared
+capabilities as organization custom-property values, resolves the owner's
+policy, and places the deterministic files required by its unconditional base
+profile in the single branch-creating commit. Airlock ships no fallback policy
+or built-in scaffold. It immediately runs the ordinary audit against the new
+repository; settings that could not be applied during creation and every
+remaining file or judgment gap enter the ordinary remediation lanes. Once the
+default branch exists, every file-level change leaves as a pull request.
 
 A queue shows the remaining remediations with their rule ids and, for each,
 its remediation code, whether it is a file change or a setting, and how it

@@ -70,6 +70,15 @@ must make, and it has no subcommand and no flag. An agent holding this binary
 therefore has nothing to invoke: the guarantee is that the code path does not
 exist, not that a check declines to take it.
 
+Creating a repository is align against the maximally unaligned case. The
+operator chooses its owner, visibility, and declared capabilities in the
+console. Because an empty repository has no branch against which Airlock can
+open a pull request, the console creates exactly one direct Git Data API commit
+containing the deterministic files required by the owner's policy. That
+branch-creating commit is the sole direct file-write exception; after it,
+Airlock audits the repository normally and every later file change follows the
+ordinary pull-request path. Airlock ships no policy and no built-in scaffold.
+
 It requires an interactive terminal on both stdin and stdout. Under a pipe, a
 redirect, or a scheduler it exits non-zero without rendering anything, and names
 what to run instead. `airlock audit` is the complete unattended findings
@@ -196,11 +205,11 @@ airlock align-files wyrd-company/airlock --working-tree .
 
 ## What the exit code means
 
-| Code | Outcome         | Meaning                                                  |
-| ---- | --------------- | -------------------------------------------------------- |
+| Code | Outcome         | Meaning                                                                 |
+| ---- | --------------- | ----------------------------------------------------------------------- |
 | `0`  | `conformant`    | Every question this run could settle was settled; the gate is satisfied |
-| `1`  | `nonconformant` | Every question this run could settle was settled; a gating rule failed |
-| `2`  | `incomplete`    | This run left a gating rule undecided, or never started    |
+| `1`  | `nonconformant` | Every question this run could settle was settled; a gating rule failed  |
+| `2`  | `incomplete`    | This run left a gating rule undecided, or never started                 |
 
 A rule behind a declared disclosure gate requires admin access to verify. It is
 reported `admin-only`, named as its own group, and counted against no exit code
@@ -213,10 +222,10 @@ commonly reported by shells as status 141.
 `airlock agent-work` uses the same numeric codes for a different, explicitly
 lane-scoped question:
 
-| Code | Outcome                   | Meaning                                                        |
-| ---- | ------------------------- | -------------------------------------------------------------- |
-| `0`  | `agent_lane_clear`        | No deterministic or judgment file failure remains              |
-| `1`  | `agent_lane_work_remains` | At least one deterministic or judgment file failure remains    |
+| Code | Outcome                   | Meaning                                                             |
+| ---- | ------------------------- | ------------------------------------------------------------------- |
+| `0`  | `agent_lane_clear`        | No deterministic or judgment file failure remains                   |
+| `1`  | `agent_lane_work_remains` | At least one deterministic or judgment file failure remains         |
 | `2`  | `could_not_settle`        | The audit left a gate-relevant question unanswered or could not run |
 
 Operator-setting failures are always counted and identified in
@@ -237,9 +246,9 @@ to verify), `error` (an API failure, with its cause).
 four leave the assertion undecided, and each one carries which kind of
 undecided it is.
 
-`unimplemented`, `inconclusive`, and `error` are *circumstantial*: this run did
+`unimplemented`, `inconclusive`, and `error` are _circumstantial_: this run did
 not establish what it can normally establish, so at a gating severity they make
-the whole audit incomplete. `admin-only` is *structural*: the registry
+the whole audit incomplete. `admin-only` is _structural_: the registry
 declares, per rule, a **disclosure gate** — a fact the platform reveals only to
 a grant the audit is not allowed to hold, plus the surface that verifies it
 instead. GitHub discloses merge settings only to `contents: write`
@@ -291,12 +300,12 @@ code, what the change would be, whether it is reversible, and the lane it
 travels in — or `none_reason` when airlock offers no remediation. The
 classification tells the consumer who can act and through which surface.
 
-| Lane                 | What it means                                                                                              | Who does the work                    |
-| -------------------- | ---------------------------------------------------------------------------------------------------------- | ------------------------------------ |
-| `deterministic-file` | The same gap resolves to the same file content in every repository                                          | Airlock authors locally; the caller delivers a PR |
-| `judgment-file`      | The fix is repository-specific file content — prose, or configuration wired to this repository's toolchain | An agent authors it; a human reviews |
-| `operator-setting`   | The fix sits behind the administration API, and `administration: write` is indivisible                     | A human, behind the TUI              |
-| *(none)*             | A human attestation, a fix outside the repository, or history surgery airlock will not automate            | Nobody — the reason says why         |
+| Lane                 | What it means                                                                                              | Who does the work                                 |
+| -------------------- | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| `deterministic-file` | The same gap resolves to the same file content in every repository                                         | Airlock authors locally; the caller delivers a PR |
+| `judgment-file`      | The fix is repository-specific file content — prose, or configuration wired to this repository's toolchain | An agent authors it; a human reviews              |
+| `operator-setting`   | The fix sits behind the administration API, and `administration: write` is indivisible                     | A human, behind the TUI                           |
+| _(none)_             | A human attestation, a fix outside the repository, or history surgery airlock will not automate            | Nobody — the reason says why                      |
 
 Lane is the only authorship gate. Mechanical evaluation is not enough:
 README presence, task wiring, job permissions, and other mechanically observed
@@ -463,8 +472,8 @@ It expresses no logic of its own: the checks are the only place logic lives.
 ```yaml
 version: 1
 name: wyrd-company
-requires-registry: ">=0.2"    # the binary's registry must satisfy this
-gate: blocking                # which failing severities count: blocking | required
+requires-registry: ">=0.2" # the binary's registry must satisfy this
+gate: blocking # which failing severities count: blocking | required
 
 capabilities:
   base: [identity, licensing, files, git, automation]
@@ -527,7 +536,7 @@ moved it:
 ```
 
 Suppression authority lives in the policy. An audited repository's
-`.github/airlock.yml` holds *requests*:
+`.github/airlock.yml` holds _requests_:
 
 ```yaml
 version: 1
@@ -672,10 +681,10 @@ an id survives a rename and a slug does not, so neither alone is sufficient. A
 runtime override would be a way to point airlock at an app of someone's
 choosing, which is the whole thing the binding prevents.
 
-| App | App id | Slug | Client id | Build |
-| --- | ---: | --- | --- | --- |
-| Airlock Admin | `4409767` | `airlock-admin` | `Iv23li6LeVszqbchI9Ah` | shipped |
-| Airlock Test | `4419504` | `airlock-test` | `Iv23liTl9KRNwxjFhrfA` | `--features test-identity` |
+| App           |    App id | Slug            | Client id              | Build                      |
+| ------------- | --------: | --------------- | ---------------------- | -------------------------- |
+| Airlock Admin | `4409767` | `airlock-admin` | `Iv23li6LeVszqbchI9Ah` | shipped                    |
+| Airlock Test  | `4419504` | `airlock-test`  | `Iv23liTl9KRNwxjFhrfA` | `--features test-identity` |
 
 **Airlock Test is a development affordance**, not a supported configuration. It
 is installed on `mmenm` only, and that bound is the point of it: while the
@@ -688,15 +697,15 @@ setting.
 
 Airlock Admin's registered grant is:
 
-| Permission | Level |
-| --- | --- |
-| `metadata` | read |
-| `actions` | read |
-| `administration` | write |
-| `contents` | write |
-| `environments` | write |
-| `secrets` | write |
-| `variables` | write |
-| `organization_administration` | write |
-| `organization_secrets` | write |
+| Permission                       | Level |
+| -------------------------------- | ----- |
+| `metadata`                       | read  |
+| `actions`                        | read  |
+| `administration`                 | write |
+| `contents`                       | write |
+| `environments`                   | write |
+| `secrets`                        | write |
+| `variables`                      | write |
+| `organization_administration`    | write |
+| `organization_secrets`           | write |
 | `organization_custom_properties` | admin |
