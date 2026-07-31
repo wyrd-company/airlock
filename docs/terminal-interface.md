@@ -674,14 +674,25 @@ A step's state is one of four, and the fourth is what keeps the sequence honest:
   it is neither claimed nor denied. The row names why, from the registry's own
   disclosure rather than from prose written here.
 
+These four are the bootstrap's own vocabulary, and none of them is a finding
+status: no step row carries one of the nine, no findings surface carries a step
+state, and the glyphs the steps use are not the finding glyphs.
+
+An unobservable step blocks nothing. `blocked` names an earlier step whose
+absence was observed; a step that is neither claimed nor denied is not one, so a
+later step's state is decided by its own observed facts. Step 5 goes live when
+the publication is observed and the credential still exists, whatever step 4
+reads.
+
 The five steps, each with a glyph, a state, and a note:
 
 1. **Mint a registry token.** Scoped to publishing this package. Airlock never
    displays the value, and no registry mints one headlessly before a trusted
-   publisher exists, so this step is a human instruction. The screen names the
-   expiry to mint with and the reasoning: short but comfortably longer than the
-   time to first publish, because too long leaves a live credential in a
-   forgotten repository and too short stalls the ceremony at its external step.
+   publisher exists, so this step is a human instruction. The expiry to mint
+   with is seven days — short but comfortably longer than the time to first
+   publish, because too long leaves a live credential in a forgotten repository
+   and too short stalls the ceremony at its external step — and the screen names
+   both the number and the reasoning.
    The step's own completion is unobservable — a minted token is the registry's,
    not GitHub's — so the presence of the secret is the first observable fact.
 2. **Set it as a repository secret.** The token value is supplied through the
@@ -756,9 +767,9 @@ below the fold.
 `↑↓` move the window · `↵` supply the token value, and confirm the named write ·
 `tab` next publication target · `o` re-observe now.
 
-While the token surface holds focus the keys are the shared secret entry's own —
-`↵` continue, `backspace` delete, `esc` cancel, `ctrl-c` exit — and `t` is not
-live as the theme toggle, exactly as every other secret-bearing surface behaves.
+While the token surface holds focus the keys are the shared secret entry's own,
+and `t` is not live as the theme toggle, exactly as every other secret-bearing
+surface behaves.
 `↵` on a step that takes no value says why rather than silently doing nothing.
 
 **Status line.** The current step of five, what it is waiting on, and that the
