@@ -670,10 +670,11 @@ position was re-observed on entry.
 ## Mid-session expiry
 
 The grant lapses on GitHub's schedule, which can fall mid-session. Its
-remaining validity is a session fact and is carried in the header for as long
-as a grant is held, so the lapse is expected rather than sudden. A grant that
-states no expiry says so rather than showing a countdown: the interval is
-GitHub's to state, and airlock does not infer one it was not given.
+remaining validity is a session fact and is carried in the header — the
+standing line of session facts every screen shares — for as long as a grant is
+held, so the lapse is expected rather than sudden. A grant that states no
+expiry says so rather than showing a countdown: the interval is GitHub's to
+state, and airlock does not infer one it was not given.
 
 Expiry is observed rather than assumed — the stated validity running out, or a
 rejection of the credential in an observation airlock made. Either way the
