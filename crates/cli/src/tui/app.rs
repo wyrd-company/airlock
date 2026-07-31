@@ -2241,6 +2241,34 @@ mod tests {
     }
 
     #[test]
+    fn merge_settings_bulk_groups_git_04_with_git_06_from_queue_rows() {
+        let report = findings::fixture::report(
+            airlock_core::findings::Gate::Required,
+            vec![
+                findings::fixture::finding("REPO-GIT-04", Severity::Blocking, Status::Fail),
+                findings::fixture::finding("REPO-GIT-06", Severity::Blocking, Status::Fail),
+            ],
+        );
+        let queue = findings::Queue::of(&report, &findings::Deliveries::default());
+        let items = bulk_items(
+            &queue,
+            crate::admin::remediation::BulkKind::RepositorySettings,
+        );
+        assert_eq!(items.len(), 2);
+        assert!(items
+            .iter()
+            .any(|item| item.remediation == "disable-merge-commits"));
+        assert!(items
+            .iter()
+            .any(|item| item.remediation == "enable-head-branch-auto-delete"));
+        assert!(items.iter().all(|item| {
+            crate::admin::remediation::Action::for_code(&item.remediation).is_some_and(|action| {
+                action.bulk_kind() == crate::admin::remediation::BulkKind::RepositorySettings
+            })
+        }));
+    }
+
+    #[test]
     fn enter_opens_a_finding_from_a_row_and_nothing_from_a_heading() {
         let mut app = observed();
         press(&mut app, KeyCode::Enter);

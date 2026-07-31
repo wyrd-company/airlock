@@ -642,7 +642,7 @@ fn row(
             .remediation_class
             .code
             .as_ref()
-            .map(|value| sanitize(value, RULE_LIMIT)),
+            .map(|value| drawable(value)),
         change: finding
             .remediation_class
             .change
@@ -1894,6 +1894,23 @@ mod tests {
             .clone()
             .expect("the reason is on the row");
         assert!(note.contains("the choice is the maintainer's"), "{note}");
+    }
+
+    #[test]
+    fn a_long_remediation_code_round_trips_through_the_queue_row() {
+        let finding = finding("REPO-GIT-06", Severity::Blocking, Status::Fail);
+        let expected = finding
+            .remediation_class
+            .code
+            .clone()
+            .expect("REPO-GIT-06 has a remediation code");
+
+        let queue = queue(vec![finding]);
+
+        assert_eq!(
+            queue.rows[0].remediation.as_deref(),
+            Some(expected.as_str())
+        );
     }
 
     #[test]
