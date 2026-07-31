@@ -813,10 +813,13 @@ fn confirmed_input(item: &Item, repository: &str, width: usize) -> Vec<String> {
             secret_draft,
             ..
         } => {
-            let mut lines = vec![format!(
-                "variable       {} → {variable_draft}",
-                variables.get(*selected_variable).map_or("", String::as_str)
-            )];
+            let mut lines = Vec::new();
+            if !variable_draft.is_empty() {
+                lines.push(format!(
+                    "variable       {} → {variable_draft}",
+                    variables.get(*selected_variable).map_or("", String::as_str)
+                ));
+            }
             if !secret_draft.is_empty() {
                 lines.push(format!(
                     "secret         {} → {secret_draft}",
@@ -1170,6 +1173,30 @@ mod tests {
         assert_eq!(
             request.items[0].secret_rename(),
             Some(("LEGACY_SECRET".to_owned(), "CURRENT_SECRET".to_owned()))
+        );
+        let mut state = State::SecretEntry {
+            request,
+            input: SecretInputState::Holding,
+        };
+        state.secret_supplied();
+        let area = ratatui::layout::Rect::new(0, 0, 80, 24);
+        let mut frame = ratatui::buffer::Buffer::empty(area);
+        super::super::app::App::new("0.0.0", super::super::theme::ColorMode::Color)
+            .with_remediation_state(state)
+            .render(area, &mut frame);
+        let mut rendered = String::new();
+        for y in 0..area.height {
+            for x in 0..area.width {
+                rendered.push_str(frame[(x, y)].symbol());
+            }
+        }
+        assert!(
+            !rendered.contains("UNRELATED_COMPLIANT_VARIABLE"),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("secret         LEGACY_SECRET → CURRENT_SECRET"),
+            "{rendered}"
         );
     }
 
