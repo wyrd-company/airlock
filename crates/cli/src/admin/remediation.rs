@@ -267,6 +267,7 @@ impl WriteClient {
     fn from_session(credential: &SessionCredential) -> anyhow::Result<Self> {
         let http = reqwest::Client::builder()
             .user_agent(concat!("airlock/", env!("CARGO_PKG_VERSION")))
+            .pool_idle_timeout(Duration::from_secs(5))
             .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(30))
             .redirect(reqwest::redirect::Policy::none())
@@ -1542,6 +1543,7 @@ fn segment(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::net::TcpListener;
     use wiremock::matchers::{body_json, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -1633,6 +1635,40 @@ mod tests {
             token: "ghu_test_only".to_owned(),
             base_url: server.uri(),
         }
+    }
+
+    #[tokio::test]
+    async fn a_transport_error_on_a_write_is_not_retried() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (first, _) = listener.accept().await.unwrap();
+            drop(first);
+            tokio::time::timeout(Duration::from_millis(100), listener.accept())
+                .await
+                .is_err()
+        });
+        let writer = WriteClient {
+            http: reqwest::Client::builder().build().unwrap(),
+            token: "ghu_test_only".to_owned(),
+            base_url: format!("http://{address}"),
+        };
+
+        writer
+            .patch_repository(
+                "generic-owner",
+                "sample-repository",
+                &RepositoryPatch {
+                    allow_squash_merge: Some(true),
+                    ..RepositoryPatch::default()
+                },
+            )
+            .await
+            .expect_err("an ambiguous write transport failure must surface");
+        assert!(
+            server.await.unwrap(),
+            "the write was attempted more than once"
+        );
     }
 
     #[tokio::test]

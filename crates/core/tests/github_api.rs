@@ -11,6 +11,8 @@ use airlock_core::github::{
 use airlock_core::limits::Limits;
 use serde_json::{json, Value};
 use std::time::Duration;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
 use wiremock::matchers::{method, path, query_param, query_param_is_missing};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -50,6 +52,42 @@ fn quota_headers(template: ResponseTemplate) -> ResponseTemplate {
 // ---------------------------------------------------------------------------
 // Error taxonomy
 // ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn an_idempotent_get_retries_one_transport_failure() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (first, _) = listener.accept().await.unwrap();
+        drop(first);
+
+        let (mut second, _) = listener.accept().await.unwrap();
+        let mut request = vec![0; 4096];
+        let size = second.read(&mut request).await.unwrap();
+        assert!(String::from_utf8_lossy(&request[..size]).starts_with("GET /user HTTP/1.1"));
+
+        let body = r#"{"login":"generic-user","id":1}"#;
+        let response = format!(
+            "HTTP/1.1 200 OK\r\ncontent-length: {}\r\nx-oauth-scopes: \r\nconnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        second.write_all(response.as_bytes()).await.unwrap();
+    });
+
+    let client = RestClient::new(
+        "ghu_fixture_token",
+        RestClientConfig {
+            base_url: format!("http://{address}"),
+            max_rate_limit_retries: 0,
+            ..RestClientConfig::default()
+        },
+    )
+    .unwrap();
+
+    let user = client.authenticated_user().await.unwrap();
+    assert_eq!(user.login, "generic-user");
+    server.await.unwrap();
+}
 
 #[tokio::test]
 async fn a_permission_403_names_the_permission_the_endpoint_wanted() {

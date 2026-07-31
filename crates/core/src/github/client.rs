@@ -191,9 +191,9 @@ impl RestClient {
         let http = reqwest::Client::builder()
             .user_agent(config.user_agent.clone())
             // Audits are bursty, and the interactive session may sit idle
-            // longer than GitHub keeps a connection alive. Do not retain idle
-            // sockets whose first reuse could race a server-side close.
-            .pool_max_idle_per_host(0)
+            // longer than GitHub keeps a connection alive. Retain connections
+            // within a burst, but drop them across the longer idle stretches.
+            .pool_idle_timeout(Duration::from_secs(5))
             // Without these, a server that accepts a connection and never
             // finishes the body hangs the audit forever.
             .connect_timeout(config.connect_timeout)
@@ -303,11 +303,20 @@ impl RestClient {
             .map_err(|error| ApiError::local(ErrorCause::Malformed, endpoint, error.to_string()))
     }
 
-    /// Perform one GET, retrying a rate-limited response within budget.
+    /// Perform one GET, retrying one transport failure and rate-limited
+    /// responses within budget.
     async fn get(&self, endpoint: &str, url: &str) -> ApiResult<RawResponse> {
-        let mut attempt = 0;
+        let mut rate_limit_attempt = 0;
+        let mut transport_retried = false;
         loop {
-            let raw = self.send(endpoint, url).await?;
+            let raw = match self.send(endpoint, url).await {
+                Ok(raw) => raw,
+                Err(error) if error.cause == ErrorCause::Transport && !transport_retried => {
+                    transport_retried = true;
+                    continue;
+                }
+                Err(error) => return Err(error),
+            };
             if (200..300).contains(&raw.status) {
                 return Ok(raw);
             }
@@ -316,7 +325,8 @@ impl RestClient {
             let cause = classify::classify(&summary);
             let wait = classify::retry_delay_seconds(&summary, now_epoch_seconds()).unwrap_or(1);
             let error = self.to_error(endpoint, &raw, cause, summary);
-            if error.cause != ErrorCause::RateLimit || attempt >= self.config.max_rate_limit_retries
+            if error.cause != ErrorCause::RateLimit
+                || rate_limit_attempt >= self.config.max_rate_limit_retries
             {
                 return Err(error);
             }
@@ -329,7 +339,7 @@ impl RestClient {
                 return Err(error);
             }
             tokio::time::sleep(Duration::from_secs(wait)).await;
-            attempt += 1;
+            rate_limit_attempt += 1;
         }
     }
 
