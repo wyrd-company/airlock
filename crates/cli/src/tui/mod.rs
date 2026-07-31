@@ -437,8 +437,12 @@ fn drive(app: &mut App, session: &mut terminal::Session, authorizing: Authorizin
             while let Some(response) = worker.next_response() {
                 match response {
                     WorkerResponse::ScaffoldPrepared(plan) => app.scaffold_prepared(plan),
-                    WorkerResponse::Scaffolded { target, report } => {
-                        app.scaffold_complete(target, &report);
+                    WorkerResponse::Scaffolded {
+                        target,
+                        report,
+                        warnings,
+                    } => {
+                        app.scaffold_complete(target, &report, warnings);
                     }
                     WorkerResponse::Observed { target, report } => {
                         let observe = catalogue::Observe {

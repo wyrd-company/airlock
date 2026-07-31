@@ -511,7 +511,11 @@ pub enum Response {
     /// Policy-derived scaffold choices.
     ScaffoldPrepared(ScaffoldPlan),
     /// The ordinary audit observed immediately after repository creation.
-    Scaffolded { target: Target, report: Box<Report> },
+    Scaffolded {
+        target: Target,
+        report: Box<Report>,
+        warnings: Vec<String>,
+    },
     /// Sanitized choices from a fresh settings observation.
     Prepared {
         remediation: String,
@@ -1358,6 +1362,11 @@ pub(crate) fn ruleset_body(repository: Option<&str>) -> serde_json::Value {
 /// The credential-owning remediation session.
 ///
 /// This value belongs to the terminal run loop, never to rendering state.
+struct CapabilitySettlement {
+    changed: anyhow::Result<()>,
+    observed: anyhow::Result<(ObservedStatus, String)>,
+}
+
 pub struct Session {
     token: String,
     config: RestClientConfig,
@@ -1534,7 +1543,7 @@ impl Session {
         ))
     }
 
-    async fn scaffold(&self, request: &ScaffoldRequest) -> anyhow::Result<Report> {
+    async fn scaffold(&self, request: &ScaffoldRequest) -> anyhow::Result<(Report, Vec<String>)> {
         anyhow::ensure!(
             valid_repository_name(&request.name),
             "the repository name is not accepted by Airlock's GitHub name gate"
@@ -1587,50 +1596,38 @@ impl Session {
             repository.default_branch
         );
 
-        let before = reader
-            .custom_property_values(&request.owner, &request.name)
-            .await
-            .map_err(|error| {
-                anyhow::anyhow!("custom-property observation before declaration failed: {error}")
-            })?;
+        let mut warnings = Vec::new();
         for capability in &request.capabilities {
-            let already = before.iter().any(|item| {
-                item.property_name == capability.property
-                    && item.value.as_str() == Some(capability.value.as_str())
-            });
-            if !already {
-                self.writer
-                    .set_custom_property(
-                        &request.owner,
-                        &request.name,
-                        &capability.property,
-                        &capability.value,
-                    )
-                    .await?;
+            let settlement = self
+                .settle_capability_decision(
+                    &request.owner,
+                    &request.name,
+                    &capability.property,
+                    &capability.value,
+                )
+                .await;
+            if let Err(error) = settlement.changed {
+                warnings.push(format!(
+                    "capability `{}` change request failed: {error:#}",
+                    capability.name
+                ));
+            }
+            match settlement.observed {
+                Ok((ObservedStatus::Pass, _)) => {}
+                Ok((_, detail)) => warnings.push(detail),
+                Err(error) => warnings.push(format!(
+                    "capability `{}` post-change property re-observation failed: {error:#}",
+                    capability.name
+                )),
             }
         }
-        let after = reader
-            .custom_property_values(&request.owner, &request.name)
-            .await
-            .map_err(|error| {
-                anyhow::anyhow!("custom-property re-observation after declaration failed: {error}")
-            })?;
-        for capability in &request.capabilities {
-            anyhow::ensure!(
-                after.iter().any(|item| {
-                    item.property_name == capability.property
-                        && item.value.as_str() == Some(capability.value.as_str())
-                }),
-                "custom-property re-observation did not establish `{}` = `{}`",
-                capability.property,
-                capability.value
-            );
-        }
-        self.observe(&Target {
-            owner: request.owner.clone(),
-            repo: request.name.clone(),
-        })
-        .await
+        let report = self
+            .observe(&Target {
+                owner: request.owner.clone(),
+                repo: request.name.clone(),
+            })
+            .await?;
+        Ok((report, warnings))
     }
 
     async fn prepare(&self, target: &Target, remediation: &str) -> anyhow::Result<PreparedInput> {
@@ -1703,6 +1700,7 @@ impl Session {
         }
 
         if action.is_none() {
+            let mut capability_settlement = None;
             let before = match self
                 .observe(&Target {
                     owner: owner.to_owned(),
@@ -1741,9 +1739,24 @@ impl Session {
                     "the fresh observation does not report a gap; no write was made",
                 ));
             } else {
-                let changed = self
-                    .change_with_input(owner, repo, remediation, argument.unwrap_or_default())
-                    .await;
+                let changed = if capability_decision {
+                    let mut parts = argument.unwrap_or_default().lines();
+                    let property = parts.next().unwrap_or_default();
+                    let expected = parts.next().unwrap_or_default();
+                    let settlement = self
+                        .settle_capability_decision(owner, repo, property, expected)
+                        .await;
+                    let changed = settlement
+                        .changed
+                        .as_ref()
+                        .map(|()| ())
+                        .map_err(|error| anyhow::anyhow!("{error:#}"));
+                    capability_settlement = Some(settlement);
+                    changed
+                } else {
+                    self.change_with_input(owner, repo, remediation, argument.unwrap_or_default())
+                        .await
+                };
                 let accepted = changed.is_ok();
                 if accepted {
                     if let Some(undo) = input_undo(owner, repo, remediation, argument) {
@@ -1764,28 +1777,26 @@ impl Session {
                 let mut parts = argument.unwrap_or_default().lines();
                 let property = parts.next().unwrap_or_default();
                 let expected = parts.next().unwrap_or_default();
-                match self.reader() {
-                    Ok(reader) => match reader.custom_property_values(owner, repo).await {
-                        Ok(values) => {
-                            let (observed, detail) =
-                                capability_reobservation(property, expected, &values);
-                            transcript.observed = observed;
-                            transcript.steps.push(step(
-                                started,
-                                transcript.observed == ObservedStatus::Pass,
-                                &detail,
-                            ));
-                        }
-                        Err(error) => transcript.steps.push(step(
+                let observation = match capability_settlement {
+                    Some(settlement) => settlement.observed,
+                    None => {
+                        self.reobserve_capability_decision(owner, repo, property, expected)
+                            .await
+                    }
+                };
+                match observation {
+                    Ok((observed, detail)) => {
+                        transcript.observed = observed;
+                        transcript.steps.push(step(
                             started,
-                            false,
-                            &format!("post-change property re-observation failed: {error}"),
-                        )),
-                    },
+                            transcript.observed == ObservedStatus::Pass,
+                            &detail,
+                        ));
+                    }
                     Err(error) => transcript.steps.push(step(
                         started,
                         false,
-                        &format!("post-change re-observation could not start: {error:#}"),
+                        &format!("post-change property re-observation failed: {error:#}"),
                     )),
                 }
                 return transcript;
@@ -2320,12 +2331,54 @@ impl Session {
                     !property.is_empty() && !value.is_empty() && parts.next().is_none(),
                     "the capability declaration must contain exactly one property and value"
                 );
-                self.writer
-                    .set_custom_property(owner, repo, property, value)
+                self.set_capability_property(owner, repo, property, value)
                     .await
             }
             _ => anyhow::bail!("the remediation has no executable input contract"),
         }
+    }
+
+    async fn set_capability_property(
+        &self,
+        owner: &str,
+        repo: &str,
+        property: &str,
+        value: &str,
+    ) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            !property.is_empty() && !value.is_empty(),
+            "the capability declaration must contain one property and value"
+        );
+        self.writer
+            .set_custom_property(owner, repo, property, value)
+            .await
+    }
+
+    async fn reobserve_capability_decision(
+        &self,
+        owner: &str,
+        repo: &str,
+        property: &str,
+        expected: &str,
+    ) -> anyhow::Result<(ObservedStatus, String)> {
+        let values = self.reader()?.custom_property_values(owner, repo).await?;
+        Ok(capability_reobservation(property, expected, &values))
+    }
+
+    async fn settle_capability_decision(
+        &self,
+        owner: &str,
+        repo: &str,
+        property: &str,
+        expected: &str,
+    ) -> CapabilitySettlement {
+        let changed = self
+            .set_capability_property(owner, repo, property, expected)
+            .await;
+        let observed = self
+            .reobserve_capability_decision(owner, repo, property, expected)
+            .await;
+        CapabilitySettlement { changed, observed }
     }
 
     fn remember_undo(&mut self, undo: UndoOperation) -> UndoHandle {
@@ -2475,7 +2528,7 @@ impl Session {
     }
 }
 
-fn valid_repository_name(name: &str) -> bool {
+pub(crate) fn valid_repository_name(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= 100
         && name != "."
@@ -2728,9 +2781,13 @@ fn run(mut session: Session, requests: Receiver<Request>, responses: &Sender<Res
                     repo: request.name.clone(),
                 };
                 match runtime.block_on(session.scaffold(&request)) {
-                    Ok(report) => Response::Scaffolded {
+                    Ok((report, warnings)) => Response::Scaffolded {
                         target,
                         report: Box::new(report),
+                        warnings: warnings
+                            .into_iter()
+                            .map(|warning| text::sanitize(&warning, CAUSE_LIMIT))
+                            .collect(),
                     },
                     Err(error) => Response::Failed(text::sanitize(
                         &format!("the repository scaffold failed: {error:#}"),

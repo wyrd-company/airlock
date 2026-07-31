@@ -585,6 +585,7 @@ impl App {
         &mut self,
         target: crate::admin::remediation::Target,
         report: &airlock_core::findings::Report,
+        warnings: Vec<String>,
     ) {
         if self.reauthorizing_now() {
             return;
@@ -596,6 +597,9 @@ impl App {
         self.requested = Some(observe.clone());
         self.observed(&observe, "this session", report.outcome.code());
         self.observed_run(report, &Default::default());
+        if !warnings.is_empty() {
+            self.note = Some(warnings.join(" · "));
+        }
     }
 
     /// Take a run onto the findings screen.

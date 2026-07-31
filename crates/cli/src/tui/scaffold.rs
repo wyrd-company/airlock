@@ -3,7 +3,9 @@
 use crossterm::event::KeyCode;
 use ratatui::text::{Line, Span};
 
-use crate::admin::remediation::{ScaffoldCapability, ScaffoldPlan, ScaffoldRequest};
+use crate::admin::remediation::{
+    valid_repository_name, ScaffoldCapability, ScaffoldPlan, ScaffoldRequest,
+};
 
 use super::chrome::wrap;
 use super::theme::{Role, Styles};
@@ -95,7 +97,15 @@ impl State {
                 KeyCode::Backspace => {
                     self.name.pop();
                 }
-                KeyCode::Enter | KeyCode::Down => self.field = Field::Visibility,
+                KeyCode::Enter | KeyCode::Down => {
+                    if valid_repository_name(&self.name) {
+                        self.field = Field::Visibility;
+                    } else {
+                        self.error = Some(
+                            "enter a GitHub repository name before choosing settings".to_owned(),
+                        );
+                    }
+                }
                 _ => {}
             }
             return None;
@@ -137,8 +147,9 @@ impl State {
                 }
             }
             KeyCode::Enter if self.field == Field::Confirm => {
-                if self.name.is_empty() {
-                    self.error = Some("enter a repository name before confirming".to_owned());
+                if !valid_repository_name(&self.name) {
+                    self.error =
+                        Some("enter a GitHub repository name before confirming".to_owned());
                     self.field = Field::Name;
                     return None;
                 }
@@ -297,7 +308,22 @@ mod tests {
         state.key(KeyCode::Enter);
         state.key(KeyCode::Down);
         assert!(state.key(KeyCode::Enter).is_none());
-        assert!(state.status().contains("enter a repository name"));
+        assert!(state.status().contains("enter a GitHub repository name"));
+    }
+
+    #[test]
+    fn an_invalid_name_stays_in_the_focused_text_input() {
+        let mut state = State::default();
+        state.begin("generic-account".to_owned(), true);
+        state.prepared(plan());
+        for character in "not accepted".chars() {
+            state.key(KeyCode::Char(character));
+        }
+
+        state.key(KeyCode::Enter);
+
+        assert!(state.captures_text());
+        assert!(state.status().contains("enter a GitHub repository name"));
     }
 
     #[test]
