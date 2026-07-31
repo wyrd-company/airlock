@@ -677,6 +677,20 @@ impl App {
         Flow::Continue
     }
 
+    /// Insert a bracketed paste into the focused non-secret text surface.
+    ///
+    /// Paste is text, never a sequence of commands: control characters are
+    /// discarded and printable characters go straight to the focused field.
+    pub fn handle_paste(&mut self, value: &str) {
+        for character in value.chars().filter(|character| !character.is_control()) {
+            if self.screen == Screen::Remediation && self.remediation.is_input() {
+                let _ = self.remediation.input_key(KeyCode::Char(character));
+            } else if self.screen == Screen::Repositories && self.filter.is_open() {
+                let _ = self.filtering(KeyCode::Char(character));
+            }
+        }
+    }
+
     /// Keys the work queue takes for itself.
     ///
     /// `None` hands the key back to the screen-independent reading, which is
@@ -2338,6 +2352,19 @@ mod tests {
         assert_eq!(app.visible_rows()[0].repository.name, "sprocket");
         press(&mut app, KeyCode::Backspace);
         assert_eq!(app.filter.text(), "spr");
+    }
+
+    #[test]
+    fn bracketed_paste_is_text_in_an_open_filter() {
+        let mut app = app()
+            .with_catalogue(catalogue())
+            .at(Screen::Repositories, Theme::Dark);
+        press(&mut app, KeyCode::Char('/'));
+
+        app.handle_paste("spro\nt");
+
+        assert_eq!(app.filter.text(), "sprot");
+        assert_eq!(app.theme(), Theme::Dark, "pasted t is text, not a command");
     }
 
     #[test]

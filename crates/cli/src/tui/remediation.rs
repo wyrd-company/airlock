@@ -98,13 +98,16 @@ impl Item {
                 selected_secret,
                 secret_draft,
                 ..
-            } => secrets.get(*selected_secret).map(|secret| {
-                format!(
-                    "{}\n{}\n{secret}\n{secret_draft}",
-                    variables.get(*selected_variable).map_or("", String::as_str),
-                    variable_draft
-                )
-            }),
+            } => Some(format!(
+                "{}\n{}\n{}\n{secret_draft}",
+                variables.get(*selected_variable).map_or("", String::as_str),
+                variable_draft,
+                if secret_draft.is_empty() {
+                    ""
+                } else {
+                    secrets.get(*selected_secret).map_or("", String::as_str)
+                }
+            )),
         }
     }
 }
@@ -349,10 +352,15 @@ impl State {
                 } else {
                     validate_variable_name(variable_draft)
                 },
-                validate_secret_name(secret_draft),
+                if secret_draft.is_empty() {
+                    Ok(())
+                } else if secrets.is_empty() {
+                    Err("no freshly observed secret is available to rename".to_owned())
+                } else {
+                    validate_secret_name(secret_draft)
+                },
             ) {
-                (Ok(()), Ok(())) if !secrets.is_empty() => true,
-                (Ok(()), Ok(())) => false,
+                (Ok(()), Ok(())) => !variables.is_empty() || !secret_draft.is_empty(),
                 (Err(cause), _) | (_, Err(cause)) => {
                     *error = Some(cause);
                     false
@@ -365,7 +373,13 @@ impl State {
             } => !destinations.is_empty() && typed_name == &request.repo,
         };
         if valid {
-            let needs_secret = matches!(item.input, Input::CredentialRename { .. });
+            let needs_secret = matches!(
+                item.input,
+                Input::CredentialRename {
+                    ref secret_draft,
+                    ..
+                } if !secret_draft.is_empty()
+            );
             let request = request.clone();
             *self = if needs_secret {
                 Self::SecretEntry { request }
@@ -594,7 +608,7 @@ pub fn body(styles: Styles, width: usize, state: &State) -> Vec<Line<'static>> {
                     if *editing_secret_name { ">" } else { " " }
                 )));
                 lines.push(Line::from(
-                    "tab switches the active name field; enter continues to value entry",
+                    "tab switches the active name field; leave secret name blank to skip it",
                 ));
                 if let Some(error) = error {
                     lines.push(Line::from(format!("invalid         {error}")));
@@ -717,14 +731,23 @@ fn confirmed_input(item: &Item, repository: &str, width: usize) -> Vec<String> {
             selected_secret,
             secret_draft,
             ..
-        } => vec![
-            format!(
+        } => {
+            let mut lines = vec![format!(
                 "variable       {} → {variable_draft}",
                 variables.get(*selected_variable).map_or("", String::as_str)
-            ),
-            format!("secret         {} → {secret_draft}", secrets.get(*selected_secret).map_or("", String::as_str)),
-            "secret value    supplied by the operator just before this confirmation; never displayed and not verified".to_owned(),
-        ],
+            )];
+            if !secret_draft.is_empty() {
+                lines.push(format!(
+                    "secret         {} → {secret_draft}",
+                    secrets.get(*selected_secret).map_or("", String::as_str)
+                ));
+                lines.push(
+                    "secret value    supplied by the operator just before this confirmation; never displayed and not verified"
+                        .to_owned(),
+                );
+            }
+            lines
+        }
         Input::Transfer {
             destinations,
             selected,
@@ -999,6 +1022,42 @@ mod tests {
         for forbidden in [entered_value, "•••••••••••••••••"] {
             assert!(!rendered.contains(forbidden), "{rendered}");
         }
+    }
+
+    #[test]
+    fn a_variable_only_credential_rename_skips_secret_entry() {
+        let item = Item {
+            rule: "REPO-SAMPLE-01".to_owned(),
+            remediation: "rename-app-credentials".to_owned(),
+            change: "sample".to_owned(),
+            reversible: true,
+            input: Input::CredentialRename {
+                variables: vec!["LEGACY_VARIABLE".to_owned()],
+                selected_variable: 0,
+                variable_draft: "CURRENT_VARIABLE".to_owned(),
+                secrets: vec!["ALREADY_CURRENT_SECRET".to_owned()],
+                selected_secret: 0,
+                secret_draft: String::new(),
+                editing_secret_name: false,
+                error: None,
+            },
+        };
+        let mut state = State::Input {
+            request: Request {
+                owner: "generic-owner".to_owned(),
+                repo: "sample-repository".to_owned(),
+                items: vec![item],
+            },
+        };
+
+        assert!(state.input_key(crossterm::event::KeyCode::Enter));
+        let State::Confirm { request } = state else {
+            panic!("a blank secret name must not request a secret value");
+        };
+        assert_eq!(
+            request.items[0].argument().as_deref(),
+            Some("LEGACY_VARIABLE\nCURRENT_VARIABLE\n\n")
+        );
     }
 
     #[test]

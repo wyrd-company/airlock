@@ -479,6 +479,7 @@ impl WriteClient {
             !old.is_empty() && !new.is_empty(),
             "variable rename needs old and new names"
         );
+        anyhow::ensure!(old != new, "variable rename needs two different names");
         let response = self
             .http
             .get(format!(
@@ -627,6 +628,7 @@ impl WriteClient {
             !old.is_empty() && !new.is_empty(),
             "secret rename needs old and new names"
         );
+        anyhow::ensure!(old != new, "secret rename needs two different names");
         let key = self
             .get_json(
                 &format!(
@@ -1300,9 +1302,12 @@ impl Session {
                     .rename_variable(owner, repo, &format!("{old_variable}\n{new_variable}"))
                     .await?;
             }
-            self.writer
-                .rename_secret(owner, repo, old_secret, new_secret, value)
-                .await
+            if !old_secret.is_empty() || !new_secret.is_empty() {
+                self.writer
+                    .rename_secret(owner, repo, old_secret, new_secret, value)
+                    .await?;
+            }
+            Ok::<(), anyhow::Error>(())
         }
         .await;
         transcript.steps.push(step(
@@ -2662,6 +2667,34 @@ mod tests {
             .rename_variable("generic-owner", "sample-repository", "OLD_NAME\nNEW_NAME")
             .await
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn same_name_credential_renames_are_refused_before_any_write() {
+        let server = MockServer::start().await;
+        let writer = writer(&server);
+
+        let variable = writer
+            .rename_variable("generic-owner", "sample-repository", "SAME_NAME\nSAME_NAME")
+            .await
+            .unwrap_err();
+        assert!(variable.to_string().contains("two different names"));
+
+        let mut entry = SecretEntry::default();
+        entry.push('x');
+        let value = entry.take().expect("a supplied value");
+        let secret = writer
+            .rename_secret(
+                "generic-owner",
+                "sample-repository",
+                "SAME_NAME",
+                "SAME_NAME",
+                &value,
+            )
+            .await
+            .unwrap_err();
+        assert!(secret.to_string().contains("two different names"));
+        assert!(server.received_requests().await.unwrap().is_empty());
     }
 
     #[tokio::test]

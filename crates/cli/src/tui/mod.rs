@@ -123,6 +123,10 @@ fn drive(app: &mut App, session: &mut terminal::Session, authorizing: Authorizin
                     secret_entry.paste(&mut value);
                     continue;
                 }
+                Event::Paste(value) => {
+                    app.handle_paste(&value);
+                    continue;
+                }
                 Event::Key(key) if app.accepts_secret() => {
                     use crossterm::event::{KeyCode, KeyEventKind, KeyModifiers};
                     if key.kind == KeyEventKind::Release {
@@ -284,10 +288,16 @@ fn drive(app: &mut App, session: &mut terminal::Session, authorizing: Authorizin
             let work = if request.items.len() == 1 {
                 let item = request.items.into_iter().next().expect("one item");
                 let argument = item.argument();
-                if matches!(
-                    item.remediation.as_str(),
-                    "rename-app-credentials" | "rename-task-named-credentials"
-                ) {
+                let renames_secret = argument.as_deref().is_some_and(|argument| {
+                    let mut fields = argument.lines();
+                    !fields.nth(2).unwrap_or_default().is_empty()
+                });
+                if renames_secret
+                    && matches!(
+                        item.remediation.as_str(),
+                        "rename-app-credentials" | "rename-task-named-credentials"
+                    )
+                {
                     let Some(value) = supplied_secret.take() else {
                         app.operation_failed(
                             "no request was made because the supplied secret value is no longer available"
