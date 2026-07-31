@@ -378,11 +378,10 @@ impl WriteClient {
             .await
         } else {
             let existing = self
-                .get_json(&format!(
-                    "/orgs/{}/rulesets/{}",
-                    segment(owner),
-                    segment(id)
-                ))
+                .get_json(
+                    &format!("/orgs/{}/rulesets/{}", segment(owner), segment(id)),
+                    "GET /orgs/{org}/rulesets/{id}",
+                )
                 .await?;
             let body = ruleset_attach_body(existing, repo)?;
             self.send_json(
@@ -397,11 +396,10 @@ impl WriteClient {
 
     async fn tighten_ruleset(&self, owner: &str, id: &str) -> anyhow::Result<()> {
         let existing = self
-            .get_json(&format!(
-                "/orgs/{}/rulesets/{}",
-                segment(owner),
-                segment(id)
-            ))
+            .get_json(
+                &format!("/orgs/{}/rulesets/{}", segment(owner), segment(id)),
+                "GET /orgs/{org}/rulesets/{id}",
+            )
             .await?;
         self.send_json(
             reqwest::Method::PUT,
@@ -475,7 +473,10 @@ impl WriteClient {
 
     async fn rulesets(&self, owner: &str) -> anyhow::Result<Vec<String>> {
         let value = self
-            .get_json(&format!("/orgs/{}/rulesets?per_page=100", segment(owner)))
+            .get_json(
+                &format!("/orgs/{}/rulesets?per_page=100", segment(owner)),
+                "GET /orgs/{org}/rulesets",
+            )
             .await?;
         let rows = value
             .as_array()
@@ -492,11 +493,14 @@ impl WriteClient {
 
     async fn variables(&self, owner: &str, repo: &str) -> anyhow::Result<Vec<String>> {
         let value = self
-            .get_json(&format!(
-                "/repos/{}/{}/actions/variables?per_page=100",
-                segment(owner),
-                segment(repo)
-            ))
+            .get_json(
+                &format!(
+                    "/repos/{}/{}/actions/variables?per_page=100",
+                    segment(owner),
+                    segment(repo)
+                ),
+                "GET /repos/{owner}/{repo}/actions/variables",
+            )
             .await?;
         let rows = value
             .get("variables")
@@ -509,7 +513,7 @@ impl WriteClient {
             .collect())
     }
 
-    async fn get_json(&self, path: &str) -> anyhow::Result<serde_json::Value> {
+    async fn get_json(&self, path: &str, endpoint: &str) -> anyhow::Result<serde_json::Value> {
         let response = self
             .http
             .get(format!("{}{}", self.base_url, path))
@@ -518,7 +522,7 @@ impl WriteClient {
             .header("X-GitHub-Api-Version", "2022-11-28")
             .send()
             .await?;
-        let response = accepted(response, path)
+        let response = accepted(response, endpoint)
             .await
             .map_err(|error| anyhow::anyhow!("the settings observation {error}"))?;
         response.json().await.map_err(Into::into)
@@ -1542,20 +1546,27 @@ async fn accepted(
         Ok(response)
     } else {
         let status = response.status().as_u16();
-        let permission_hint = response
+        let permissions = response
             .headers()
-            .get("x-accepted-github-permissions")
-            .and_then(|value| value.to_str().ok())
-            .map(|permissions| format!(" [endpoint accepts: {permissions}]"))
-            .unwrap_or_default();
+            .get_all("x-accepted-github-permissions")
+            .iter()
+            .filter_map(|value| value.to_str().ok())
+            .map(text::drawable)
+            .collect::<Vec<_>>()
+            .join(" | ");
+        let permission_hint = if permissions.is_empty() {
+            String::new()
+        } else {
+            format!(" [endpoint accepts: {permissions}]")
+        };
         let message = response
             .json::<serde_json::Value>()
             .await
             .ok()
             .and_then(|body| body.get("message")?.as_str().map(ToOwned::to_owned))
-            .map(|message| format!(": {}", text::sanitize(&message, CAUSE_LIMIT)))
+            .map(|message| format!(": {}", text::drawable(&message)))
             .unwrap_or_default();
-        anyhow::bail!("{endpoint} returned HTTP {status}{message}{permission_hint}")
+        anyhow::bail!("{endpoint} returned HTTP {status}{permission_hint}{message}")
     }
 }
 
@@ -1717,7 +1728,7 @@ mod tests {
             .await
             .expect_err("a 403 must surface");
         let error = error.to_string();
-        assert!(error.contains("/orgs/generic-owner/rulesets?per_page=100"));
+        assert!(error.contains("GET /orgs/{org}/rulesets"));
         assert!(
             error.contains("Upgrade to GitHub Team to enable this feature."),
             "the error omitted GitHub's message: {error}"
@@ -1742,9 +1753,95 @@ mod tests {
             .await
             .expect_err("a 403 must surface")
             .to_string();
-        assert!(error.contains("/orgs/generic-owner/rulesets?per_page=100"));
+        assert!(error.contains("GET /orgs/{org}/rulesets"));
         assert!(!error.contains("endpoint accepts"));
         assert!(!error.contains("access denied"));
+    }
+
+    #[tokio::test]
+    async fn a_json_error_without_a_message_keeps_the_endpoint_and_status() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/orgs/generic-owner/rulesets"))
+            .respond_with(ResponseTemplate::new(403).set_body_json(serde_json::json!({
+                "documentation_url": "https://docs.github.com/rest"
+            })))
+            .mount(&server)
+            .await;
+
+        let error = writer(&server)
+            .rulesets("generic-owner")
+            .await
+            .expect_err("a 403 must surface")
+            .to_string();
+        assert!(error.contains("GET /orgs/{org}/rulesets returned HTTP 403"));
+        assert!(!error.contains("documentation_url"));
+    }
+
+    #[tokio::test]
+    async fn repeated_permission_headers_are_all_reported_and_made_drawable() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/orgs/generic-owner/rulesets"))
+            .respond_with(
+                ResponseTemplate::new(403)
+                    .append_header(
+                        "x-accepted-github-permissions",
+                        "organization_administration=read",
+                    )
+                    .append_header(
+                        "x-accepted-github-permissions",
+                        "organization_administration=\twrite",
+                    ),
+            )
+            .mount(&server)
+            .await;
+
+        let error = writer(&server)
+            .rulesets("generic-owner")
+            .await
+            .expect_err("a 403 must surface")
+            .to_string();
+        assert!(error.contains(
+            "[endpoint accepts: organization_administration=read | organization_administration=�write]"
+        ));
+        assert!(!error.contains('\t'));
+    }
+
+    #[tokio::test]
+    async fn a_long_github_message_cannot_hide_the_permission_hint_at_the_cause_limit() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/orgs/generic-owner/rulesets"))
+            .respond_with(
+                ResponseTemplate::new(403)
+                    .insert_header(
+                        "x-accepted-github-permissions",
+                        "organization_administration=write",
+                    )
+                    .set_body_json(serde_json::json!({
+                        "message": "This organization has an IP allow list that restricts access to protected resources. Contact an organization owner to request access before trying this operation again. Additional diagnostic context follows."
+                    })),
+            )
+            .mount(&server)
+            .await;
+
+        let error = writer(&server)
+            .rulesets("generic-owner")
+            .await
+            .expect_err("a 403 must surface");
+        let consumed = text::sanitize(
+            &format!("the repository observation failed: {error:#}"),
+            CAUSE_LIMIT,
+        );
+        assert!(
+            consumed.contains("[endpoint accepts: organization_administration=write]"),
+            "the cause gate omitted GitHub's permission hint: {consumed}"
+        );
+        assert!(
+            consumed.ends_with('…'),
+            "the fixture did not reach the gate"
+        );
     }
 
     #[tokio::test]
