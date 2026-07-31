@@ -23,9 +23,9 @@ remedy        Approve in the browser. Press r for a new code if this one has gon
                                                                                                                         
 CREDENTIAL                                                                                                              
 source        GitHub App Airlock Admin · device flow                                                                    
-grant         metadata read · actions read · administration write · contents write · environments write ·               
-              repository_custom_properties write · secrets write · variables write · workflows write ·                  
-              organization_administration write · organization_secrets write · organization_custom_properties admin     
+grant         metadata read · actions read · administration write · contents write · environments write · secrets write 
+              · variables write · organization_administration write · organization_secrets write ·                      
+              organization_custom_properties admin                                                                      
 storage       none. No credential of any kind is stored: not in a file, not in the environment, not in a child process, 
               and not after this session ends. Its value is never displayed.                                            
                                                                                                                         

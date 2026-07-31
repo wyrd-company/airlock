@@ -513,6 +513,25 @@ impl WriteClient {
             .collect())
     }
 
+    async fn set_custom_property(
+        &self,
+        organization: &str,
+        repository: &str,
+        property: &str,
+        value: &str,
+    ) -> anyhow::Result<()> {
+        self.send_json(
+            reqwest::Method::PATCH,
+            &format!("/orgs/{}/properties/values", segment(organization)),
+            &serde_json::json!({
+                "repository_names": [repository],
+                "properties": [{"property_name": property, "value": value}]
+            }),
+            "PATCH /orgs/{org}/properties/values",
+        )
+        .await
+    }
+
     async fn get_json(&self, path: &str, endpoint: &str) -> anyhow::Result<serde_json::Value> {
         let response = self
             .http
@@ -774,7 +793,18 @@ impl Session {
         let started = Instant::now();
         let action = Action::for_code(remediation);
         let proposed_change = action.map_or_else(
-            || "requires explicit operator input; airlock will not guess it".to_owned(),
+            || {
+                if remediation == "declare-capability-property" {
+                    let mut parts = argument.unwrap_or_default().lines();
+                    format!(
+                        "set organization custom property `{}` to `{}` for `{owner}/{repo}`",
+                        parts.next().unwrap_or_default(),
+                        parts.next().unwrap_or_default()
+                    )
+                } else {
+                    "requires explicit operator input; airlock will not guess it".to_owned()
+                }
+            },
             |action| action.change().to_owned(),
         );
         let mut transcript = Transcript {
@@ -820,17 +850,18 @@ impl Session {
                     return transcript;
                 }
             };
-            let before_status = before
-                .findings
-                .iter()
-                .find(|finding| finding.rule == rule)
-                .map(|finding| finding.status);
+            let before_finding = before.findings.iter().find(|finding| finding.rule == rule);
+            let before_status = before_finding.map(|finding| finding.status);
+            let capability_decision = remediation == "declare-capability-property"
+                && before_finding
+                    .and_then(|finding| finding.evidence.as_ref())
+                    .is_some_and(|evidence| evidence.code == "capability_undeclared");
             transcript.steps.push(step(
                 started,
                 before_status.is_some(),
                 "re-observed the rule immediately before acting",
             ));
-            if before_status != Some(airlock_core::findings::Status::Fail) {
+            if before_status != Some(airlock_core::findings::Status::Fail) && !capability_decision {
                 transcript.steps.push(step(
                     started,
                     before_status == Some(airlock_core::findings::Status::Pass),
@@ -854,6 +885,43 @@ impl Session {
                         |()| "github accepted the change request".to_owned(),
                     ),
                 ));
+            }
+
+            if remediation == "declare-capability-property" {
+                let mut parts = argument.unwrap_or_default().lines();
+                let property = parts.next().unwrap_or_default();
+                let expected = parts.next().unwrap_or_default();
+                match self.reader() {
+                    Ok(reader) => match reader.custom_property_values(owner, repo).await {
+                        Ok(values) => {
+                            transcript.observed =
+                                match values.iter().find(|value| value.property_name == property) {
+                                    Some(value) if value.value == expected => ObservedStatus::Pass,
+                                    Some(_) | None => ObservedStatus::Fail,
+                                };
+                            transcript.steps.push(step(
+                                started,
+                                transcript.observed == ObservedStatus::Pass,
+                                match transcript.observed {
+                                    ObservedStatus::Pass => "re-observation reports the declared property value",
+                                    ObservedStatus::Fail => "re-observation reports the property absent or different; the gap remains open",
+                                    ObservedStatus::Inconclusive => unreachable!(),
+                                },
+                            ));
+                        }
+                        Err(error) => transcript.steps.push(step(
+                            started,
+                            false,
+                            &format!("post-change property re-observation failed: {error}"),
+                        )),
+                    },
+                    Err(error) => transcript.steps.push(step(
+                        started,
+                        false,
+                        &format!("post-change re-observation could not start: {error:#}"),
+                    )),
+                }
+                return transcript;
             }
 
             let (observed_owner, observed_repo) =
@@ -1105,6 +1173,18 @@ impl Session {
             }
             "rename-app-credentials" | "rename-task-named-credentials" => {
                 self.writer.rename_variable(owner, repo, argument).await
+            }
+            "declare-capability-property" => {
+                let mut parts = argument.lines();
+                let property = parts.next().unwrap_or_default();
+                let value = parts.next().unwrap_or_default();
+                anyhow::ensure!(
+                    !property.is_empty() && !value.is_empty() && parts.next().is_none(),
+                    "the capability declaration must contain exactly one property and value"
+                );
+                self.writer
+                    .set_custom_property(owner, repo, property, value)
+                    .await
             }
             _ => anyhow::bail!("the remediation has no executable input contract"),
         }
@@ -1897,6 +1977,54 @@ mod tests {
             .transfer_repository("generic-owner", "sample-repository", "destination-owner")
             .await
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_capability_decision_targets_one_repository_through_the_org_endpoint() {
+        let server = MockServer::start().await;
+        Mock::given(method("PATCH"))
+            .and(path("/orgs/generic-owner/properties/values"))
+            .and(body_json(serde_json::json!({
+                "repository_names": ["sample-repository"],
+                "properties": [{"property_name": "release", "value": "true"}]
+            })))
+            .respond_with(ResponseTemplate::new(204))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        writer(&server)
+            .set_custom_property("generic-owner", "sample-repository", "release", "true")
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_capability_write_error_names_endpoint_message_and_permission_hint() {
+        let server = MockServer::start().await;
+        Mock::given(method("PATCH"))
+            .and(path("/orgs/generic-owner/properties/values"))
+            .respond_with(
+                ResponseTemplate::new(403)
+                    .insert_header(
+                        "x-accepted-github-permissions",
+                        "organization_custom_properties=admin",
+                    )
+                    .set_body_json(
+                        serde_json::json!({"message": "Resource not accessible by integration"}),
+                    ),
+            )
+            .mount(&server)
+            .await;
+
+        let error = writer(&server)
+            .set_custom_property("generic-owner", "sample-repository", "release", "true")
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("PATCH /orgs/{org}/properties/values"));
+        assert!(error.contains("Resource not accessible by integration"));
+        assert!(error.contains("[endpoint accepts: organization_custom_properties=admin]"));
     }
 
     #[tokio::test]

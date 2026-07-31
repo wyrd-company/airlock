@@ -400,6 +400,8 @@ pub struct Row {
     pub change: Option<String>,
     /// Whether a later operation can reverse it.
     pub reversible: Option<bool>,
+    /// The custom-property declaration offered by a decision row.
+    pub capability: Option<(String, String)>,
 }
 
 impl Row {
@@ -620,6 +622,10 @@ fn row(
 ) -> Row {
     let severity = Severity::parse(&finding.severity).unwrap_or(Severity::Observation);
     let group = group_of(finding);
+    let declaration = finding
+        .evidence
+        .as_ref()
+        .and_then(|evidence| evidence.capability.as_ref());
     Row {
         // Whole in the model and shortened only where a column requires it.
         // The row has one line and bounds these at the moment it draws them;
@@ -638,17 +644,34 @@ fn row(
         delivery: deliveries.get(&finding.rule),
         note: note_of(finding, group, gate, severity),
         detail: Detail::of(finding, effective_policy),
-        remediation: finding
-            .remediation_class
-            .code
-            .as_ref()
-            .map(|value| drawable(value)),
-        change: finding
-            .remediation_class
-            .change
-            .as_ref()
-            .map(|value| sanitize(value, REASON_LIMIT)),
-        reversible: finding.remediation_class.reversible,
+        remediation: declaration.map_or_else(
+            || {
+                finding
+                    .remediation_class
+                    .code
+                    .as_ref()
+                    .map(|value| drawable(value))
+            },
+            |_| Some("declare-capability-property".to_owned()),
+        ),
+        change: declaration.map_or_else(
+            || {
+                finding
+                    .remediation_class
+                    .change
+                    .as_ref()
+                    .map(|value| sanitize(value, REASON_LIMIT))
+            },
+            |declaration| {
+                Some(format!(
+                    "set organization custom property `{}` to `{}` for this repository",
+                    drawable(&declaration.property),
+                    drawable(&declaration.value)
+                ))
+            },
+        ),
+        reversible: declaration.map_or(finding.remediation_class.reversible, |_| Some(false)),
+        capability: declaration.map(|value| (drawable(&value.property), drawable(&value.value))),
     }
 }
 
@@ -2555,6 +2578,7 @@ mod tests {
             remediation: None,
             change: None,
             reversible: None,
+            capability: None,
         }
     }
 

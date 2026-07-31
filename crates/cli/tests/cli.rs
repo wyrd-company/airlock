@@ -1076,6 +1076,7 @@ async fn the_candidate_organisation_policy_compiles_and_resolves_its_reference_d
         .expect("the candidate topic vocabulary is committed");
 
     let audited = FakeRepo::new("wyrd-company", "example")
+        .with_custom_property("release", "false")
         .with_file("LICENSE", "Apache License 2.0")
         .with_file("README.md", "# example");
     let policy_repo =
@@ -1108,7 +1109,7 @@ async fn the_candidate_organisation_policy_compiles_and_resolves_its_reference_d
         .as_str()
         .unwrap()
         .starts_with("sha256:"));
-    // Release rules are skipped where nothing declares a release unit.
+    // Release rules are skipped where the organization declares release absent.
     assert_eq!(finding(&report, "REPO-REL-01")["status"], "skipped");
 }
 
@@ -1385,11 +1386,7 @@ async fn every_policy_reference_is_resolved_and_pinned_into_the_bundle() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_truncated_tree_cannot_skip_a_conditional_capability() {
-    // The candidate organisation policy applies its release capability only
-    // when .intentional/config.yml is present. A truncated tree never
-    // established that it is absent, so skipping every release rule would
-    // hide both the file and the checks it enables.
+async fn an_unset_property_reports_the_capability_as_undeclared() {
     let repository_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(std::path::Path::parent)
@@ -1427,16 +1424,19 @@ async fn a_truncated_tree_cannot_skip_a_conditional_capability() {
     assert_eq!(report["complete"], false);
     assert_eq!(
         report["summary"]["skipped"], 0,
-        "no rule may be skipped on a condition airlock could not evaluate"
+        "an undeclared capability may not be skipped"
     );
-    for rule in [
-        "REPO-REL-01",
-        "REPO-REL-04",
-        "REPO-REL-07",
-        "REPO-GIT-09",
-        "REPO-TASK-04",
-        "REPO-LIC-04",
-    ] {
+    for rule in ["REPO-REL-01", "REPO-REL-04", "REPO-REL-07"] {
+        let finding = finding(&report, rule);
+        assert_eq!(finding["status"], "inconclusive", "{rule}");
+        assert_eq!(
+            finding["evidence"]["code"], "capability_undeclared",
+            "{rule}"
+        );
+        assert_eq!(finding["evidence"]["capability"]["property"], "release");
+        assert_eq!(finding["evidence"]["capability"]["value"], "true");
+    }
+    for rule in ["REPO-GIT-09", "REPO-TASK-04", "REPO-LIC-04"] {
         let finding = finding(&report, rule);
         assert_eq!(finding["status"], "inconclusive", "{rule}");
         assert_eq!(finding["evidence"]["code"], "condition_undecided", "{rule}");
@@ -1444,9 +1444,7 @@ async fn a_truncated_tree_cannot_skip_a_conditional_capability() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_complete_tree_still_skips_a_capability_whose_condition_is_absent() {
-    // The other half of the contract: a condition airlock *can* evaluate and
-    // that does not hold still skips its rules conclusively.
+async fn a_property_that_declares_a_capability_absent_skips_its_rules() {
     let repository_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(std::path::Path::parent)
@@ -1456,6 +1454,7 @@ async fn a_complete_tree_still_skips_a_capability_whose_condition_is_absent() {
         .expect("the candidate topic vocabulary is committed");
 
     let audited = FakeRepo::new("wyrd-company", "example")
+        .with_custom_property("release", "false")
         .with_file("LICENSE", "Apache License 2.0")
         .with_file("README.md", "# example");
     let policy_repo =

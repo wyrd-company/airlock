@@ -678,7 +678,9 @@ impl App {
     fn working(&mut self, code: KeyCode) -> Option<Flow> {
         if matches!(code, KeyCode::Char('a' | 'A')) {
             let row_is_settings = self.focused_row().is_some_and(|row| {
-                row.group == findings::Group::Settings && row.status == Status::Fail
+                (row.group == findings::Group::Settings && row.status == Status::Fail)
+                    || (row.group == findings::Group::Decision
+                        && row.status == Status::Inconclusive)
             });
             if row_is_settings {
                 if code == KeyCode::Char('A') {
@@ -807,10 +809,13 @@ impl App {
             self.note = Some(findings::inert_apply());
             return;
         };
-        if row.group != findings::Group::Settings
-            || row.status != Status::Fail
-            || row.detail.remediation.code.is_none()
-        {
+        let actionable = (row.group == findings::Group::Settings
+            && row.status == Status::Fail
+            && row.detail.remediation.code.is_some())
+            || (row.group == findings::Group::Decision
+                && row.status == Status::Inconclusive
+                && row.remediation.as_deref() == Some("declare-capability-property"));
+        if !actionable {
             self.note = Some(findings::inert_apply());
             return;
         }
@@ -831,7 +836,18 @@ impl App {
             self.note = Some("this rule declares no settings remediation".to_owned());
             return;
         };
-        let input = self.remediation_input(&code, &target);
+        let input = if code == "declare-capability-property" {
+            let Some((property, value)) = row.capability else {
+                self.note = Some("the capability declaration was not observed".to_owned());
+                return;
+            };
+            remediation::Input::Fixed {
+                argument: format!("{property}\n{value}"),
+                display: format!("{property} = {value} · organization {}", target.owner),
+            }
+        } else {
+            self.remediation_input(&code, &target)
+        };
         if matches!(
             code.as_str(),
             "attach-org-rulesets"

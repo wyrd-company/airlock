@@ -592,13 +592,16 @@ fn custom_property_condition(
             }));
         }
     };
-    match values.iter().find(|property| property.property_name == name) {
-        None => ConditionOutcome::Undecided(Box::new(Verdict::inconclusive(
-            "capability_undeclared",
-            format!(
-                "the repository has no organization custom property `{name}`; declare `{name}` as `{expected}` when this capability holds"
-            ),
-        ))),
+    match values
+        .iter()
+        .find(|property| property.property_name == name)
+    {
+        None => ConditionOutcome::Undecided(Box::new(Verdict {
+            status: Status::Inconclusive,
+            evidence: Some(Evidence::capability_undeclared(name, expected)),
+            remediation: None,
+            error: None,
+        })),
         Some(property) if property.value == expected => ConditionOutcome::Holds,
         Some(_) => ConditionOutcome::DoesNotHold,
     }

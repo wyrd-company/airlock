@@ -14,11 +14,11 @@ remedy        Nothing yet. r and q are not live until a code exists.
 CREDENTIAL                                                                      
 source        GitHub App Airlock Admin · device flow                            
 grant         read: metadata, actions · write: administration, contents,        
-              environments, repository_custom_properties, secrets, variables,   
-              workflows, organization_administration, organization_secrets ·    
-              admin: organization_custom_properties                             
+              environments, secrets, variables, organization_administration,    
+              organization_secrets · admin: organization_custom_properties      
 storage       none. No credential of any kind is stored, anywhere, ever. Its    
               value is never displayed.                                         
+                                                                                
                                                                                 
                                                                                 
                                                                                 
@@ -39,11 +39,11 @@ ffffffffffffffggggggggggggggggggggggggggggggggggggggggggggggggggggggdddddddddddd
 hhhhhhhhhhdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 ffffffffffffffggggggggggggggggggggggggggggggggggggggdddddddddddddddddddddddddddd
 ffffffffffffffggggggggggggggggggggggggggggggggggggggggggggggggggggggggggdddddddd
-ffffffffffffffgggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggddd
 ffffffffffffffggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggdddd
-ffffffffffffffgggggggggggggggggggggggggggggggggggggddddddddddddddddddddddddddddd
+ffffffffffffffggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggdddddd
 ffffffffffffffggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggdddd
 ffffffffffffffgggggggggggggggggggggggggddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd

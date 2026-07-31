@@ -231,6 +231,14 @@ pub struct Evidence {
     pub path: Option<String>,
     /// Human-readable detail. An adjunct to the code, never the contract.
     pub detail: String,
+    /// The policy-owned capability declaration this evidence concerns.
+    pub capability: Option<CapabilityDeclaration>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct CapabilityDeclaration {
+    pub property: String,
+    pub value: String,
 }
 
 impl Evidence {
@@ -241,6 +249,7 @@ impl Evidence {
             code: code.into(),
             path: None,
             detail: detail.into(),
+            capability: None,
         }
     }
 
@@ -251,6 +260,22 @@ impl Evidence {
             code: code.into(),
             path: Some(path.into()),
             detail: detail.into(),
+            capability: None,
+        }
+    }
+
+    #[must_use]
+    pub fn capability_undeclared(property: &str, value: &str) -> Self {
+        Self {
+            code: "capability_undeclared".to_owned(),
+            path: None,
+            detail: format!(
+                "the repository has no organization custom property `{property}`; declare `{property}` as `{value}` when this capability holds"
+            ),
+            capability: Some(CapabilityDeclaration {
+                property: property.to_owned(),
+                value: value.to_owned(),
+            }),
         }
     }
 }

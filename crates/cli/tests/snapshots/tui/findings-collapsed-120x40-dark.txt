@@ -4,7 +4,7 @@ AIRLOCK 0.0.0  sign-in › organizations › repositories › findings   no cred
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 RUN INCOMPLETE  complete is false, and no verdict below it can be certified                                             
   ▢ REPO-CI-02     unimplemented registered and enabled, not yet evaluated                                              
-  ◑ REPO-REL-04    inconclusive  condition_undecided: the repository has not declared whether it publishes a package    
+  ◑ REPO-REL-04    inconclusive  capability_undeclared: the repository has not declared whether it publishes a package  
                                                                                                                         
 VERDICT  ◑ incomplete   ALIGNED 2 of 9                                                                                  
   complete    false  2 rules at a gating severity ended undecided because this run fell short                           
@@ -45,7 +45,7 @@ aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 ddddddddddddddddeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 fffffffffffffffffffffffffffffffffgggggggggggggggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhgggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggeeee
+hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhgggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 iiiiiiiiijjjjjjjjjjjjkkklllllllllllllleeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeeee
