@@ -54,6 +54,30 @@ fn quota_headers(template: ResponseTemplate) -> ResponseTemplate {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
+async fn repository_custom_property_values_are_read_without_elision() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/repos/owner/name/properties/values"))
+        .respond_with(
+            quota_headers(ResponseTemplate::new(200)).set_body_json(json!([
+                {"property_name": "release", "value": "true"},
+                {"property_name": "product", "value": "sample-product"}
+            ])),
+        )
+        .mount(&server)
+        .await;
+
+    let values = client(&server)
+        .custom_property_values("owner", "name")
+        .await
+        .unwrap();
+    assert_eq!(values.len(), 2);
+    assert_eq!(values[0].property_name, "release");
+    assert_eq!(values[0].value, "true");
+    assert_eq!(values[1].property_name, "product");
+}
+
+#[tokio::test]
 async fn an_idempotent_get_retries_one_transport_failure() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();

@@ -843,6 +843,35 @@ impl GitHub for RestClient {
             .collect()
     }
 
+    async fn custom_property_values(
+        &self,
+        owner: &str,
+        repo: &str,
+    ) -> ApiResult<Vec<crate::github::CustomPropertyValue>> {
+        let endpoint = format!("GET /repos/{owner}/{repo}/properties/values");
+        let path = format!(
+            "/repos/{}/{}/properties/values",
+            encode_segment(owner),
+            encode_segment(repo)
+        );
+        let (value, _) = self.get_json(&endpoint, &path).await?;
+        let rows = value
+            .as_array()
+            .ok_or_else(|| malformed(&endpoint, "custom-property response is not an array"))?;
+        rows.iter()
+            .map(|row| {
+                let property_name = require_string(&endpoint, row, "property_name")?;
+                let property_value = row.get("value").and_then(Value::as_str).ok_or_else(|| {
+                    malformed(&endpoint, "a custom-property value is not a string")
+                })?;
+                Ok(crate::github::CustomPropertyValue {
+                    property_name,
+                    value: property_value.to_owned(),
+                })
+            })
+            .collect()
+    }
+
     async fn resolve_commit(&self, owner: &str, repo: &str, reference: &str) -> ApiResult<String> {
         let endpoint = format!("GET /repos/{owner}/{repo}/commits/{reference}");
         let path = format!(

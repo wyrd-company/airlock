@@ -454,6 +454,13 @@ pub struct PullRequest {
     pub draft: bool,
 }
 
+/// One organization-owned custom property value assigned to a repository.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CustomPropertyValue {
+    pub property_name: String,
+    pub value: String,
+}
+
 /// The read-only GitHub surface airlock needs.
 ///
 /// Every method is a read. There is deliberately no write anywhere in the
@@ -467,6 +474,21 @@ pub trait GitHub {
 
     /// Fetch the declared repository topics.
     async fn topics(&self, owner: &str, repo: &str) -> ApiResult<Vec<String>>;
+
+    /// Fetch organization custom property values assigned to the repository.
+    async fn custom_property_values(
+        &self,
+        owner: &str,
+        repo: &str,
+    ) -> ApiResult<Vec<CustomPropertyValue>> {
+        Err(ApiError::local(
+            ErrorCause::Transport,
+            "GET /repos/{owner}/{repo}/properties/values",
+            format!(
+                "this GitHub client does not implement custom-property observation for {owner}/{repo}"
+            ),
+        ))
+    }
 
     /// Resolve a branch name, tag, or sha to a commit sha.
     async fn resolve_commit(&self, owner: &str, repo: &str, reference: &str) -> ApiResult<String>;

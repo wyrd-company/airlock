@@ -182,22 +182,48 @@ fn read_apply(
                 ))
             })?,
             Yaml::Map(_) => {
-                let when = value.get("when").and_then(Yaml::as_str).ok_or_else(|| {
-                    Error::Policy(format!(
-                        "capability `{capability}` should be applied `always` or under a `when:` \
-                         condition"
-                    ))
-                })?;
                 reject_unknown_keys(value, &["when"], |key| {
                     Error::Policy(format!(
                         "unknown key `{key}` in the `apply` entry for `{capability}`"
                     ))
                 })?;
-                Condition::parse(when).ok_or_else(|| {
+                let when = value.get("when").ok_or_else(|| {
                     Error::Policy(format!(
-                        "unknown condition `{when}` on capability `{capability}`"
+                        "capability `{capability}` should be applied `always` or under a `when:` condition"
                     ))
-                })?
+                })?;
+                match when {
+                    Yaml::String(name) => Condition::parse(name).ok_or_else(|| {
+                        Error::Policy(format!(
+                            "unknown condition `{name}` on capability `{capability}`"
+                        ))
+                    })?,
+                    Yaml::Map(_) => {
+                        reject_unknown_keys(when, &["property", "value"], |key| {
+                            Error::Policy(format!(
+                                "unknown key `{key}` in the custom-property condition for `{capability}`"
+                            ))
+                        })?;
+                        let name = when.get("property").and_then(Yaml::as_str).ok_or_else(|| {
+                            Error::Policy(format!(
+                                "the custom-property condition for `{capability}` must name a string `property`"
+                            ))
+                        })?;
+                        let expected = when.get("value").and_then(Yaml::as_str).ok_or_else(|| {
+                            Error::Policy(format!(
+                                "the custom-property condition for `{capability}` must name a string `value`"
+                            ))
+                        })?;
+                        Condition::CustomProperty {
+                            name: name.to_owned(),
+                            value: expected.to_owned(),
+                        }
+                    }
+                    other => return Err(Error::Policy(format!(
+                        "the `when` condition for `{capability}` should be a name or custom-property mapping, found {}",
+                        other.kind()
+                    ))),
+                }
             }
             other => {
                 return Err(Error::Policy(format!(
@@ -224,7 +250,7 @@ fn expand_capabilities(
     for (capability, sections) in capabilities {
         let condition = conditions
             .get(capability)
-            .copied()
+            .cloned()
             .unwrap_or(Condition::Always);
         for section in sections {
             for def in registry::in_section(*section) {
@@ -233,7 +259,7 @@ fn expand_capabilities(
                     severity: def.severity,
                     params: BTreeMap::new(),
                     provenance: format!("capability:{capability}/{section}"),
-                    condition,
+                    condition: condition.clone(),
                 });
             }
         }

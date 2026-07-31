@@ -73,12 +73,14 @@ pub enum PolicySource {
 /// A named condition a capability may be applied under.
 ///
 /// Conditions are built into airlock. A policy names one; it cannot define one.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Condition {
     /// The capability always applies.
     Always,
     /// The capability applies when the repository declares release units.
     IntentionalConfigPresent,
+    /// The capability applies when an organization custom property has a value.
+    CustomProperty { name: String, value: String },
 }
 
 impl Condition {
@@ -94,10 +96,20 @@ impl Condition {
 
     /// The stable machine-readable name.
     #[must_use]
-    pub fn code(self) -> &'static str {
+    pub fn code(&self) -> &'static str {
         match self {
             Condition::Always => "always",
             Condition::IntentionalConfigPresent => "intentional-config-present",
+            Condition::CustomProperty { .. } => "custom-property",
+        }
+    }
+
+    pub(crate) fn digest_identity(&self) -> String {
+        match self {
+            Condition::CustomProperty { name, value } => {
+                format!("custom-property\u{1f}{name}\u{1f}{value}")
+            }
+            other => other.code().to_owned(),
         }
     }
 }
@@ -537,6 +549,33 @@ capabilities:
             policy.rule("REPO-REL-01").unwrap().condition,
             Condition::IntentionalConfigPresent
         );
+    }
+
+    #[test]
+    fn a_custom_property_condition_carries_its_policy_owned_binding() {
+        let policy = compile_text(
+            "version: 1\nname: test\ngate: blocking\ncapabilities:\n  registry: [release]\n\
+             apply:\n  registry:\n    when:\n      property: release\n      value: \"true\"\n",
+        )
+        .unwrap();
+        assert_eq!(
+            policy.rule("REPO-REL-01").unwrap().condition,
+            Condition::CustomProperty {
+                name: "release".to_owned(),
+                value: "true".to_owned(),
+            }
+        );
+    }
+
+    #[test]
+    fn a_custom_property_binding_moves_the_policy_digest() {
+        let policy = |value: &str| {
+            compile_text(&format!(
+                "version: 1\nname: test\ngate: blocking\ncapabilities:\n  registry: [release]\napply:\n  registry:\n    when:\n      property: release\n      value: \"{value}\"\n"
+            ))
+            .unwrap()
+        };
+        assert_ne!(policy("true").bundle_digest, policy("false").bundle_digest);
     }
 
     #[test]

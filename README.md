@@ -471,7 +471,9 @@ capabilities:
 apply:
   base: always
   registry:
-    when: intentional-config-present
+    when:
+      property: release
+      value: "true"
 
 checks:
   REPO-META-06:
@@ -487,6 +489,13 @@ suppressions:
 reference-data:
   topics: wyrd-company/.github:airlock/topics.yml
 ```
+
+The custom-property condition binds the capability to organization-owned policy
+data. A matching value enables its rules, a different value skips them, and an
+unset value is reported as `capability_undeclared` for an operator decision.
+An unreadable value is `condition_undecided`, never a decision or a skip. The
+reference vocabulary defines `release`, `product`, `component`, and `website`;
+the policy selects which property and value govern each capability.
 
 Anything airlock does not recognise — an unknown key, section, rule id,
 parameter, severity, or condition — is an error, never a silently narrower
@@ -684,10 +693,8 @@ Airlock Admin's registered grant is:
 | `administration` | write |
 | `contents` | write |
 | `environments` | write |
-| `repository_custom_properties` | write |
 | `secrets` | write |
 | `variables` | write |
-| `workflows` | write |
 | `organization_administration` | write |
 | `organization_secrets` | write |
 | `organization_custom_properties` | admin |

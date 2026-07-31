@@ -159,6 +159,7 @@ pub async fn run<G: GitHub>(
     let branch = snapshot.repository.default_branch.clone();
     let commit = snapshot.commit.clone();
     let platform = PlatformData {
+        custom_property_values: client.custom_property_values(owner, repo).await,
         tags: client.tags(owner, repo).await,
         history: client
             .history(owner, repo, &commit, options.limits.max_history_commits)
@@ -216,6 +217,7 @@ async fn run_mixed<G: GitHub>(
     let workflows = parse_workflows(&snapshot, &workflow_paths.paths, options.limits);
 
     let platform = PlatformData {
+        custom_property_values: client.custom_property_values(owner, repo).await,
         tags: client.tags(owner, repo).await,
         history: client
             .history(
@@ -310,6 +312,7 @@ pub fn run_local(
     let workflows = parse_workflows(&snapshot, &workflow_paths.paths, options.limits);
 
     let platform = PlatformData {
+        custom_property_values: Err(not_observed_error("custom property values")),
         tags: Err(not_observed_error("tags")),
         history: Err(not_observed_error("history")),
         rulesets: Err(not_observed_error("rulesets")),
@@ -417,6 +420,7 @@ fn not_observed_error(subject: &str) -> ApiError {
 /// The platform-owned inputs of one run, however they were (or were not)
 /// gathered.
 struct PlatformData {
+    custom_property_values: std::result::Result<Vec<crate::github::CustomPropertyValue>, ApiError>,
     tags: std::result::Result<crate::github::Paged<crate::github::TagRef>, ApiError>,
     history: std::result::Result<crate::github::Paged<crate::github::CommitSummary>, ApiError>,
     rulesets: std::result::Result<crate::github::Paged<crate::github::Ruleset>, ApiError>,
@@ -444,6 +448,7 @@ fn complete_run(
         limits: options.limits,
         workflows,
         workflows_truncated,
+        custom_property_values: platform.custom_property_values,
         tags: platform.tags,
         history: platform.history,
         rulesets: platform.rulesets,

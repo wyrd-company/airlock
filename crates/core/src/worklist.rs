@@ -223,7 +223,7 @@ impl AgentWorkList {
                     // would invite a retry that cannot work.
                     Undecided::Structural => admin_only.push(item),
                     Undecided::Circumstantial => {
-                        if item.evidence_code.as_deref() == Some("condition_undecided") {
+                        if item.evidence_code.as_deref() == Some("capability_undeclared") {
                             decisions.push(item);
                         } else {
                             unsettled.push(item);
@@ -592,7 +592,7 @@ mod tests {
             Some("working-tree"),
         );
         decision.evidence = Some(Evidence::new(
-            "condition_undecided",
+            "capability_undeclared",
             "the capability could not be selected",
         ));
         let list = AgentWorkList::from_report(&report(vec![

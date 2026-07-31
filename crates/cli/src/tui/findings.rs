@@ -555,7 +555,7 @@ fn group_of(finding: &Finding) -> Group {
     match finding.status {
         Status::Suppressed => Group::Authorized,
         Status::AdminOnly => Group::AdminOnly,
-        Status::Inconclusive if evidence == Some("condition_undecided") => Group::Decision,
+        Status::Inconclusive if evidence == Some("capability_undeclared") => Group::Decision,
         Status::Unimplemented | Status::Inconclusive | Status::Error => Group::Unanswered,
         Status::Manual => Group::Judgment,
         Status::Pass | Status::Skipped => Group::Aligned,
@@ -1591,10 +1591,10 @@ pub mod fixture {
 
     /// A rule the repository has not declared enough about to evaluate.
     #[must_use]
-    pub fn condition_undecided() -> Finding {
+    pub fn capability_undeclared() -> Finding {
         let mut finding = finding("REPO-REL-04", Severity::Required, Status::Inconclusive);
         finding.evidence = Some(Evidence::new(
-            "condition_undecided",
+            "capability_undeclared",
             "the repository has not declared whether it publishes a package",
         ));
         finding
@@ -1638,7 +1638,7 @@ pub mod fixture {
             vec![
                 settings_failure(),
                 file_failure(),
-                condition_undecided(),
+                capability_undeclared(),
                 finding("REPO-README-04", Severity::Required, Status::Manual),
                 finding("REPO-CI-02", Severity::Blocking, Status::Unimplemented),
                 finding("REPO-GIT-04", Severity::Required, Status::AdminOnly),
@@ -1799,7 +1799,7 @@ pub mod fixture {
 #[cfg(test)]
 mod tests {
     use super::fixture::{
-        condition_undecided, file_failure, finding, report, settings_failure, suppressed,
+        capability_undeclared, file_failure, finding, report, settings_failure, suppressed,
     };
     use super::*;
     use crate::tui::chrome::{FLOOR_HEIGHT, FLOOR_WIDTH, REFERENCE_HEIGHT, REFERENCE_WIDTH};
@@ -1841,7 +1841,7 @@ mod tests {
                 finding("REPO-GIT-04", Severity::Required, Status::AdminOnly),
                 Group::AdminOnly,
             ),
-            (condition_undecided(), Group::Decision),
+            (capability_undeclared(), Group::Decision),
             (
                 finding("REPO-CI-02", Severity::Blocking, Status::Unimplemented),
                 Group::Unanswered,
@@ -1871,8 +1871,8 @@ mod tests {
 
     #[test]
     fn an_inconclusive_finding_is_a_decision_only_when_the_evidence_says_so() {
-        assert_eq!(group_of(&condition_undecided()), Group::Decision);
-        let mut other = condition_undecided();
+        assert_eq!(group_of(&capability_undeclared()), Group::Decision);
+        let mut other = capability_undeclared();
         other.evidence = Some(Evidence::new("tree_truncated", "the tree was truncated"));
         assert_eq!(group_of(&other), Group::Unanswered);
     }
