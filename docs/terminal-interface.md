@@ -468,9 +468,11 @@ it would take.
 and a gate note stating whether this finding gates the run and why. Then the
 rule's statement, followed by:
 
-- **Evidence.** `evidence.code`, `evidence.path`, and `evidence.detail`. A rule
-  that could not be evaluated shows evidence as explicitly absent, with the
-  reason, rather than as blank.
+- **Evidence.** `evidence.code`, `evidence.path`, and `evidence.detail`.
+  `evidence.capability` is explicitly `null` unless the evidence carries an
+  undeclared capability's property and holding value. A rule that could not be
+  evaluated shows evidence as explicitly absent, with the reason, rather than
+  as blank.
 - **Error**, when the status is `error`. `error.cause`, `error.status`,
   `error.endpoint`, `error.request_id`, `error.message`,
   `accepted_permissions`, and `documentation_url`. The two 403s are separated
