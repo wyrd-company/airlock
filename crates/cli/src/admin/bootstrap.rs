@@ -525,9 +525,16 @@ fn ceremony_steps(observation: &Observation) -> Vec<(Step, StepState)> {
                 .to_owned(),
         }
     } else if published && held {
-        StepState::Live {
-            waiting_on: format!(
-                "configure the trusted publisher for `{}` on {}. {}",
+        // Never live, however much work this step is. A step airlock cannot
+        // observe is not one it may place the operator at: doing so would make
+        // an unobservable step stand in front of the observable one behind it,
+        // which is the blocking an unobservable step is not allowed to do. The
+        // work is named here and the live step below carries the order.
+        StepState::Unobservable {
+            reason: format!(
+                "configure the trusted publisher for `{}` on {}, before revoking. \
+                 Whether you have is not a fact airlock can read, so it neither \
+                 claims nor denies it: {}",
                 observation.unit.package,
                 observation.unit.registry.label(),
                 observation.unit.registry.configuration_reading()
@@ -542,10 +549,17 @@ fn ceremony_steps(observation: &Observation) -> Vec<(Step, StepState)> {
                 observation.unit.registry.configuration_reading()
             ),
         }
+    } else if let Some(reason) = &undecided {
+        StepState::Unobservable {
+            reason: format!(
+                "the step before this one was not established, so this one cannot \
+                 be either: {reason}"
+            ),
+        }
     } else {
         StepState::Blocked {
-            by: "step 3 — a publisher cannot be attached to a package that does not \
-                 exist"
+            by: "step 3 — a publisher cannot be attached to a package that was \
+                 observed not to exist"
                 .to_owned(),
         }
     };
@@ -558,17 +572,33 @@ fn ceremony_steps(observation: &Observation) -> Vec<(Step, StepState)> {
             ),
         }
     } else if published {
+        // Decided by its own observed facts — the package is there and the
+        // credential still is — rather than by step 4, whose state is a
+        // question airlock cannot answer. Step 4's own work is named in the
+        // instruction, because revoking before a publisher is configured
+        // leaves nothing able to publish.
         StepState::Live {
+            // The imperative leads, because the status line carries the first
+            // sentence of this note and a reader at the floor must get the
+            // action rather than its qualification.
             waiting_on: format!(
-                "revoke the token on {} and delete `{secret}`. The bootstrap is not \
-                 conformant while it exists.",
+                "revoke the token on {} and delete `{secret}`, once the trusted \
+                 publisher is configured — airlock cannot see whether it is. The \
+                 bootstrap is not conformant while the credential exists.",
                 observation.unit.registry.label()
+            ),
+        }
+    } else if let Some(reason) = &undecided {
+        StepState::Unobservable {
+            reason: format!(
+                "whether the package is published was not established, so whether \
+                 anything here is outstanding cannot be either: {reason}"
             ),
         }
     } else {
         StepState::Blocked {
-            by: "step 4 — revoking before a publisher is configured leaves nothing \
-                 able to publish"
+            by: "step 3 — the package was observed not to exist, so revoking now \
+                 leaves the ceremony with nothing able to publish"
                 .to_owned(),
         }
     };
@@ -965,12 +995,67 @@ mod tests {
         observed.publication = Publication::Published {
             latest: "1.0.0".to_owned(),
         };
-        assert_eq!(place(&observed).live_step(), Some(4));
-        observed.publisher = Publisher::Restricted;
-        assert_eq!(place(&observed).live_step(), Some(5));
-        assert!(place(&observed)
+        // Step 5 is decided by its own observed facts — the package is there
+        // and the credential still is — whatever step 4 reads. An unobservable
+        // step blocks nothing, and it must not stand in front of an observable
+        // one either.
+        let placement = place(&observed);
+        assert_eq!(placement.live_step(), Some(5));
+        assert!(placement
             .waiting_on()
             .is_some_and(|note| note.contains("not conformant")));
+        let Placement::Ceremony(steps) = &placement else {
+            panic!("the token ceremony was expected");
+        };
+        assert!(
+            matches!(steps[3].1, StepState::Unobservable { .. }),
+            "a configuration airlock cannot read must not be reported as the step \
+             to act on: {:?}",
+            steps[3].1
+        );
+        // The work step 4 names is still named, because revoking before a
+        // publisher is configured leaves nothing able to publish.
+        assert!(steps[3]
+            .1
+            .note()
+            .contains("configure the trusted publisher"));
+        assert!(steps[4]
+            .1
+            .note()
+            .contains("trusted publisher is configured"));
+        // The action leads, because the status line carries the first sentence.
+        assert!(steps[4].1.note().starts_with("revoke the token"));
+
+        // The one public signal that can decide step 4 decides it.
+        observed.publisher = Publisher::Restricted;
+        let placement = place(&observed);
+        assert_eq!(placement.live_step(), Some(5));
+        let Placement::Ceremony(steps) = &placement else {
+            panic!("the token ceremony was expected");
+        };
+        assert!(matches!(steps[3].1, StepState::Done { .. }));
+    }
+
+    /// `blocked` names an observed absence and never an unestablished one.
+    #[test]
+    fn a_publication_that_was_not_established_blocks_nothing_after_it() {
+        let mut observed = observation(Registry::Npm);
+        observed.credential = Some(credential());
+        observed.publication = Publication::Undecided {
+            reason: "the registry answered 503".to_owned(),
+        };
+        let Placement::Ceremony(steps) = place(&observed) else {
+            panic!("the token ceremony was expected");
+        };
+        for (step, state) in steps.iter().skip(2) {
+            assert!(
+                matches!(state, StepState::Unobservable { .. }),
+                "step {} claims to know something the publication read did not \
+                 establish: {state:?}",
+                step.number()
+            );
+        }
+        assert_eq!(place(&observed).live_step(), None);
     }
 
     #[test]

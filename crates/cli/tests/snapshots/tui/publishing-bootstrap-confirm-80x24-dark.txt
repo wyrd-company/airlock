@@ -21,7 +21,7 @@ Press enter to confirm. No request has been made.
 THE FIVE STEPS                                                                  
 ▶ 1. Mint a registry token — live                                               
      mint a token on crates.io scoped to publishing `sample-package`. Expiry:   
-— 0 lines above · 19 below · ↑↓ moves the window —                              
+— 0 lines above · 20 below · ↑↓ moves the window —                              
 esc back · ↑↓ move · ↵ supply or confirm · tab next target · 3 more…            
 confirmation required · the value is consumed only by the named write           
 --- style keys ---

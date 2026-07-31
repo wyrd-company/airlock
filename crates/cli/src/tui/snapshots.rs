@@ -1429,6 +1429,20 @@ fn the_bootstrap_renders_as_recorded() {
                 None,
             ),
         ),
+        // The configuration the reviewer's absent case: published, and the
+        // credential the ceremony created still there. Step 5 is the live one
+        // and step 4 is unobservable, which is the ratified rule made visible.
+        (
+            "publishing-bootstrap-revoke-120x40-dark",
+            observation(
+                Registry::CratesIo,
+                Some(credential()),
+                Publication::Published {
+                    latest: "1.0.0".to_owned(),
+                },
+                None,
+            ),
+        ),
         (
             "publishing-bootstrap-container-120x40-dark",
             observation(

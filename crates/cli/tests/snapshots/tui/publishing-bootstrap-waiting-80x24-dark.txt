@@ -21,7 +21,7 @@ THE FIVE STEPS
 ▶ 3. Wait for a release to run and publish — live                               
      a release workflow run publishing the package. This is an external event   
      that may take hours; leaving is expected, because nothing here is a saved  
-— 0 lines above · 22 below · ↑↓ moves the window —                              
+— 0 lines above · 23 below · ↑↓ moves the window —                              
 esc back · ↑↓ move · ↵ supply or confirm · tab next target · 3 more…            
 step 3 of 5 · a release workflow run publishing the package · re-observed on en…
 --- style keys ---

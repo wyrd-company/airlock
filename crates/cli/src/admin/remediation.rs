@@ -1710,40 +1710,80 @@ impl Session {
                     .to_owned()
             },
         ));
-        let written = self.writer.put_secret(owner, repo, name, value).await;
+        let existed = held.iter().any(|record| record.name == name);
+        let rejected = self
+            .writer
+            .put_secret(owner, repo, name, value)
+            .await
+            .err()
+            .map(|error| format!("{error:#}"));
         transcript.steps.push(step(
             started,
-            written.is_ok(),
-            &written.map_or_else(
-                |error| format!("the repository secret write failed: {error:#}"),
-                |()| "github accepted the sealed repository secret".to_owned(),
+            rejected.is_none(),
+            &rejected.as_ref().map_or_else(
+                || "github accepted the sealed repository secret".to_owned(),
+                |error| format!("the repository secret write failed: {error}"),
             ),
         ));
         match self.writer.secret_records(owner, repo).await {
             Ok(records) => {
                 let present = records.iter().any(|record| record.name == name);
-                transcript.observed = if present {
-                    ObservedStatus::Pass
-                } else {
-                    ObservedStatus::Fail
+                // Presence answers the question only where the write was
+                // accepted. On a replacement the name was already there, so a
+                // rejected write leaves a listing that looks exactly like a
+                // successful one — and the credential it still names is the
+                // dead token the operator came here to replace. The write's own
+                // rejection is the decisive fact, and it decides.
+                transcript.observed = match (&rejected, present) {
+                    (Some(_), _) => ObservedStatus::Fail,
+                    (None, true) => ObservedStatus::Pass,
+                    (None, false) => ObservedStatus::Fail,
                 };
                 transcript.steps.push(step(
                     started,
-                    present,
-                    if present {
-                        "re-observation reports the secret present. Its value is not \
-                         readable back from GitHub, so airlock does not claim the \
-                         value works; the first release is what answers that."
-                    } else {
-                        "re-observation does not report the secret; the gap remains open"
+                    transcript.observed == ObservedStatus::Pass,
+                    &match (&rejected, present, existed) {
+                        (Some(error), true, true) => format!(
+                            "re-observation reports the name present, but this write \
+                             was rejected: {error}. The name is the one that was \
+                             already there, so the value behind it is still the old \
+                             one; presence cannot tell a landed replacement from the \
+                             value it was meant to replace."
+                        ),
+                        (Some(error), true, false) => format!(
+                            "re-observation reports the name present, but this write \
+                             was rejected: {error}. Something other than this write \
+                             put it there, so nothing here establishes what it holds."
+                        ),
+                        (Some(error), false, _) => format!(
+                            "the write was rejected and the name is not there: \
+                             {error}. The gap remains open."
+                        ),
+                        (None, true, _) => "re-observation reports the secret present. \
+                             Its value is not readable back from GitHub, so airlock \
+                             does not claim the value works; the first release is \
+                             what answers that."
+                            .to_owned(),
+                        (None, false, _) => "re-observation does not report the secret; the gap \
+                             remains open"
+                            .to_owned(),
                     },
                 ));
             }
-            Err(error) => transcript.steps.push(step(
-                started,
-                false,
-                &format!("post-write re-observation failed: {error:#}"),
-            )),
+            Err(error) => {
+                // A re-observation that did not complete establishes nothing,
+                // so the outcome stays inconclusive — unless the write was
+                // already known to be rejected, which is a fact this failure
+                // does not undo.
+                if rejected.is_some() {
+                    transcript.observed = ObservedStatus::Fail;
+                }
+                transcript.steps.push(step(
+                    started,
+                    false,
+                    &format!("post-write re-observation failed: {error:#}"),
+                ));
+            }
         }
         transcript
     }
@@ -2751,6 +2791,80 @@ mod tests {
         assert!(requests
             .iter()
             .all(|request| !String::from_utf8_lossy(&request.body).contains(plaintext)));
+    }
+
+    /// A rejected re-mint never passes on the presence it did not create.
+    ///
+    /// The dangerous shape: the secret already exists, the operator supplies a
+    /// freshly minted token because the old one died, GitHub rejects the write,
+    /// and the listing afterwards looks exactly as it did before — the name is
+    /// there. Presence cannot answer the question that was actually asked,
+    /// which is whether the replacement landed, so the rejection answers it.
+    #[tokio::test]
+    async fn a_rejected_re_mint_does_not_pass_on_the_name_that_was_already_there() {
+        use base64::Engine as _;
+        let server = MockServer::start().await;
+        let recipient = crypto_box::SecretKey::generate(&mut crypto_box::aead::OsRng);
+        let encoded_key =
+            base64::engine::general_purpose::STANDARD.encode(recipient.public_key().as_bytes());
+        // The same listing before and after: the name was there and stays there.
+        Mock::given(method("GET"))
+            .and(path(
+                "/repos/generic-owner/sample-repository/actions/secrets",
+            ))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({"secrets": [
+                    {"name": "CARGO_REGISTRY_TOKEN", "created_at": "2026-01-02T03:04:05Z"}
+                ]})),
+            )
+            .expect(2)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path(
+                "/repos/generic-owner/sample-repository/actions/secrets/public-key",
+            ))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "key_id": "fixture-key",
+                "key": encoded_key
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("PUT"))
+            .and(path(
+                "/repos/generic-owner/sample-repository/actions/secrets/CARGO_REGISTRY_TOKEN",
+            ))
+            .respond_with(ResponseTemplate::new(403).set_body_json(
+                serde_json::json!({"message": "Resource not accessible by integration"}),
+            ))
+            .mount(&server)
+            .await;
+
+        let session = session(&server).await;
+        let transcript = session
+            .set_repository_secret(
+                "generic-owner",
+                "sample-repository",
+                "publishing-bootstrap",
+                "set-publishing-bootstrap-secret",
+                "CARGO_REGISTRY_TOKEN",
+                &SecretValue("freshly-minted-opaque-input".to_owned()),
+            )
+            .await;
+
+        assert_eq!(
+            transcript.observed,
+            ObservedStatus::Fail,
+            "a rejected replacement must not read as success"
+        );
+        let closing = transcript.steps.last().expect("a closing observation");
+        assert!(!closing.succeeded);
+        assert!(closing.detail.contains("403"), "{}", closing.detail);
+        assert!(
+            closing.detail.contains("still the old one"),
+            "the operator must be told the dead token is still there: {}",
+            closing.detail
+        );
     }
 
     /// A write GitHub accepted whose name is not there afterwards is reported
