@@ -953,6 +953,21 @@ fn validate_credential_name(value: &str, maximum: usize, kind: &str) -> Result<(
 mod tests {
     use super::*;
 
+    fn render_frame(state: State) -> String {
+        let area = ratatui::layout::Rect::new(0, 0, 80, 24);
+        let mut frame = ratatui::buffer::Buffer::empty(area);
+        super::super::app::App::new("0.0.0", super::super::theme::ColorMode::Color)
+            .with_remediation_state(state)
+            .render(area, &mut frame);
+        let mut rendered = String::new();
+        for y in 0..area.height {
+            for x in 0..area.width {
+                rendered.push_str(frame[(x, y)].symbol());
+            }
+        }
+        rendered
+    }
+
     #[test]
     fn confirmation_is_single_use() {
         let mut state = State::confirm(
@@ -1101,6 +1116,18 @@ mod tests {
         let (long_entry, long) = render("opaque-input-with-a-different-length-7391");
         assert_eq!(short, long, "whole rendered frames must be byte-identical");
         drop((short_entry, long_entry));
+
+        let mut confirmation = state;
+        confirmation.secret_supplied();
+        let rendered = render_frame(confirmation);
+        assert!(
+            rendered.contains("variable       LEGACY_VARIABLE → CURRENT_VARIABLE"),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("secret         LEGACY_SECRET → CURRENT_SECRET"),
+            "{rendered}"
+        );
     }
 
     #[test]
@@ -1137,6 +1164,12 @@ mod tests {
             request.items[0].argument().as_deref(),
             Some("LEGACY_VARIABLE\nCURRENT_VARIABLE")
         );
+        let rendered = render_frame(State::Confirm { request });
+        assert!(
+            rendered.contains("variable       LEGACY_VARIABLE → CURRENT_VARIABLE"),
+            "{rendered}"
+        );
+        assert!(!rendered.contains("secret         "), "{rendered}");
     }
 
     #[test]
