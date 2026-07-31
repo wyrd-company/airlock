@@ -339,7 +339,11 @@ its count and a one-line gloss of the work:
    agent work in flight from agent work not yet picked up. No action is offered
    on these rows.
 3. **Needs a decision.** The repository has not declared what it is, so airlock
-   cannot know what to apply.
+   cannot know what to apply. Each row names the organisation-owned custom
+   property and the value the policy defines as the capability holding. The
+   operator may confirm that value from this group; the confirmation names the
+   property, value, organisation, and audited repository before any request is
+   made.
 4. **Needs a judgment.** Rules a person must attest to.
 5. **Airlock could not answer.** The undecided lane. Blocks certification where
    the effective gate enforces the rule's severity, and the remedy often sits
@@ -368,7 +372,7 @@ A finding takes the first group it matches, tested in this order:
 
 1. `suppressed` → group 7.
 2. `admin-only` → group 6.
-3. `inconclusive` with `evidence.code` of `condition_undecided` → group 3.
+3. `inconclusive` with `evidence.code` of `capability_undeclared` → group 3.
 4. `unimplemented`, `inconclusive`, or `error` → group 5.
 5. `manual` → group 4.
 6. `pass` or `skipped` → group 8.
@@ -381,6 +385,14 @@ A finding takes the first group it matches, tested in this order:
 
 Only group 8 is done. Groups 3, 4, 5, and 6 are where the operator's attention
 goes.
+
+A confirmed capability decision patches the organisation custom-property
+values endpoint with a value scoped to the audited repository. The session
+re-observes the repository's property values after the request and derives the
+row and transcript status only from that observation. A successful request
+whose value is absent or different on re-observation remains open and reports
+the observed discrepancy; an unreadable re-observation is
+`condition_undecided` and moves to **Airlock could not answer**.
 
 Each row carries its rule id, its severity bar, its three status lanes with
 the glyph in the lane its status belongs to, its status name, its statement,
