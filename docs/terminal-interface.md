@@ -659,27 +659,79 @@ accept a trusted publisher for a package that has never been published, so a
 token exists only to produce that first release, and that token is the thing
 the policy is trying to eliminate.
 
+The screen is opened for the repository the queue was observed from, and its
+targets are read from that repository: each declared release unit, crossed with
+the manifest observed at its path, is one package on one registry. A repository
+that declares more than one is read one target at a time, and the screen says
+which.
+
+A step's state is one of four, and the fourth is what keeps the sequence honest:
+
+- **done** — observation established that the step happened.
+- **live** — the step to act on now.
+- **blocked** — an earlier step has not happened, and the row names which.
+- **unobservable** — the step's completion is not a fact airlock can read, so
+  it is neither claimed nor denied. The row names why, from the registry's own
+  disclosure rather than from prose written here.
+
 The five steps, each with a glyph, a state, and a note:
 
 1. **Mint a registry token.** Scoped to publishing this package. Airlock never
-   displays the value.
+   displays the value, and no registry mints one headlessly before a trusted
+   publisher exists, so this step is a human instruction. The screen names the
+   expiry to mint with and the reasoning: short but comfortably longer than the
+   time to first publish, because too long leaves a live credential in a
+   forgotten repository and too short stalls the ceremony at its external step.
+   The step's own completion is unobservable — a minted token is the registry's,
+   not GitHub's — so the presence of the secret is the first observable fact.
 2. **Set it as a repository secret.** The token value is supplied through the
    same shared secret-entry surface used by secret-bearing remediations and is
    consumed by the repository-secret write only after the operator confirms
    that named write. Completion is the re-observed presence of the secret; its
    value is not readable back by GitHub or by airlock, and the interface does
    not claim that the value works.
+   Setting the secret again is also how a token that died before the first
+   publish is replaced: the step is offered while the credential step is live,
+   whether or not the repository already holds the name, and the confirmation
+   says which of the two it is.
 3. **Wait for a release to run and publish.** The external step.
 4. **Configure the trusted publisher.** Binds the repository and workflow to
-   the package so publishing needs no token at all. Blocked by step 3.
+   the package so publishing needs no token at all. Blocked by step 3. Its
+   completion is readable on no registry airlock holds a credential for, so it
+   is `unobservable` except where a public credential-free signal says
+   otherwise — crates.io's `trustpub_only`, which when true proves the crate
+   refuses any publish that did not come through trusted publishing.
 5. **Revoke the token and delete the secret.** Blocked by step 4. The bootstrap
    is not conformant until the credential it created no longer exists.
+
+Two registries do not walk those five.
+
+- A registry that accepts a publisher before the package exists skips the
+  ceremony entirely, and the screen says so instead of drawing five steps that
+  do not apply. PyPI's pending publisher creates the project on first upload,
+  so there is no token to mint, set, or revoke.
+- GHCR's first publication is a different shape and is drawn as its own three
+  steps: the package is published private, then linked to the repository, then
+  made public. No credential is involved. The screen states what airlock can
+  read — visibility and linked repository, by name — and stops at the two moves
+  that have no endpoint: connecting a repository afterwards, and a visibility
+  flip that cannot be undone. It also names the move that collapses all three
+  into one, which is pushing the image carrying
+  `org.opencontainers.image.source` so the package is linked before it exists.
+
+Homebrew has no first publication to bootstrap: a tap is a git repository and
+publishing is a push, so there is no registry to trust anything.
 
 Position in the sequence is never remembered. On entry the interface
 re-observes the repository secret, the registry credential, and the package's
 publish history, and places the operator at the step those observations imply.
 The screen says so: closing the terminal does not lose progress, because
 nothing here is a saved wizard position.
+
+A read that did not answer is never drawn as an absence. A registry airlock
+could not reach leaves the publication `not established`, which is a different
+fact from a package that is not there, and the step it decides says
+`unobservable` rather than picking one.
 
 While step 3 is live, the screen names what it is waiting for, shows how long
 ago it last re-observed, and states that the step is an external event that may
@@ -688,9 +740,26 @@ take hours and that leaving is expected.
 An outstanding credential block is shown for as long as one exists: the secret
 name, its scope, when it was created, and the statement that its value is never
 displayed. It states that the credential exists solely to complete this
-bootstrap and that the flow is not conformant until it is gone.
+bootstrap and that the flow is not conformant until it is gone. It also states
+the one fact that is not observable at all: the token's expiry is the
+registry's and GitHub does not hold it, so airlock states that rather than
+inferring an interval it was not given.
 
-**Keymap.** `esc` back · `o` re-observe now.
+The whole reading — the five steps with their notes, the credential block, and
+the surface step 2 opens — is longer than the floor is tall, so it scrolls under
+the frame on the same terms as every other long reading. Nothing is shortened
+or dropped to make it fit. What step 2 is doing is drawn above the steps while
+it is doing it, so the surface taking the operator's input is never the part
+below the fold.
+
+**Keymap.** `esc` back, or leave the token surface without making a request ·
+`↑↓` move the window · `↵` supply the token value, and confirm the named write ·
+`tab` next publication target · `o` re-observe now.
+
+While the token surface holds focus the keys are the shared secret entry's own —
+`↵` continue, `backspace` delete, `esc` cancel, `ctrl-c` exit — and `t` is not
+live as the theme toggle, exactly as every other secret-bearing surface behaves.
+`↵` on a step that takes no value says why rather than silently doing nothing.
 
 **Status line.** The current step of five, what it is waiting on, and that the
 position was re-observed on entry.
