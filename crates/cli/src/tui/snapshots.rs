@@ -1209,6 +1209,7 @@ fn remediation_input_and_result_frames_match_recordings() {
                         },
                     )],
                 },
+                input: super::remediation::SecretInputState::Empty,
             },
         ),
         (

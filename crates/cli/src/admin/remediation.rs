@@ -220,18 +220,66 @@ impl Drop for SecretValue {
 
 /// The shared value- and length-hidden entry buffer owned by the terminal
 /// driver, outside every drawable application model.
-#[derive(Default)]
 pub struct SecretEntry {
     value: String,
 }
 
+const INITIAL_SECRET_CAPACITY: usize = 256;
+
+impl Default for SecretEntry {
+    fn default() -> Self {
+        Self {
+            value: String::with_capacity(INITIAL_SECRET_CAPACITY),
+        }
+    }
+}
+
+/// What the shared terminal input controller asks its host to do.
+pub enum SecretInputAction {
+    Changed { holding_input: bool },
+    RefusedEmpty,
+    Submit(SecretValue),
+    Cancel,
+    Exit,
+    Ignored,
+}
+
+/// Value-free description of a write that consumes freshly supplied input.
+/// New consumers extend this boundary without changing terminal input routing.
+pub enum SecretOperation {
+    RenameCredentials {
+        variable: Option<(String, String)>,
+        secret: (String, String),
+    },
+}
+
 impl SecretEntry {
+    fn reserve_without_plaintext_reallocation(&mut self, additional: usize) {
+        let required = self.value.len().saturating_add(additional);
+        if required <= self.value.capacity() {
+            return;
+        }
+        let capacity = required
+            .checked_next_power_of_two()
+            .unwrap_or(required)
+            .max(INITIAL_SECRET_CAPACITY);
+        let mut replacement = String::with_capacity(capacity);
+        replacement.push_str(&self.value);
+        self.value.zeroize();
+        self.value = replacement;
+    }
+
     pub fn push(&mut self, character: char) {
+        self.reserve_without_plaintext_reallocation(character.len_utf8());
         self.value.push(character);
     }
 
     pub fn paste(&mut self, value: &mut String) {
+        self.reserve_without_plaintext_reallocation(value.len());
         self.value.push_str(value);
+        // This clears the event allocation airlock receives. Crossterm's
+        // parser has already copied its internal read buffer into this String;
+        // that dependency-owned buffer is outside airlock's reach.
         value.zeroize();
     }
 
@@ -241,6 +289,54 @@ impl SecretEntry {
 
     pub fn take(&mut self) -> Option<SecretValue> {
         (!self.value.is_empty()).then(|| SecretValue(std::mem::take(&mut self.value)))
+    }
+
+    /// Handle the complete focused terminal-input contract in one reusable
+    /// driver-owned component. Consumers provide only drawable state changes.
+    pub fn handle_terminal_event(&mut self, event: crossterm::event::Event) -> SecretInputAction {
+        use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers};
+        match event {
+            Event::Paste(mut value) => {
+                self.paste(&mut value);
+                SecretInputAction::Changed {
+                    holding_input: !self.value.is_empty(),
+                }
+            }
+            Event::Key(key) if key.kind == KeyEventKind::Release => SecretInputAction::Ignored,
+            Event::Key(key)
+                if key.modifiers.contains(KeyModifiers::CONTROL)
+                    && key.code == KeyCode::Char('c') =>
+            {
+                SecretInputAction::Exit
+            }
+            Event::Key(key) => match key.code {
+                KeyCode::Esc => {
+                    self.value.zeroize();
+                    SecretInputAction::Cancel
+                }
+                KeyCode::Enter => self
+                    .take()
+                    .map_or(SecretInputAction::RefusedEmpty, SecretInputAction::Submit),
+                KeyCode::Backspace => {
+                    self.backspace();
+                    SecretInputAction::Changed {
+                        holding_input: !self.value.is_empty(),
+                    }
+                }
+                KeyCode::Char(character)
+                    if !key
+                        .modifiers
+                        .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+                {
+                    self.push(character);
+                    SecretInputAction::Changed {
+                        holding_input: true,
+                    }
+                }
+                _ => SecretInputAction::Ignored,
+            },
+            _ => SecretInputAction::Ignored,
+        }
     }
 }
 
@@ -264,12 +360,12 @@ pub enum Request {
         remediation: String,
         argument: Option<String>,
     },
-    /// Apply a secret-bearing rename. The value cannot enter drawable state.
-    ApplySecret {
+    /// Apply a secret-bearing operation. The value cannot enter drawable state.
+    ApplyWithSecret {
         target: Target,
         rule: String,
         remediation: String,
-        argument: String,
+        operation: SecretOperation,
         value: SecretValue,
     },
     /// Apply a confirmed same-lane group, re-observing per rule.
@@ -1235,13 +1331,13 @@ impl Session {
         transcript
     }
 
-    pub async fn apply_secret(
+    pub async fn apply_with_secret(
         &mut self,
         owner: &str,
         repo: &str,
         rule: &str,
         remediation: &str,
-        argument: &str,
+        operation: &SecretOperation,
         value: &SecretValue,
     ) -> Transcript {
         let started = Instant::now();
@@ -1291,22 +1387,16 @@ impl Session {
             ));
             return transcript;
         }
-        let fields: Vec<&str> = argument.lines().collect();
-        let [old_variable, new_variable, old_secret, new_secret] = fields.as_slice() else {
-            transcript.steps.push(step(started, false, "the confirmed credential rename no longer carried four names; no write was attempted"));
-            return transcript;
-        };
+        let SecretOperation::RenameCredentials { variable, secret } = operation;
         let changed = async {
-            if !old_variable.is_empty() || !new_variable.is_empty() {
+            if let Some((old_variable, new_variable)) = variable {
                 self.writer
                     .rename_variable(owner, repo, &format!("{old_variable}\n{new_variable}"))
                     .await?;
             }
-            if !old_secret.is_empty() || !new_secret.is_empty() {
-                self.writer
-                    .rename_secret(owner, repo, old_secret, new_secret, value)
-                    .await?;
-            }
+            self.writer
+                .rename_secret(owner, repo, &secret.0, &secret.1, value)
+                .await?;
             Ok::<(), anyhow::Error>(())
         }
         .await;
@@ -1857,19 +1947,19 @@ fn run(mut session: Session, requests: Receiver<Request>, responses: &Sender<Res
                 );
                 Response::Applied { target, transcript }
             }
-            Request::ApplySecret {
+            Request::ApplyWithSecret {
                 target,
                 rule,
                 remediation,
-                argument,
+                operation,
                 value,
             } => {
-                let transcript = runtime.block_on(session.apply_secret(
+                let transcript = runtime.block_on(session.apply_with_secret(
                     &target.owner,
                     &target.repo,
                     &rule,
                     &remediation,
-                    &argument,
+                    &operation,
                     &value,
                 ));
                 Response::Applied { target, transcript }
@@ -2017,6 +2107,41 @@ mod tests {
         let value = entry.take().expect("non-empty entry is consumed");
         assert_eq!(value.expose(), b"topaque-input-7391");
         assert!(entry.take().is_none(), "the buffer was not consumed");
+    }
+
+    #[test]
+    fn secret_entry_growth_preserves_single_use_input() {
+        let mut entry = SecretEntry::default();
+        let plaintext = "x".repeat(INITIAL_SECRET_CAPACITY * 3);
+        let mut pasted = plaintext.clone();
+
+        entry.paste(&mut pasted);
+
+        assert!(pasted.is_empty());
+        let value = entry.take().expect("the grown entry is consumed");
+        assert_eq!(value.expose(), plaintext.as_bytes());
+    }
+
+    #[test]
+    fn shared_secret_controller_reports_holding_and_empty_refusal_without_length() {
+        use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+        let mut entry = SecretEntry::default();
+        assert!(matches!(
+            entry.handle_terminal_event(Event::Key(KeyEvent::new(
+                KeyCode::Enter,
+                KeyModifiers::NONE
+            ))),
+            SecretInputAction::RefusedEmpty
+        ));
+        assert!(matches!(
+            entry.handle_terminal_event(Event::Key(KeyEvent::new(
+                KeyCode::Char('x'),
+                KeyModifiers::NONE
+            ))),
+            SecretInputAction::Changed {
+                holding_input: true
+            }
+        ));
     }
 
     #[test]
@@ -2493,6 +2618,10 @@ mod tests {
         assert!(error.contains("PUT /repos/{owner}/{repo}/actions/secrets/{name}"));
         assert!(error.contains("[endpoint accepts: secrets=write]"));
         assert!(!error.contains(plaintext));
+        let requests = server.received_requests().await.unwrap();
+        assert!(requests
+            .iter()
+            .all(|request| request.method != wiremock::http::Method::DELETE));
     }
 
     #[tokio::test]

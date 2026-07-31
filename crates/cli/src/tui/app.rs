@@ -376,7 +376,18 @@ impl App {
 
     #[must_use]
     pub fn accepts_secret(&self) -> bool {
-        self.screen == Screen::Remediation && self.remediation.accepts_secret()
+        match self.screen {
+            Screen::Remediation => self.remediation.accepts_secret(),
+            _ => false,
+        }
+    }
+
+    pub fn secret_input_changed(&mut self, holding_input: bool) {
+        self.remediation.secret_input_changed(holding_input);
+    }
+
+    pub fn secret_empty_refused(&mut self) {
+        self.remediation.secret_empty_refused();
     }
 
     pub fn secret_supplied(&mut self) {
@@ -422,6 +433,13 @@ impl App {
                 }
             }
         };
+    }
+
+    #[cfg(test)]
+    pub fn with_remediation_state(mut self, state: remediation::State) -> Self {
+        self.remediation = state;
+        self.screen = Screen::Remediation;
+        self
     }
 
     /// Close the remediation screen with the post-write observation.
@@ -1759,7 +1777,7 @@ mod tests {
     fn selected_remediation_rule(app: &App) -> &str {
         let request = match &app.remediation {
             remediation::State::Input { request }
-            | remediation::State::SecretEntry { request }
+            | remediation::State::SecretEntry { request, .. }
             | remediation::State::Confirm { request }
             | remediation::State::Applying { request }
             | remediation::State::Complete { request, .. } => request,

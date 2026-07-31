@@ -35,7 +35,8 @@ use self::theme::ColorMode;
 use crate::admin::catalogue::{self, Reading};
 use crate::admin::flow::{Authorizing, Report};
 use crate::admin::remediation::{
-    Request as WorkerRequest, Response as WorkerResponse, SecretEntry, SecretValue, Target, Working,
+    Request as WorkerRequest, Response as WorkerResponse, SecretEntry, SecretInputAction,
+    SecretOperation, SecretValue, Target, Working,
 };
 use crate::admin::session::SessionCredential;
 use crate::admin::text::{self, CAUSE_LIMIT};
@@ -45,6 +46,51 @@ use crate::admin::text::{self, CAUSE_LIMIT};
 /// The sign-in screen counts a code's validity down and a backoff down, and a
 /// countdown that only moves when a key is pressed is a countdown that lies.
 const TICK: Duration = Duration::from_millis(250);
+
+/// Drawable consumers implement only these value-free state notifications.
+/// The shared controller below owns every key and paste decision, so another
+/// secret-bearing screen does not add a second routing path.
+trait SecretInputHost {
+    fn secret_input_active(&self) -> bool;
+    fn secret_input_changed(&mut self, holding_input: bool);
+    fn secret_empty_refused(&mut self);
+    fn secret_supplied(&mut self);
+}
+
+impl SecretInputHost for App {
+    fn secret_input_active(&self) -> bool {
+        self.accepts_secret()
+    }
+
+    fn secret_input_changed(&mut self, holding_input: bool) {
+        Self::secret_input_changed(self, holding_input);
+    }
+
+    fn secret_empty_refused(&mut self) {
+        Self::secret_empty_refused(self);
+    }
+
+    fn secret_supplied(&mut self) {
+        Self::secret_supplied(self);
+    }
+}
+
+fn route_secret_input(
+    host: &mut impl SecretInputHost,
+    entry: &mut SecretEntry,
+    event: Event,
+) -> SecretInputAction {
+    let action = entry.handle_terminal_event(event);
+    match &action {
+        SecretInputAction::Changed { holding_input } => {
+            host.secret_input_changed(*holding_input);
+        }
+        SecretInputAction::RefusedEmpty => host.secret_empty_refused(),
+        SecretInputAction::Submit(_) => host.secret_supplied(),
+        SecretInputAction::Cancel | SecretInputAction::Exit | SecretInputAction::Ignored => {}
+    }
+    action
+}
 
 /// Whether both halves of the terminal are interactive.
 ///
@@ -118,47 +164,28 @@ fn drive(app: &mut App, session: &mut terminal::Session, authorizing: Authorizin
             .context("cannot draw the interface")?;
 
         if event::poll(TICK).context("cannot wait on the terminal")? {
-            match event::read().context("cannot read from the terminal")? {
-                Event::Paste(mut value) if app.accepts_secret() => {
-                    secret_entry.paste(&mut value);
-                    continue;
+            let event = event::read().context("cannot read from the terminal")?;
+            if app.secret_input_active() {
+                match route_secret_input(app, &mut secret_entry, event) {
+                    SecretInputAction::Changed { .. } | SecretInputAction::RefusedEmpty => {}
+                    SecretInputAction::Submit(value) => {
+                        supplied_secret = Some(value);
+                    }
+                    SecretInputAction::Cancel => {
+                        supplied_secret = None;
+                        let _ = app.handle_key(crossterm::event::KeyEvent::new(
+                            crossterm::event::KeyCode::Esc,
+                            crossterm::event::KeyModifiers::NONE,
+                        ));
+                    }
+                    SecretInputAction::Exit => return Ok(0),
+                    SecretInputAction::Ignored => {}
                 }
+                continue;
+            }
+            match event {
                 Event::Paste(value) => {
                     app.handle_paste(&value);
-                    continue;
-                }
-                Event::Key(key) if app.accepts_secret() => {
-                    use crossterm::event::{KeyCode, KeyEventKind, KeyModifiers};
-                    if key.kind == KeyEventKind::Release {
-                        continue;
-                    }
-                    if key.modifiers.contains(KeyModifiers::CONTROL)
-                        && key.code == KeyCode::Char('c')
-                    {
-                        return Ok(0);
-                    }
-                    match key.code {
-                        KeyCode::Esc => {
-                            secret_entry = SecretEntry::default();
-                            supplied_secret = None;
-                            let _ = app.handle_key(key);
-                        }
-                        KeyCode::Enter => {
-                            if let Some(value) = secret_entry.take() {
-                                supplied_secret = Some(value);
-                                app.secret_supplied();
-                            }
-                        }
-                        KeyCode::Backspace => secret_entry.backspace(),
-                        KeyCode::Char(character)
-                            if !key
-                                .modifiers
-                                .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
-                        {
-                            secret_entry.push(character)
-                        }
-                        _ => {}
-                    }
                     continue;
                 }
                 Event::Key(key) => {
@@ -288,16 +315,14 @@ fn drive(app: &mut App, session: &mut terminal::Session, authorizing: Authorizin
             let work = if request.items.len() == 1 {
                 let item = request.items.into_iter().next().expect("one item");
                 let argument = item.argument();
-                let renames_secret = argument.as_deref().is_some_and(|argument| {
-                    let mut fields = argument.lines();
-                    !fields.nth(2).unwrap_or_default().is_empty()
-                });
-                if renames_secret
-                    && matches!(
+                let variable = item.variable_rename();
+                let secret = item.secret_rename();
+                if let Some(secret) = secret.filter(|_| {
+                    matches!(
                         item.remediation.as_str(),
                         "rename-app-credentials" | "rename-task-named-credentials"
                     )
-                {
+                }) {
                     let Some(value) = supplied_secret.take() else {
                         app.operation_failed(
                             "no request was made because the supplied secret value is no longer available"
@@ -305,11 +330,11 @@ fn drive(app: &mut App, session: &mut terminal::Session, authorizing: Authorizin
                         );
                         continue;
                     };
-                    WorkerRequest::ApplySecret {
+                    WorkerRequest::ApplyWithSecret {
                         target,
                         rule: item.rule,
                         remediation: item.remediation,
-                        argument: argument.unwrap_or_default(),
+                        operation: SecretOperation::RenameCredentials { variable, secret },
                         value,
                     }
                 } else {
@@ -495,6 +520,32 @@ fn offer_to_clipboard(value: &str) {
 mod tests {
     use super::*;
 
+    #[derive(Default)]
+    struct Host {
+        active: bool,
+        holding: bool,
+        refused: bool,
+        supplied: bool,
+    }
+
+    impl SecretInputHost for Host {
+        fn secret_input_active(&self) -> bool {
+            self.active
+        }
+
+        fn secret_input_changed(&mut self, holding_input: bool) {
+            self.holding = holding_input;
+        }
+
+        fn secret_empty_refused(&mut self) {
+            self.refused = true;
+        }
+
+        fn secret_supplied(&mut self) {
+            self.supplied = true;
+        }
+    }
+
     #[test]
     fn the_refusal_names_the_requirement_and_what_to_run_instead() {
         let message = non_interactive_message();
@@ -502,5 +553,35 @@ mod tests {
         assert!(message.contains("airlock audit"));
         assert!(message.contains("airlock agent-work"));
         assert!(message.contains("--help"));
+    }
+
+    #[test]
+    fn shared_secret_routing_needs_only_a_value_free_host() {
+        use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+        let mut host = Host {
+            active: true,
+            ..Host::default()
+        };
+        let mut entry = SecretEntry::default();
+        assert!(matches!(
+            route_secret_input(
+                &mut host,
+                &mut entry,
+                Event::Paste("opaque-input".to_owned())
+            ),
+            SecretInputAction::Changed {
+                holding_input: true
+            }
+        ));
+        assert!(host.holding);
+        assert!(matches!(
+            route_secret_input(
+                &mut host,
+                &mut entry,
+                Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+            ),
+            SecretInputAction::Submit(_)
+        ));
+        assert!(host.supplied);
     }
 }
