@@ -343,6 +343,9 @@ impl App {
         at: impl Into<String>,
         verdict: impl Into<String>,
     ) {
+        if self.reauthorizing_now() {
+            return;
+        }
         self.observations.record(observe, at, verdict);
     }
 
@@ -376,6 +379,9 @@ impl App {
         remediation_code: &str,
         input: crate::admin::remediation::PreparedInput,
     ) {
+        if self.reauthorizing_now() {
+            return;
+        }
         let remediation::State::Input { request } = &mut self.remediation else {
             return;
         };
@@ -408,6 +414,9 @@ impl App {
 
     /// Close the remediation screen with the post-write observation.
     pub fn remediation_complete(&mut self, transcript: crate::admin::remediation::Transcript) {
+        if self.reauthorizing_now() {
+            return;
+        }
         self.remediation.complete(transcript);
     }
 
@@ -416,11 +425,17 @@ impl App {
         &mut self,
         transcripts: Vec<crate::admin::remediation::Transcript>,
     ) {
+        if self.reauthorizing_now() {
+            return;
+        }
         self.remediation.complete_group(transcripts);
     }
 
     /// Show a sanitized operational failure in the status line.
     pub fn operation_failed(&mut self, cause: String) {
+        if self.reauthorizing_now() {
+            return;
+        }
         self.note = Some(cause);
     }
 
@@ -437,6 +452,13 @@ impl App {
         report: &airlock_core::findings::Report,
         deliveries: &findings::Deliveries,
     ) {
+        // A run that was in flight when the grant lapsed is a reading taken
+        // under a credential this session no longer holds. It is refused here
+        // as well as dropped with its worker, so the boundary holds whatever
+        // order a caller drains its queues in.
+        if self.reauthorizing_now() {
+            return;
+        }
         // A run in which GitHub rejected airlock's own credential is not a
         // reading of the repository. It is the grant having lapsed, observed —
         // and drawing it as a queue would be drawing a repository as failing
@@ -1176,10 +1198,20 @@ impl App {
             self.lapse();
             return;
         }
+        // A catalogue read that was in flight across the boundary, on the same
+        // terms as a run: what it holds was reached with a credential this
+        // session no longer has.
+        if self.reauthorizing_now() {
+            return;
+        }
         self.catalogue = match read {
             catalogue::Read::Ready(catalogue) => catalogue::State::Ready(catalogue),
             catalogue::Read::Failed(cause) => catalogue::State::Failed(cause),
             catalogue::Read::Unauthorized => unreachable!("taken above"),
+            // A read the session's end abandoned. It is never sent, and if it
+            // ever were, the screen it would land on belongs to a session that
+            // no longer exists.
+            catalogue::Read::Cancelled => return,
         };
         self.installation = 0;
         self.repository = 0;
@@ -2989,15 +3021,28 @@ mod tests {
 
     #[test]
     fn no_observation_survives_the_boundary_on_any_screen() {
-        for screen in [
-            Screen::Organizations,
-            Screen::Repositories,
-            Screen::Findings,
-            Screen::FindingDetail,
-            Screen::PolicyInspector,
-        ] {
+        // Read off the enum rather than listed here, so a screen added later
+        // is covered by this proof on the day it is added rather than on the
+        // day somebody remembers to add it to a list. Sign-in is included: a
+        // session standing there has nothing to lose, and a proof that it
+        // loses nothing costs one iteration.
+        for screen in Screen::ALL {
             let mut app = working_session();
             app.screen = screen;
+            // The remediation screen is only itself with something on it.
+            if screen == Screen::Remediation {
+                app.remediation = remediation::State::confirm(
+                    "acme-industries".to_owned(),
+                    "widget".to_owned(),
+                    vec![remediation::Item {
+                        rule: "REPO-GIT-01".to_owned(),
+                        remediation: "correct-merge-settings".to_owned(),
+                        change: "disable merge commits".to_owned(),
+                        reversible: true,
+                        input: remediation::Input::None,
+                    }],
+                );
+            }
             app.observed(
                 &Observe {
                     owner: "acme-industries".to_owned(),
@@ -3367,6 +3412,52 @@ mod tests {
         assert_eq!(
             app.handle_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)),
             Flow::Exit
+        );
+    }
+
+    #[test]
+    fn nothing_produced_under_the_lapsed_grant_can_be_applied_after_the_boundary() {
+        // The workers are dropped at the boundary, so their queues go with
+        // them. This is the other half of that: whatever order a caller drains
+        // its queues in, an answer reached with a credential this session no
+        // longer holds is refused rather than drawn.
+        let mut app = working_session();
+        app.lapse();
+        let holding = app.status();
+
+        app.observed_run(
+            &findings::fixture::aligned(),
+            &findings::fixture::deliveries(),
+        );
+        app.catalogue_read(catalogue::Read::Ready(Box::new(catalogue())));
+        app.observed(
+            &Observe {
+                owner: "acme-industries".to_owned(),
+                name: "widget".to_owned(),
+            },
+            "this session",
+            "conformant",
+        );
+        app.remediation_complete(crate::admin::remediation::Transcript {
+            rule: "REPO-GIT-01".to_owned(),
+            remediation: "correct-merge-settings".to_owned(),
+            proposed_change: "disable merge commits".to_owned(),
+            steps: Vec::new(),
+            observed: crate::admin::remediation::ObservedStatus::Pass,
+            undo: None,
+        });
+        app.operation_failed("a failure from the session that ended".to_owned());
+
+        assert!(app.reauthorizing_now(), "the overlay is still up");
+        assert!(app.queue.is_none(), "a stale run was drawn");
+        assert!(app.inspector.is_none(), "a stale policy was drawn");
+        assert_eq!(app.catalogue, catalogue::State::Unauthorized);
+        assert_eq!(app.observations, Observations::default());
+        assert!(matches!(app.remediation, remediation::State::Empty));
+        assert_eq!(
+            app.status(),
+            holding,
+            "the overlay still says what it holds"
         );
     }
 

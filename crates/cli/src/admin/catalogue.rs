@@ -15,7 +15,9 @@
 //! exist are the same response, and only the catalogue can tell them apart.
 
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver as SyncReceiver, Sender as SyncSender};
+use std::sync::Arc;
 use std::time::Duration;
 
 use airlock_core::github::{
@@ -504,6 +506,13 @@ pub enum Read {
     /// this session holds is no longer one, and the remedy is a new device
     /// approval rather than anything the operator can do to this list.
     Unauthorized,
+    /// The read was abandoned because the session that authorized it ended.
+    ///
+    /// Never sent, and it exists so that the abandoning has a name rather than
+    /// a silence: a worker that stops has stopped for a reason, and a reason
+    /// with no value to carry is still a reason a reader has to be able to
+    /// find.
+    Cancelled,
     /// The read failed. The cause is sanitized and carries no credential.
     Failed(String),
 }
@@ -512,6 +521,18 @@ pub enum Read {
 pub struct Reading {
     reports: SyncReceiver<Read>,
     worker: Option<std::thread::JoinHandle<()>>,
+    /// Set before the worker is waited on, and read by the worker before every
+    /// request it makes.
+    ///
+    /// The worker owns a client built from the session's credential, and a
+    /// thread that outlives its shutdown budget would otherwise be a
+    /// write-capable credential still able to make requests after the session
+    /// that authorized it has ended — during a mid-session expiry, while a new
+    /// authorization is being obtained. The flag makes that structural rather
+    /// than a matter of how quickly a socket closes: once it is set, no further
+    /// request is issued with that credential, whatever the thread is still
+    /// doing.
+    cancelled: Arc<AtomicBool>,
 }
 
 impl Reading {
@@ -534,12 +555,15 @@ impl Reading {
         let client = RestClient::new(credential.expose_for_authorization_header(), config)
             .map_err(|error| anyhow::anyhow!("cannot build the github client: {error}"))?;
         let (reports, receiver) = std::sync::mpsc::channel();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let stop = Arc::clone(&cancelled);
         let worker = std::thread::Builder::new()
             .name("airlock-catalogue".to_owned())
-            .spawn(move || run(&client, &reports))?;
+            .spawn(move || run(&client, &reports, &stop))?;
         Ok(Self {
             reports: receiver,
             worker: Some(worker),
+            cancelled,
         })
     }
 
@@ -548,7 +572,16 @@ impl Reading {
         self.reports.recv_timeout(timeout).ok()
     }
 
+    /// Stop the worker, and stop the credential before the worker.
+    ///
+    /// The order is the point. Cancelling first is what bounds the credential's
+    /// life to this call rather than to whatever the thread is waiting on: the
+    /// worker checks the flag before every request, so from here on it can
+    /// finish the one it has and make no other. The budgeted wait is then only
+    /// about joining tidily, and a thread that outruns it is a thread that can
+    /// no longer use what it holds.
     fn shut_down(&mut self) {
+        self.cancelled.store(true, Ordering::SeqCst);
         if let Some(worker) = self.worker.take() {
             let deadline = std::time::Instant::now() + SHUTDOWN_BUDGET;
             while !worker.is_finished() && std::time::Instant::now() < deadline {
@@ -568,7 +601,7 @@ impl Drop for Reading {
 }
 
 /// The worker: read the installations, then what each one reaches.
-fn run(client: &RestClient, reports: &SyncSender<Read>) {
+fn run(client: &RestClient, reports: &SyncSender<Read>, cancelled: &AtomicBool) {
     let runtime = match tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -582,12 +615,19 @@ fn run(client: &RestClient, reports: &SyncSender<Read>) {
             return;
         }
     };
-    let report = runtime.block_on(read(client));
-    let _ = reports.send(report);
+    let report = runtime.block_on(read(client, cancelled));
+    // A report produced by a cancelled read is not sent. The receiver is
+    // usually gone by now anyway; this says why rather than relying on it.
+    if !cancelled.load(Ordering::SeqCst) {
+        let _ = reports.send(report);
+    }
 }
 
-async fn read(client: &RestClient) -> Read {
+async fn read(client: &RestClient, cancelled: &AtomicBool) -> Read {
     let attested = identity::bound();
+    if cancelled.load(Ordering::SeqCst) {
+        return Read::Cancelled;
+    }
     let installations = match client.user_installations().await {
         Ok(installations) => installations,
         // 401 is unambiguous: the credential was rejected, not the question.
@@ -596,6 +636,9 @@ async fn read(client: &RestClient) -> Read {
     };
     let mut catalogue = Vec::new();
     for installation in installations {
+        if cancelled.load(Ordering::SeqCst) {
+            return Read::Cancelled;
+        }
         // The identity filter, and the reason the test build is safe to run
         // against a production account: an installation of another app is not
         // this app's to work in, so it is not on the screen at all.
@@ -620,6 +663,12 @@ async fn read(client: &RestClient) -> Read {
                 total: listing.total_count,
                 truncated: listing.truncated,
             },
+            // The same 401, and the same answer. A rejection of the credential
+            // reached on this call is the grant having lapsed exactly as it is
+            // on the call above; reporting it as an installation that refused
+            // its listing would leave an expired session looking merely
+            // unlucky.
+            Err(error) if error.cause == ErrorCause::Unauthenticated => return Read::Unauthorized,
             Err(error) => Listing::Refused(text::sanitize(&error.to_string(), CAUSE_LIMIT)),
         };
         catalogue.push(Installation {
@@ -928,6 +977,163 @@ mod tests {
         assert!(
             RestClientConfig::default().follow_redirects,
             "the read path still follows a renamed repository"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // The worker, and what it may do with the credential it was built from
+    // -----------------------------------------------------------------------
+
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    fn client(base_url: String) -> RestClient {
+        RestClient::new(
+            "ghu_session_only",
+            RestClientConfig {
+                base_url,
+                ..RestClientConfig::default().refusing_redirects()
+            },
+        )
+        .expect("the client builds")
+    }
+
+    /// One installation of the identity this build attests to.
+    fn installation_response() -> serde_json::Value {
+        let bound = identity::bound();
+        serde_json::json!({
+            "total_count": 1,
+            "installations": [{
+                "id": 7,
+                "app_id": bound.app_id,
+                "app_slug": bound.slug,
+                "account": { "login": "generic-owner", "type": "Organization" },
+                "repository_selection": "all",
+                "permissions": { "metadata": "read" },
+            }],
+        })
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_rejected_listing_is_the_grant_lapsing_rather_than_a_refused_installation() {
+        // The second call carries the same credential as the first, so a 401 on
+        // it means the same thing. Reported as a listing that was refused, it
+        // would leave an expired session looking merely unlucky and the
+        // operator with no way back.
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/user/installations"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(installation_response()))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/user/installations/7/repositories"))
+            .respond_with(
+                ResponseTemplate::new(401)
+                    .set_body_json(serde_json::json!({ "message": "Bad credentials" })),
+            )
+            .mount(&server)
+            .await;
+
+        let cancelled = AtomicBool::new(false);
+        assert_eq!(
+            read(&client(server.uri()), &cancelled).await,
+            Read::Unauthorized
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_listing_refused_for_any_other_reason_is_still_the_installation_saying_so() {
+        // The other half: a 403 is a grant that is too narrow, and no new
+        // authorization would widen it. It belongs on the row.
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/user/installations"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(installation_response()))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/user/installations/7/repositories"))
+            .respond_with(
+                ResponseTemplate::new(403)
+                    .set_body_json(serde_json::json!({ "message": "Resource not accessible" })),
+            )
+            .mount(&server)
+            .await;
+
+        let cancelled = AtomicBool::new(false);
+        let Read::Ready(catalogue) = read(&client(server.uri()), &cancelled).await else {
+            panic!("the catalogue is still read");
+        };
+        assert!(matches!(
+            catalogue.installations()[0].listing,
+            Listing::Refused(_)
+        ));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_cancelled_read_makes_no_request_with_the_credential_it_holds() {
+        // The worker outliving its shutdown budget is a write-capable
+        // credential still able to speak to GitHub after the session that
+        // authorized it ended — during a mid-session expiry, alongside the
+        // authorization replacing it. The flag is checked before every request,
+        // so what the thread is still waiting on cannot become another one.
+        let server = MockServer::start().await;
+        let cancelled = AtomicBool::new(true);
+
+        assert_eq!(
+            read(&client(server.uri()), &cancelled).await,
+            Read::Cancelled
+        );
+
+        assert!(
+            server
+                .received_requests()
+                .await
+                .unwrap_or_default()
+                .is_empty(),
+            "a cancelled read reached GitHub with the credential it was holding"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn cancellation_stops_the_read_between_its_requests() {
+        // Cancelled while the first request is in flight rather than before it
+        // was made: the read is a sequence of calls, so the flag has to be a
+        // gate on each of them and not only on the first. The listing endpoint
+        // is deliberately not mounted — if the gate failed, the read would
+        // reach it and come back with a catalogue rather than with nothing.
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/user/installations"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(installation_response())
+                    .set_delay(Duration::from_millis(300)),
+            )
+            .mount(&server)
+            .await;
+
+        let client = client(server.uri());
+        let cancelled = AtomicBool::new(false);
+        let reading = read(&client, &cancelled);
+        let session_ends = async {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            cancelled.store(true, Ordering::SeqCst);
+        };
+        let (outcome, ()) = tokio::join!(reading, session_ends);
+
+        assert_eq!(outcome, Read::Cancelled);
+        let seen = server.received_requests().await.unwrap_or_default();
+        assert_eq!(
+            seen.len(),
+            1,
+            "the read made another request after the boundary"
+        );
+        assert!(
+            seen[0].url.path().ends_with("/user/installations"),
+            "{}",
+            seen[0].url
         );
     }
 }

@@ -135,18 +135,16 @@ fn drive(app: &mut App, session: &mut terminal::Session, authorizing: Authorizin
         app.tick(now.saturating_duration_since(last));
         last = now;
 
-        // The grant lapsed. The credential and everything built from it are
-        // dropped here — and a `SessionCredential` zeroizes when it drops — so
-        // the boundary is a credential ceasing to exist rather than one being
-        // renewed. Nothing is refreshed and nothing was stored; what follows is
-        // another device approval.
-        if app.take_reauthorization_request() {
-            reading = None;
-            working = None;
-            credential = None;
-            authorizing = None;
-            reissue(app, &mut authorizing);
-        }
+        // Taken before anything the workers have to say is applied: a report
+        // that arrives from the flow that authorized the session it is ending
+        // is dropped with it rather than adopted.
+        discard_session(
+            app,
+            &mut authorizing,
+            &mut credential,
+            &mut reading,
+            &mut working,
+        );
 
         // Everything the worker has to say, without waiting: the wait above is
         // the loop's only one.
@@ -187,10 +185,27 @@ fn drive(app: &mut App, session: &mut terminal::Session, authorizing: Authorizin
 
         // The catalogue read, on the same terms: everything it has, without
         // waiting, because the wait above is the loop's only one.
+        //
+        // A read can be the thing that discovers the lapse, and the reports
+        // queued behind it were produced under the same lapsed grant. The drain
+        // stops at the boundary rather than emptying the queue past it: the
+        // worker is dropped below, and nothing it had in hand is applied.
         if let Some(worker) = reading.as_ref() {
             while let Some(read) = worker.next_report(Duration::ZERO) {
                 app.catalogue_read(read);
+                if app.reauthorizing_now() {
+                    break;
+                }
             }
+        }
+        if discard_session(
+            app,
+            &mut authorizing,
+            &mut credential,
+            &mut reading,
+            &mut working,
+        ) {
+            continue;
         }
 
         if let (Some(worker), Some(observe)) = (working.as_ref(), app.take_observation_request()) {
@@ -298,13 +313,62 @@ fn drive(app: &mut App, session: &mut terminal::Session, authorizing: Authorizin
                     }
                     WorkerResponse::Failed(cause) => app.operation_failed(cause),
                 }
+                // The same boundary, for the same reason: an observation, a
+                // transcript, or a set of choices produced under a grant that
+                // has since lapsed is not evidence of anything, and the queue
+                // behind this response is full of exactly that.
+                if app.reauthorizing_now() {
+                    break;
+                }
             }
+        }
+        if discard_session(
+            app,
+            &mut authorizing,
+            &mut credential,
+            &mut reading,
+            &mut working,
+        ) {
+            continue;
         }
 
         // Held so the credential's lifetime is this loop's, and so it is
         // dropped — and zeroized — however this function returns.
         let _ = &credential;
     }
+}
+
+/// End the session a lapse ended, if one has been asked for.
+///
+/// The credential and everything built from it are dropped here — and a
+/// `SessionCredential` zeroizes when it drops — so the boundary is a credential
+/// ceasing to exist rather than one being renewed. Nothing is refreshed and
+/// nothing was stored; what follows is another device approval.
+///
+/// Dropping the two workers is also what makes the boundary absolute in the
+/// other direction. Each owns a queue of answers produced under the lapsed
+/// grant, and dropping the receiver is what stops those answers reaching a
+/// screen: there is no path by which a stale observation can be applied,
+/// because there is nothing left to read one from.
+///
+/// `true` when a session was ended, which is the caller's cue to start the loop
+/// again rather than go on servicing workers that no longer exist.
+fn discard_session(
+    app: &mut App,
+    authorizing: &mut Option<Authorizing>,
+    credential: &mut Option<SessionCredential>,
+    reading: &mut Option<Reading>,
+    working: &mut Option<Working>,
+) -> bool {
+    if !app.take_reauthorization_request() {
+        return false;
+    }
+    *reading = None;
+    *working = None;
+    *credential = None;
+    *authorizing = None;
+    reissue(app, authorizing);
+    true
 }
 
 /// Ask for a device code, starting a flow where the last one has finished.
