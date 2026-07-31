@@ -4,12 +4,12 @@ AIRLOCK 0.0.0  …› findings › remediation  no credential stored · theme t 
 SETTINGS REMEDIATION                                                            
 repository      generic-owner/sample-repository                                 
 rules           1                                                               
-REPO-SAMPLE-01 · attach-org-rulesets · Apply the observed settings change. · re…
+REPO-SAMPLE-01 · attach-org-rulesets · Apply the observed settings change. ·    
+reversible                                                                      
                                                                                 
 selected        41 — protected branches                                         
 change          add sample-repository to the repositories this ruleset covers; p
 Press enter to confirm. No request has been made.                               
-                                                                                
                                                                                 
                                                                                 
                                                                                 
@@ -33,8 +33,8 @@ dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-fffffffffffffffffffffffffffffffffffffffffffffffffddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+fffffffffffffffffffffffffffffffffffffffffffffffffddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd

@@ -4,7 +4,8 @@ AIRLOCK 0.0.0  …› findings › remediation  no credential stored · theme t 
 SETTINGS REMEDIATION                                                            
 repository      generic-owner/sample-repository                                 
 rules           1                                                               
-REPO-SAMPLE-01 · attach-org-rulesets · Apply the observed settings change. · re…
+REPO-SAMPLE-01 · attach-org-rulesets · Apply the observed settings change. ·    
+reversible                                                                      
                                                                                 
 selected        create — Airlock default branch                                 
 ruleset body    {"conditions":{"repository_name":{"exclude":[],"include":["sampl
@@ -17,7 +18,6 @@ ruleset body    {"conditions":{"repository_name":{"exclude":[],"include":["sampl
                 alse},"type":"pull_request"},{"type":"required_linear_history"}]
                 ,"target":"branch"}                                             
 Press enter to confirm. No request has been made.                               
-                                                                                
                                                                                 
                                                                                 
                                                                                 
@@ -41,8 +41,8 @@ dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-fffffffffffffffffffffffffffffffffffffffffffffffffddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+fffffffffffffffffffffffffffffffffffffffffffffffffddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd

@@ -2,7 +2,7 @@
 
 use ratatui::text::{Line, Span};
 
-use super::chrome::{fit, wrap};
+use super::chrome::wrap;
 use super::theme::{Role, Styles};
 use crate::admin::remediation::{ObservedStatus, Transcript};
 
@@ -407,7 +407,7 @@ pub fn body(styles: Styles, width: usize, state: &State) -> Vec<Line<'static>> {
         }
     }
     for item in &request.items {
-        lines.push(Line::from(fit(
+        for part in wrap(
             &format!(
                 "{} · {} · {} · {}",
                 item.rule,
@@ -420,7 +420,9 @@ pub fn body(styles: Styles, width: usize, state: &State) -> Vec<Line<'static>> {
                 }
             ),
             width,
-        )));
+        ) {
+            lines.push(Line::from(part));
+        }
     }
     lines.push(Line::default());
     match state {

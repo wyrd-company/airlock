@@ -4,11 +4,11 @@ AIRLOCK 0.0.0  …› findings › remediation  no credential stored · theme �
 SETTINGS REMEDIATION                                                            
 repository      generic-owner/sample-repository                                 
 rules           1                                                               
-REPO-SAMPLE-01 · transfer-repository · Apply the observed settings change. · re…
+REPO-SAMPLE-01 · transfer-repository · Apply the observed settings change. ·    
+reversible                                                                      
                                                                                 
 > destination destination-owner                                                 
 type name       sample-repository                                               
-                                                                                
                                                                                 
                                                                                 
                                                                                 

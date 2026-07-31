@@ -4,11 +4,11 @@ AIRLOCK 0.0.0  …› findings › remediation  no credential stored · theme t 
 SETTINGS REMEDIATION                                                            
 repository      generic-owner/sample-repository                                 
 rules           1                                                               
-REPO-SAMPLE-01 · attach-org-rulesets · Apply the observed settings change. · re…
+REPO-SAMPLE-01 · attach-org-rulesets · Apply the observed settings change. ·    
+reversible                                                                      
                                                                                 
 > 41 — protected branches                                                       
   create — Airlock default branch                                               
-                                                                                
                                                                                 
                                                                                 
                                                                                 

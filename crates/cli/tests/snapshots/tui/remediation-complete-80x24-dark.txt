@@ -4,13 +4,13 @@ AIRLOCK 0.0.0  …› findings › remediation  no credential stored · theme t 
 SETTINGS REMEDIATION                                                            
 repository      generic-owner/sample-repository                                 
 rules           1                                                               
-REPO-SAMPLE-01 · disable-merge-commits · Apply the observed settings change. · …
+REPO-SAMPLE-01 · disable-merge-commits · Apply the observed settings change. ·  
+reversible                                                                      
                                                                                 
 TRANSCRIPT                                                                      
 REPO-SAMPLE-01 · disable-merge-commits                                          
 ✓ +  0.03s  re-observation reports pass                                         
 undo            unavailable; this change is not safely reversible               
-                                                                                
                                                                                 
                                                                                 
                                                                                 
@@ -31,9 +31,9 @@ eeeeeeeeeeeeeeeedddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 eeeeeeeeeeeeeeeedddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 ffffffffffdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 ffffffffffffffffffffffffffffffffffffffdddddddddddddddddddddddddddddddddddddddddd
-dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
