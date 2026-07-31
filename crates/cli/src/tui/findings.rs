@@ -496,7 +496,7 @@ impl Queue {
             })
             .collect();
         Self {
-            repository: sanitize(&report.repository.full_name, RULE_LIMIT * 4),
+            repository: drawable(&report.repository.full_name),
             verdict: Verdict {
                 outcome: report.outcome,
                 complete: report.complete,
@@ -1911,6 +1911,20 @@ mod tests {
             queue.rows[0].remediation.as_deref(),
             Some(expected.as_str())
         );
+    }
+
+    #[test]
+    fn a_long_repository_name_round_trips_through_the_queue() {
+        let full_name = format!("{}/{}", "o".repeat(39), "r".repeat(100));
+        let mut report = report(
+            Gate::Required,
+            vec![finding("REPO-GIT-04", Severity::Blocking, Status::Fail)],
+        );
+        report.repository.full_name.clone_from(&full_name);
+
+        let queue = Queue::of(&report, &Deliveries::default());
+
+        assert_eq!(queue.repository, full_name);
     }
 
     #[test]

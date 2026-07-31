@@ -1373,6 +1373,33 @@ mod tests {
     }
 
     #[test]
+    fn a_long_input_remediation_code_opens_its_text_input() {
+        let mut finding =
+            findings::fixture::finding("REPO-NAME-02", Severity::Blocking, Status::Fail);
+        finding.remediation = Some(airlock_core::findings::Remediation::new(
+            airlock_core::remediation::ActionGroup::RENAME_REPOSITORY,
+            "Rename the repository.",
+        ));
+        let report =
+            findings::fixture::report(airlock_core::findings::Gate::Required, vec![finding]);
+        let mut app = app();
+        app.observed_run(&report, &findings::Deliveries::default());
+        app.screen = Screen::Findings;
+
+        focus(&mut app, findings::Group::Settings);
+        press(&mut app, KeyCode::Char('a'));
+
+        let remediation::State::Input { request } = &app.remediation else {
+            panic!("the long remediation code must demand input");
+        };
+        assert_eq!(request.items[0].remediation, "rename-repository-undotted");
+        assert!(matches!(
+            request.items[0].input,
+            remediation::Input::Text { .. }
+        ));
+    }
+
+    #[test]
     fn detail_apply_replaces_a_stale_confirmation_with_the_focused_rule() {
         use airlock_core::findings::Remediation;
         use airlock_core::remediation::ActionGroup;

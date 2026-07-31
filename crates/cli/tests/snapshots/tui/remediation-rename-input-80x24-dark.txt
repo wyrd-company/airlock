@@ -4,7 +4,7 @@ AIRLOCK 0.0.0  …› findings › remediation  no credential stored · theme �
 SETTINGS REMEDIATION                                                            
 repository      generic-owner/sample-repository                                 
 rules           1                                                               
-REPO-SAMPLE-01 · rename-repository-kebab · Apply the observed settings change. ·
+REPO-SAMPLE-01 · rename-repository-kebab · Apply the observed settings change. …
                                                                                 
 new name        sample-repository                                               
                                                                                 

@@ -2,7 +2,7 @@
 
 use ratatui::text::{Line, Span};
 
-use super::chrome::wrap;
+use super::chrome::{fit, wrap};
 use super::theme::{Role, Styles};
 use crate::admin::remediation::{ObservedStatus, Transcript};
 
@@ -407,16 +407,19 @@ pub fn body(styles: Styles, width: usize, state: &State) -> Vec<Line<'static>> {
         }
     }
     for item in &request.items {
-        lines.push(Line::from(format!(
-            "{} · {} · {} · {}",
-            item.rule,
-            item.remediation,
-            item.change,
-            if item.reversible {
-                "reversible"
-            } else {
-                "not reversible"
-            }
+        lines.push(Line::from(fit(
+            &format!(
+                "{} · {} · {} · {}",
+                item.rule,
+                item.remediation,
+                item.change,
+                if item.reversible {
+                    "reversible"
+                } else {
+                    "not reversible"
+                }
+            ),
+            width,
         )));
     }
     lines.push(Line::default());

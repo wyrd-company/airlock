@@ -1878,6 +1878,44 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_long_remediation_code_reaches_action_lookup_intact() {
+        let server = MockServer::start().await;
+        let mut before = repository(true);
+        before["delete_branch_on_merge"] = serde_json::json!(false);
+        Mock::given(method("GET"))
+            .and(path("/repos/generic-owner/sample-repository"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(before))
+            .expect(2)
+            .mount(&server)
+            .await;
+        Mock::given(method("PATCH"))
+            .and(path("/repos/generic-owner/sample-repository"))
+            .and(body_json(
+                serde_json::json!({"delete_branch_on_merge": true}),
+            ))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let transcript = session(&server)
+            .await
+            .apply(
+                "generic-owner",
+                "sample-repository",
+                "REPO-GIT-06",
+                "enable-head-branch-auto-delete",
+                None,
+            )
+            .await;
+
+        assert_eq!(transcript.remediation, "enable-head-branch-auto-delete");
+        assert!(transcript
+            .steps
+            .iter()
+            .any(|step| step.detail.contains("accepted")));
+    }
+
+    #[tokio::test]
     async fn a_fresh_pass_makes_no_write_and_still_reobserves() {
         let server = MockServer::start().await;
         Mock::given(method("GET"))
