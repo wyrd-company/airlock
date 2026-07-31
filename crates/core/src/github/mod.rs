@@ -458,7 +458,46 @@ pub struct PullRequest {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CustomPropertyValue {
     pub property_name: String,
-    pub value: String,
+    pub value: CustomPropertyValueKind,
+}
+
+/// One value shape GitHub returns for an organization custom property.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CustomPropertyValueKind {
+    /// A string, single-select, or true/false value.
+    String(String),
+    /// A multi-select value. Order is the order GitHub reported.
+    Strings(Vec<String>),
+    /// No assigned value.
+    Null,
+}
+
+impl CustomPropertyValueKind {
+    /// The scalar value, where the property has one.
+    #[must_use]
+    pub fn as_str(&self) -> Option<&str> {
+        match self {
+            Self::String(value) => Some(value),
+            Self::Strings(_) | Self::Null => None,
+        }
+    }
+
+    /// A complete, unambiguous reading for evidence and transcripts.
+    #[must_use]
+    pub fn reading(&self) -> String {
+        match self {
+            Self::String(value) => format!("`{value}`"),
+            Self::Strings(values) => format!(
+                "[{}]",
+                values
+                    .iter()
+                    .map(|value| format!("`{value}`"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            Self::Null => "null".to_owned(),
+        }
+    }
 }
 
 /// The read-only GitHub surface airlock needs.

@@ -359,7 +359,14 @@ impl State {
                     .iter()
                     .all(|transcript| transcript.observed == ObservedStatus::Pass) =>
             {
-                "observed pass · confirmed gaps closed"
+                if transcripts
+                    .iter()
+                    .all(|transcript| transcript.remediation == "declare-capability-property")
+                {
+                    "observed property value · capability decisions closed"
+                } else {
+                    "observed pass · confirmed gaps closed"
+                }
             }
             Self::Complete { .. } => "one or more observed gaps remain open",
         }

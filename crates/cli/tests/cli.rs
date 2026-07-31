@@ -1396,6 +1396,8 @@ async fn an_unset_property_reports_the_capability_as_undeclared() {
         .expect("the candidate topic vocabulary is committed");
 
     let audited = FakeRepo::new("wyrd-company", "example")
+        .with_null_custom_property("unrelated-null")
+        .with_multi_select_custom_property("unrelated-multi", &["one", "two"])
         .with_truncated_tree()
         .with_file("LICENSE", "Apache License 2.0")
         .with_file("README.md", "# example");

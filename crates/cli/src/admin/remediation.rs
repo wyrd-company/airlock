@@ -894,19 +894,13 @@ impl Session {
                 match self.reader() {
                     Ok(reader) => match reader.custom_property_values(owner, repo).await {
                         Ok(values) => {
-                            transcript.observed =
-                                match values.iter().find(|value| value.property_name == property) {
-                                    Some(value) if value.value == expected => ObservedStatus::Pass,
-                                    Some(_) | None => ObservedStatus::Fail,
-                                };
+                            let (observed, detail) =
+                                capability_reobservation(property, expected, &values);
+                            transcript.observed = observed;
                             transcript.steps.push(step(
                                 started,
                                 transcript.observed == ObservedStatus::Pass,
-                                match transcript.observed {
-                                    ObservedStatus::Pass => "re-observation reports the declared property value",
-                                    ObservedStatus::Fail => "re-observation reports the property absent or different; the gap remains open",
-                                    ObservedStatus::Inconclusive => unreachable!(),
-                                },
+                                &detail,
                             ));
                         }
                         Err(error) => transcript.steps.push(step(
@@ -1337,6 +1331,33 @@ impl Session {
     }
 }
 
+fn capability_reobservation(
+    property: &str,
+    expected: &str,
+    values: &[airlock_core::github::CustomPropertyValue],
+) -> (ObservedStatus, String) {
+    let observed = values.iter().find(|value| value.property_name == property);
+    match observed {
+        Some(value) if value.value.as_str() == Some(expected) => (
+            ObservedStatus::Pass,
+            format!("re-observation reports `{property}` = `{expected}`"),
+        ),
+        Some(value) => (
+            ObservedStatus::Fail,
+            format!(
+                "re-observation expected `{property}` = `{expected}` but observed {}; the gap remains open",
+                value.value.reading()
+            ),
+        ),
+        None => (
+            ObservedStatus::Fail,
+            format!(
+                "re-observation expected `{property}` = `{expected}` but observed absent; the gap remains open"
+            ),
+        ),
+    }
+}
+
 fn undo_observation_target(operation: &UndoOperation, fallback: &Target) -> Target {
     match operation {
         UndoOperation::RenameRepository { owner, from, .. } => Target {
@@ -1657,6 +1678,30 @@ fn segment(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_missing_post_write_property_reports_the_observed_discrepancy() {
+        let (status, detail) = capability_reobservation("release", "true", &[]);
+        assert_eq!(status, ObservedStatus::Fail);
+        assert_eq!(
+            detail,
+            "re-observation expected `release` = `true` but observed absent; the gap remains open"
+        );
+    }
+
+    #[test]
+    fn a_different_post_write_property_reports_both_values() {
+        let values = vec![airlock_core::github::CustomPropertyValue {
+            property_name: "release".to_owned(),
+            value: airlock_core::github::CustomPropertyValueKind::String("false".to_owned()),
+        }];
+        let (status, detail) = capability_reobservation("release", "true", &values);
+        assert_eq!(status, ObservedStatus::Fail);
+        assert_eq!(
+            detail,
+            "re-observation expected `release` = `true` but observed `false`; the gap remains open"
+        );
+    }
     use tokio::net::TcpListener;
     use wiremock::matchers::{body_json, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};

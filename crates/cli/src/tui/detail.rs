@@ -62,6 +62,8 @@ pub struct Evidence {
     pub path: Option<String>,
     /// What was observed.
     pub detail: String,
+    /// The property and holding value, for an undeclared capability.
+    pub capability: Option<(String, String)>,
 }
 
 /// The API failure that stopped a rule, as this screen draws it.
@@ -206,6 +208,9 @@ impl Detail {
                 code: drawable(&evidence.code),
                 path: evidence.path.as_ref().map(|path| drawable(path)),
                 detail: drawable(&evidence.detail),
+                capability: evidence.capability.as_ref().map(|capability| {
+                    (drawable(&capability.property), drawable(&capability.value))
+                }),
             }),
             error: finding.error.as_ref().map(|error| Error {
                 cause: drawable(&error.cause),
@@ -402,6 +407,19 @@ fn evidence_region(styles: Styles, width: usize, row: &super::findings::Row) -> 
             lines.extend(value(styles, width, "evidence.code", &evidence.code));
             lines.extend(optional(styles, width, "evidence.path", &evidence.path));
             lines.extend(value(styles, width, "evidence.detail", &evidence.detail));
+            match &evidence.capability {
+                Some((property, holding_value)) => {
+                    lines.extend(value(
+                        styles,
+                        width,
+                        "evidence.capability",
+                        "declared below",
+                    ));
+                    lines.extend(value(styles, width, "  property", property));
+                    lines.extend(value(styles, width, "  value", holding_value));
+                }
+                None => lines.extend(value(styles, width, "evidence.capability", NULL)),
+            }
         }
         // Explicitly absent, with the reason, rather than blank: a rule that
         // could not be evaluated has no evidence, and that is a fact about the

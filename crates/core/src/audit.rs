@@ -159,7 +159,7 @@ pub async fn run<G: GitHub>(
     let branch = snapshot.repository.default_branch.clone();
     let commit = snapshot.commit.clone();
     let platform = PlatformData {
-        custom_property_values: client.custom_property_values(owner, repo).await,
+        custom_property_values: observe_custom_property_values(client, owner, repo, policy).await,
         tags: client.tags(owner, repo).await,
         history: client
             .history(owner, repo, &commit, options.limits.max_history_commits)
@@ -217,7 +217,7 @@ async fn run_mixed<G: GitHub>(
     let workflows = parse_workflows(&snapshot, &workflow_paths.paths, options.limits);
 
     let platform = PlatformData {
-        custom_property_values: client.custom_property_values(owner, repo).await,
+        custom_property_values: observe_custom_property_values(client, owner, repo, policy).await,
         tags: client.tags(owner, repo).await,
         history: client
             .history(
@@ -425,6 +425,24 @@ struct PlatformData {
     history: std::result::Result<crate::github::Paged<crate::github::CommitSummary>, ApiError>,
     rulesets: std::result::Result<crate::github::Paged<crate::github::Ruleset>, ApiError>,
     branch_rules: std::result::Result<crate::github::Paged<crate::github::BranchRule>, ApiError>,
+}
+
+async fn observe_custom_property_values<G: GitHub>(
+    client: &G,
+    owner: &str,
+    repo: &str,
+    policy: &ResolvedPolicy,
+) -> std::result::Result<Vec<crate::github::CustomPropertyValue>, ApiError> {
+    if policy.rules.iter().any(|rule| {
+        matches!(
+            rule.condition,
+            crate::policy::Condition::CustomProperty { .. }
+        )
+    }) {
+        client.custom_property_values(owner, repo).await
+    } else {
+        Ok(Vec::new())
+    }
 }
 
 /// Evaluate every enabled rule and assemble the report.

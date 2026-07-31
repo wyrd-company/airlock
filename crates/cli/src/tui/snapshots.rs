@@ -791,6 +791,10 @@ fn queues() -> Vec<Case> {
             Run::of(fixture::mixed()).driven(0, "f"),
         ),
         ("findings-lookup", Run::of(fixture::mixed()).driven(0, "l")),
+        (
+            "finding-capability-decision",
+            Run::of(fixture::mixed()).driven(5, "\n"),
+        ),
     ] {
         for (width, height) in [
             (REFERENCE_WIDTH, REFERENCE_HEIGHT),
@@ -1200,6 +1204,25 @@ fn remediation_input_and_result_frames_match_recordings() {
                         error: None,
                     },
                 )],
+            ),
+        ),
+        (
+            "remediation-capability-confirm-120x40-dark",
+            State::confirm(
+                "generic-owner".to_owned(),
+                "sample-repository".to_owned(),
+                vec![Item {
+                    rule: "REPO-REL-04".to_owned(),
+                    remediation: "declare-capability-property".to_owned(),
+                    change:
+                        "set organization custom property `release` to `true` for this repository"
+                            .to_owned(),
+                    reversible: false,
+                    input: Input::Fixed {
+                        argument: "release\ntrue".to_owned(),
+                        display: "release = true · organization generic-owner".to_owned(),
+                    },
+                }],
             ),
         ),
     ];

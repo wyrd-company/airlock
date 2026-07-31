@@ -73,8 +73,63 @@ async fn repository_custom_property_values_are_read_without_elision() {
         .unwrap();
     assert_eq!(values.len(), 2);
     assert_eq!(values[0].property_name, "release");
-    assert_eq!(values[0].value, "true");
+    assert_eq!(values[0].value.as_str(), Some("true"));
     assert_eq!(values[1].property_name, "product");
+}
+
+#[tokio::test]
+async fn an_unrelated_null_custom_property_does_not_poison_the_read() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/repos/owner/name/properties/values"))
+        .respond_with(
+            quota_headers(ResponseTemplate::new(200)).set_body_json(json!([
+                {"property_name": "release", "value": "true"},
+                {"property_name": "unrelated", "value": null}
+            ])),
+        )
+        .mount(&server)
+        .await;
+
+    let values = client(&server)
+        .custom_property_values("owner", "name")
+        .await
+        .unwrap();
+    assert_eq!(values.len(), 2);
+    assert_eq!(values[0].value.as_str(), Some("true"));
+    assert_eq!(
+        values[1].value,
+        airlock_core::github::CustomPropertyValueKind::Null
+    );
+}
+
+#[tokio::test]
+async fn an_unrelated_multi_select_custom_property_does_not_poison_the_read() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/repos/owner/name/properties/values"))
+        .respond_with(
+            quota_headers(ResponseTemplate::new(200)).set_body_json(json!([
+                {"property_name": "release", "value": "true"},
+                {"property_name": "unrelated", "value": ["one", "two"]}
+            ])),
+        )
+        .mount(&server)
+        .await;
+
+    let values = client(&server)
+        .custom_property_values("owner", "name")
+        .await
+        .unwrap();
+    assert_eq!(values.len(), 2);
+    assert_eq!(values[0].value.as_str(), Some("true"));
+    assert_eq!(
+        values[1].value,
+        airlock_core::github::CustomPropertyValueKind::Strings(vec![
+            "one".to_owned(),
+            "two".to_owned()
+        ])
+    );
 }
 
 #[tokio::test]

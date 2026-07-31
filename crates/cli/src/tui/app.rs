@@ -841,9 +841,24 @@ impl App {
                 self.note = Some("the capability declaration was not observed".to_owned());
                 return;
             };
+            let organization = self.catalogue.installations().iter().any(|installation| {
+                installation.account.eq_ignore_ascii_case(&target.owner)
+                    && installation.kind == airlock_core::github::AccountKind::Organization
+            });
+            if !organization {
+                self.note = Some(
+                    "capability declarations require an organization-owned repository".to_owned(),
+                );
+                return;
+            }
             remediation::Input::Fixed {
                 argument: format!("{property}\n{value}"),
-                display: format!("{property} = {value} · organization {}", target.owner),
+                display: format!(
+                    "{} = {} · organization {}",
+                    crate::admin::text::drawable(&property),
+                    crate::admin::text::drawable(&value),
+                    target.owner
+                ),
             }
         } else {
             self.remediation_input(&code, &target)
@@ -1844,6 +1859,55 @@ mod tests {
         press(&mut app, KeyCode::Char('a'));
         assert_eq!(app.screen(), Screen::Remediation);
         assert_eq!(selected_remediation_rule(&app), "REPO-GIT-01");
+    }
+
+    #[test]
+    fn a_capability_decision_is_not_offered_for_a_user_account() {
+        use airlock_core::github::{AccountKind, RepositorySelection};
+        let mut app = observed().with_catalogue(catalogue::Catalogue::of(vec![installation(
+            "acme-industries",
+            AccountKind::UserAccount,
+            RepositorySelection::All,
+            &["widget"],
+        )]));
+        focus(&mut app, findings::Group::Decision);
+        press(&mut app, KeyCode::Char('a'));
+
+        assert_eq!(app.screen(), Screen::Findings);
+        assert!(
+            app.status()
+                .contains("require an organization-owned repository"),
+            "{}",
+            app.status()
+        );
+    }
+
+    #[test]
+    fn a_capability_write_uses_raw_policy_data_not_its_drawable_copy() {
+        let mut finding = findings::fixture::capability_undeclared();
+        let capability = finding
+            .evidence
+            .as_mut()
+            .and_then(|evidence| evidence.capability.as_mut())
+            .expect("the fixture carries a declaration");
+        capability.value = "tr\u{1b}ue".to_owned();
+        let report =
+            findings::fixture::report(airlock_core::findings::Gate::Required, vec![finding]);
+        let mut app = app().with_catalogue(catalogue());
+        app.observed_run(&report, &findings::Deliveries::default());
+        app.screen = Screen::Findings;
+        focus(&mut app, findings::Group::Decision);
+        press(&mut app, KeyCode::Char('a'));
+
+        let request = match &app.remediation {
+            remediation::State::Confirm { request } => request,
+            state => panic!("expected confirmation, got {state:?}"),
+        };
+        let remediation::Input::Fixed { argument, display } = &request.items[0].input else {
+            panic!("capability decisions carry fixed input")
+        };
+        assert_eq!(argument, "release\ntr\u{1b}ue");
+        assert!(!display.contains('\u{1b}'));
     }
 
     #[test]

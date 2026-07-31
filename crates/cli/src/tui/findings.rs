@@ -400,7 +400,8 @@ pub struct Row {
     pub change: Option<String>,
     /// Whether a later operation can reverse it.
     pub reversible: Option<bool>,
-    /// The custom-property declaration offered by a decision row.
+    /// The raw policy-owned custom-property declaration offered by a decision
+    /// row. Drawing sanitizes a copy; the request body retains the exact value.
     pub capability: Option<(String, String)>,
 }
 
@@ -671,7 +672,7 @@ fn row(
             },
         ),
         reversible: declaration.map_or(finding.remediation_class.reversible, |_| Some(false)),
-        capability: declaration.map(|value| (drawable(&value.property), drawable(&value.value))),
+        capability: declaration.map(|value| (value.property.clone(), value.value.clone())),
     }
 }
 
@@ -1616,10 +1617,7 @@ pub mod fixture {
     #[must_use]
     pub fn capability_undeclared() -> Finding {
         let mut finding = finding("REPO-REL-04", Severity::Required, Status::Inconclusive);
-        finding.evidence = Some(Evidence::new(
-            "capability_undeclared",
-            "the repository has not declared whether it publishes a package",
-        ));
+        finding.evidence = Some(Evidence::capability_undeclared("release", "true"));
         finding
     }
 

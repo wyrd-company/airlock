@@ -25,7 +25,7 @@ pub struct FakeRepo {
     pub malformed_tree_entry: Option<Value>,
     pub settings: Value,
     pub topics: Vec<String>,
-    pub custom_properties: Vec<(String, String)>,
+    pub custom_properties: Vec<(String, Value)>,
     pub rulesets: Response,
     pub branch_rules: Response,
     pub tags: Vec<String>,
@@ -99,7 +99,27 @@ impl FakeRepo {
     #[must_use]
     pub fn with_custom_property(mut self, name: &str, value: &str) -> Self {
         self.custom_properties
-            .push((name.to_owned(), value.to_owned()));
+            .push((name.to_owned(), Value::String(value.to_owned())));
+        self
+    }
+
+    #[must_use]
+    pub fn with_null_custom_property(mut self, name: &str) -> Self {
+        self.custom_properties.push((name.to_owned(), Value::Null));
+        self
+    }
+
+    #[must_use]
+    pub fn with_multi_select_custom_property(mut self, name: &str, values: &[&str]) -> Self {
+        self.custom_properties.push((
+            name.to_owned(),
+            Value::Array(
+                values
+                    .iter()
+                    .map(|value| Value::String((*value).to_owned()))
+                    .collect(),
+            ),
+        ));
         self
     }
 

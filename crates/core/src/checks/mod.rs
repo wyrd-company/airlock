@@ -528,10 +528,13 @@ fn condition_verdict(
 ) -> Option<Verdict> {
     match outcome {
         ConditionOutcome::Holds => {}
-        ConditionOutcome::DoesNotHold => {
+        ConditionOutcome::DoesNotHold(detail) => {
             return Some(Verdict {
                 status: Status::Skipped,
-                evidence: Some(Evidence::new("condition_not_met", skipped_detail())),
+                evidence: Some(Evidence::new(
+                    "condition_not_met",
+                    detail.unwrap_or_else(skipped_detail),
+                )),
                 remediation: None,
                 error: None,
             })
@@ -553,7 +556,7 @@ enum ConditionOutcome {
     /// The condition holds; the rule runs.
     Holds,
     /// The condition conclusively does not hold; the rule is skipped.
-    DoesNotHold,
+    DoesNotHold(Option<String>),
     /// Airlock could not evaluate the condition.
     Undecided(Box<Verdict>),
 }
@@ -596,14 +599,24 @@ fn custom_property_condition(
         .iter()
         .find(|property| property.property_name == name)
     {
-        None => ConditionOutcome::Undecided(Box::new(Verdict {
+        // GitHub uses null for an unassigned property. A multi-select array is
+        // assigned data, but a scalar capability binding cannot exactly match
+        // it; classify that honestly as declared-but-not-matching rather than
+        // turning a valid API value into an input failure.
+        None | Some(CustomPropertyValue {
+            value: crate::github::CustomPropertyValueKind::Null,
+            ..
+        }) => ConditionOutcome::Undecided(Box::new(Verdict {
             status: Status::Inconclusive,
             evidence: Some(Evidence::capability_undeclared(name, expected)),
             remediation: None,
             error: None,
         })),
-        Some(property) if property.value == expected => ConditionOutcome::Holds,
-        Some(_) => ConditionOutcome::DoesNotHold,
+        Some(property) if property.value.as_str() == Some(expected) => ConditionOutcome::Holds,
+        Some(property) => ConditionOutcome::DoesNotHold(Some(format!(
+            "organization custom property `{name}` must equal `{expected}` for this capability; observed {}",
+            property.value.reading()
+        ))),
     }
 }
 
@@ -616,11 +629,11 @@ fn applicability_holds(applicability: Applicability, context: &AuditContext) -> 
 
 fn release_units_declared_condition(context: &AuditContext) -> ConditionOutcome {
     match context.yaml(".intentional/config.yml") {
-        ParsedFile::Missing | ParsedFile::NotAFile(_) => ConditionOutcome::DoesNotHold,
+        ParsedFile::Missing | ParsedFile::NotAFile(_) => ConditionOutcome::DoesNotHold(None),
         ParsedFile::Parsed(document) => match document.get("release-units") {
-            None => ConditionOutcome::DoesNotHold,
+            None => ConditionOutcome::DoesNotHold(None),
             Some(units) => match units.as_map() {
-                Some([]) => ConditionOutcome::DoesNotHold,
+                Some([]) => ConditionOutcome::DoesNotHold(None),
                 Some(_) => ConditionOutcome::Holds,
                 None => ConditionOutcome::Undecided(Box::new(Verdict::inconclusive(
                     "condition_undecided",
@@ -646,7 +659,7 @@ fn release_units_declared_condition(context: &AuditContext) -> ConditionOutcome 
 fn file_condition(context: &AuditContext, path: &str, condition: &Condition) -> ConditionOutcome {
     match context.snapshot.file(path) {
         FileState::Content { .. } => ConditionOutcome::Holds,
-        FileState::Missing => ConditionOutcome::DoesNotHold,
+        FileState::Missing => ConditionOutcome::DoesNotHold(None),
         FileState::TreeTruncated => ConditionOutcome::Undecided(Box::new(Verdict::inconclusive(
             "condition_undecided",
             format!(
@@ -675,7 +688,9 @@ fn file_condition(context: &AuditContext, path: &str, condition: &Condition) -> 
         )),
         // A symlink or a directory where the condition expects a file is a
         // conclusive answer: the file the condition asks about is not there.
-        FileState::Symlink { .. } | FileState::NotAFile { .. } => ConditionOutcome::DoesNotHold,
+        FileState::Symlink { .. } | FileState::NotAFile { .. } => {
+            ConditionOutcome::DoesNotHold(None)
+        }
     }
 }
 
@@ -1136,7 +1151,7 @@ mod tests {
         let mut context = fixture.context();
         context.custom_property_values = Ok(vec![CustomPropertyValue {
             property_name: "release".to_owned(),
-            value: "false".to_owned(),
+            value: crate::github::CustomPropertyValueKind::String("false".to_owned()),
         }]);
         let mut rule = rule("REPO-REL-04");
         rule.condition = Condition::CustomProperty {
@@ -1145,7 +1160,55 @@ mod tests {
         };
         let verdict = evaluate(&rule, &context);
         assert_eq!(verdict.status, Status::Skipped);
-        assert_eq!(verdict.evidence.unwrap().code, "condition_not_met");
+        let evidence = verdict.evidence.unwrap();
+        assert_eq!(evidence.code, "condition_not_met");
+        assert_eq!(
+            evidence.detail,
+            "organization custom property `release` must equal `true` for this capability; observed `false`"
+        );
+    }
+
+    #[test]
+    fn null_on_the_bound_property_is_an_undeclared_capability() {
+        let fixture = CheckFixture::new(&[]);
+        let mut context = fixture.context();
+        context.custom_property_values = Ok(vec![CustomPropertyValue {
+            property_name: "release".to_owned(),
+            value: crate::github::CustomPropertyValueKind::Null,
+        }]);
+        let mut rule = rule("REPO-REL-04");
+        rule.condition = Condition::CustomProperty {
+            name: "release".to_owned(),
+            value: "true".to_owned(),
+        };
+
+        let verdict = evaluate(&rule, &context);
+        assert_eq!(verdict.status, Status::Inconclusive);
+        assert_eq!(verdict.evidence.unwrap().code, "capability_undeclared");
+    }
+
+    #[test]
+    fn an_array_on_the_bound_property_is_declared_but_not_matching() {
+        let fixture = CheckFixture::new(&[]);
+        let mut context = fixture.context();
+        context.custom_property_values = Ok(vec![CustomPropertyValue {
+            property_name: "release".to_owned(),
+            value: crate::github::CustomPropertyValueKind::Strings(vec![
+                "true".to_owned(),
+                "sample".to_owned(),
+            ]),
+        }]);
+        let mut rule = rule("REPO-REL-04");
+        rule.condition = Condition::CustomProperty {
+            name: "release".to_owned(),
+            value: "true".to_owned(),
+        };
+
+        let verdict = evaluate(&rule, &context);
+        assert_eq!(verdict.status, Status::Skipped);
+        let evidence = verdict.evidence.unwrap();
+        assert_eq!(evidence.code, "condition_not_met");
+        assert!(evidence.detail.contains("observed [`true`, `sample`]"));
     }
 
     #[test]

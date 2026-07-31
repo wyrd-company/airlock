@@ -861,12 +861,40 @@ impl GitHub for RestClient {
         rows.iter()
             .map(|row| {
                 let property_name = require_string(&endpoint, row, "property_name")?;
-                let property_value = row.get("value").and_then(Value::as_str).ok_or_else(|| {
-                    malformed(&endpoint, "a custom-property value is not a string")
-                })?;
+                let property_value = match row.get("value") {
+                    Some(Value::String(value)) => {
+                        crate::github::CustomPropertyValueKind::String(value.clone())
+                    }
+                    Some(Value::Array(values)) => crate::github::CustomPropertyValueKind::Strings(
+                        values
+                            .iter()
+                            .map(|value| {
+                                value.as_str().map(ToOwned::to_owned).ok_or_else(|| {
+                                    malformed(
+                                        &endpoint,
+                                        "a multi-select custom-property value contains a non-string",
+                                    )
+                                })
+                            })
+                            .collect::<ApiResult<_>>()?,
+                    ),
+                    Some(Value::Null) => crate::github::CustomPropertyValueKind::Null,
+                    Some(_) => {
+                        return Err(malformed(
+                            &endpoint,
+                            "a custom-property value is not a string, string array, or null",
+                        ));
+                    }
+                    None => {
+                        return Err(malformed(
+                            &endpoint,
+                            "a custom-property row has no value",
+                        ));
+                    }
+                };
                 Ok(crate::github::CustomPropertyValue {
                     property_name,
-                    value: property_value.to_owned(),
+                    value: property_value,
                 })
             })
             .collect()
