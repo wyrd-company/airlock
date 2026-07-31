@@ -210,6 +210,11 @@ impl SecretValue {
     fn expose(&self) -> &[u8] {
         self.0.as_bytes()
     }
+
+    #[cfg(test)]
+    pub(crate) fn test_bytes(&self) -> &[u8] {
+        self.expose()
+    }
 }
 
 impl Drop for SecretValue {
@@ -254,6 +259,11 @@ pub enum SecretOperation {
 }
 
 impl SecretEntry {
+    /// Explicitly erase input held across a terminal-driver boundary.
+    pub fn clear(&mut self) {
+        self.value.zeroize();
+    }
+
     fn reserve_without_plaintext_reallocation(&mut self, additional: usize) {
         let required = self.value.len().saturating_add(additional);
         if required <= self.value.capacity() {
@@ -311,7 +321,7 @@ impl SecretEntry {
             }
             Event::Key(key) => match key.code {
                 KeyCode::Esc => {
-                    self.value.zeroize();
+                    self.clear();
                     SecretInputAction::Cancel
                 }
                 KeyCode::Enter => self
@@ -342,7 +352,7 @@ impl SecretEntry {
 
 impl Drop for SecretEntry {
     fn drop(&mut self) {
-        self.value.zeroize();
+        self.clear();
     }
 }
 

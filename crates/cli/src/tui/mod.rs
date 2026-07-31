@@ -216,13 +216,17 @@ fn drive(app: &mut App, session: &mut terminal::Session, authorizing: Authorizin
         // Taken before anything the workers have to say is applied: a report
         // that arrives from the flow that authorized the session it is ending
         // is dropped with it rather than adopted.
-        discard_session(
+        if discard_session(
             app,
             &mut authorizing,
             &mut credential,
             &mut reading,
             &mut working,
-        );
+            &mut secret_entry,
+            &mut supplied_secret,
+        ) {
+            reissue(app, &mut authorizing);
+        }
 
         // Everything the worker has to say, without waiting: the wait above is
         // the loop's only one.
@@ -282,7 +286,10 @@ fn drive(app: &mut App, session: &mut terminal::Session, authorizing: Authorizin
             &mut credential,
             &mut reading,
             &mut working,
+            &mut secret_entry,
+            &mut supplied_secret,
         ) {
+            reissue(app, &mut authorizing);
             continue;
         }
 
@@ -430,7 +437,10 @@ fn drive(app: &mut App, session: &mut terminal::Session, authorizing: Authorizin
             &mut credential,
             &mut reading,
             &mut working,
+            &mut secret_entry,
+            &mut supplied_secret,
         ) {
+            reissue(app, &mut authorizing);
             continue;
         }
 
@@ -461,6 +471,8 @@ fn discard_session(
     credential: &mut Option<SessionCredential>,
     reading: &mut Option<Reading>,
     working: &mut Option<Working>,
+    secret_entry: &mut SecretEntry,
+    supplied_secret: &mut Option<SecretValue>,
 ) -> bool {
     if !app.take_reauthorization_request() {
         return false;
@@ -469,7 +481,11 @@ fn discard_session(
     *working = None;
     *credential = None;
     *authorizing = None;
-    reissue(app, authorizing);
+    // Secret input is session state even though it is deliberately not
+    // drawable state. Erase both forms at the same boundary as the grant so a
+    // fresh authorization cannot inherit bytes entered under the lapsed one.
+    secret_entry.clear();
+    drop(supplied_secret.take());
     true
 }
 
@@ -583,5 +599,45 @@ mod tests {
             SecretInputAction::Submit(_)
         ));
         assert!(host.supplied);
+    }
+
+    #[test]
+    fn lapse_discards_secret_input_before_a_fresh_authorization() {
+        let mut app = App::new("0.0.0", ColorMode::NoColor);
+        app.authorization_granted(crate::admin::session::Validity::Unstated);
+
+        let mut secret_entry = SecretEntry::default();
+        for character in "prior-prefix".chars() {
+            secret_entry.push(character);
+        }
+        let mut pending = SecretEntry::default();
+        for character in "prior-submission".chars() {
+            pending.push(character);
+        }
+        let mut supplied_secret = pending.take();
+        let mut authorizing = None;
+        let mut credential = None;
+        let mut reading = None;
+        let mut working = None;
+
+        app.lapse();
+        assert!(discard_session(
+            &mut app,
+            &mut authorizing,
+            &mut credential,
+            &mut reading,
+            &mut working,
+            &mut secret_entry,
+            &mut supplied_secret,
+        ));
+        assert!(secret_entry.take().is_none(), "partial input survived");
+        assert!(supplied_secret.is_none(), "submitted input survived");
+
+        app.authorization_granted(crate::admin::session::Validity::Unstated);
+        for character in "fresh-value".chars() {
+            secret_entry.push(character);
+        }
+        let submitted = secret_entry.take().expect("fresh input submits");
+        assert_eq!(submitted.test_bytes(), b"fresh-value");
     }
 }
