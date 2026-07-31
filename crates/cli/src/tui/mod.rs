@@ -17,6 +17,7 @@ mod panel;
 mod policy;
 mod remediation;
 mod repositories;
+mod scaffold;
 mod screen;
 mod sign_in;
 mod terminal;
@@ -302,6 +303,16 @@ fn drive(app: &mut App, session: &mut terminal::Session, authorizing: Authorizin
                 app.operation_failed(text::sanitize(&format!("{error:#}"), CAUSE_LIMIT));
             }
         }
+        if let (Some(worker), Some(owner)) = (working.as_ref(), app.take_scaffold_plan_request()) {
+            if let Err(error) = worker.request(WorkerRequest::PrepareScaffold { owner }) {
+                app.operation_failed(text::sanitize(&format!("{error:#}"), CAUSE_LIMIT));
+            }
+        }
+        if let (Some(worker), Some(request)) = (working.as_ref(), app.take_scaffold_request()) {
+            if let Err(error) = worker.request(WorkerRequest::Scaffold(request)) {
+                app.operation_failed(text::sanitize(&format!("{error:#}"), CAUSE_LIMIT));
+            }
+        }
         if let (Some(worker), Some((observe, remediation))) =
             (working.as_ref(), app.take_preparation_request())
         {
@@ -425,6 +436,10 @@ fn drive(app: &mut App, session: &mut terminal::Session, authorizing: Authorizin
         if let Some(worker) = working.as_ref() {
             while let Some(response) = worker.next_response() {
                 match response {
+                    WorkerResponse::ScaffoldPrepared(plan) => app.scaffold_prepared(plan),
+                    WorkerResponse::Scaffolded { target, report } => {
+                        app.scaffold_complete(target, &report);
+                    }
                     WorkerResponse::Observed { target, report } => {
                         let observe = catalogue::Observe {
                             owner: target.owner,

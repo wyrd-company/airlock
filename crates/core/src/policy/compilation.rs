@@ -71,6 +71,13 @@ pub(super) fn compile(
         rules,
         suppressions,
         reference_data,
+        capabilities: capabilities
+            .into_iter()
+            .map(|(name, _)| Capability {
+                condition: conditions.get(&name).cloned().unwrap_or(Condition::Always),
+                name,
+            })
+            .collect(),
     })
 }
 

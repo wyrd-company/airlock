@@ -298,6 +298,15 @@ pub struct ResolvedPolicy {
     pub suppressions: SuppressionAuthority,
     /// Reference data, by name.
     pub reference_data: BTreeMap<String, Yaml>,
+    /// Capability declarations offered when an operator scaffolds a repository.
+    pub capabilities: Vec<Capability>,
+}
+
+/// One policy capability and the condition that declares it for a repository.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Capability {
+    pub name: String,
+    pub condition: Condition,
 }
 
 impl ResolvedPolicy {
@@ -378,6 +387,30 @@ mod tests {
                 content_digest: content_digest(text),
             }],
         )
+    }
+
+    #[test]
+    fn compiled_policy_retains_capability_declaration_conditions_for_scaffolding() {
+        let policy = compile_text(
+            "version: 1\nname: sample\ngate: blocking\ncapabilities:\n  base: [files]\n  package: [release]\napply:\n  base: always\n  package:\n    when:\n      property: publishes\n      value: 'true'\n",
+        )
+        .expect("policy compiles");
+        assert_eq!(
+            policy.capabilities,
+            vec![
+                Capability {
+                    name: "base".to_owned(),
+                    condition: Condition::Always,
+                },
+                Capability {
+                    name: "package".to_owned(),
+                    condition: Condition::CustomProperty {
+                        name: "publishes".to_owned(),
+                        value: "true".to_owned(),
+                    },
+                },
+            ]
+        );
     }
 
     const MINIMAL: &str = "\

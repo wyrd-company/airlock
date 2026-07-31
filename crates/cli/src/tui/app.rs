@@ -41,6 +41,7 @@ use super::panel;
 use super::policy;
 use super::remediation;
 use super::repositories::{self, Filter};
+use super::scaffold;
 use super::screen::{Key, Screen, INPUT_KEYS, REAUTHORIZATION_KEYS, SECRET_INPUT_KEYS};
 use super::sign_in;
 use super::theme::{ColorMode, Role, Styles, Theme};
@@ -260,6 +261,9 @@ pub struct App {
     pending_remediation: Option<remediation::Request>,
     pending_preparation: Option<(Observe, String)>,
     pending_undo: Option<remediation::UndoRequest>,
+    scaffold: scaffold::State,
+    pending_scaffold_plan: Option<String>,
+    pending_scaffold: Option<crate::admin::remediation::ScaffoldRequest>,
     /// What is left of the session's grant, where one is held.
     ///
     /// A duration and never a value. It is what the header counts down and
@@ -315,6 +319,9 @@ impl App {
             pending_remediation: None,
             pending_preparation: None,
             pending_undo: None,
+            scaffold: scaffold::State::default(),
+            pending_scaffold_plan: None,
+            pending_scaffold: None,
             grant: None,
             reauthorization: None,
             reauthorization_requested: false,
@@ -384,6 +391,30 @@ impl App {
 
     pub fn take_undo_request(&mut self) -> Option<remediation::UndoRequest> {
         self.pending_undo.take()
+    }
+
+    pub fn take_scaffold_plan_request(&mut self) -> Option<String> {
+        self.pending_scaffold_plan.take()
+    }
+
+    pub fn take_scaffold_request(&mut self) -> Option<crate::admin::remediation::ScaffoldRequest> {
+        self.pending_scaffold.take()
+    }
+
+    pub fn scaffold_prepared(&mut self, mut plan: crate::admin::remediation::ScaffoldPlan) {
+        if self.reauthorizing_now() {
+            return;
+        }
+        plan.owner = crate::admin::text::drawable(&plan.owner);
+        for capability in &mut plan.capabilities {
+            capability.display_name = crate::admin::text::drawable(&capability.display_name);
+        }
+        plan.files = plan
+            .files
+            .into_iter()
+            .map(|path| crate::admin::text::drawable(&path))
+            .collect();
+        self.scaffold.prepared(plan);
     }
 
     #[must_use]
@@ -543,7 +574,28 @@ impl App {
         if self.reauthorizing_now() {
             return;
         }
+        if self.screen == Screen::Scaffold {
+            self.scaffold.failed(cause);
+            return;
+        }
         self.note = Some(cause);
+    }
+
+    pub fn scaffold_complete(
+        &mut self,
+        target: crate::admin::remediation::Target,
+        report: &airlock_core::findings::Report,
+    ) {
+        if self.reauthorizing_now() {
+            return;
+        }
+        let observe = catalogue::Observe {
+            owner: target.owner,
+            name: target.repo,
+        };
+        self.requested = Some(observe.clone());
+        self.observed(&observe, "this session", report.outcome.code());
+        self.observed_run(report, &Default::default());
     }
 
     /// Take a run onto the findings screen.
@@ -689,6 +741,20 @@ impl App {
         if self.screen == Screen::Repositories && self.filter.is_open() {
             return self.filtering(event.code);
         }
+        if self.screen == Screen::Scaffold {
+            if event.code == KeyCode::Esc {
+                self.screen = Screen::Repositories;
+                return Flow::Continue;
+            }
+            if event.code == KeyCode::Char('t') && !self.scaffold.captures_text() {
+                self.theme = self.theme.toggled();
+                return Flow::Continue;
+            }
+            if let Some(request) = self.scaffold.key(event.code) {
+                self.pending_scaffold = Some(request);
+            }
+            return Flow::Continue;
+        }
         // A note stands for one frame: it answers the key that was just
         // pressed, and the next key is a different question.
         self.note = None;
@@ -729,6 +795,28 @@ impl App {
             KeyCode::Up => self.move_selection(-1),
             KeyCode::Down => self.move_selection(1),
             KeyCode::Char('/') if self.screen == Screen::Repositories => self.filter.open(),
+            KeyCode::Char('n') if self.screen == Screen::Repositories => {
+                if let Some(installation) = self.selected_installation() {
+                    let owner = installation.account.clone();
+                    let owner_is_organization = matches!(
+                        installation.kind,
+                        airlock_core::github::AccountKind::Organization
+                    );
+                    if matches!(
+                        installation.kind,
+                        airlock_core::github::AccountKind::Unrecognised
+                    ) {
+                        self.note = Some(
+                            "repository creation is unavailable because GitHub did not state the selected account kind"
+                                .to_owned(),
+                        );
+                    } else {
+                        self.scaffold.begin(owner.clone(), owner_is_organization);
+                        self.pending_scaffold_plan = Some(owner);
+                        self.screen = Screen::Scaffold;
+                    }
+                }
+            }
             KeyCode::Esc => {
                 if let Some(previous) = self.screen.back() {
                     self.screen = previous;
@@ -844,6 +932,8 @@ impl App {
                 let _ = self.remediation.input_key(KeyCode::Char(character));
             } else if self.screen == Screen::Repositories && self.filter.is_open() {
                 let _ = self.filtering(KeyCode::Char(character));
+            } else if self.screen == Screen::Scaffold && self.scaffold.captures_text() {
+                let _ = self.scaffold.key(KeyCode::Char(character));
             }
         }
     }
@@ -1312,6 +1402,8 @@ impl App {
         self.pending_bootstrap_observation = None;
         self.pending_preparation = None;
         self.pending_undo = None;
+        self.pending_scaffold_plan = None;
+        self.pending_scaffold = None;
         self.requested = None;
         self.sign_in = sign_in::Screen::at(SignIn::Requesting {
             reason: Reason::Lapsed,
@@ -1591,6 +1683,9 @@ impl App {
         if self.screen == Screen::PublishingBootstrap && self.bootstrap.captures_text() {
             return SECRET_INPUT_KEYS.to_vec();
         }
+        if self.screen == Screen::Scaffold && self.scaffold.captures_text() {
+            return INPUT_KEYS.to_vec();
+        }
         if self.screen == Screen::Remediation && self.remediation.captures_text() {
             return if self.remediation.accepts_secret() {
                 SECRET_INPUT_KEYS.to_vec()
@@ -1618,6 +1713,7 @@ impl App {
         match self.screen {
             Screen::Organizations => organizations::status(&self.catalogue),
             Screen::Repositories => repositories::status(self.visible_rows().len(), self.reach()),
+            Screen::Scaffold => self.scaffold.status(),
             Screen::Findings => self
                 .queue
                 .as_deref()
@@ -1662,6 +1758,9 @@ impl App {
                     selected: self.repository,
                 },
             );
+        }
+        if self.screen == Screen::Scaffold && self.scaffold.started() {
+            return scaffold::body(styles, width as usize, &self.scaffold);
         }
         if self.screen == Screen::Findings {
             if let Some(queue) = self.queue.as_deref() {
@@ -1804,6 +1903,9 @@ impl App {
             Screen::Repositories => {
                 "a filter over the repository name, and a table of name, \
                  visibility, last audit, verdict, and default branch"
+            }
+            Screen::Scaffold => {
+                "the owner, repository name, visibility, policy capability declarations, and first-commit files"
             }
             Screen::Findings => {
                 "the verdict, the status summary, and the eight groups of the \

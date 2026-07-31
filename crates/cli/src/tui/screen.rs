@@ -15,6 +15,8 @@ pub enum Screen {
     Organizations,
     /// Choose a repository to observe.
     Repositories,
+    /// Create a repository as the maximally unaligned align case.
+    Scaffold,
     /// The whole standard as a work queue.
     Findings,
     /// Everything airlock knows about one finding.
@@ -104,10 +106,11 @@ impl Screen {
     /// table; the table is what lets the suite assert a property of all of
     /// them, which is how "the frame renders on every screen" is proven.
     #[cfg_attr(not(test), allow(dead_code))]
-    pub const ALL: [Screen; 8] = [
+    pub const ALL: [Screen; 9] = [
         Screen::SignIn,
         Screen::Organizations,
         Screen::Repositories,
+        Screen::Scaffold,
         Screen::Findings,
         Screen::FindingDetail,
         Screen::Remediation,
@@ -125,6 +128,7 @@ impl Screen {
             Self::SignIn => "sign-in",
             Self::Organizations => "organizations",
             Self::Repositories => "repositories",
+            Self::Scaffold => "repository scaffold",
             Self::Findings => "findings",
             Self::FindingDetail => "finding detail",
             Self::Remediation => "remediation",
@@ -140,6 +144,9 @@ impl Screen {
             Self::SignIn => "Obtain an authorization for this session through the device flow.",
             Self::Organizations => "Choose which installation to work in.",
             Self::Repositories => "Choose a repository to observe.",
+            Self::Scaffold => {
+                "Create a repository, its first branch, and then observe it normally."
+            }
             Self::Findings => {
                 "Present the whole standard as a work queue, ordered by what \
                  closing each gap takes and who can close it."
@@ -176,6 +183,14 @@ impl Screen {
                 key!("\u{2191}\u{2193}", "select"),
                 key!("/", "filter"),
                 key!("\u{21b5}", "observe"),
+                key!("esc", "back"),
+                key!("n", "new repository"),
+            ],
+            Self::Scaffold => &[
+                key!("↑↓", "field"),
+                key!("←→", "choice"),
+                key!("space", "toggle capability"),
+                key!("↵", "continue or confirm"),
                 key!("esc", "back"),
             ],
             Self::Findings => &[
@@ -227,6 +242,7 @@ impl Screen {
             Self::SignIn => None,
             Self::Organizations => Some(Self::SignIn),
             Self::Repositories => Some(Self::Organizations),
+            Self::Scaffold => Some(Self::Repositories),
             Self::Findings => Some(Self::Repositories),
             Self::FindingDetail
             | Self::Remediation
@@ -242,6 +258,7 @@ impl Screen {
             Self::SignIn => Some(Self::Organizations),
             Self::Organizations => Some(Self::Repositories),
             Self::Repositories => Some(Self::Findings),
+            Self::Scaffold => None,
             Self::Findings => Some(Self::FindingDetail),
             Self::FindingDetail
             | Self::Remediation
@@ -343,6 +360,7 @@ mod tests {
             }
         }
         for screen in [
+            Screen::Scaffold,
             Screen::Remediation,
             Screen::PolicyInspector,
             Screen::PublishingBootstrap,

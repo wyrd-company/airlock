@@ -1076,6 +1076,7 @@ pub(crate) mod fixtures {
             rules: Vec::new(),
             suppressions: Default::default(),
             reference_data: BTreeMap::new(),
+            capabilities: Vec::new(),
         }
     }
 

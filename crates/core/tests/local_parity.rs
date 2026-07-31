@@ -263,6 +263,7 @@ fn full_policy() -> ResolvedPolicy {
             .collect(),
         suppressions: Default::default(),
         reference_data: BTreeMap::new(),
+        capabilities: Vec::new(),
     }
 }
 

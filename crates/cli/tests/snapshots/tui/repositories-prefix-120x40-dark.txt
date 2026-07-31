@@ -38,7 +38,7 @@ opening a repository re-observes it in full.
                                                                                                                         
                                                                                                                         
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-↑↓ select · / filter · ↵ observe · esc back · t theme · ctrl-c exit                                                     
+↑↓ select · / filter · ↵ observe · esc back · n new repository · t theme · ctrl-c exit                                  
 3 of 400 shown, a prefix · prior verdicts are shown for orientation only                                                
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
@@ -79,7 +79,7 @@ ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-iifggggggeeeifggggggeeeifgggggggeeeiiifggggeeeifgggggeeeiiiiiifggggfffffffffffffffffffffffffffffffffffffffffffffffffffff
+iifggggggeeeifggggggeeeifgggggggeeeiiifggggeeeifggggggggggggggeeeifgggggeeeiiiiiifggggffffffffffffffffffffffffffffffffff
 jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj
 --- legend ---
 a fg=#CBD3DD bg=#14181D BOLD

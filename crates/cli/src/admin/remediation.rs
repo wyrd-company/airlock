@@ -249,6 +249,34 @@ pub struct Target {
     pub repo: String,
 }
 
+/// One capability the resolved owner policy lets a new repository declare.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScaffoldCapability {
+    pub name: String,
+    /// Terminal-safe reading of `name`; never used in an API request.
+    pub display_name: String,
+    pub property: String,
+    pub value: String,
+}
+
+/// Fresh policy-derived choices for repository creation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScaffoldPlan {
+    pub owner: String,
+    pub capabilities: Vec<ScaffoldCapability>,
+    pub files: Vec<String>,
+}
+
+/// The confirmed, credential-free repository creation request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScaffoldRequest {
+    pub owner: String,
+    pub owner_is_organization: bool,
+    pub name: String,
+    pub visibility: String,
+    pub capabilities: Vec<ScaffoldCapability>,
+}
+
 /// Freshly observed values that the rendering layer may offer as choices.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PreparedInput {
@@ -431,6 +459,11 @@ pub enum Request {
     /// package, and any public publisher signal. Asked for afresh every time,
     /// because the flow persists no position of its own.
     ObserveBootstrap(Target),
+    /// Resolve the owner's policy immediately before offering scaffold choices.
+    PrepareScaffold { owner: String },
+    /// Create an empty repository, its capability declarations, and its sole
+    /// direct branch-creating commit, then run the ordinary audit.
+    Scaffold(ScaffoldRequest),
     /// Read the choices for an input-bearing remediation immediately before it
     /// is shown. These values are never cached as an executable plan.
     Prepare { target: Target, remediation: String },
@@ -475,6 +508,10 @@ pub enum Response {
         target: Target,
         observations: Vec<bootstrap::Observation>,
     },
+    /// Policy-derived scaffold choices.
+    ScaffoldPrepared(ScaffoldPlan),
+    /// The ordinary audit observed immediately after repository creation.
+    Scaffolded { target: Target, report: Box<Report> },
     /// Sanitized choices from a fresh settings observation.
     Prepared {
         remediation: String,
@@ -546,6 +583,113 @@ impl WriteClient {
         accepted(response, "PATCH /repos/{owner}/{repo}")
             .await
             .map(|_| ())
+    }
+
+    async fn repository_absent(&self, owner: &str, repo: &str) -> anyhow::Result<bool> {
+        let endpoint = "GET /repos/{owner}/{repo}";
+        let response = self
+            .http
+            .get(format!(
+                "{}/repos/{}/{}",
+                self.base_url,
+                segment(owner),
+                segment(repo)
+            ))
+            .bearer_auth(&self.token)
+            .header("Accept", "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .send()
+            .await?;
+        if response.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(true);
+        }
+        accepted(response, endpoint).await.map(|_| false)
+    }
+
+    async fn create_repository(&self, request: &ScaffoldRequest) -> anyhow::Result<()> {
+        let (path, endpoint) = if request.owner_is_organization {
+            (
+                format!("/orgs/{}/repos", segment(&request.owner)),
+                "POST /orgs/{org}/repos",
+            )
+        } else {
+            ("/user/repos".to_owned(), "POST /user/repos")
+        };
+        self.send_json(
+            reqwest::Method::POST,
+            &path,
+            &serde_json::json!({
+                "name": request.name,
+                "visibility": request.visibility,
+                "auto_init": false
+            }),
+            endpoint,
+        )
+        .await
+    }
+
+    async fn create_initial_commit(
+        &self,
+        owner: &str,
+        repo: &str,
+        files: &[airlock_core::alignment::ScaffoldFile],
+    ) -> anyhow::Result<String> {
+        anyhow::ensure!(
+            !files.is_empty(),
+            "the policy produced no deterministic base files"
+        );
+        let mut tree = Vec::with_capacity(files.len());
+        for file in files {
+            use base64::Engine as _;
+            let value = self
+                .send_json_value(
+                    reqwest::Method::POST,
+                    &format!("/repos/{}/{}/git/blobs", segment(owner), segment(repo)),
+                    &serde_json::json!({
+                        "content": base64::engine::general_purpose::STANDARD.encode(&file.contents),
+                        "encoding": "base64"
+                    }),
+                    "POST /repos/{owner}/{repo}/git/blobs",
+                )
+                .await?;
+            let sha = json_sha(&value, "POST /repos/{owner}/{repo}/git/blobs")?;
+            tree.push(serde_json::json!({
+                "path": file.path,
+                "mode": "100644",
+                "type": "blob",
+                "sha": sha
+            }));
+        }
+        let value = self
+            .send_json_value(
+                reqwest::Method::POST,
+                &format!("/repos/{}/{}/git/trees", segment(owner), segment(repo)),
+                &serde_json::json!({"tree": tree}),
+                "POST /repos/{owner}/{repo}/git/trees",
+            )
+            .await?;
+        let tree_sha = json_sha(&value, "POST /repos/{owner}/{repo}/git/trees")?;
+        let value = self
+            .send_json_value(
+                reqwest::Method::POST,
+                &format!("/repos/{}/{}/git/commits", segment(owner), segment(repo)),
+                &serde_json::json!({
+                    "message": "chore: scaffold repository",
+                    "tree": tree_sha,
+                    "parents": []
+                }),
+                "POST /repos/{owner}/{repo}/git/commits",
+            )
+            .await?;
+        let commit_sha = json_sha(&value, "POST /repos/{owner}/{repo}/git/commits")?;
+        self.send_json(
+            reqwest::Method::POST,
+            &format!("/repos/{}/{}/git/refs", segment(owner), segment(repo)),
+            &serde_json::json!({"ref": "refs/heads/main", "sha": commit_sha}),
+            "POST /repos/{owner}/{repo}/git/refs",
+        )
+        .await?;
+        Ok(commit_sha.to_owned())
     }
 
     async fn rename_branch(&self, owner: &str, repo: &str, branch: &str) -> anyhow::Result<()> {
@@ -1049,6 +1193,36 @@ impl WriteClient {
             .await?;
         accepted(response, endpoint).await.map(|_| ())
     }
+
+    async fn send_json_value(
+        &self,
+        method: reqwest::Method,
+        path: &str,
+        body: &serde_json::Value,
+        endpoint: &str,
+    ) -> anyhow::Result<serde_json::Value> {
+        let response = self
+            .http
+            .request(method, format!("{}{}", self.base_url, path))
+            .bearer_auth(&self.token)
+            .header("Accept", "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .json(body)
+            .send()
+            .await?;
+        accepted(response, endpoint)
+            .await?
+            .json()
+            .await
+            .map_err(Into::into)
+    }
+}
+
+fn json_sha<'a>(value: &'a serde_json::Value, endpoint: &str) -> anyhow::Result<&'a str> {
+    value
+        .get("sha")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| anyhow::anyhow!("{endpoint} returned no object sha"))
 }
 
 fn ruleset_update_base(
@@ -1320,6 +1494,143 @@ impl Session {
             });
         }
         Ok(observations)
+    }
+
+    async fn scaffold_plan(
+        &self,
+        owner: &str,
+    ) -> anyhow::Result<(ScaffoldPlan, Vec<airlock_core::alignment::ScaffoldFile>)> {
+        let reader = self.reader()?;
+        let policy = policy::resolve(
+            &reader,
+            &PolicySource::default_for_owner(owner),
+            &Limits::default(),
+        )
+        .await?;
+        let files = airlock_core::alignment::scaffold_files(&policy);
+        let capabilities = policy
+            .capabilities
+            .iter()
+            .filter_map(|capability| match &capability.condition {
+                airlock_core::policy::Condition::CustomProperty { name, value } => {
+                    Some(ScaffoldCapability {
+                        name: capability.name.clone(),
+                        display_name: text::drawable(&capability.name),
+                        property: name.clone(),
+                        value: value.clone(),
+                    })
+                }
+                airlock_core::policy::Condition::Always
+                | airlock_core::policy::Condition::IntentionalConfigPresent => None,
+            })
+            .collect();
+        Ok((
+            ScaffoldPlan {
+                owner: owner.to_owned(),
+                capabilities,
+                files: files.iter().map(|file| file.path.clone()).collect(),
+            },
+            files,
+        ))
+    }
+
+    async fn scaffold(&self, request: &ScaffoldRequest) -> anyhow::Result<Report> {
+        anyhow::ensure!(
+            valid_repository_name(&request.name),
+            "the repository name is not accepted by Airlock's GitHub name gate"
+        );
+        anyhow::ensure!(
+            matches!(
+                request.visibility.as_str(),
+                "public" | "private" | "internal"
+            ),
+            "the repository visibility is not recognized"
+        );
+        anyhow::ensure!(
+            self.writer
+                .repository_absent(&request.owner, &request.name)
+                .await?,
+            "no request was made because {}/{} already exists",
+            request.owner,
+            request.name
+        );
+        let (fresh, files) = self.scaffold_plan(&request.owner).await?;
+        anyhow::ensure!(
+            !files.is_empty(),
+            "the resolved owner policy requires no fixed deterministic file for the initial commit"
+        );
+        for selected in &request.capabilities {
+            anyhow::ensure!(
+                fresh.capabilities.contains(selected),
+                "the selected capability `{}` is not present in the freshly resolved owner policy",
+                selected.name
+            );
+        }
+
+        self.writer.create_repository(request).await?;
+        anyhow::ensure!(
+            !self.writer.repository_absent(&request.owner, &request.name).await?,
+            "GitHub accepted repository creation but immediate re-observation still reports it absent"
+        );
+
+        let reader = self.reader()?;
+        // Establish the branch before optional settings writes. A failure to
+        // assign a custom property must not strand the repository in the one
+        // state that has no ordinary remediation path.
+        self.writer
+            .create_initial_commit(&request.owner, &request.name, &files)
+            .await?;
+        let repository = reader.repository(&request.owner, &request.name).await?;
+        anyhow::ensure!(
+            repository.default_branch == "main",
+            "initial-commit re-observation expected default branch `main` but observed `{}`",
+            repository.default_branch
+        );
+
+        let before = reader
+            .custom_property_values(&request.owner, &request.name)
+            .await
+            .map_err(|error| {
+                anyhow::anyhow!("custom-property observation before declaration failed: {error}")
+            })?;
+        for capability in &request.capabilities {
+            let already = before.iter().any(|item| {
+                item.property_name == capability.property
+                    && item.value.as_str() == Some(capability.value.as_str())
+            });
+            if !already {
+                self.writer
+                    .set_custom_property(
+                        &request.owner,
+                        &request.name,
+                        &capability.property,
+                        &capability.value,
+                    )
+                    .await?;
+            }
+        }
+        let after = reader
+            .custom_property_values(&request.owner, &request.name)
+            .await
+            .map_err(|error| {
+                anyhow::anyhow!("custom-property re-observation after declaration failed: {error}")
+            })?;
+        for capability in &request.capabilities {
+            anyhow::ensure!(
+                after.iter().any(|item| {
+                    item.property_name == capability.property
+                        && item.value.as_str() == Some(capability.value.as_str())
+                }),
+                "custom-property re-observation did not establish `{}` = `{}`",
+                capability.property,
+                capability.value
+            );
+        }
+        self.observe(&Target {
+            owner: request.owner.clone(),
+            repo: request.name.clone(),
+        })
+        .await
     }
 
     async fn prepare(&self, target: &Target, remediation: &str) -> anyhow::Result<PreparedInput> {
@@ -2164,6 +2475,16 @@ impl Session {
     }
 }
 
+fn valid_repository_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 100
+        && name != "."
+        && name != ".."
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+}
+
 fn capability_reobservation(
     property: &str,
     expected: &str,
@@ -2392,6 +2713,31 @@ fn run(mut session: Session, requests: Receiver<Request>, responses: &Sender<Res
                     )),
                 }
             }
+            Request::PrepareScaffold { owner } => {
+                match runtime.block_on(session.scaffold_plan(&owner)) {
+                    Ok((plan, _)) => Response::ScaffoldPrepared(plan),
+                    Err(error) => Response::Failed(text::sanitize(
+                        &format!("the repository scaffold could not be prepared: {error:#}"),
+                        CAUSE_LIMIT,
+                    )),
+                }
+            }
+            Request::Scaffold(request) => {
+                let target = Target {
+                    owner: request.owner.clone(),
+                    repo: request.name.clone(),
+                };
+                match runtime.block_on(session.scaffold(&request)) {
+                    Ok(report) => Response::Scaffolded {
+                        target,
+                        report: Box::new(report),
+                    },
+                    Err(error) => Response::Failed(text::sanitize(
+                        &format!("the repository scaffold failed: {error:#}"),
+                        CAUSE_LIMIT,
+                    )),
+                }
+            }
             Request::Prepare {
                 target,
                 remediation,
@@ -2567,6 +2913,72 @@ mod tests {
     use tokio::net::TcpListener;
     use wiremock::matchers::{body_json, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    #[tokio::test]
+    async fn initial_commit_uses_blobs_one_tree_one_parentless_commit_and_one_ref() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/repos/generic-account/sample-repository/git/blobs"))
+            .respond_with(
+                ResponseTemplate::new(201).set_body_json(serde_json::json!({"sha": "blob"})),
+            )
+            .expect(2)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/repos/generic-account/sample-repository/git/trees"))
+            .respond_with(
+                ResponseTemplate::new(201).set_body_json(serde_json::json!({"sha": "tree"})),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/repos/generic-account/sample-repository/git/commits"))
+            .and(body_json(serde_json::json!({
+                "message": "chore: scaffold repository",
+                "tree": "tree",
+                "parents": []
+            })))
+            .respond_with(
+                ResponseTemplate::new(201).set_body_json(serde_json::json!({"sha": "commit"})),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/repos/generic-account/sample-repository/git/refs"))
+            .and(body_json(
+                serde_json::json!({"ref": "refs/heads/main", "sha": "commit"}),
+            ))
+            .respond_with(ResponseTemplate::new(201))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let client = WriteClient {
+            http: reqwest::Client::new(),
+            token: "fixture-token".to_owned(),
+            base_url: server.uri(),
+        };
+        let sha = client
+            .create_initial_commit(
+                "generic-account",
+                "sample-repository",
+                &[
+                    airlock_core::alignment::ScaffoldFile {
+                        path: "LICENSE".to_owned(),
+                        contents: b"license".to_vec(),
+                    },
+                    airlock_core::alignment::ScaffoldFile {
+                        path: ".editorconfig".to_owned(),
+                        contents: b"root = true\n".to_vec(),
+                    },
+                ],
+            )
+            .await
+            .expect("initial commit");
+        assert_eq!(sha, "commit");
+    }
 
     #[test]
     fn secret_entry_treats_paste_as_value_input_and_consumes_once() {

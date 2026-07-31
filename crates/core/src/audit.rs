@@ -828,6 +828,7 @@ mod tests {
             rules: Vec::new(),
             suppressions: Default::default(),
             reference_data: BTreeMap::new(),
+            capabilities: Vec::new(),
         };
         policy.suppressions.direct = direct;
         policy.suppressions.allow_repo_requests =

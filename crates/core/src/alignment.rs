@@ -17,6 +17,67 @@ use crate::remediation::Lane;
 use crate::worktree::{self, WorkingTreeFacts, AUTHORIZATION_BEARING_PATHS};
 use crate::{Error, Result};
 
+/// One deterministic file suitable for the branch-creating commit of an empty
+/// repository.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScaffoldFile {
+    pub path: String,
+    pub contents: Vec<u8>,
+}
+
+/// Resolve the fixed-content deterministic files required by a policy's
+/// unconditional capability profile.
+///
+/// Repository-specific and destructive transformations are deliberately not
+/// expressible here. They remain ordinary audit gaps after the first commit.
+#[must_use]
+pub fn scaffold_files(policy: &crate::policy::ResolvedPolicy) -> Vec<ScaffoldFile> {
+    let mut files = BTreeMap::new();
+    for rule in policy
+        .rules
+        .iter()
+        .filter(|rule| rule.condition == crate::policy::Condition::Always)
+    {
+        let Some(definition) = crate::remediation::classify(rule.def.id)
+            .and_then(crate::remediation::Classification::remediation)
+            .filter(|definition| definition.lane == Lane::DeterministicFile)
+        else {
+            continue;
+        };
+        let file = match definition.code {
+            "add-license-file" => Some(("LICENSE", APACHE_2_LICENSE.as_bytes().to_vec())),
+            "add-gitattributes" => Some((".gitattributes", GITATTRIBUTES.as_bytes().to_vec())),
+            "add-editorconfig" => Some((".editorconfig", EDITORCONFIG.as_bytes().to_vec())),
+            "add-ci-workflow" => {
+                Some((".github/workflows/ci.yml", CI_WORKFLOW.as_bytes().to_vec()))
+            }
+            "add-renovate-config" => rule.param_str("renovate-preset").map(|preset| {
+                (
+                    ".github/renovate.json",
+                    format!("{{\n  \"extends\": [\"{preset}\"]\n}}\n").into_bytes(),
+                )
+            }),
+            "add-audit-workflow" => Some((
+                ".github/workflows/audit.yml",
+                AUDIT_WORKFLOW.as_bytes().to_vec(),
+            )),
+            "add-lefthook-config" => Some((".config/lefthook.yml", LEFTHOOK.as_bytes().to_vec())),
+            "add-title-check" => Some((
+                ".github/workflows/pr-title.yml",
+                TITLE_WORKFLOW.as_bytes().to_vec(),
+            )),
+            _ => None,
+        };
+        if let Some((path, contents)) = file {
+            files.entry(path.to_owned()).or_insert(contents);
+        }
+    }
+    files
+        .into_iter()
+        .map(|(path, contents)| ScaffoldFile { path, contents })
+        .collect()
+}
+
 const APACHE_2_LICENSE: &str = include_str!("../../../LICENSE");
 const EDITORCONFIG: &str = "\
 root = true
@@ -1260,6 +1321,42 @@ mod tests {
         RemediationClass,
     };
     use crate::remediation;
+
+    #[test]
+    fn scaffold_files_include_only_fixed_deterministic_unconditional_rules() {
+        let rule = |id, condition| crate::policy::RuleInstance {
+            def: crate::registry::find(id).expect("registered rule"),
+            severity: crate::registry::Severity::Required,
+            params: BTreeMap::new(),
+            provenance: "capability:fixture".to_owned(),
+            condition,
+        };
+        let policy = crate::policy::ResolvedPolicy {
+            name: "fixture".to_owned(),
+            source: "fixture".to_owned(),
+            commit: None,
+            bundle_digest: "digest".to_owned(),
+            sources: Vec::new(),
+            gate: Gate::Blocking,
+            rules: vec![
+                rule("REPO-LIC-01", crate::policy::Condition::Always),
+                rule(
+                    "REPO-FILE-05",
+                    crate::policy::Condition::CustomProperty {
+                        name: "publishes".to_owned(),
+                        value: "true".to_owned(),
+                    },
+                ),
+            ],
+            suppressions: Default::default(),
+            reference_data: Default::default(),
+            capabilities: Vec::new(),
+        };
+        let files = scaffold_files(&policy);
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, "LICENSE");
+        assert_eq!(files[0].contents, APACHE_2_LICENSE.as_bytes());
+    }
 
     fn git(root: &Path, args: &[&str]) {
         let output = Command::new("git")

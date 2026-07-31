@@ -488,6 +488,7 @@ fn slug(screen: Screen) -> &'static str {
         Screen::SignIn => "sign-in",
         Screen::Organizations => "organizations",
         Screen::Repositories => "repositories",
+        Screen::Scaffold => "repository-scaffold",
         Screen::Findings => "findings",
         Screen::FindingDetail => "finding-detail",
         Screen::Remediation => "remediation",

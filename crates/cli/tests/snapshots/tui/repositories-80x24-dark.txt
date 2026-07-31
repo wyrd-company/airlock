@@ -22,7 +22,7 @@ repository re-observes it in full; nothing is acted on from memory.
                                                                                 
                                                                                 
                                                                                 
-↑↓ select · / filter · ↵ observe · esc back · t theme · ctrl-c exit             
+↑↓ select · / filter · ↵ observe · esc back · n new repository · 2 more…        
 0 of 0 shown · prior verdicts are shown for orientation only                    
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
@@ -47,8 +47,8 @@ dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-ggdffffffeeegdffffffeeegdfffffffeeegggdffffeeegdfffffeeeggggggdffffddddddddddddd
-hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh
+ggdffffffeeegdffffffeeegdfffffffeeegggdffffeeegdffffffffffffffeeehhhhhhhdddddddd
+iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii
 --- legend ---
 a fg=#CBD3DD bg=#14181D BOLD
 b fg=#CBD3DD bg=#14181D
@@ -57,4 +57,5 @@ d fg=#CBD3DD bg=#0B0D10
 e fg=#4C5661 bg=#0B0D10
 f fg=#79838F bg=#0B0D10
 g fg=#E8B84B bg=#0B0D10 BOLD
-h fg=#79838F bg=#101419
+h fg=#4C5661 bg=#0B0D10 ITALIC
+i fg=#79838F bg=#101419
