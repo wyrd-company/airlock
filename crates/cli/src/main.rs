@@ -325,10 +325,9 @@ struct AuthTokenArgs {
 }
 
 fn main() -> ExitCode {
-    restore_sigpipe_default();
-
-    let cli = Cli::parse();
     let interactive = std::io::stdout().is_terminal();
+    configure_sigpipe(interactive);
+    let cli = Cli::parse();
 
     let runtime = match tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -350,15 +349,21 @@ fn main() -> ExitCode {
     }
 }
 
-/// Restore the Unix convention for writes to a pipe whose reader has exited.
+/// Use the Unix pipeline convention only when standard output is not a terminal.
 ///
 /// Rust ignores `SIGPIPE`, which turns `println!` failures into panics. A CLI
 /// should instead terminate silently with signal 13 (usually surfaced by a
 /// shell as status 141): that preserves the fact that its output was
-/// incomplete and covers every stdout/stderr writer, including clap.
-/// The disposition is process-global and also applies to socket writes, so a
-/// rare network `EPIPE` terminates via signal 13 rather than an exit-2 error;
-/// that is the conventional trade-off accepted by Unix pipeline tools.
+/// incomplete and covers every stdout/stderr writer, including clap. The
+/// disposition is process-global, though, so the long-lived terminal session
+/// keeps Rust's inherited `SIG_IGN`; socket `EPIPE` then remains an ordinary
+/// transport error that can be reported without killing the process.
+fn configure_sigpipe(interactive: bool) {
+    if !interactive {
+        restore_sigpipe_default();
+    }
+}
+
 #[cfg(unix)]
 fn restore_sigpipe_default() {
     // SAFETY: this runs before the runtime or any application threads exist,
@@ -984,6 +989,20 @@ mod tests {
     #[test]
     fn command_surface_is_valid() {
         Cli::command().debug_assert();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_tui_entry_path_leaves_sigpipe_ignored() {
+        // SAFETY: this test changes and restores the process disposition while
+        // no application thread exists. `configure_sigpipe(true)` must be a
+        // no-op so the TUI retains the Rust runtime's ignored disposition.
+        unsafe {
+            let original = libc::signal(libc::SIGPIPE, libc::SIG_IGN);
+            configure_sigpipe(true);
+            let disposition = libc::signal(libc::SIGPIPE, original);
+            assert_eq!(disposition, libc::SIG_IGN);
+        }
     }
 
     #[tokio::test]

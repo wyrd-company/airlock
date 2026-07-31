@@ -189,7 +189,10 @@ fn install_signal_handlers() {
     ONCE.call_once(|| {
         signals::save_terminal_settings();
         // SAFETY: installs a handler that only calls async-signal-safe
-        // functions and then re-raises with the default disposition.
+        // functions and then re-raises with the default disposition. SIGPIPE
+        // is deliberately absent: the terminal entry path keeps it ignored so
+        // socket EPIPE is reported as a transport error, while non-interactive
+        // invocations restore SIGPIPE before they can enter this module.
         let handler: extern "C" fn(libc::c_int) = signals::handle;
         unsafe {
             for signal in [libc::SIGINT, libc::SIGTERM, libc::SIGHUP, libc::SIGQUIT] {

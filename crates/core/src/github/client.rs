@@ -190,6 +190,10 @@ impl RestClient {
     pub fn new(token: impl Into<String>, config: RestClientConfig) -> ApiResult<Self> {
         let http = reqwest::Client::builder()
             .user_agent(config.user_agent.clone())
+            // Audits are bursty, and the interactive session may sit idle
+            // longer than GitHub keeps a connection alive. Do not retain idle
+            // sockets whose first reuse could race a server-side close.
+            .pool_max_idle_per_host(0)
             // Without these, a server that accepts a connection and never
             // finishes the body hangs the audit forever.
             .connect_timeout(config.connect_timeout)
