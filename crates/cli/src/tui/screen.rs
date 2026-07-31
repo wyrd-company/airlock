@@ -207,7 +207,13 @@ impl Screen {
                 key!("\u{2191}\u{2193}", "move"),
                 key!("y", "copy digest"),
             ],
-            Self::PublishingBootstrap => &[key!("esc", "back"), key!("o", "re-observe now")],
+            Self::PublishingBootstrap => &[
+                key!("esc", "back"),
+                key!("\u{2191}\u{2193}", "move"),
+                key!("\u{21b5}", "supply or confirm"),
+                key!("tab", "next target"),
+                key!("o", "re-observe now"),
+            ],
         }
     }
 

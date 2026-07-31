@@ -386,6 +386,41 @@ fn check_remediation(
     }
 }
 
+#[cfg_attr(feature = "test-identity", allow(dead_code))]
+fn check_bootstrap(name: &'static str, width: u16, height: u16, state: super::bootstrap::State) {
+    let case = Case {
+        name,
+        screen: Screen::PublishingBootstrap,
+        theme: Theme::Dark,
+        color: ColorMode::Color,
+        width,
+        height,
+        flow: None,
+        selection: None,
+        run: None,
+    };
+    let backend = TestBackend::new(width, height);
+    let mut terminal = Terminal::new(backend).expect("a test terminal");
+    let app = App::new(VERSION, ColorMode::Color)
+        .at(Screen::PublishingBootstrap, Theme::Dark)
+        .with_bootstrap(state);
+    terminal
+        .draw(|frame| app.render(frame.area(), frame.buffer_mut()))
+        .expect("the frame draws");
+    let rendered = serialise(&case, terminal.backend().buffer());
+    let path = path(name);
+    if std::env::var_os("UPDATE_SNAPSHOTS").is_some() {
+        std::fs::write(&path, rendered).expect("the snapshot is writable");
+    } else {
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("the snapshot is recorded"),
+            rendered,
+            "{} changed. Run with UPDATE_SNAPSHOTS=1 and review the diff.",
+            path.display()
+        );
+    }
+}
+
 /// A session that has been working, and whose grant has just lapsed.
 ///
 /// Driven rather than assembled: authorized, given a catalogue, moved into a
@@ -1335,5 +1370,123 @@ fn remediation_input_and_result_frames_match_recordings() {
         FLOOR_WIDTH,
         FLOOR_HEIGHT,
         floor_complete,
+    );
+}
+
+/// The bootstrap's placements, each drawn at the reference layout and at the
+/// floor.
+///
+/// The floor cases are the ones that matter: five steps with their notes is
+/// more reading than twenty-four rows hold, and what a short terminal does with
+/// it is withhold the tail and say so rather than quietly drop a step.
+#[test]
+#[cfg(not(feature = "test-identity"))]
+fn the_bootstrap_renders_as_recorded() {
+    use crate::admin::bootstrap::{
+        Container, Credential, Observation, Publication, Publisher, Registry, Unit,
+    };
+    use crate::admin::catalogue::Observe;
+
+    let target = || Observe {
+        owner: "generic-owner".to_owned(),
+        name: "sample-repository".to_owned(),
+    };
+    let observation = |registry, credential, publication, container| Observation {
+        unit: Unit {
+            package: "sample-package".to_owned(),
+            registry,
+        },
+        credential,
+        publication,
+        publisher: Publisher::Unobservable {
+            reason: "the configuration read is gated on package ownership".to_owned(),
+        },
+        container,
+    };
+    let credential = || Credential {
+        name: "CARGO_REGISTRY_TOKEN".to_owned(),
+        scope: "generic-owner/sample-repository · Actions repository secret".to_owned(),
+        created: "2026-01-02T03:04:05Z".to_owned(),
+    };
+    let state = |observation| {
+        let mut state = super::bootstrap::State::default();
+        state.observe(target());
+        state.observed(target(), vec![observation]);
+        state
+    };
+
+    for (name, observed) in [
+        (
+            "publishing-bootstrap-mint-120x40-dark",
+            observation(Registry::CratesIo, None, Publication::Absent, None),
+        ),
+        (
+            "publishing-bootstrap-waiting-120x40-dark",
+            observation(
+                Registry::CratesIo,
+                Some(credential()),
+                Publication::Absent,
+                None,
+            ),
+        ),
+        (
+            "publishing-bootstrap-container-120x40-dark",
+            observation(
+                Registry::Ghcr,
+                None,
+                Publication::Undecided {
+                    reason: "read through GitHub rather than by an anonymous request".to_owned(),
+                },
+                Some(Container::Present {
+                    visibility: "private".to_owned(),
+                    repository: None,
+                }),
+            ),
+        ),
+    ] {
+        check_bootstrap(
+            name,
+            REFERENCE_WIDTH,
+            REFERENCE_HEIGHT,
+            state(observed.clone()),
+        );
+        let floor = Box::leak(name.replace("120x40", "80x24").into_boxed_str());
+        check_bootstrap(floor, FLOOR_WIDTH, FLOOR_HEIGHT, state(observed));
+    }
+
+    // The secret surface, which must draw the same whatever was typed into the
+    // driver's buffer.
+    let mut entry = state(observation(
+        Registry::CratesIo,
+        None,
+        Publication::Absent,
+        None,
+    ));
+    entry.supply_secret().expect("the token step is live");
+    entry.secret_input_changed(true);
+    check_bootstrap(
+        "publishing-bootstrap-secret-120x40-dark",
+        REFERENCE_WIDTH,
+        REFERENCE_HEIGHT,
+        entry.clone(),
+    );
+    check_bootstrap(
+        "publishing-bootstrap-secret-80x24-dark",
+        FLOOR_WIDTH,
+        FLOOR_HEIGHT,
+        entry.clone(),
+    );
+    entry.secret_supplied();
+    check_bootstrap(
+        "publishing-bootstrap-confirm-120x40-dark",
+        REFERENCE_WIDTH,
+        REFERENCE_HEIGHT,
+        entry.clone(),
+    );
+    check_bootstrap(
+        "publishing-bootstrap-confirm-80x24-dark",
+        FLOOR_WIDTH,
+        FLOOR_HEIGHT,
+        entry,
     );
 }

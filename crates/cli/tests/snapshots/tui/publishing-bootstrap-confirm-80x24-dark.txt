@@ -1,0 +1,61 @@
+publishing-bootstrap-confirm-80x24-dark · 80x24 · theme dark · colour
+--- text ---
+AIRLOCK 0.0.0  …s › publishing bootstrap  no credential stored · theme t · dark 
+PUBLISHING BOOTSTRAP                                                            
+Most registries will not accept a trusted publisher for a package that has never
+been published. A token exists only to produce that first release, and that     
+token is the thing the policy is trying to eliminate. First publication is a    
+distinct, human-supervised, credentialed event; steady state is credential-free.
+                                                                                
+package       sample-package · crates.io                                        
+observed      0s ago · press o to re-observe now                                
+publication   `sample-package` is not on crates.io                              
+                                                                                
+CONFIRM THE NAMED WRITE                                                         
+write         set the repository secret `CARGO_REGISTRY_TOKEN`                  
+value         supplied by you just now. It is neither shown here nor verified:  
+              GitHub does not read a secret's value back, so airlock cannot say 
+              whether the token works.                                          
+Press enter to confirm. No request has been made.                               
+                                                                                
+THE FIVE STEPS                                                                  
+▶ 1. Mint a registry token — live                                               
+     mint a token on crates.io scoped to publishing `sample-package`. Expiry:   
+— 0 lines above · 19 below · ↑↓ moves the window —                              
+esc back · ↑↓ move · ↵ supply or confirm · tab next target · 3 more…            
+confirmation required · the value is consumed only by the named write           
+--- style keys ---
+aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+ccccccccccccccccccccdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+eeeeeeeeeeeeeeffffffffffffffffffffffffffdddddddddddddddddddddddddddddddddddddddd
+eeeeeeeeeeeeeeffffffffffffffffffffffffffffffffffdddddddddddddddddddddddddddddddd
+eeeeeeeeeeeeeeffffffffffffffffffffffffffffffffffffdddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+gggggggggggggggggggggggddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+eeeeeeeeeeeeeeffffffffffffffffffffffffffffffffffffffffffffffffdddddddddddddddddd
+eeeeeeeeeeeeeeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffdd
+eeeeeeeeeeeeeefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffd
+eeeeeeeeeeeeeeffffffffffffffffffffffffdddddddddddddddddddddddddddddddddddddddddd
+gggggggggggggggggggggggggggggggggggggggggggggggggddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+ggggggggggggggdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+cccccccccccccccccccccccccceeeeeeeddddddddddddddddddddddddddddddddddddddddddddddd
+fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffddd
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeedddddddddddddddddddddddddddddd
+cccdffffeeeccdffffeeecdfffffffffffffffffeeecccdfffffffffffeeehhhhhhhdddddddddddd
+iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii
+--- legend ---
+a fg=#CBD3DD bg=#14181D BOLD
+b fg=#CBD3DD bg=#14181D
+c fg=#E8B84B bg=#0B0D10 BOLD
+d fg=#CBD3DD bg=#0B0D10
+e fg=#4C5661 bg=#0B0D10
+f fg=#79838F bg=#0B0D10
+g fg=#CBD3DD bg=#0B0D10 BOLD
+h fg=#4C5661 bg=#0B0D10 ITALIC
+i fg=#79838F bg=#101419

@@ -22,10 +22,70 @@ use airlock_core::policy::{self, PolicySource};
 use serde::Serialize;
 use zeroize::Zeroize as _;
 
+use super::bootstrap;
 use super::flow;
 use super::identity;
 use super::session::SessionCredential;
 use super::text::{self, CAUSE_LIMIT, NAME_LIMIT};
+
+/// Where a repository declares what it releases.
+const INTENTIONAL_CONFIG: &str = ".intentional/config.yml";
+
+/// What the repository declares it publishes, read from one snapshot.
+///
+/// The release units come from the declaration and the manifests come from the
+/// tree, so both halves are facts about the audited commit rather than
+/// something the operator told the interface.
+fn declaration_of(
+    snapshot: &airlock_core::snapshot::RepoSnapshot,
+    limits: Limits,
+) -> bootstrap::Declaration {
+    use airlock_core::snapshot::FileState;
+    let mut declaration = bootstrap::Declaration {
+        units: Vec::new(),
+        files: snapshot
+            .tree
+            .entries
+            .iter()
+            .filter(|entry: &&airlock_core::github::TreeEntry| {
+                matches!(
+                    entry.kind,
+                    airlock_core::github::EntryKind::Blob
+                        | airlock_core::github::EntryKind::ExecutableBlob
+                )
+            })
+            .map(|entry| entry.path.clone())
+            .collect(),
+    };
+    let state = snapshot.file(INTENTIONAL_CONFIG);
+    if !matches!(state, FileState::Content { .. }) {
+        return declaration;
+    }
+    let Ok(document) =
+        airlock_core::yaml::parse_mapping(state.text().unwrap_or_default(), limits.yaml)
+    else {
+        return declaration;
+    };
+    let Some(units) = document
+        .get("release-units")
+        .and_then(airlock_core::yaml::Yaml::as_map)
+    else {
+        return declaration;
+    };
+    declaration.units = units
+        .iter()
+        .map(|(id, unit)| {
+            let path = unit
+                .get("path")
+                .and_then(airlock_core::yaml::Yaml::as_str)
+                .unwrap_or(".")
+                .trim_end_matches('/')
+                .to_owned();
+            (id.clone(), path)
+        })
+        .collect();
+    declaration
+}
 
 /// A rule whose change can be derived without asking the operator for data.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -256,6 +316,13 @@ pub enum SecretOperation {
         variable: Option<(String, String)>,
         secret: (String, String),
     },
+    /// Set one named repository secret to the value just supplied.
+    ///
+    /// The publishing bootstrap's second step. The write is decided by the
+    /// named secret alone, and its completion is the re-observed presence of
+    /// that name: GitHub does not read a secret's value back, so nothing here
+    /// can claim the value works.
+    SetRepositorySecret { name: String },
 }
 
 impl SecretEntry {
@@ -360,6 +427,10 @@ impl Drop for SecretEntry {
 pub enum Request {
     /// Observe a repository in full under its owner's default policy.
     Observe(Target),
+    /// Observe the publishing bootstrap's facts: the bootstrap secret, the
+    /// package, and any public publisher signal. Asked for afresh every time,
+    /// because the flow persists no position of its own.
+    ObserveBootstrap(Target),
     /// Read the choices for an input-bearing remediation immediately before it
     /// is shown. These values are never cached as an executable plan.
     Prepare { target: Target, remediation: String },
@@ -399,6 +470,11 @@ pub enum Request {
 pub enum Response {
     /// A complete fresh observation.
     Observed { target: Target, report: Box<Report> },
+    /// The publishing bootstrap's freshly observed facts, one per target.
+    BootstrapObserved {
+        target: Target,
+        observations: Vec<bootstrap::Observation>,
+    },
     /// Sanitized choices from a fresh settings observation.
     Prepared {
         remediation: String,
@@ -722,19 +798,139 @@ impl WriteClient {
             .collect())
     }
 
-    async fn rename_secret(
+    /// The repository's Actions secrets, by name and creation time.
+    ///
+    /// GitHub reports when a secret was created and never what it holds, which
+    /// is exactly what the outstanding-credential block is allowed to show.
+    async fn secret_records(
         &self,
         owner: &str,
         repo: &str,
-        old: &str,
-        new: &str,
+    ) -> anyhow::Result<Vec<bootstrap::Credential>> {
+        let value = self
+            .get_json(
+                &format!(
+                    "/repos/{}/{}/actions/secrets?per_page=100",
+                    segment(owner),
+                    segment(repo)
+                ),
+                "GET /repos/{owner}/{repo}/actions/secrets",
+            )
+            .await?;
+        let rows = value
+            .get("secrets")
+            .and_then(serde_json::Value::as_array)
+            .ok_or_else(|| anyhow::anyhow!("the secret response carried no list"))?;
+        Ok(rows
+            .iter()
+            .filter_map(|row| {
+                let name = row.get("name").and_then(serde_json::Value::as_str)?;
+                Some(bootstrap::Credential {
+                    name: text::sanitize(name, NAME_LIMIT),
+                    scope: format!("{owner}/{repo} \u{b7} Actions repository secret"),
+                    created: row
+                        .get("created_at")
+                        .and_then(serde_json::Value::as_str)
+                        .map_or_else(
+                            || "not stated by GitHub".to_owned(),
+                            |at| text::sanitize(at, NAME_LIMIT),
+                        ),
+                })
+            })
+            .collect())
+    }
+
+    /// Read one container package by name.
+    ///
+    /// By name rather than by enumeration: the container list endpoint rejects
+    /// the credential shape airlock holds, and the package name is derived from
+    /// the repository's declared release units anyway.
+    async fn container_package(
+        &self,
+        owner: &str,
+        package: &str,
+    ) -> anyhow::Result<Option<serde_json::Value>> {
+        let path = |scope: &str| {
+            format!(
+                "/{scope}/{}/packages/container/{}",
+                segment(owner),
+                segment(package)
+            )
+        };
+        match self
+            .optional_json(&path("orgs"), "GET /orgs/{org}/packages/container/{name}")
+            .await
+        {
+            Ok(Some(value)) => Ok(Some(value)),
+            // An account that is not an organization answers the user-scoped
+            // path instead, and the two are not distinguishable from here
+            // without asking. A package absent under both is absent.
+            Ok(None) | Err(_) => {
+                self.optional_json(
+                    &path("users"),
+                    "GET /users/{username}/packages/container/{name}",
+                )
+                .await
+            }
+        }
+    }
+
+    /// A read whose 404 is an answer rather than a failure.
+    async fn optional_json(
+        &self,
+        path: &str,
+        endpoint: &str,
+    ) -> anyhow::Result<Option<serde_json::Value>> {
+        let response = self
+            .http
+            .get(format!("{}{}", self.base_url, path))
+            .bearer_auth(&self.token)
+            .header("Accept", "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .send()
+            .await?;
+        if response.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+        let response = accepted(response, endpoint).await?;
+        response.json().await.map(Some).map_err(Into::into)
+    }
+
+    /// Write one named repository secret.
+    ///
+    /// The value is sealed to the repository's own public key before it leaves
+    /// this process, and it exists here only as the borrowed [`SecretValue`]
+    /// the caller owns.
+    async fn put_secret(
+        &self,
+        owner: &str,
+        repo: &str,
+        name: &str,
         value: &SecretValue,
     ) -> anyhow::Result<()> {
-        anyhow::ensure!(
-            !old.is_empty() && !new.is_empty(),
-            "secret rename needs old and new names"
-        );
-        anyhow::ensure!(old != new, "secret rename needs two different names");
+        anyhow::ensure!(!name.is_empty(), "a repository secret write needs a name");
+        let (key_id, encrypted_value) = self.seal_for_repository(owner, repo, value).await?;
+        self.send_json(
+            reqwest::Method::PUT,
+            &format!(
+                "/repos/{}/{}/actions/secrets/{}",
+                segment(owner),
+                segment(repo),
+                segment(name)
+            ),
+            &serde_json::json!({"encrypted_value": encrypted_value, "key_id": key_id}),
+            "PUT /repos/{owner}/{repo}/actions/secrets/{name}",
+        )
+        .await
+    }
+
+    /// Seal a value to the repository's Actions public key.
+    async fn seal_for_repository(
+        &self,
+        owner: &str,
+        repo: &str,
+        value: &SecretValue,
+    ) -> anyhow::Result<(String, String)> {
         let key = self
             .get_json(
                 &format!(
@@ -768,7 +964,26 @@ impl WriteClient {
         let encrypted = public_key
             .seal(&mut crypto_box::aead::OsRng, value.expose())
             .map_err(|_| anyhow::anyhow!("the repository secret value could not be encrypted"))?;
-        let encrypted_value = base64::engine::general_purpose::STANDARD.encode(encrypted);
+        Ok((
+            key_id.to_owned(),
+            base64::engine::general_purpose::STANDARD.encode(encrypted),
+        ))
+    }
+
+    async fn rename_secret(
+        &self,
+        owner: &str,
+        repo: &str,
+        old: &str,
+        new: &str,
+        value: &SecretValue,
+    ) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            !old.is_empty() && !new.is_empty(),
+            "secret rename needs old and new names"
+        );
+        anyhow::ensure!(old != new, "secret rename needs two different names");
+        let (key_id, encrypted_value) = self.seal_for_repository(owner, repo, value).await?;
         self.send_json(
             reqwest::Method::PUT,
             &format!(
@@ -1027,6 +1242,84 @@ impl Session {
         )
         .await
         .map_err(Into::into)
+    }
+
+    /// Observe everything the publishing bootstrap places the operator by.
+    ///
+    /// Three reads and no memory: what the repository declares it publishes,
+    /// which bootstrap secrets it holds, and whether each package exists on its
+    /// registry. A read that fails is an operational failure rather than an
+    /// absence — reporting an unread secret as "no credential" would call a
+    /// ceremony finished that is not.
+    pub async fn observe_bootstrap(
+        &self,
+        target: &Target,
+    ) -> anyhow::Result<Vec<bootstrap::Observation>> {
+        let reader = self.reader()?;
+        let limits = Limits::default();
+        let mut snapshot = airlock_core::snapshot::RepoSnapshot::read(
+            &reader,
+            &target.owner,
+            &target.repo,
+            None,
+            limits,
+        )
+        .await
+        .map_err(|error| anyhow::anyhow!("the repository could not be read: {error}"))?;
+        snapshot
+            .load_files(
+                &reader,
+                &target.owner,
+                &target.repo,
+                &[INTENTIONAL_CONFIG.to_owned()],
+            )
+            .await;
+        let declaration = declaration_of(&snapshot, limits);
+        let units = bootstrap::units(&declaration);
+        let credentials = self
+            .writer
+            .secret_records(&target.owner, &target.repo)
+            .await?;
+        let probe = reqwest::Client::builder()
+            .user_agent(concat!("airlock/", env!("CARGO_PKG_VERSION")))
+            .connect_timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(30))
+            .build()?;
+        let mut observations = Vec::new();
+        for unit in units {
+            let credential = unit.registry.bootstrap_secret().and_then(|name| {
+                credentials
+                    .iter()
+                    .find(|credential| credential.name == name)
+                    .cloned()
+            });
+            let container = if unit.registry == bootstrap::Registry::Ghcr {
+                Some(
+                    match self
+                        .writer
+                        .container_package(&target.owner, &unit.package)
+                        .await
+                    {
+                        Ok(Some(document)) => bootstrap::container_of(&document),
+                        Ok(None) => bootstrap::Container::Absent,
+                        Err(error) => bootstrap::Container::Undecided {
+                            reason: text::sanitize(&format!("{error:#}"), CAUSE_LIMIT),
+                        },
+                    },
+                )
+            } else {
+                None
+            };
+            let (publication, publisher) = bootstrap::read_package(&probe, &unit).await;
+            observations.push(bootstrap::Observation {
+                unit,
+                credential,
+                publication,
+                publisher,
+                container,
+            });
+        }
+        Ok(observations)
     }
 
     async fn prepare(&self, target: &Target, remediation: &str) -> anyhow::Result<PreparedInput> {
@@ -1350,6 +1643,120 @@ impl Session {
         operation: &SecretOperation,
         value: &SecretValue,
     ) -> Transcript {
+        match operation {
+            SecretOperation::SetRepositorySecret { name } => {
+                self.set_repository_secret(owner, repo, rule, remediation, name, value)
+                    .await
+            }
+            SecretOperation::RenameCredentials { .. } => {
+                self.rename_credentials(owner, repo, rule, remediation, operation, value)
+                    .await
+            }
+        }
+    }
+
+    /// Set one named repository secret, and report what was then observed.
+    ///
+    /// The same observe-write-observe shape as every other write, with the one
+    /// honest difference this write carries: GitHub does not read a secret's
+    /// value back, so the closing observation establishes that the name exists
+    /// and nothing more. Nothing here says the value works, and the first
+    /// release is what will answer that.
+    async fn set_repository_secret(
+        &self,
+        owner: &str,
+        repo: &str,
+        rule: &str,
+        remediation: &str,
+        name: &str,
+        value: &SecretValue,
+    ) -> Transcript {
+        let started = Instant::now();
+        let mut transcript = Transcript {
+            rule: text::sanitize(rule, NAME_LIMIT),
+            remediation: text::sanitize(remediation, NAME_LIMIT),
+            proposed_change: format!(
+                "set the repository secret `{}` to the value just supplied by the operator",
+                text::sanitize(name, NAME_LIMIT)
+            ),
+            steps: Vec::new(),
+            observed: ObservedStatus::Inconclusive,
+            undo: None,
+        };
+        let held = match self.writer.secret_records(owner, repo).await {
+            Ok(records) => records,
+            Err(error) => {
+                transcript.steps.push(step(
+                    started,
+                    false,
+                    &format!("pre-write observation of the repository's secrets failed: {error:#}"),
+                ));
+                transcript
+                    .steps
+                    .push(step(started, false, "no write was attempted"));
+                return transcript;
+            }
+        };
+        transcript.steps.push(step(
+            started,
+            true,
+            &if held.iter().any(|record| record.name == name) {
+                "re-observed the secret immediately before acting; it exists and \
+                 will be replaced"
+                    .to_owned()
+            } else {
+                "re-observed the repository's secrets immediately before acting; \
+                 this name is not among them"
+                    .to_owned()
+            },
+        ));
+        let written = self.writer.put_secret(owner, repo, name, value).await;
+        transcript.steps.push(step(
+            started,
+            written.is_ok(),
+            &written.map_or_else(
+                |error| format!("the repository secret write failed: {error:#}"),
+                |()| "github accepted the sealed repository secret".to_owned(),
+            ),
+        ));
+        match self.writer.secret_records(owner, repo).await {
+            Ok(records) => {
+                let present = records.iter().any(|record| record.name == name);
+                transcript.observed = if present {
+                    ObservedStatus::Pass
+                } else {
+                    ObservedStatus::Fail
+                };
+                transcript.steps.push(step(
+                    started,
+                    present,
+                    if present {
+                        "re-observation reports the secret present. Its value is not \
+                         readable back from GitHub, so airlock does not claim the \
+                         value works; the first release is what answers that."
+                    } else {
+                        "re-observation does not report the secret; the gap remains open"
+                    },
+                ));
+            }
+            Err(error) => transcript.steps.push(step(
+                started,
+                false,
+                &format!("post-write re-observation failed: {error:#}"),
+            )),
+        }
+        transcript
+    }
+
+    async fn rename_credentials(
+        &mut self,
+        owner: &str,
+        repo: &str,
+        rule: &str,
+        remediation: &str,
+        operation: &SecretOperation,
+        value: &SecretValue,
+    ) -> Transcript {
         let started = Instant::now();
         let mut transcript = Transcript {
             rule: text::sanitize(rule, NAME_LIMIT),
@@ -1397,7 +1804,14 @@ impl Session {
             ));
             return transcript;
         }
-        let SecretOperation::RenameCredentials { variable, secret } = operation;
+        let SecretOperation::RenameCredentials { variable, secret } = operation else {
+            transcript.steps.push(step(
+                started,
+                false,
+                "this operation is not a credential rename; no write was made",
+            ));
+            return transcript;
+        };
         let changed = async {
             if let Some((old_variable, new_variable)) = variable {
                 self.writer
@@ -1926,6 +2340,18 @@ fn run(mut session: Session, requests: Receiver<Request>, responses: &Sender<Res
                     CAUSE_LIMIT,
                 )),
             },
+            Request::ObserveBootstrap(target) => {
+                match runtime.block_on(session.observe_bootstrap(&target)) {
+                    Ok(observations) => Response::BootstrapObserved {
+                        target,
+                        observations,
+                    },
+                    Err(error) => Response::Failed(text::sanitize(
+                        &format!("the publishing bootstrap observation failed: {error:#}"),
+                        CAUSE_LIMIT,
+                    )),
+                }
+            }
             Request::Prepare {
                 target,
                 remediation,
@@ -2242,6 +2668,222 @@ mod tests {
             token: "ghu_test_only".to_owned(),
             base_url: server.uri(),
         }
+    }
+
+    /// The bootstrap's step 2, end to end against a stood-up GitHub.
+    ///
+    /// Observe, write, observe: the completion the transcript reports is the
+    /// re-observed presence of the name, and the plaintext appears in no
+    /// request body.
+    #[tokio::test]
+    async fn the_bootstrap_secret_write_is_observed_before_and_after_and_carries_no_plaintext() {
+        use base64::Engine as _;
+        let server = MockServer::start().await;
+        let recipient = crypto_box::SecretKey::generate(&mut crypto_box::aead::OsRng);
+        let encoded_key =
+            base64::engine::general_purpose::STANDARD.encode(recipient.public_key().as_bytes());
+        let mut listings = vec![
+            serde_json::json!({"secrets": []}),
+            serde_json::json!({"secrets": [
+                {"name": "CARGO_REGISTRY_TOKEN", "created_at": "2026-01-02T03:04:05Z"}
+            ]}),
+        ]
+        .into_iter();
+        for body in listings.by_ref() {
+            Mock::given(method("GET"))
+                .and(path(
+                    "/repos/generic-owner/sample-repository/actions/secrets",
+                ))
+                .respond_with(ResponseTemplate::new(200).set_body_json(body))
+                .up_to_n_times(1)
+                .expect(1)
+                .mount(&server)
+                .await;
+        }
+        Mock::given(method("GET"))
+            .and(path(
+                "/repos/generic-owner/sample-repository/actions/secrets/public-key",
+            ))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "key_id": "fixture-key",
+                "key": encoded_key
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("PUT"))
+            .and(path(
+                "/repos/generic-owner/sample-repository/actions/secrets/CARGO_REGISTRY_TOKEN",
+            ))
+            .respond_with(ResponseTemplate::new(201))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let plaintext = "opaque-registry-token-7391";
+        let session = session(&server).await;
+        let transcript = session
+            .set_repository_secret(
+                "generic-owner",
+                "sample-repository",
+                "publishing-bootstrap",
+                "set-publishing-bootstrap-secret",
+                "CARGO_REGISTRY_TOKEN",
+                &SecretValue(plaintext.to_owned()),
+            )
+            .await;
+
+        assert_eq!(transcript.observed, ObservedStatus::Pass);
+        assert_eq!(transcript.steps.len(), 3);
+        assert!(transcript.steps[0]
+            .detail
+            .contains("immediately before acting"));
+        assert!(transcript.steps[2].detail.contains("not readable back"));
+        assert!(
+            !transcript
+                .steps
+                .iter()
+                .any(|step| step.detail.contains(plaintext)),
+            "the transcript carries the value"
+        );
+        assert!(!transcript.proposed_change.contains(plaintext));
+        let requests = server.received_requests().await.unwrap();
+        assert!(requests
+            .iter()
+            .all(|request| !String::from_utf8_lossy(&request.body).contains(plaintext)));
+    }
+
+    /// A write GitHub accepted whose name is not there afterwards is reported
+    /// as still open, because status follows observation and never the request.
+    #[tokio::test]
+    async fn an_accepted_write_the_re_observation_does_not_see_is_reported_as_failing() {
+        use base64::Engine as _;
+        let server = MockServer::start().await;
+        let recipient = crypto_box::SecretKey::generate(&mut crypto_box::aead::OsRng);
+        let encoded_key =
+            base64::engine::general_purpose::STANDARD.encode(recipient.public_key().as_bytes());
+        Mock::given(method("GET"))
+            .and(path(
+                "/repos/generic-owner/sample-repository/actions/secrets",
+            ))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({"secrets": []})),
+            )
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path(
+                "/repos/generic-owner/sample-repository/actions/secrets/public-key",
+            ))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "key_id": "fixture-key",
+                "key": encoded_key
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("PUT"))
+            .and(path(
+                "/repos/generic-owner/sample-repository/actions/secrets/NPM_TOKEN",
+            ))
+            .respond_with(ResponseTemplate::new(201))
+            .mount(&server)
+            .await;
+
+        let session = session(&server).await;
+        let transcript = session
+            .set_repository_secret(
+                "generic-owner",
+                "sample-repository",
+                "publishing-bootstrap",
+                "set-publishing-bootstrap-secret",
+                "NPM_TOKEN",
+                &SecretValue("opaque-input".to_owned()),
+            )
+            .await;
+        assert_eq!(transcript.observed, ObservedStatus::Fail);
+        assert!(transcript
+            .steps
+            .last()
+            .is_some_and(|step| step.detail.contains("remains open")));
+    }
+
+    /// A secrets read that fails is not an absence: no write is attempted, and
+    /// nothing calls the credential gone.
+    #[tokio::test]
+    async fn an_unreadable_secret_listing_stops_the_write_rather_than_reading_as_absent() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path(
+                "/repos/generic-owner/sample-repository/actions/secrets",
+            ))
+            .respond_with(ResponseTemplate::new(403))
+            .mount(&server)
+            .await;
+        let session = session(&server).await;
+        let transcript = session
+            .set_repository_secret(
+                "generic-owner",
+                "sample-repository",
+                "publishing-bootstrap",
+                "set-publishing-bootstrap-secret",
+                "NPM_TOKEN",
+                &SecretValue("opaque-input".to_owned()),
+            )
+            .await;
+        assert_eq!(transcript.observed, ObservedStatus::Inconclusive);
+        assert!(transcript
+            .steps
+            .last()
+            .is_some_and(|step| step.detail.contains("no write was attempted")));
+        assert!(server
+            .received_requests()
+            .await
+            .unwrap()
+            .iter()
+            .all(|request| request.method == wiremock::http::Method::GET));
+    }
+
+    /// A secret listing is read for names and creation times, and there is no
+    /// field on the way back a value could travel in.
+    #[tokio::test]
+    async fn a_secret_listing_carries_names_and_creation_times_only() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path(
+                "/repos/generic-owner/sample-repository/actions/secrets",
+            ))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({"secrets": [
+                    {"name": "NPM_TOKEN", "created_at": "2026-01-02T03:04:05Z"},
+                    {"name": "UNRELATED"}
+                ]})),
+            )
+            .mount(&server)
+            .await;
+        let records = writer(&server)
+            .secret_records("generic-owner", "sample-repository")
+            .await
+            .unwrap();
+        assert_eq!(records[0].name, "NPM_TOKEN");
+        assert_eq!(records[0].created, "2026-01-02T03:04:05Z");
+        assert!(records[0].scope.contains("generic-owner/sample-repository"));
+        assert_eq!(records[1].created, "not stated by GitHub");
+    }
+
+    /// A container package absent under both scopes is absent, and a 404 is an
+    /// answer rather than a failure.
+    #[tokio::test]
+    async fn an_absent_container_package_is_absent_rather_than_undecided() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+        assert!(writer(&server)
+            .container_package("generic-owner", "sample-package")
+            .await
+            .unwrap()
+            .is_none());
     }
 
     #[tokio::test]

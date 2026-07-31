@@ -7,6 +7,7 @@
 //! guarantee holds without a check declining to take the path.
 
 mod app;
+mod bootstrap;
 mod chrome;
 mod detail;
 mod findings;
@@ -371,6 +372,42 @@ fn drive(app: &mut App, session: &mut terminal::Session, authorizing: Authorizin
                 app.operation_failed(text::sanitize(&format!("{error:#}"), CAUSE_LIMIT));
             }
         }
+        if let (Some(worker), Some(observe)) =
+            (working.as_ref(), app.take_bootstrap_observation_request())
+        {
+            if let Err(error) = worker.request(WorkerRequest::ObserveBootstrap(Target {
+                owner: observe.owner,
+                repo: observe.name,
+            })) {
+                app.operation_failed(text::sanitize(&format!("{error:#}"), CAUSE_LIMIT));
+            }
+        }
+        // The bootstrap's step 2, on the same terms as every other secret-bearing
+        // write: the value is taken here, beside the credential, and is consumed
+        // only by the write the operator has just confirmed by name.
+        if let (Some(worker), Some(request)) = (working.as_ref(), app.take_bootstrap_request()) {
+            let Some(value) = supplied_secret.take() else {
+                app.operation_failed(
+                    "no request was made because the supplied secret value is no longer available"
+                        .to_owned(),
+                );
+                continue;
+            };
+            if let Err(error) = worker.request(WorkerRequest::ApplyWithSecret {
+                target: Target {
+                    owner: request.owner,
+                    repo: request.repo,
+                },
+                rule: "publishing-bootstrap".to_owned(),
+                remediation: "set-publishing-bootstrap-secret".to_owned(),
+                operation: SecretOperation::SetRepositorySecret {
+                    name: request.secret,
+                },
+                value,
+            }) {
+                app.operation_failed(text::sanitize(&format!("{error:#}"), CAUSE_LIMIT));
+            }
+        }
         if let (Some(worker), Some(request)) = (working.as_ref(), app.take_undo_request()) {
             if let Err(error) = worker.request(WorkerRequest::Undo {
                 target: Target {
@@ -396,6 +433,16 @@ fn drive(app: &mut App, session: &mut terminal::Session, authorizing: Authorizin
                         app.observed(&observe, "this session", report.outcome.code());
                         app.observed_run(&report, &Default::default());
                     }
+                    WorkerResponse::BootstrapObserved {
+                        target,
+                        observations,
+                    } => app.bootstrap_observed(
+                        catalogue::Observe {
+                            owner: target.owner,
+                            name: target.repo,
+                        },
+                        observations,
+                    ),
                     WorkerResponse::Prepared { remediation, input } => {
                         app.remediation_prepared(&remediation, input)
                     }
@@ -599,6 +646,68 @@ mod tests {
             SecretInputAction::Submit(_)
         ));
         assert!(host.supplied);
+    }
+
+    /// The bootstrap's own state composes with the same boundary.
+    ///
+    /// Its placement is a reading of a repository and its step-2 input is a
+    /// value the operator supplied, so a lapse must leave neither behind: the
+    /// screen comes back saying it has observed nothing, and the entry buffer
+    /// the driver owns is erased with the grant.
+    #[test]
+    fn lapse_discards_the_bootstrap_placement_and_its_supplied_value() {
+        use crate::admin::bootstrap::{Observation, Publication, Publisher, Registry, Unit};
+        use crate::admin::catalogue::Observe;
+
+        let mut app = App::new("0.0.0", ColorMode::NoColor);
+        app.authorization_granted(crate::admin::session::Validity::Unstated);
+        let target = Observe {
+            owner: "generic-owner".to_owned(),
+            name: "sample-repository".to_owned(),
+        };
+        app.bootstrap_observed(
+            target,
+            vec![Observation {
+                unit: Unit {
+                    package: "sample-package".to_owned(),
+                    registry: Registry::CratesIo,
+                },
+                credential: None,
+                publication: Publication::Absent,
+                publisher: Publisher::Unobservable {
+                    reason: "gated on crate ownership".to_owned(),
+                },
+                container: None,
+            }],
+        );
+        assert!(app.bootstrap_placement().is_some());
+
+        let mut secret_entry = SecretEntry::default();
+        for character in "bootstrap-token".chars() {
+            secret_entry.push(character);
+        }
+        let mut supplied_secret = secret_entry.take();
+        let mut authorizing = None;
+        let mut credential = None;
+        let mut reading = None;
+        let mut working = None;
+
+        app.lapse();
+        assert!(discard_session(
+            &mut app,
+            &mut authorizing,
+            &mut credential,
+            &mut reading,
+            &mut working,
+            &mut secret_entry,
+            &mut supplied_secret,
+        ));
+        assert!(
+            app.bootstrap_placement().is_none(),
+            "a placement observed under a lapsed grant survived"
+        );
+        assert!(supplied_secret.is_none(), "the supplied value survived");
+        assert!(secret_entry.take().is_none(), "partial input survived");
     }
 
     #[test]

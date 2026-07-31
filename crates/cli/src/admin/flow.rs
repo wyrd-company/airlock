@@ -55,6 +55,9 @@ const LOGIN_URL_OVERRIDE: &str = "AIRLOCK_GITHUB_LOGIN_URL";
 /// asserts rather than a habit it hopes for.
 const API_URL_OVERRIDE: &str = "AIRLOCK_API_URL";
 
+/// Where the publishing bootstrap's registry reads go, for a test.
+const REGISTRY_URL_OVERRIDE: &str = "AIRLOCK_REGISTRY_URL";
+
 /// How long the worker is given to notice that the session has gone.
 ///
 /// Every await on it is selecting against the request channel, so it returns as
@@ -85,6 +88,20 @@ pub fn api_base() -> String {
         Ok(value) if is_loopback(&value) => value,
         _ => airlock_core::github::RestClientConfig::default().base_url,
     }
+}
+
+/// Where a registry read goes, where a test has redirected it.
+///
+/// The registry reads the publishing bootstrap makes are unauthenticated and
+/// public, and they live behind the same discipline as every other base this
+/// binary dials: an override is honoured only for a loopback address, so a
+/// suite can stand a registry up on localhost and nothing can point a read at
+/// a host of its choosing.
+#[must_use]
+pub fn registry_base() -> Option<String> {
+    std::env::var(REGISTRY_URL_OVERRIDE)
+        .ok()
+        .filter(|value| is_loopback(value))
 }
 
 /// Where the device flow talks to.

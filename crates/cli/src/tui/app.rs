@@ -33,6 +33,7 @@ use crate::admin::flow::Progress;
 use crate::admin::session::Validity;
 use crate::admin::sign_in::{Density, Reason, SignIn};
 
+use super::bootstrap;
 use super::detail;
 use super::findings;
 use super::organizations;
@@ -248,6 +249,14 @@ pub struct App {
     /// than silently doing nothing.
     note: Option<String>,
     remediation: remediation::State,
+    /// The publishing bootstrap's freshly observed facts, and step 2's state.
+    ///
+    /// Held like every other reading and discarded like every other reading: a
+    /// bootstrap placement is derived from an observation, so it cannot outlive
+    /// the grant that observation was made under.
+    bootstrap: bootstrap::State,
+    pending_bootstrap_observation: Option<Observe>,
+    pending_bootstrap: Option<bootstrap::Request>,
     pending_remediation: Option<remediation::Request>,
     pending_preparation: Option<(Observe, String)>,
     pending_undo: Option<remediation::UndoRequest>,
@@ -300,6 +309,9 @@ impl App {
             reobserve: None,
             note: None,
             remediation: remediation::State::default(),
+            bootstrap: bootstrap::State::default(),
+            pending_bootstrap_observation: None,
+            pending_bootstrap: None,
             pending_remediation: None,
             pending_preparation: None,
             pending_undo: None,
@@ -378,20 +390,62 @@ impl App {
     pub fn accepts_secret(&self) -> bool {
         match self.screen {
             Screen::Remediation => self.remediation.accepts_secret(),
+            Screen::PublishingBootstrap => self.bootstrap.accepts_secret(),
             _ => false,
         }
     }
 
     pub fn secret_input_changed(&mut self, holding_input: bool) {
+        if self.screen == Screen::PublishingBootstrap {
+            self.bootstrap.secret_input_changed(holding_input);
+            return;
+        }
         self.remediation.secret_input_changed(holding_input);
     }
 
     pub fn secret_empty_refused(&mut self) {
+        if self.screen == Screen::PublishingBootstrap {
+            self.bootstrap.secret_empty_refused();
+            return;
+        }
         self.remediation.secret_empty_refused();
     }
 
     pub fn secret_supplied(&mut self) {
+        if self.screen == Screen::PublishingBootstrap {
+            self.bootstrap.secret_supplied();
+            return;
+        }
         self.remediation.secret_supplied();
+    }
+
+    /// Take the bootstrap's fresh observation request exactly once.
+    pub fn take_bootstrap_observation_request(&mut self) -> Option<Observe> {
+        self.pending_bootstrap_observation.take()
+    }
+
+    /// Take the confirmed bootstrap secret write exactly once.
+    pub fn take_bootstrap_request(&mut self) -> Option<bootstrap::Request> {
+        self.pending_bootstrap.take()
+    }
+
+    /// Where the bootstrap's observation places the operator, if anywhere.
+    #[cfg_attr(not(test), allow(dead_code))]
+    #[must_use]
+    pub fn bootstrap_placement(&self) -> Option<crate::admin::bootstrap::Placement> {
+        self.bootstrap.placement()
+    }
+
+    /// Take the bootstrap's freshly observed facts.
+    pub fn bootstrap_observed(
+        &mut self,
+        target: Observe,
+        observations: Vec<crate::admin::bootstrap::Observation>,
+    ) {
+        if self.reauthorizing_now() {
+            return;
+        }
+        self.bootstrap.observed(target, observations);
     }
 
     pub fn remediation_prepared(
@@ -435,6 +489,17 @@ impl App {
         };
     }
 
+    /// Open the interface on the publishing bootstrap with facts already
+    /// observed. The suite has no GitHub and no registry; this is how each
+    /// placement is rendered and compared.
+    #[cfg(test)]
+    #[must_use]
+    pub fn with_bootstrap(mut self, state: bootstrap::State) -> Self {
+        self.bootstrap = state;
+        self.screen = Screen::PublishingBootstrap;
+        self
+    }
+
     #[cfg(test)]
     pub fn with_remediation_state(mut self, state: remediation::State) -> Self {
         self.remediation = state;
@@ -442,9 +507,21 @@ impl App {
         self
     }
 
-    /// Close the remediation screen with the post-write observation.
+    /// Close the write in flight with the post-write observation.
+    ///
+    /// Which screen asked is answered by which one has a write in flight. Only
+    /// one can: a confirmation is single-use, and the bootstrap's own is taken
+    /// the same way the remediation screen's is.
     pub fn remediation_complete(&mut self, transcript: crate::admin::remediation::Transcript) {
         if self.reauthorizing_now() {
+            return;
+        }
+        if self.bootstrap.applying() {
+            let target = self.requested.clone();
+            self.bootstrap.complete(transcript);
+            // Observation, not the request's success: the screen re-reads the
+            // repository so the step's state comes from what is there now.
+            self.pending_bootstrap_observation = target;
             return;
         }
         self.remediation.complete(transcript);
@@ -630,6 +707,11 @@ impl App {
                 return flow;
             }
         }
+        if self.screen == Screen::PublishingBootstrap {
+            if let Some(flow) = self.bootstrapping(event.code) {
+                return flow;
+            }
+        }
         if self.screen == Screen::Remediation && matches!(event.code, KeyCode::Enter) {
             self.pending_remediation = self.remediation.take_confirmation();
             return Flow::Continue;
@@ -658,6 +740,7 @@ impl App {
             }
             KeyCode::Char('b') if self.screen == Screen::Findings => {
                 self.screen = Screen::PublishingBootstrap;
+                self.observe_bootstrap();
             }
             KeyCode::Char('q') if self.screen == Screen::SignIn => self.sign_in.cycle_scan(),
             // `r` is live only once a device code exists, because until then
@@ -693,6 +776,62 @@ impl App {
             _ => {}
         }
         Flow::Continue
+    }
+
+    /// Keys the publishing bootstrap takes for itself.
+    ///
+    /// `None` hands the key back, which is how `t` and `esc` keep meaning what
+    /// they mean here. Nothing in this state captures a printable key as text —
+    /// the shared secret surface takes those from the terminal driver, above
+    /// this type, and while it does the footer stops advertising `t`.
+    fn bootstrapping(&mut self, code: KeyCode) -> Option<Flow> {
+        match code {
+            KeyCode::Char('o') => {
+                self.observe_bootstrap();
+                if self.pending_bootstrap_observation.is_none() {
+                    self.note = Some(
+                        "no repository has been observed in this session, so there \
+                         is nothing to re-observe"
+                            .to_owned(),
+                    );
+                }
+            }
+            // `esc` leaves whatever step 2 was doing before it leaves the
+            // screen: abandoning an entry is not abandoning the bootstrap.
+            KeyCode::Esc if self.bootstrap.cancel() => {}
+            KeyCode::Up => self.bootstrap.scroll(-1),
+            KeyCode::Down => self.bootstrap.scroll(1),
+            KeyCode::Tab => {
+                if !self.bootstrap.next_target() {
+                    self.note = Some(
+                        "this repository declares one publication target, so there \
+                         is nothing to move to"
+                            .to_owned(),
+                    );
+                }
+            }
+            KeyCode::Enter => {
+                self.pending_bootstrap = self.bootstrap.take_confirmation();
+                if self.pending_bootstrap.is_none() {
+                    if let Err(cause) = self.bootstrap.supply_secret() {
+                        self.note = Some(cause.to_owned());
+                    }
+                }
+            }
+            _ => return None,
+        }
+        Some(Flow::Continue)
+    }
+
+    /// Ask for the observation the bootstrap screen is placed by.
+    ///
+    /// Asked on entry and again on `o`. There is nothing else it could be
+    /// placed by: the flow keeps no state of its own.
+    fn observe_bootstrap(&mut self) {
+        if let Some(target) = self.requested.clone() {
+            self.bootstrap.observe(target.clone());
+            self.pending_bootstrap_observation = Some(target);
+        }
     }
 
     /// Insert a bracketed paste into the focused non-secret text surface.
@@ -1122,6 +1261,9 @@ impl App {
     /// lies, so the loop ticks whether or not anything happened.
     pub fn tick(&mut self, elapsed: std::time::Duration) {
         self.sign_in.state_mut().tick(elapsed);
+        // The bootstrap states how stale its reading is, which is a fact about
+        // this session's clock rather than about the repository.
+        self.bootstrap.tick(elapsed);
         if let Some(Validity::Until(remaining)) = &mut self.grant {
             *remaining = remaining.saturating_sub(elapsed);
             if remaining.is_zero() {
@@ -1155,6 +1297,10 @@ impl App {
         self.queue = None;
         self.inspector = None;
         self.remediation = remediation::State::Empty;
+        // A placement is a reading of a repository, so it goes with every other
+        // reading. What the operator supplied for step 2 is erased at the same
+        // boundary by the terminal driver, which is where the value lives.
+        self.bootstrap = bootstrap::State::default();
         self.reobserve = None;
         self.note = None;
         // Requests made under the lapsed grant, which nothing may now carry
@@ -1162,6 +1308,8 @@ impl App {
         // a write this session consented to.
         self.pending_observation = None;
         self.pending_remediation = None;
+        self.pending_bootstrap = None;
+        self.pending_bootstrap_observation = None;
         self.pending_preparation = None;
         self.pending_undo = None;
         self.requested = None;
@@ -1433,6 +1581,9 @@ impl App {
         if self.screen == Screen::Repositories && self.filter.is_open() {
             return INPUT_KEYS.to_vec();
         }
+        if self.screen == Screen::PublishingBootstrap && self.bootstrap.captures_text() {
+            return SECRET_INPUT_KEYS.to_vec();
+        }
         if self.screen == Screen::Remediation && self.remediation.captures_text() {
             return if self.remediation.accepts_secret() {
                 SECRET_INPUT_KEYS.to_vec()
@@ -1473,6 +1624,7 @@ impl App {
                 policy::status,
             ),
             Screen::Remediation => self.remediation.status().to_owned(),
+            Screen::PublishingBootstrap => self.bootstrap.status(),
             other => chrome::status_text(other),
         }
     }
@@ -1523,6 +1675,9 @@ impl App {
         }
         if self.screen == Screen::Remediation {
             return remediation::body(styles, width as usize, &self.remediation);
+        }
+        if self.screen == Screen::PublishingBootstrap {
+            return bootstrap::body(styles, width, height, &self.bootstrap);
         }
         let width = width as usize;
         let mut lines = vec![Line::from(Span::styled(
