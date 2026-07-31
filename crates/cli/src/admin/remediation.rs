@@ -256,7 +256,9 @@ pub enum Response {
 ///
 /// It is a different type from the read-only [`RestClient`]. The core GitHub
 /// trait has no mutating method, so neither audits nor command handlers can
-/// reach anything below.
+/// reach anything below. Writes are never retried: a transport failure is
+/// ambiguous because the mutation may have landed, and observe-write-observe
+/// resolves that ambiguity without risking a double application.
 struct WriteClient {
     http: reqwest::Client,
     token: String,

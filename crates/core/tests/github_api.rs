@@ -90,6 +90,49 @@ async fn an_idempotent_get_retries_one_transport_failure() {
 }
 
 #[tokio::test]
+async fn a_get_gives_up_after_a_single_retry() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        for _ in 0..2 {
+            let (connection, _) = listener.accept().await.unwrap();
+            drop(connection);
+        }
+
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), listener.accept())
+                .await
+                .is_err(),
+            "the GET attempted more than its initial request and single retry"
+        );
+    });
+
+    let client = RestClient::new(
+        "ghu_fixture_token",
+        RestClientConfig {
+            base_url: format!("http://{address}"),
+            max_rate_limit_retries: 0,
+            ..RestClientConfig::default()
+        },
+    )
+    .unwrap();
+
+    let error = tokio::time::timeout(Duration::from_secs(2), client.authenticated_user())
+        .await
+        .expect("the GET stops after its single retry")
+        .expect_err("both transport attempts fail");
+    assert_eq!(error.cause, ErrorCause::Transport);
+    assert!(
+        error
+            .message
+            .as_deref()
+            .is_some_and(|message| message.contains("after one transport retry")),
+        "the error preserves that the request was already retried: {error}"
+    );
+    server.await.unwrap();
+}
+
+#[tokio::test]
 async fn a_permission_403_names_the_permission_the_endpoint_wanted() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))

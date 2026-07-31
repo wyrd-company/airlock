@@ -303,8 +303,9 @@ impl RestClient {
             .map_err(|error| ApiError::local(ErrorCause::Malformed, endpoint, error.to_string()))
     }
 
-    /// Perform one GET, retrying one transport failure and rate-limited
-    /// responses within budget.
+    /// Perform one GET, retrying one request transport failure and rate-limited
+    /// responses within budget. Completed HTTP responses later classified as
+    /// transport failures are returned without retry.
     async fn get(&self, endpoint: &str, url: &str) -> ApiResult<RawResponse> {
         let mut rate_limit_attempt = 0;
         let mut transport_retried = false;
@@ -315,7 +316,18 @@ impl RestClient {
                     transport_retried = true;
                     continue;
                 }
-                Err(error) => return Err(error),
+                Err(mut error) => {
+                    if error.cause == ErrorCause::Transport && transport_retried {
+                        let detail = error
+                            .message
+                            .take()
+                            .unwrap_or_else(|| "the transport failed".to_owned());
+                        error.message = Some(format!(
+                            "the request still failed after one transport retry: {detail}"
+                        ));
+                    }
+                    return Err(error);
+                }
             };
             if (200..300).contains(&raw.status) {
                 return Ok(raw);

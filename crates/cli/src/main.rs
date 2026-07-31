@@ -367,8 +367,7 @@ fn configure_sigpipe(interactive: bool) {
 #[cfg(unix)]
 fn restore_sigpipe_default() {
     // SAFETY: startup calls this before Airlock creates its runtime or performs
-    // application work, and the test that exercises it restores the prior
-    // process-wide disposition before returning.
+    // application work.
     unsafe {
         libc::signal(libc::SIGPIPE, libc::SIG_DFL);
     }
