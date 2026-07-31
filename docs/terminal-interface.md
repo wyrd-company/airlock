@@ -559,22 +559,18 @@ defines a fourth:
   candidate is validated before it is offered for confirmation: it must be a
   name GitHub accepts, and it must itself satisfy the rule being remediated —
   airlock does not apply a fix it can already observe failing.
-- **A secret value.** **SPEC PROPOSAL (task 97; adjudication required):** A
-  secret-bearing remediation takes its value through the shared secret-entry
-  surface immediately before its single-item confirmation. **SPEC PROPOSAL
-  (task 97; adjudication required):** The focused input accepts printable text
-  and paste as value input, `esc` cancels, and `t` inserts text rather than
-  toggling the theme. **SPEC PROPOSAL (task 97; adjudication required):** The
-  value is never rendered — not as entered text, replacement glyphs, or a
-  length — and only a fixed, value-independent entry indicator shows that the
-  surface holds input. **SPEC PROPOSAL (task 97; adjudication required):** The
-  value exists only in the zeroizing entry buffer and the credential-owning
-  write path; it never enters a queue item, a confirmation, a transcript, a
-  snapshot, a log, a pane, or an error. **SPEC PROPOSAL (task 97; adjudication
-  required):** Submitting an empty value is refused without sending a request,
-  and submitting a non-empty value consumes the entry buffer into the pending
-  write. **SPEC PROPOSAL (task 97; adjudication required):** Confirmation names
-  the target secret and states that the operator just supplied its value, but
+- **A secret value.** A secret-bearing remediation takes its value through the
+  shared secret-entry surface immediately before its single-item confirmation.
+  The focused input accepts printable text and paste as value input, `esc`
+  cancels, and `t` inserts text rather than toggling the theme. The value is
+  never rendered — not as entered text, replacement glyphs, or a length — and
+  only a fixed, value-independent entry indicator shows that the surface holds
+  input. The value exists only in the zeroizing entry buffer and the
+  credential-owning write path; it never enters a queue item, a confirmation,
+  a transcript, a snapshot, a log, a pane, or an error. Submitting an empty
+  value is refused without sending a request, and submitting a non-empty value
+  consumes the entry buffer into the pending write. Confirmation names the
+  target secret and states that the operator just supplied its value, but
   neither carries the value nor implies that airlock can verify it works.
 
 **Ceremony scales with reversibility.** A reversible setting confirms once,
@@ -667,13 +663,12 @@ The five steps, each with a glyph, a state, and a note:
 
 1. **Mint a registry token.** Scoped to publishing this package. Airlock never
    displays the value.
-2. **Set it as a repository secret.** **SPEC PROPOSAL (task 97; adjudication
-   required):** The token value is supplied through the same shared
-   secret-entry surface used by secret-bearing remediations and is consumed by
-   the repository-secret write only after the operator confirms that named
-   write. **SPEC PROPOSAL (task 97; adjudication required):** Completion is the
-   re-observed presence of the secret; its value is not readable back by GitHub
-   or by airlock, and the interface does not claim that the value works.
+2. **Set it as a repository secret.** The token value is supplied through the
+   same shared secret-entry surface used by secret-bearing remediations and is
+   consumed by the repository-secret write only after the operator confirms
+   that named write. Completion is the re-observed presence of the secret; its
+   value is not readable back by GitHub or by airlock, and the interface does
+   not claim that the value works.
 3. **Wait for a release to run and publish.** The external step.
 4. **Configure the trusted publisher.** Binds the repository and workflow to
    the package so publishing needs no token at all. Blocked by step 3.
@@ -755,9 +750,8 @@ Two vocabularies are adjacent and are not interchangeable:
 
 No token, secret, or key material appears on any screen, including the
 credential airlock itself holds. Only its grant and its source are shown.
-**SPEC PROPOSAL (task 97; adjudication required):** Secret entry does not
-weaken this rule: the surface renders only fixed, value-independent status and
-instruction text.
+Secret entry does not weaken this rule: the surface renders only fixed,
+value-independent status and instruction text.
 
 Illustrative values — rule counts, digests, repository names, device codes,
 timestamps — are shapes, not fixtures. Any value the interface renders comes
