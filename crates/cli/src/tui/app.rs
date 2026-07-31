@@ -1403,6 +1403,13 @@ impl App {
         self.held_selection = Some((position.installation, position.repository));
         self.requested = position.target.clone();
         if let Some(target) = position.target {
+            // The bootstrap is an address like any other: the operator stood on
+            // that screen, and what stands there is asked for again under the
+            // new authorization rather than carried across the boundary.
+            if self.screen == Screen::PublishingBootstrap {
+                self.bootstrap.observe(target.clone());
+                self.pending_bootstrap_observation = Some(target.clone());
+            }
             self.pending_observation = Some(target);
         }
         self.held_queue = Some(HeldQueue {
@@ -2335,6 +2342,49 @@ mod tests {
         assert_eq!(press(&mut app, KeyCode::Char('r')), Flow::Continue);
         app.report(Progress::CodeIssued(Box::new(issued())));
         assert_eq!(press(&mut app, KeyCode::Char('r')), Flow::Reissue);
+    }
+
+    /// A lapse on the bootstrap holds the address and asks for the facts again.
+    #[test]
+    fn a_lapse_on_the_bootstrap_re_asks_rather_than_carrying_the_placement_across() {
+        use crate::admin::bootstrap::{Observation, Publication, Publisher, Registry, Unit};
+
+        let mut app = app();
+        app.authorization_granted(Validity::Until(std::time::Duration::from_secs(600)));
+        let target = Observe {
+            owner: "generic-owner".to_owned(),
+            name: "sample-repository".to_owned(),
+        };
+        app.requested = Some(target.clone());
+        app.screen = Screen::PublishingBootstrap;
+        app.bootstrap_observed(
+            target,
+            vec![Observation {
+                unit: Unit {
+                    package: "sample-package".to_owned(),
+                    registry: Registry::CratesIo,
+                },
+                credential: None,
+                publication: Publication::Absent,
+                publisher: Publisher::Unobservable {
+                    reason: "gated on crate ownership".to_owned(),
+                },
+                container: None,
+            }],
+        );
+
+        app.lapse();
+        assert!(app.bootstrap_placement().is_none());
+        app.authorization_granted(Validity::Until(std::time::Duration::from_secs(600)));
+        assert_eq!(app.screen(), Screen::PublishingBootstrap);
+        assert!(
+            app.take_bootstrap_observation_request().is_some(),
+            "the facts must be asked for again under the new authorization"
+        );
+        assert!(
+            app.bootstrap_placement().is_none(),
+            "nothing observed under the lapsed grant may be drawn"
+        );
     }
 
     #[test]
