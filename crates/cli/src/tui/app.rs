@@ -40,7 +40,7 @@ use super::panel;
 use super::policy;
 use super::remediation;
 use super::repositories::{self, Filter};
-use super::screen::{Key, Screen, INPUT_KEYS, REAUTHORIZATION_KEYS};
+use super::screen::{Key, Screen, INPUT_KEYS, REAUTHORIZATION_KEYS, SECRET_INPUT_KEYS};
 use super::sign_in;
 use super::theme::{ColorMode, Role, Styles, Theme};
 
@@ -374,6 +374,15 @@ impl App {
         self.pending_undo.take()
     }
 
+    #[must_use]
+    pub fn accepts_secret(&self) -> bool {
+        self.screen == Screen::Remediation && self.remediation.accepts_secret()
+    }
+
+    pub fn secret_supplied(&mut self) {
+        self.remediation.secret_supplied();
+    }
+
     pub fn remediation_prepared(
         &mut self,
         remediation_code: &str,
@@ -400,12 +409,15 @@ impl App {
                     empty: "no freshly observed organization rulesets are available".to_owned(),
                 }
             }
-            crate::admin::remediation::PreparedInput::Variables(names) => {
-                remediation::Input::VariableRename {
-                    names,
-                    selected: 0,
-                    draft: String::new(),
-                    notice: remediation::SECRET_DEFERRAL_NOTICE.to_owned(),
+            crate::admin::remediation::PreparedInput::Credentials { variables, secrets } => {
+                remediation::Input::CredentialRename {
+                    variables,
+                    selected_variable: 0,
+                    variable_draft: String::new(),
+                    secrets,
+                    selected_secret: 0,
+                    secret_draft: String::new(),
+                    editing_secret_name: false,
                     error: None,
                 }
             }
@@ -912,11 +924,14 @@ impl App {
                 empty: "no freshly observed organization ruleset choices are available".to_owned(),
             },
             "rename-app-credentials" | "rename-task-named-credentials" => {
-                remediation::Input::VariableRename {
-                    names: Vec::new(),
-                    selected: 0,
-                    draft: String::new(),
-                    notice: remediation::SECRET_DEFERRAL_NOTICE.to_owned(),
+                remediation::Input::CredentialRename {
+                    variables: Vec::new(),
+                    selected_variable: 0,
+                    variable_draft: String::new(),
+                    secrets: Vec::new(),
+                    selected_secret: 0,
+                    secret_draft: String::new(),
+                    editing_secret_name: false,
                     error: None,
                 }
             }
@@ -1387,7 +1402,11 @@ impl App {
             return INPUT_KEYS.to_vec();
         }
         if self.screen == Screen::Remediation && self.remediation.captures_text() {
-            return INPUT_KEYS.to_vec();
+            return if self.remediation.accepts_secret() {
+                SECRET_INPUT_KEYS.to_vec()
+            } else {
+                INPUT_KEYS.to_vec()
+            };
         }
         chrome::keys_of(self.screen)
     }
@@ -1726,6 +1745,7 @@ mod tests {
     fn selected_remediation_rule(app: &App) -> &str {
         let request = match &app.remediation {
             remediation::State::Input { request }
+            | remediation::State::SecretEntry { request }
             | remediation::State::Confirm { request }
             | remediation::State::Applying { request }
             | remediation::State::Complete { request, .. } => request,

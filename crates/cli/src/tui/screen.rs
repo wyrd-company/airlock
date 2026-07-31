@@ -90,6 +90,13 @@ pub const REAUTHORIZATION_KEYS: [Key; 5] = [
     EXIT_KEY,
 ];
 
+pub const SECRET_INPUT_KEYS: [Key; 4] = [
+    key!("↵", "continue"),
+    key!("backspace", "delete"),
+    key!("esc", "cancel"),
+    EXIT_KEY,
+];
+
 impl Screen {
     /// Every screen, in the order the specification introduces them.
     ///

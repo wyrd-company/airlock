@@ -21,6 +21,7 @@ use std::io::{self, Stdout, Write as _};
 
 use anyhow::{Context as _, Result};
 use crossterm::cursor::{Hide, Show};
+use crossterm::event::{DisableBracketedPaste, EnableBracketedPaste};
 use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
@@ -93,6 +94,8 @@ fn acquire() -> Result<Terminal<CrosstermBackend<Stdout>>> {
     out.execute(EnterAlternateScreen)
         .context("cannot enter the alternate screen")?;
     out.execute(Hide).context("cannot hide the cursor")?;
+    out.execute(EnableBracketedPaste)
+        .context("cannot enable bracketed paste")?;
     Terminal::new(CrosstermBackend::new(out)).context("cannot drive the terminal")
 }
 
@@ -102,6 +105,7 @@ fn acquire() -> Result<Terminal<CrosstermBackend<Stdout>>> {
 pub fn restore() {
     let mut out = io::stdout();
     let _ = out.execute(LeaveAlternateScreen);
+    let _ = out.execute(DisableBracketedPaste);
     let _ = out.execute(Show);
     let _ = disable_raw_mode();
     let _ = out.flush();
@@ -132,7 +136,7 @@ fn install_panic_hook() {
 /// Written as bytes because a signal handler may only call async-signal-safe
 /// functions, and `write` is one while `println!` is not.
 #[cfg(unix)]
-const RESTORE_SEQUENCE: &[u8] = b"\x1b[?1049l\x1b[?25h\x1b[0m";
+const RESTORE_SEQUENCE: &[u8] = b"\x1b[?2004l\x1b[?1049l\x1b[?25h\x1b[0m";
 
 #[cfg(unix)]
 mod signals {

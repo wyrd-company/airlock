@@ -193,11 +193,63 @@ pub struct Target {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PreparedInput {
     Rulesets(Vec<String>),
-    Variables(Vec<String>),
+    Credentials {
+        variables: Vec<String>,
+        secrets: Vec<String>,
+    },
+}
+
+/// A secret supplied by the operator.
+///
+/// This type deliberately implements none of `Clone`, `Debug`, `Display`, or
+/// `Serialize`. Drawable state cannot contain it, and the only way to create
+/// one is to consume a [`SecretEntry`].
+pub struct SecretValue(String);
+
+impl SecretValue {
+    fn expose(&self) -> &[u8] {
+        self.0.as_bytes()
+    }
+}
+
+impl Drop for SecretValue {
+    fn drop(&mut self) {
+        self.0.zeroize();
+    }
+}
+
+/// The shared value- and length-hidden entry buffer owned by the terminal
+/// driver, outside every drawable application model.
+#[derive(Default)]
+pub struct SecretEntry {
+    value: String,
+}
+
+impl SecretEntry {
+    pub fn push(&mut self, character: char) {
+        self.value.push(character);
+    }
+
+    pub fn paste(&mut self, value: &str) {
+        self.value.push_str(value);
+    }
+
+    pub fn backspace(&mut self) {
+        self.value.pop();
+    }
+
+    pub fn take(&mut self) -> Option<SecretValue> {
+        (!self.value.is_empty()).then(|| SecretValue(std::mem::take(&mut self.value)))
+    }
+}
+
+impl Drop for SecretEntry {
+    fn drop(&mut self) {
+        self.value.zeroize();
+    }
 }
 
 /// Work the terminal loop asks the credential-owning worker to do.
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Request {
     /// Observe a repository in full under its owner's default policy.
     Observe(Target),
@@ -210,6 +262,14 @@ pub enum Request {
         rule: String,
         remediation: String,
         argument: Option<String>,
+    },
+    /// Apply a secret-bearing rename. The value cannot enter drawable state.
+    ApplySecret {
+        target: Target,
+        rule: String,
+        remediation: String,
+        argument: String,
+        value: SecretValue,
     },
     /// Apply a confirmed same-lane group, re-observing per rule.
     ApplyGroup {
@@ -532,6 +592,106 @@ impl WriteClient {
         .await
     }
 
+    async fn secrets(&self, owner: &str, repo: &str) -> anyhow::Result<Vec<String>> {
+        let value = self
+            .get_json(
+                &format!(
+                    "/repos/{}/{}/actions/secrets?per_page=100",
+                    segment(owner),
+                    segment(repo)
+                ),
+                "GET /repos/{owner}/{repo}/actions/secrets",
+            )
+            .await?;
+        let rows = value
+            .get("secrets")
+            .and_then(serde_json::Value::as_array)
+            .ok_or_else(|| anyhow::anyhow!("the secret response carried no list"))?;
+        Ok(rows
+            .iter()
+            .filter_map(|row| row.get("name").and_then(serde_json::Value::as_str))
+            .map(|name| text::sanitize(name, NAME_LIMIT))
+            .collect())
+    }
+
+    async fn rename_secret(
+        &self,
+        owner: &str,
+        repo: &str,
+        old: &str,
+        new: &str,
+        value: &SecretValue,
+    ) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            !old.is_empty() && !new.is_empty(),
+            "secret rename needs old and new names"
+        );
+        let key = self
+            .get_json(
+                &format!(
+                    "/repos/{}/{}/actions/secrets/public-key",
+                    segment(owner),
+                    segment(repo)
+                ),
+                "GET /repos/{owner}/{repo}/actions/secrets/public-key",
+            )
+            .await?;
+        let key_id = key
+            .get("key_id")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| {
+                anyhow::anyhow!("the repository secret public-key response carried no key id")
+            })?;
+        let encoded_key = key
+            .get("key")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| {
+                anyhow::anyhow!("the repository secret public-key response carried no key")
+            })?;
+        use base64::Engine as _;
+        let decoded = base64::engine::general_purpose::STANDARD
+            .decode(encoded_key)
+            .map_err(|_| {
+                anyhow::anyhow!("the repository secret public key was not valid base64")
+            })?;
+        let public_key = crypto_box::PublicKey::from_slice(&decoded)
+            .map_err(|_| anyhow::anyhow!("the repository secret public key was not 32 bytes"))?;
+        let encrypted = public_key
+            .seal(&mut crypto_box::aead::OsRng, value.expose())
+            .map_err(|_| anyhow::anyhow!("the repository secret value could not be encrypted"))?;
+        let encrypted_value = base64::engine::general_purpose::STANDARD.encode(encrypted);
+        self.send_json(
+            reqwest::Method::PUT,
+            &format!(
+                "/repos/{}/{}/actions/secrets/{}",
+                segment(owner),
+                segment(repo),
+                segment(new)
+            ),
+            &serde_json::json!({"encrypted_value": encrypted_value, "key_id": key_id}),
+            "PUT /repos/{owner}/{repo}/actions/secrets/{name}",
+        )
+        .await?;
+        let response = self
+            .http
+            .delete(format!(
+                "{}/repos/{}/{}/actions/secrets/{}",
+                self.base_url,
+                segment(owner),
+                segment(repo),
+                segment(old)
+            ))
+            .bearer_auth(&self.token)
+            .send()
+            .await?;
+        accepted(
+            response,
+            "DELETE /repos/{owner}/{repo}/actions/secrets/{name}",
+        )
+        .await
+        .map(|_| ())
+    }
+
     async fn get_json(&self, path: &str, endpoint: &str) -> anyhow::Result<serde_json::Value> {
         let response = self
             .http
@@ -772,11 +932,11 @@ impl Session {
                 .rulesets(&target.owner)
                 .await
                 .map(PreparedInput::Rulesets),
-            "rename-app-credentials" | "rename-task-named-credentials" => self
-                .writer
-                .variables(&target.owner, &target.repo)
-                .await
-                .map(PreparedInput::Variables),
+            "rename-app-credentials" | "rename-task-named-credentials" => {
+                let variables = self.writer.variables(&target.owner, &target.repo).await?;
+                let secrets = self.writer.secrets(&target.owner, &target.repo).await?;
+                Ok(PreparedInput::Credentials { variables, secrets })
+            }
             _ => anyhow::bail!("this remediation has no observed choice input"),
         }
     }
@@ -1067,6 +1227,119 @@ impl Session {
                 started,
                 false,
                 &format!("post-change re-observation failed: {error}"),
+            )),
+        }
+        transcript
+    }
+
+    pub async fn apply_secret(
+        &mut self,
+        owner: &str,
+        repo: &str,
+        rule: &str,
+        remediation: &str,
+        argument: &str,
+        value: &SecretValue,
+    ) -> Transcript {
+        let started = Instant::now();
+        let mut transcript = Transcript {
+            rule: text::sanitize(rule, NAME_LIMIT),
+            remediation: text::sanitize(remediation, NAME_LIMIT),
+            proposed_change:
+                "rename the selected credential names using the value just supplied by the operator"
+                    .to_owned(),
+            steps: Vec::new(),
+            observed: ObservedStatus::Inconclusive,
+            undo: None,
+        };
+        let target = Target {
+            owner: owner.to_owned(),
+            repo: repo.to_owned(),
+        };
+        let before = match self.observe(&target).await {
+            Ok(report) => report,
+            Err(error) => {
+                transcript.steps.push(step(
+                    started,
+                    false,
+                    &format!("pre-change re-observation failed: {error:#}"),
+                ));
+                transcript
+                    .steps
+                    .push(step(started, false, "no write was attempted"));
+                return transcript;
+            }
+        };
+        let before_status = before
+            .findings
+            .iter()
+            .find(|finding| finding.rule == rule)
+            .map(|finding| finding.status);
+        transcript.steps.push(step(
+            started,
+            before_status.is_some(),
+            "re-observed the rule immediately before acting",
+        ));
+        if before_status != Some(airlock_core::findings::Status::Fail) {
+            transcript.steps.push(step(
+                started,
+                before_status == Some(airlock_core::findings::Status::Pass),
+                "the fresh observation does not report a gap; no write was made",
+            ));
+            return transcript;
+        }
+        let fields: Vec<&str> = argument.lines().collect();
+        let [old_variable, new_variable, old_secret, new_secret] = fields.as_slice() else {
+            transcript.steps.push(step(started, false, "the confirmed credential rename no longer carried four names; no write was attempted"));
+            return transcript;
+        };
+        let changed = async {
+            if !old_variable.is_empty() || !new_variable.is_empty() {
+                self.writer
+                    .rename_variable(owner, repo, &format!("{old_variable}\n{new_variable}"))
+                    .await?;
+            }
+            self.writer
+                .rename_secret(owner, repo, old_secret, new_secret, value)
+                .await
+        }
+        .await;
+        transcript.steps.push(step(
+            started,
+            changed.is_ok(),
+            &changed.map_or_else(
+                |error| format!("the credential rename request failed: {error:#}"),
+                |()| "github accepted the credential rename requests".to_owned(),
+            ),
+        ));
+        match self.observe(&target).await {
+            Ok(report) => {
+                transcript.observed = match report
+                    .findings
+                    .iter()
+                    .find(|finding| finding.rule == rule)
+                    .map(|finding| finding.status)
+                {
+                    Some(airlock_core::findings::Status::Pass) => ObservedStatus::Pass,
+                    Some(airlock_core::findings::Status::Fail) => ObservedStatus::Fail,
+                    _ => ObservedStatus::Inconclusive,
+                };
+                transcript.steps.push(step(
+                    started,
+                    transcript.observed == ObservedStatus::Pass,
+                    match transcript.observed {
+                        ObservedStatus::Pass => "re-observation reports pass",
+                        ObservedStatus::Fail => "re-observation reports fail; the gap remains open",
+                        ObservedStatus::Inconclusive => {
+                            "re-observation could not establish the rule"
+                        }
+                    },
+                ));
+            }
+            Err(error) => transcript.steps.push(step(
+                started,
+                false,
+                &format!("post-change re-observation failed: {error:#}"),
             )),
         }
         transcript
@@ -1578,6 +1851,23 @@ fn run(mut session: Session, requests: Receiver<Request>, responses: &Sender<Res
                 );
                 Response::Applied { target, transcript }
             }
+            Request::ApplySecret {
+                target,
+                rule,
+                remediation,
+                argument,
+                value,
+            } => {
+                let transcript = runtime.block_on(session.apply_secret(
+                    &target.owner,
+                    &target.repo,
+                    &rule,
+                    &remediation,
+                    &argument,
+                    &value,
+                ));
+                Response::Applied { target, transcript }
+            }
             Request::ApplyGroup { target, requests } => {
                 let borrowed = requests
                     .iter()
@@ -1705,6 +1995,18 @@ mod tests {
     use tokio::net::TcpListener;
     use wiremock::matchers::{body_json, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    #[test]
+    fn secret_entry_treats_paste_as_value_input_and_consumes_once() {
+        let mut entry = SecretEntry::default();
+        entry.push('t');
+        entry.paste("opaque-input-7391");
+        entry.push('x');
+        entry.backspace();
+        let value = entry.take().expect("non-empty entry is consumed");
+        assert_eq!(value.expose(), b"topaque-input-7391");
+        assert!(entry.take().is_none(), "the buffer was not consumed");
+    }
 
     #[test]
     fn only_changes_derivable_without_operator_data_are_executable() {
@@ -2070,6 +2372,116 @@ mod tests {
         assert!(error.contains("PATCH /orgs/{org}/properties/values"));
         assert!(error.contains("Resource not accessible by integration"));
         assert!(error.contains("[endpoint accepts: organization_custom_properties=admin]"));
+    }
+
+    #[tokio::test]
+    async fn a_repository_secret_rename_uses_the_public_key_flow_without_plaintext() {
+        use base64::Engine as _;
+        let server = MockServer::start().await;
+        let recipient = crypto_box::SecretKey::generate(&mut crypto_box::aead::OsRng);
+        let encoded_key =
+            base64::engine::general_purpose::STANDARD.encode(recipient.public_key().as_bytes());
+        Mock::given(method("GET"))
+            .and(path(
+                "/repos/generic-owner/sample-repository/actions/secrets/public-key",
+            ))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "key_id": "fixture-key",
+                "key": encoded_key
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("PUT"))
+            .and(path(
+                "/repos/generic-owner/sample-repository/actions/secrets/CURRENT_SECRET",
+            ))
+            .respond_with(ResponseTemplate::new(201))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("DELETE"))
+            .and(path(
+                "/repos/generic-owner/sample-repository/actions/secrets/LEGACY_SECRET",
+            ))
+            .respond_with(ResponseTemplate::new(204))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let plaintext = "opaque-input-7391";
+        writer(&server)
+            .rename_secret(
+                "generic-owner",
+                "sample-repository",
+                "LEGACY_SECRET",
+                "CURRENT_SECRET",
+                &SecretValue(plaintext.to_owned()),
+            )
+            .await
+            .unwrap();
+
+        let requests = server.received_requests().await.unwrap();
+        let put = requests
+            .iter()
+            .find(|request| request.method == wiremock::http::Method::PUT)
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&put.body).unwrap();
+        assert_eq!(body["key_id"], "fixture-key");
+        let encrypted = body["encrypted_value"].as_str().unwrap();
+        assert!(!encrypted.contains(plaintext));
+        let ciphertext = base64::engine::general_purpose::STANDARD
+            .decode(encrypted)
+            .unwrap();
+        assert_eq!(recipient.unseal(&ciphertext).unwrap(), plaintext.as_bytes());
+        assert!(requests
+            .iter()
+            .all(|request| { !String::from_utf8_lossy(&request.body).contains(plaintext) }));
+    }
+
+    #[tokio::test]
+    async fn a_secret_public_key_403_names_the_endpoint_and_permission_without_the_value() {
+        use base64::Engine as _;
+        let server = MockServer::start().await;
+        let recipient = crypto_box::SecretKey::generate(&mut crypto_box::aead::OsRng);
+        let encoded_key =
+            base64::engine::general_purpose::STANDARD.encode(recipient.public_key().as_bytes());
+        Mock::given(method("GET"))
+            .and(path(
+                "/repos/generic-owner/sample-repository/actions/secrets/public-key",
+            ))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "key_id": "fixture-key",
+                "key": encoded_key
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("PUT"))
+            .and(path(
+                "/repos/generic-owner/sample-repository/actions/secrets/CURRENT_SECRET",
+            ))
+            .respond_with(
+                ResponseTemplate::new(403)
+                    .insert_header("x-accepted-github-permissions", "secrets=write")
+                    .set_body_json(serde_json::json!({"message": "Secret writes are disabled."})),
+            )
+            .mount(&server)
+            .await;
+        let plaintext = "opaque-input-7391";
+        let error = writer(&server)
+            .rename_secret(
+                "generic-owner",
+                "sample-repository",
+                "LEGACY_SECRET",
+                "CURRENT_SECRET",
+                &SecretValue(plaintext.to_owned()),
+            )
+            .await
+            .expect_err("the permission failure must surface")
+            .to_string();
+        assert!(error.contains("PUT /repos/{owner}/{repo}/actions/secrets/{name}"));
+        assert!(error.contains("[endpoint accepts: secrets=write]"));
+        assert!(!error.contains(plaintext));
     }
 
     #[tokio::test]

@@ -35,7 +35,7 @@ use self::theme::ColorMode;
 use crate::admin::catalogue::{self, Reading};
 use crate::admin::flow::{Authorizing, Report};
 use crate::admin::remediation::{
-    Request as WorkerRequest, Response as WorkerResponse, Target, Working,
+    Request as WorkerRequest, Response as WorkerResponse, SecretEntry, SecretValue, Target, Working,
 };
 use crate::admin::session::SessionCredential;
 use crate::admin::text::{self, CAUSE_LIMIT};
@@ -106,6 +106,10 @@ fn drive(app: &mut App, session: &mut terminal::Session, authorizing: Authorizin
     // rather than carried around by anything that draws.
     let mut reading: Option<Reading> = None;
     let mut working: Option<Working> = None;
+    // Secret bytes live here, beside the credential and outside `App`, which
+    // is the complete drawable/snapshot model.
+    let mut secret_entry = SecretEntry::default();
+    let mut supplied_secret: Option<SecretValue> = None;
     let mut last = Instant::now();
     loop {
         session
@@ -115,16 +119,59 @@ fn drive(app: &mut App, session: &mut terminal::Session, authorizing: Authorizin
 
         if event::poll(TICK).context("cannot wait on the terminal")? {
             match event::read().context("cannot read from the terminal")? {
-                Event::Key(key) => match app.handle_key(key) {
-                    Flow::Exit => return Ok(0),
-                    Flow::Reissue => reissue(app, &mut authorizing),
-                    // The interface says what it would like the terminal to
-                    // hold; the terminal is owned here, so the asking happens
-                    // here. A terminal that ignores it says nothing back, and
-                    // nothing here claims it complied.
-                    Flow::Copy(value) => offer_to_clipboard(&value),
-                    Flow::Continue => {}
-                },
+                Event::Paste(value) if app.accepts_secret() => {
+                    secret_entry.paste(&value);
+                    continue;
+                }
+                Event::Key(key) if app.accepts_secret() => {
+                    use crossterm::event::{KeyCode, KeyEventKind, KeyModifiers};
+                    if key.kind == KeyEventKind::Release {
+                        continue;
+                    }
+                    if key.modifiers.contains(KeyModifiers::CONTROL)
+                        && key.code == KeyCode::Char('c')
+                    {
+                        return Ok(0);
+                    }
+                    match key.code {
+                        KeyCode::Esc => {
+                            secret_entry = SecretEntry::default();
+                            supplied_secret = None;
+                            let _ = app.handle_key(key);
+                        }
+                        KeyCode::Enter => {
+                            if let Some(value) = secret_entry.take() {
+                                supplied_secret = Some(value);
+                                app.secret_supplied();
+                            }
+                        }
+                        KeyCode::Backspace => secret_entry.backspace(),
+                        KeyCode::Char(character)
+                            if !key
+                                .modifiers
+                                .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+                        {
+                            secret_entry.push(character)
+                        }
+                        _ => {}
+                    }
+                    continue;
+                }
+                Event::Key(key) => {
+                    if key.code == crossterm::event::KeyCode::Esc {
+                        supplied_secret = None;
+                    }
+                    match app.handle_key(key) {
+                        Flow::Exit => return Ok(0),
+                        Flow::Reissue => reissue(app, &mut authorizing),
+                        // The interface says what it would like the terminal to
+                        // hold; the terminal is owned here, so the asking happens
+                        // here. A terminal that ignores it says nothing back, and
+                        // nothing here claims it complied.
+                        Flow::Copy(value) => offer_to_clipboard(&value),
+                        Flow::Continue => {}
+                    }
+                }
                 // A resize redraws on the next pass; everything else is not
                 // bound.
                 _ => continue,
@@ -237,11 +284,31 @@ fn drive(app: &mut App, session: &mut terminal::Session, authorizing: Authorizin
             let work = if request.items.len() == 1 {
                 let item = request.items.into_iter().next().expect("one item");
                 let argument = item.argument();
-                WorkerRequest::Apply {
-                    target,
-                    rule: item.rule,
-                    remediation: item.remediation,
-                    argument,
+                if matches!(
+                    item.remediation.as_str(),
+                    "rename-app-credentials" | "rename-task-named-credentials"
+                ) {
+                    let Some(value) = supplied_secret.take() else {
+                        app.operation_failed(
+                            "no request was made because the supplied secret value is no longer available"
+                                .to_owned(),
+                        );
+                        continue;
+                    };
+                    WorkerRequest::ApplySecret {
+                        target,
+                        rule: item.rule,
+                        remediation: item.remediation,
+                        argument: argument.unwrap_or_default(),
+                        value,
+                    }
+                } else {
+                    WorkerRequest::Apply {
+                        target,
+                        rule: item.rule,
+                        remediation: item.remediation,
+                        argument,
+                    }
                 }
             } else {
                 WorkerRequest::ApplyGroup {

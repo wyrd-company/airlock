@@ -356,9 +356,11 @@ post-observation, and transcript. Transfers, repository names, and ruleset
 choices are confirmed singly from values the session has freshly observed or
 the operator has explicitly entered. Airlock never guesses a target.
 
-GitHub does not reveal secret values. A credential rename that would need to
-create a new secret therefore remains in the queue and says that a person must
-supply the value; the session never silently overwrites one. No settings flow
+GitHub does not reveal secret values. A credential rename that creates a new
+secret therefore opens the shared value- and length-hidden entry surface; the
+operator supplies the value immediately before confirming the named write.
+The value never enters the queue, confirmation, transcript, or any rendered
+frame, and airlock never claims it verified the value works. No settings flow
 writes a repository file.
 
 ## Closing file gaps

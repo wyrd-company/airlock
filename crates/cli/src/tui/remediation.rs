@@ -6,8 +6,6 @@ use super::chrome::wrap;
 use super::theme::{Role, Styles};
 use crate::admin::remediation::{ObservedStatus, Transcript};
 
-pub(super) const SECRET_DEFERRAL_NOTICE: &str = "airlock cannot read a secret's value back, so this rename needs the value re-entered by a person; the gap stays in the queue until it is";
-
 /// The input a remediation needs before it can be confirmed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Input {
@@ -29,11 +27,14 @@ pub enum Input {
     },
     /// A non-secret Actions variable selected from fresh observation and
     /// renamed without exposing its value to the renderer.
-    VariableRename {
-        names: Vec<String>,
-        selected: usize,
-        draft: String,
-        notice: String,
+    CredentialRename {
+        variables: Vec<String>,
+        selected_variable: usize,
+        variable_draft: String,
+        secrets: Vec<String>,
+        selected_secret: usize,
+        secret_draft: String,
+        editing_secret_name: bool,
         error: Option<String>,
     },
     /// Transfer needs a selected destination and the repository name typed in full.
@@ -89,12 +90,21 @@ impl Item {
             } => destinations
                 .get(*selected)
                 .map(|destination| format!("{destination}\n{typed_name}")),
-            Input::VariableRename {
-                names,
-                selected,
-                draft,
+            Input::CredentialRename {
+                variables,
+                selected_variable,
+                variable_draft,
+                secrets,
+                selected_secret,
+                secret_draft,
                 ..
-            } => names.get(*selected).map(|name| format!("{name}\n{draft}")),
+            } => secrets.get(*selected_secret).map(|secret| {
+                format!(
+                    "{}\n{}\n{secret}\n{secret_draft}",
+                    variables.get(*selected_variable).map_or("", String::as_str),
+                    variable_draft
+                )
+            }),
         }
     }
 }
@@ -107,6 +117,9 @@ pub enum State {
     Empty,
     /// An input is being authored or selected before confirmation.
     Input { request: Request },
+    /// Names are fixed and the terminal driver is collecting the value outside
+    /// this drawable model.
+    SecretEntry { request: Request },
     /// The change is named and awaits the operator's confirmation.
     Confirm { request: Request },
     /// The confirmed operation is in flight.
@@ -126,14 +139,15 @@ impl State {
 
     #[must_use]
     pub fn captures_text(&self) -> bool {
-        matches!(
-            self,
+        matches!(self, Self::SecretEntry { .. })
+            || matches!(
+                self,
             Self::Input { request }
                 if request.items.iter().any(|item| matches!(
                     item.input,
-                    Input::Text { .. } | Input::Transfer { .. } | Input::VariableRename { .. }
+                    Input::Text { .. } | Input::Transfer { .. } | Input::CredentialRename { .. }
                 ))
-        )
+            )
     }
     /// Build the confirmation from already-sanitized queue data.
     #[must_use]
@@ -182,9 +196,19 @@ impl State {
                 crossterm::event::KeyCode::Up,
             )
             | (
-                Input::VariableRename {
-                    names: values,
-                    selected,
+                Input::CredentialRename {
+                    variables: values,
+                    selected_variable: selected,
+                    editing_secret_name: false,
+                    ..
+                },
+                crossterm::event::KeyCode::Up,
+            )
+            | (
+                Input::CredentialRename {
+                    secrets: values,
+                    selected_secret: selected,
+                    editing_secret_name: true,
                     ..
                 },
                 crossterm::event::KeyCode::Up,
@@ -209,9 +233,19 @@ impl State {
                 crossterm::event::KeyCode::Down,
             )
             | (
-                Input::VariableRename {
-                    names: values,
-                    selected,
+                Input::CredentialRename {
+                    variables: values,
+                    selected_variable: selected,
+                    editing_secret_name: false,
+                    ..
+                },
+                crossterm::event::KeyCode::Down,
+            )
+            | (
+                Input::CredentialRename {
+                    secrets: values,
+                    selected_secret: selected,
+                    editing_secret_name: true,
                     ..
                 },
                 crossterm::event::KeyCode::Down,
@@ -224,16 +258,53 @@ impl State {
             (Input::Transfer { typed_name, .. }, crossterm::event::KeyCode::Char(character)) => {
                 typed_name.push(character);
             }
-            (Input::VariableRename { draft, error, .. }, crossterm::event::KeyCode::Backspace) => {
+            (
+                Input::CredentialRename {
+                    variable_draft: draft,
+                    editing_secret_name: false,
+                    error,
+                    ..
+                },
+                crossterm::event::KeyCode::Backspace,
+            )
+            | (
+                Input::CredentialRename {
+                    secret_draft: draft,
+                    editing_secret_name: true,
+                    error,
+                    ..
+                },
+                crossterm::event::KeyCode::Backspace,
+            ) => {
                 draft.pop();
                 *error = None;
             }
             (
-                Input::VariableRename { draft, error, .. },
+                Input::CredentialRename {
+                    variable_draft: draft,
+                    editing_secret_name: false,
+                    error,
+                    ..
+                }
+                | Input::CredentialRename {
+                    secret_draft: draft,
+                    editing_secret_name: true,
+                    error,
+                    ..
+                },
                 crossterm::event::KeyCode::Char(character),
             ) => {
                 draft.push(character);
                 *error = None;
+            }
+            (
+                Input::CredentialRename {
+                    editing_secret_name,
+                    ..
+                },
+                crossterm::event::KeyCode::Tab,
+            ) => {
+                *editing_secret_name = !*editing_secret_name;
             }
             (_, crossterm::event::KeyCode::Enter) => return self.validate_input(),
             _ => return false,
@@ -265,15 +336,24 @@ impl State {
                 }
             }
             Input::Choice { values, .. } => !values.is_empty(),
-            Input::VariableRename {
-                names,
-                draft,
+            Input::CredentialRename {
+                variables,
+                variable_draft,
+                secrets,
+                secret_draft,
                 error,
                 ..
-            } => match validate_variable_name(draft) {
-                Ok(()) if !names.is_empty() => true,
-                Ok(()) => false,
-                Err(cause) => {
+            } => match (
+                if variables.is_empty() {
+                    Ok(())
+                } else {
+                    validate_variable_name(variable_draft)
+                },
+                validate_secret_name(secret_draft),
+            ) {
+                (Ok(()), Ok(())) if !secrets.is_empty() => true,
+                (Ok(()), Ok(())) => false,
+                (Err(cause), _) | (_, Err(cause)) => {
                     *error = Some(cause);
                     false
                 }
@@ -285,10 +365,28 @@ impl State {
             } => !destinations.is_empty() && typed_name == &request.repo,
         };
         if valid {
+            let needs_secret = matches!(item.input, Input::CredentialRename { .. });
             let request = request.clone();
-            *self = Self::Confirm { request };
+            *self = if needs_secret {
+                Self::SecretEntry { request }
+            } else {
+                Self::Confirm { request }
+            };
         }
         true
+    }
+
+    #[must_use]
+    pub const fn accepts_secret(&self) -> bool {
+        matches!(self, Self::SecretEntry { .. })
+    }
+
+    pub fn secret_supplied(&mut self) {
+        if let Self::SecretEntry { request } = self {
+            *self = Self::Confirm {
+                request: request.clone(),
+            };
+        }
     }
 
     /// Confirm once. Repeated enter presses cannot queue repeated writes.
@@ -352,6 +450,7 @@ impl State {
         match self {
             Self::Empty => "no settings remediation selected",
             Self::Input { .. } => "input required before confirmation",
+            Self::SecretEntry { .. } => "secret value required · value and length hidden",
             Self::Confirm { .. } => "confirmation required · re-observes before and after",
             Self::Applying { .. } => "applying · final status will follow re-observation",
             Self::Complete { transcripts, .. }
@@ -396,6 +495,7 @@ pub fn body(styles: Styles, width: usize, state: &State) -> Vec<Line<'static>> {
         }
         State::Confirm { request }
         | State::Input { request }
+        | State::SecretEntry { request }
         | State::Applying { request }
         | State::Complete { request, .. } => request,
     };
@@ -459,21 +559,43 @@ pub fn body(styles: Styles, width: usize, state: &State) -> Vec<Line<'static>> {
                     }
                 }
             }
-            Input::VariableRename {
-                names,
-                selected,
-                draft,
-                notice,
+            Input::CredentialRename {
+                variables,
+                selected_variable,
+                variable_draft,
+                secrets,
+                selected_secret,
+                secret_draft,
+                editing_secret_name,
                 error,
             } => {
-                lines.push(Line::from(format!("secret values   {notice}")));
-                for (index, value) in names.iter().enumerate() {
+                for (index, value) in variables.iter().enumerate() {
                     lines.push(Line::from(format!(
                         "{} variable    {value}",
-                        if index == *selected { ">" } else { " " }
+                        if index == *selected_variable {
+                            ">"
+                        } else {
+                            " "
+                        }
                     )));
                 }
-                lines.push(Line::from(format!("new name        {draft}")));
+                lines.push(Line::from(format!(
+                    "{} variable name {variable_draft}",
+                    if !editing_secret_name { ">" } else { " " }
+                )));
+                for (index, value) in secrets.iter().enumerate() {
+                    lines.push(Line::from(format!(
+                        "{} secret      {value}",
+                        if index == *selected_secret { ">" } else { " " }
+                    )));
+                }
+                lines.push(Line::from(format!(
+                    "{} secret name   {secret_draft}",
+                    if *editing_secret_name { ">" } else { " " }
+                )));
+                lines.push(Line::from(
+                    "tab switches the active name field; enter continues to value entry",
+                ));
                 if let Some(error) = error {
                     lines.push(Line::from(format!("invalid         {error}")));
                 }
@@ -493,6 +615,14 @@ pub fn body(styles: Styles, width: usize, state: &State) -> Vec<Line<'static>> {
             }
             Input::None | Input::Fixed { .. } => {}
         },
+        State::SecretEntry { .. } => {
+            lines.push(Line::from(
+                "secret value    input accepted here; value and length are never displayed",
+            ));
+            lines.push(Line::from(
+                "enter           continue to the named confirmation · esc cancel",
+            ));
+        }
         State::Confirm { request } => {
             for item in &request.items {
                 for line in confirmed_input(item, &request.repo, width) {
@@ -579,18 +709,21 @@ fn confirmed_input(item: &Item, repository: &str, width: usize) -> Vec<String> {
             }
             lines
         }
-        Input::VariableRename {
-            names,
-            selected,
-            draft,
-            notice,
+        Input::CredentialRename {
+            variables,
+            selected_variable,
+            variable_draft,
+            secrets,
+            selected_secret,
+            secret_draft,
             ..
         } => vec![
             format!(
-                "selected        {} → {draft}",
-                names.get(*selected).map_or("", String::as_str)
+                "variable       {} → {variable_draft}",
+                variables.get(*selected_variable).map_or("", String::as_str)
             ),
-            format!("secret values   {notice}"),
+            format!("secret         {} → {secret_draft}", secrets.get(*selected_secret).map_or("", String::as_str)),
+            "secret value    supplied by the operator just before this confirmation; never displayed and not verified".to_owned(),
         ],
         Input::Transfer {
             destinations,
@@ -681,11 +814,24 @@ pub fn rename_candidate(code: &str, current: &str, family: Option<&str>) -> Stri
 }
 
 fn validate_variable_name(value: &str) -> Result<(), String> {
+    validate_credential_name(value, 48, "variable")
+}
+
+fn validate_secret_name(value: &str) -> Result<(), String> {
+    validate_credential_name(value, 100, "secret")
+}
+
+fn validate_credential_name(value: &str, maximum: usize, kind: &str) -> Result<(), String> {
     if value.is_empty() {
-        return Err("enter a variable name".to_owned());
+        return Err(format!("enter a {kind} name"));
     }
-    if value.len() > 48 {
-        return Err("variable names are at most 48 characters".to_owned());
+    if value.len() > maximum {
+        return Err(format!("{kind} names are at most {maximum} characters"));
+    }
+    if value.starts_with("GITHUB_") || value.as_bytes()[0].is_ascii_digit() {
+        return Err(format!(
+            "a {kind} name cannot start with `GITHUB_` or a digit"
+        ));
     }
     if !value
         .bytes()
@@ -804,24 +950,33 @@ mod tests {
     }
 
     #[test]
-    fn secret_deferral_notice_renders_the_person_and_queue_contract() {
-        let state = State::confirm(
-            "generic-owner".to_owned(),
-            "sample-repository".to_owned(),
-            vec![Item {
-                rule: "REPO-SAMPLE-01".to_owned(),
-                remediation: "rename-app-credentials".to_owned(),
-                change: "sample".to_owned(),
-                reversible: true,
-                input: Input::VariableRename {
-                    names: vec!["LEGACY_NAME".to_owned()],
-                    selected: 0,
-                    draft: "CURRENT_NAME".to_owned(),
-                    notice: SECRET_DEFERRAL_NOTICE.to_owned(),
-                    error: None,
-                },
-            }],
-        );
+    fn secret_entry_frame_is_value_and_length_independent() {
+        let entered_value = "opaque-input-7391";
+        let mut entry = crate::admin::remediation::SecretEntry::default();
+        entry.paste(entered_value);
+        let item = Item {
+            rule: "REPO-SAMPLE-01".to_owned(),
+            remediation: "rename-app-credentials".to_owned(),
+            change: "sample".to_owned(),
+            reversible: true,
+            input: Input::CredentialRename {
+                variables: vec!["LEGACY_VARIABLE".to_owned()],
+                selected_variable: 0,
+                variable_draft: "CURRENT_VARIABLE".to_owned(),
+                secrets: vec!["LEGACY_SECRET".to_owned()],
+                selected_secret: 0,
+                secret_draft: "CURRENT_SECRET".to_owned(),
+                editing_secret_name: true,
+                error: None,
+            },
+        };
+        let state = State::SecretEntry {
+            request: Request {
+                owner: "generic-owner".to_owned(),
+                repo: "sample-repository".to_owned(),
+                items: vec![item],
+            },
+        };
         let rendered = body(
             Styles::new(
                 super::super::theme::Theme::Dark,
@@ -836,10 +991,12 @@ mod tests {
         .join("\n");
 
         assert!(
-            rendered.contains(&format!("secret values   {SECRET_DEFERRAL_NOTICE}")),
+            rendered.contains("value and length are never displayed"),
             "{rendered}"
         );
-        assert!(!rendered.contains("task 97"), "{rendered}");
+        for forbidden in [entered_value, "•••••••••••••••••"] {
+            assert!(!rendered.contains(forbidden), "{rendered}");
+        }
     }
 
     #[test]

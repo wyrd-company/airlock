@@ -1190,21 +1190,26 @@ fn remediation_input_and_result_frames_match_recordings() {
             ),
         ),
         (
-            "remediation-variable-secret-deferral-120x40-dark",
-            State::confirm(
-                "generic-owner".to_owned(),
-                "sample-repository".to_owned(),
-                vec![item(
-                    "rename-app-credentials",
-                    Input::VariableRename {
-                        names: vec!["LEGACY_NAME".to_owned()],
-                        selected: 0,
-                        draft: "CURRENT_NAME".to_owned(),
-                        notice: super::remediation::SECRET_DEFERRAL_NOTICE.to_owned(),
-                        error: None,
-                    },
-                )],
-            ),
+            "remediation-secret-entry-120x40-dark",
+            State::SecretEntry {
+                request: super::remediation::Request {
+                    owner: "generic-owner".to_owned(),
+                    repo: "sample-repository".to_owned(),
+                    items: vec![item(
+                        "rename-app-credentials",
+                        Input::CredentialRename {
+                            variables: vec!["LEGACY_VARIABLE".to_owned()],
+                            selected_variable: 0,
+                            variable_draft: "CURRENT_VARIABLE".to_owned(),
+                            secrets: vec!["LEGACY_SECRET".to_owned()],
+                            selected_secret: 0,
+                            secret_draft: "CURRENT_SECRET".to_owned(),
+                            editing_secret_name: true,
+                            error: None,
+                        },
+                    )],
+                },
+            },
         ),
         (
             "remediation-capability-confirm-120x40-dark",
