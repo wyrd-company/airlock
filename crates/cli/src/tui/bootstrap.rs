@@ -789,6 +789,44 @@ mod tests {
         .join("\n")
     }
 
+    /// The specification's distinctness sentence, enforced rather than trusted.
+    ///
+    /// Step states are the bootstrap's own vocabulary. A glyph shared with a
+    /// finding status would say the two surfaces are asking the same question,
+    /// and they are not: no step row carries one of the nine, and no findings
+    /// surface carries a step state.
+    #[test]
+    fn no_step_glyph_is_one_of_the_nine_finding_glyphs() {
+        use airlock_core::findings::Status;
+
+        let states = [
+            StepState::Done {
+                because: String::new(),
+            },
+            StepState::Live {
+                waiting_on: String::new(),
+            },
+            StepState::Blocked { by: String::new() },
+            StepState::Unobservable {
+                reason: String::new(),
+            },
+        ];
+        let mut seen = Vec::new();
+        for state in &states {
+            let glyph = state.glyph();
+            assert!(
+                !Status::ALL
+                    .iter()
+                    .any(|status| super::super::lane::glyph_of(*status) == glyph),
+                "{} is drawn with a finding glyph",
+                state.name()
+            );
+            assert!(!seen.contains(&glyph), "{} repeats a glyph", state.name());
+            seen.push(glyph);
+        }
+        assert_eq!(seen.len(), 4, "the vocabulary is four states");
+    }
+
     #[test]
     fn the_screen_says_why_the_ceremony_exists() {
         let text = rendered(&state(observation(None, Publication::Absent)));

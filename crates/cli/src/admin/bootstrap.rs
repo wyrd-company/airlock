@@ -319,13 +319,21 @@ pub enum StepState {
 
 impl StepState {
     /// The glyph, which carries the state without colour.
+    ///
+    /// Deliberately none of the nine a finding status is drawn with. A step
+    /// state and a finding status are different vocabularies on different
+    /// surfaces, and a glyph shared between them would say they are the same
+    /// question — `\u{2713}` would read as `pass` and `\u{25d1}` as
+    /// `inconclusive`, neither of which a step is. The set here is its own
+    /// family: a filled circle, an arrow, a dot, and the question mark that
+    /// says airlock cannot answer this one from where it stands.
     #[must_use]
     pub const fn glyph(&self) -> &'static str {
         match self {
-            Self::Done { .. } => "\u{2713}",
+            Self::Done { .. } => "\u{25cf}",
             Self::Live { .. } => "\u{25b6}",
             Self::Blocked { .. } => "\u{00b7}",
-            Self::Unobservable { .. } => "\u{25d1}",
+            Self::Unobservable { .. } => "?",
         }
     }
 

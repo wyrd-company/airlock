@@ -13,7 +13,7 @@ publication   not established: read through GitHub rather than by an anonymous
               request. This is not the same as absent.                          
                                                                                 
 THE CONTAINER PATH                                                              
-✓ 1. Publish the package — done                                                 
+● 1. Publish the package — done                                                 
      the package exists and is private                                          
 ▶ 2. Link it to this repository — live                                          
      connect the package to this repository. Connecting a repository afterwards 

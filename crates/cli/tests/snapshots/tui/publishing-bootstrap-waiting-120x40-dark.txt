@@ -12,10 +12,10 @@ observed      0s ago · press o to re-observe now
 publication   `sample-package` is not on crates.io                                                                      
                                                                                                                         
 THE FIVE STEPS                                                                                                          
-◑ 1. Mint a registry token — unobservable                                                                               
+? 1. Mint a registry token — unobservable                                                                               
      the repository holds `CARGO_REGISTRY_TOKEN`, so a token was minted; the token itself is the registry's and airlock 
      never sees it. Its expiry is not observable either, and airlock does not guess one.                                
-✓ 2. Set it as a repository secret — done                                                                               
+● 2. Set it as a repository secret — done                                                                               
      `CARGO_REGISTRY_TOKEN` was re-observed on the repository just now                                                  
 ▶ 3. Wait for a release to run and publish — live                                                                       
      a release workflow run publishing the package. This is an external event that may take hours; leaving is expected, 
