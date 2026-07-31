@@ -82,7 +82,7 @@ pub fn run(version: &str) -> Result<u8> {
     // printed into an alternate screen that is about to be torn down.
     let authorizing = Authorizing::start(&crate::admin::flow::login_base())?;
     let mut session = terminal::Session::take()?;
-    let outcome = drive(&mut app, &mut session, &authorizing);
+    let outcome = drive(&mut app, &mut session, authorizing);
     drop(session);
     outcome
 }
@@ -95,7 +95,11 @@ pub fn run(version: &str) -> Result<u8> {
 ///
 /// It is dropped, and zeroized, when this function returns — on the clean path,
 /// on the error path, and on the panic that unwinds through it.
-fn drive(app: &mut App, session: &mut terminal::Session, authorizing: &Authorizing) -> Result<u8> {
+fn drive(app: &mut App, session: &mut terminal::Session, authorizing: Authorizing) -> Result<u8> {
+    // Held in an `Option` because a lapse ends one device flow and starts
+    // another: the worker returns once it has sent a grant, so re-authorizing
+    // is a new flow rather than a request made to a thread that has finished.
+    let mut authorizing = Some(authorizing);
     let mut credential: Option<SessionCredential> = None;
     // The one reader of the credential. It is started from the grant and owns
     // the only client built from it, so the token is spent at the boundary
@@ -113,7 +117,7 @@ fn drive(app: &mut App, session: &mut terminal::Session, authorizing: &Authorizi
             match event::read().context("cannot read from the terminal")? {
                 Event::Key(key) => match app.handle_key(key) {
                     Flow::Exit => return Ok(0),
-                    Flow::Reissue => authorizing.reissue(),
+                    Flow::Reissue => reissue(app, &mut authorizing),
                     // The interface says what it would like the terminal to
                     // hold; the terminal is owned here, so the asking happens
                     // here. A terminal that ignores it says nothing back, and
@@ -131,15 +135,33 @@ fn drive(app: &mut App, session: &mut terminal::Session, authorizing: &Authorizi
         app.tick(now.saturating_duration_since(last));
         last = now;
 
+        // The grant lapsed. The credential and everything built from it are
+        // dropped here — and a `SessionCredential` zeroizes when it drops — so
+        // the boundary is a credential ceasing to exist rather than one being
+        // renewed. Nothing is refreshed and nothing was stored; what follows is
+        // another device approval.
+        if app.take_reauthorization_request() {
+            reading = None;
+            working = None;
+            credential = None;
+            authorizing = None;
+            reissue(app, &mut authorizing);
+        }
+
         // Everything the worker has to say, without waiting: the wait above is
         // the loop's only one.
-        while let Some(report) = authorizing.next_report(Duration::ZERO) {
+        while let Some(report) = authorizing
+            .as_ref()
+            .and_then(|worker| worker.next_report(Duration::ZERO))
+        {
             match report {
                 // The grant is taken here and the interface is only told that
                 // one exists. `App::report` names no type that could carry it.
                 Report::Granted(grant) => {
                     let session = SessionCredential::from_device_grant(*grant);
-                    app.authorization_granted();
+                    // The validity, and nothing else: what the interface is
+                    // told is how long GitHub said this grant is good for.
+                    app.authorization_granted(session.validity());
                     // Started from the credential rather than given it: what
                     // the worker keeps is a client, and the interface is told
                     // only that a read is in flight.
@@ -282,6 +304,26 @@ fn drive(app: &mut App, session: &mut terminal::Session, authorizing: &Authorizi
         // Held so the credential's lifetime is this loop's, and so it is
         // dropped — and zeroized — however this function returns.
         let _ = &credential;
+    }
+}
+
+/// Ask for a device code, starting a flow where the last one has finished.
+///
+/// A worker returns once it has sent a grant, so the flow that authorized the
+/// session cannot be asked for a replacement: a lapse needs a new one. A
+/// failure to start it is reported on the overlay as an interruption rather
+/// than ending the session, and `r` asks again.
+fn reissue(app: &mut App, authorizing: &mut Option<Authorizing>) {
+    if let Some(worker) = authorizing.as_ref() {
+        worker.reissue();
+        return;
+    }
+    match Authorizing::start(&crate::admin::flow::login_base()) {
+        Ok(started) => *authorizing = Some(started),
+        Err(error) => app.report(crate::admin::flow::Progress::Interrupted(text::sanitize(
+            &format!("the device flow could not be started again: {error:#}"),
+            CAUSE_LIMIT,
+        ))),
     }
 }
 

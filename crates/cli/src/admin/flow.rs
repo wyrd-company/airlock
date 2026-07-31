@@ -412,12 +412,13 @@ async fn poll(
             Waited::Elapsed => {}
             Waited::Gone => return Poll::Gone,
         }
-        if std::time::Instant::now() >= deadline {
-            return match report(reports, Progress::Expired) {
-                Ok(()) => Poll::Restart,
-                Err(()) => Poll::Gone,
-            };
-        }
+        // Past the deadline the code is asked about once more rather than
+        // declared lapsed unasked. An operator approving in a browser and
+        // airlock's own clock reaching the deadline is a race airlock loses
+        // only if it stops asking before GitHub answers, and the approval it
+        // would throw away is a real one the operator would then have to give
+        // again.
+        let lapsed = std::time::Instant::now() >= deadline;
         let outcome = match interruptible(requests, flow.poll_once(&codes.device_code)).await {
             Interrupted::Finished(outcome) => outcome,
             Interrupted::Reissue => return Poll::Restart,
@@ -432,6 +433,10 @@ async fn poll(
                     Err(_) => Poll::Gone,
                 };
             }
+            // The last question has been asked and answered with something
+            // other than a grant, so the code has lapsed whatever else the
+            // poll called it.
+            _ if lapsed => Progress::Expired,
             Ok(PollOutcome::Pending) => Progress::Pending(interval),
             Ok(PollOutcome::SlowDown(seconds)) => {
                 interval = interval
@@ -679,6 +684,63 @@ mod tests {
             }))
             .is_some(),
             "a replacement code is issued without the session restarting"
+        );
+    }
+
+    /// A code that lapses the moment it is issued.
+    fn lapsing_code_response() -> serde_json::Value {
+        serde_json::json!({
+            "device_code": "never-crosses-the-channel",
+            "user_code": "WDJB-MJHT",
+            "verification_uri": "https://github.com/login/device",
+            "expires_in": 0,
+            "interval": 0,
+        })
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn an_approval_that_lands_as_the_validity_runs_out_is_taken() {
+        // The ceremony race: the operator approves in the browser at the same
+        // moment airlock's clock reaches the deadline. The approval is real,
+        // and a flow that declared expiry without asking would throw it away
+        // and make the operator approve a second code for no reason.
+        let server = server_with(
+            lapsing_code_response(),
+            serde_json::json!({ "access_token": "ghu_approved_at_the_last_moment" }),
+        )
+        .await;
+        let authorizing = Authorizing::start(&server.uri()).expect("the flow starts");
+
+        let granted = until(&authorizing, |report| matches!(report, Report::Granted(_)))
+            .expect("the late approval is taken rather than discarded");
+        let Report::Granted(grant) = granted else {
+            unreachable!()
+        };
+        assert_eq!(grant.access_token, "ghu_approved_at_the_last_moment");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_code_that_lapses_unapproved_is_still_reported_as_expired() {
+        // The other half: asking once more is not the same as never expiring.
+        let server = server_with(
+            lapsing_code_response(),
+            serde_json::json!({ "error": "authorization_pending" }),
+        )
+        .await;
+        let authorizing = Authorizing::start(&server.uri()).expect("the flow starts");
+        assert!(
+            until(&authorizing, |report| is_progress(report, |progress| {
+                matches!(progress, Progress::Expired)
+            }))
+            .is_some(),
+            "the lapse is reported"
+        );
+        assert!(
+            until(&authorizing, |report| is_progress(report, |progress| {
+                matches!(progress, Progress::CodeIssued(_))
+            }))
+            .is_some(),
+            "a replacement code follows it in place"
         );
     }
 

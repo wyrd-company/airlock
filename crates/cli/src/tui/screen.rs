@@ -72,6 +72,24 @@ pub const INPUT_KEYS: [Key; 5] = [
     EXIT_KEY,
 ];
 
+/// The keys live while the re-authorization overlay is up.
+///
+/// Sign-in's own two, because the overlay is sign-in presented over the screen
+/// the operator was on rather than a second flow, plus the key that abandons
+/// it. The held screen's keys are not among them: what they acted on was
+/// observed under a grant that has lapsed, and none of it is on the screen any
+/// more.
+/// The key that abandons leads, because the footer drops entries from the end
+/// where the width runs out and this is the one key the operator may need at a
+/// terminal that cannot hold the rest of them.
+pub const REAUTHORIZATION_KEYS: [Key; 5] = [
+    key!("esc", "abandon and exit"),
+    key!("r", "issue a new code"),
+    key!("q", "show or hide the scan code"),
+    THEME_KEY,
+    EXIT_KEY,
+];
+
 impl Screen {
     /// Every screen, in the order the specification introduces them.
     ///

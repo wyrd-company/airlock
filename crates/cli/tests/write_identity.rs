@@ -305,7 +305,15 @@ fn the_session_credential_cannot_be_printed_or_copied() {
     let declaration = source
         .find("pub struct SessionCredential")
         .expect("the credential is declared");
-    let preceding = &source[..declaration];
+    // The attributes that attach to a declaration are the ones in its own
+    // paragraph — after the last blank line and before it. A derive further up
+    // the file belongs to some other type, and reading one as this type's
+    // would be this proof answering a question nobody asked.
+    let preceding = source[..declaration]
+        .rsplit("\n\n")
+        .next()
+        .unwrap_or_default()
+        .to_owned();
     let derive = preceding
         .rfind("#[derive")
         .map(|index| preceding[index..].to_owned());

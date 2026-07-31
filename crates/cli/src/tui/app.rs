@@ -30,7 +30,8 @@ use super::chrome::{self, wrap};
 use super::lane::{self, Lane};
 use crate::admin::catalogue::{self, Observations, Observe, Row};
 use crate::admin::flow::Progress;
-use crate::admin::sign_in::Reason;
+use crate::admin::session::Validity;
+use crate::admin::sign_in::{Density, Reason, SignIn};
 
 use super::detail;
 use super::findings;
@@ -39,7 +40,7 @@ use super::panel;
 use super::policy;
 use super::remediation;
 use super::repositories::{self, Filter};
-use super::screen::{Key, Screen, INPUT_KEYS};
+use super::screen::{Key, Screen, INPUT_KEYS, REAUTHORIZATION_KEYS};
 use super::sign_in;
 use super::theme::{ColorMode, Role, Styles, Theme};
 
@@ -60,6 +61,137 @@ pub enum Flow {
     /// and the registry digest — and no credential is on any screen to be one
     /// of them.
     Copy(String),
+}
+
+/// Where the operator was standing when the grant lapsed.
+///
+/// Addresses and places in lists, and nothing else. Every field here is either
+/// a name the operator navigated to or where they stood inside something; none
+/// of them is a fact airlock observed about a repository, and none of them can
+/// become one, because this type has no field a `Queue`, a `Catalogue`, a
+/// `Row`, or a transcript could travel in. That is what makes "position is
+/// held, observations are not" a property of the type rather than a promise
+/// made by the code that fills it.
+///
+/// The two names are addresses rather than results: they say where to look
+/// again, and everything that was seen there is looked up afresh under the new
+/// authorization.
+#[derive(Debug, Clone)]
+struct Position {
+    /// The screen that was open. A remediation in flight holds the queue
+    /// behind it instead: a partly applied queue is re-observed, never resumed
+    /// from a transcript written under a grant that has lapsed.
+    screen: Screen,
+    /// The account of the installation that was open.
+    installation: Option<String>,
+    /// The name of the repository the cursor was on.
+    repository: Option<String>,
+    /// The repository the queue was observed from, as coordinates.
+    target: Option<Observe>,
+    /// The incremental filter over the repository name.
+    filter: Filter,
+    /// Where the operator was in the queue: the row, the named set, the
+    /// collapsed groups, and whether the flat lookup was open.
+    findings: findings::State,
+    /// Where the operator was in a finding's reading.
+    detail: panel::Scroll,
+    /// Where the operator was in the effective policy.
+    inspection: panel::Scroll,
+}
+
+impl Position {
+    /// Read the position off the interface, and nothing else off it.
+    fn of(app: &App) -> Self {
+        Self {
+            // The transcript is an observation; the queue behind it is where
+            // the operator stands once it is gone.
+            screen: if app.screen == Screen::Remediation {
+                Screen::Findings
+            } else {
+                app.screen
+            },
+            installation: app
+                .selected_installation()
+                .map(|installation| installation.account.clone()),
+            repository: app
+                .visible_rows()
+                .get(app.repository)
+                .map(|row| row.repository.name.clone()),
+            target: app.requested.clone(),
+            filter: app.filter.clone(),
+            findings: app.findings.clone(),
+            detail: app.detail.clone(),
+            inspection: app.inspection.clone(),
+        }
+    }
+
+    /// What the interface is holding, said rather than left to be trusted.
+    ///
+    /// Two readings of one fact, as every other screen answers a narrow
+    /// terminal: the same things in fewer words rather than some of them and
+    /// not the rest. The tight reading drops what the frame is already saying —
+    /// the screen label names an open detail by being `finding detail`, and the
+    /// breadcrumb carries the trail — and never drops where the operator is.
+    fn holding(&self, density: Density) -> String {
+        let tight = density == Density::Tight;
+        let mut parts = vec![self.screen.label().to_owned()];
+        match &self.target {
+            Some(target) => parts.push(format!("{}/{}", target.owner, target.name)),
+            None => {
+                if let Some(installation) = &self.installation {
+                    parts.push(installation.clone());
+                }
+                if let Some(repository) = &self.repository {
+                    parts.push(repository.clone());
+                }
+            }
+        }
+        if !self.filter.text().is_empty() {
+            parts.push(format!("name filter \"{}\"", self.filter.text()));
+        }
+        if matches!(
+            self.screen,
+            Screen::Findings | Screen::FindingDetail | Screen::PolicyInspector
+        ) {
+            parts.push(format!("row {}", self.findings.selected() + 1));
+            parts.push(self.findings.filter().label().to_owned());
+            if self.findings.flat() {
+                parts.push("flat lookup open".to_owned());
+            }
+            if !tight {
+                let collapsed: Vec<String> = findings::Group::ALL
+                    .iter()
+                    .filter(|group| self.findings.is_collapsed(**group))
+                    .map(|group| group.number().to_string())
+                    .collect();
+                parts.push(if collapsed.is_empty() {
+                    "no group collapsed".to_owned()
+                } else {
+                    format!("groups {} collapsed", collapsed.join(", "))
+                });
+                parts.push(
+                    if self.screen == Screen::FindingDetail {
+                        "detail open"
+                    } else {
+                        "detail closed"
+                    }
+                    .to_owned(),
+                );
+            }
+        }
+        parts.join(" \u{b7} ")
+    }
+}
+
+/// What the interface holds of a queue's position while it is re-observed.
+///
+/// Taken by the next observation that arrives rather than applied at once:
+/// there is no queue to be positioned in until one has been observed again.
+#[derive(Debug, Clone)]
+struct HeldQueue {
+    findings: findings::State,
+    detail: panel::Scroll,
+    inspection: panel::Scroll,
 }
 
 /// The whole interface state.
@@ -119,6 +251,27 @@ pub struct App {
     pending_remediation: Option<remediation::Request>,
     pending_preparation: Option<(Observe, String)>,
     pending_undo: Option<remediation::UndoRequest>,
+    /// What is left of the session's grant, where one is held.
+    ///
+    /// A duration and never a value. It is what the header counts down and
+    /// what reaching zero makes the interface re-authorize, so the lapse is
+    /// something the operator watched coming rather than something that
+    /// happened to them.
+    grant: Option<Validity>,
+    /// The position being held while the grant is replaced.
+    ///
+    /// `Some` is the whole of "the re-authorization overlay is up": there is
+    /// no separate screen and no second flag that could disagree with it.
+    reauthorization: Option<Position>,
+    /// Whether the run loop has yet been told to discard the credential and
+    /// ask for a new device code.
+    reauthorization_requested: bool,
+    /// The queue position waiting for the re-observation that will restore it.
+    held_queue: Option<HeldQueue>,
+    /// The installation and repository to find again once a fresh catalogue
+    /// arrives, by name rather than by index: an index into a list that has
+    /// been read again is not the row it was.
+    held_selection: Option<(Option<String>, Option<String>)>,
 }
 
 impl App {
@@ -150,6 +303,11 @@ impl App {
             pending_remediation: None,
             pending_preparation: None,
             pending_undo: None,
+            grant: None,
+            reauthorization: None,
+            reauthorization_requested: false,
+            held_queue: None,
+            held_selection: None,
         }
     }
 
@@ -279,11 +437,35 @@ impl App {
         report: &airlock_core::findings::Report,
         deliveries: &findings::Deliveries,
     ) {
+        // A run in which GitHub rejected airlock's own credential is not a
+        // reading of the repository. It is the grant having lapsed, observed —
+        // and drawing it as a queue would be drawing a repository as failing
+        // rules nothing was able to ask about.
+        if rejected(report) {
+            self.lapse();
+            return;
+        }
         self.queue = Some(Box::new(findings::Queue::of(report, deliveries)));
-        self.findings = findings::State::default();
-        self.detail = panel::Scroll::default();
         self.inspector = Some(Box::new(policy::Inspector::of(report)));
-        self.inspection = panel::Scroll::default();
+        match self.held_queue.take() {
+            // The position an expiry held, now that there is a queue for it to
+            // be a position in. Clamped to the run that has just arrived: the
+            // rows are freshly observed and there may be fewer of them.
+            Some(held) => {
+                self.findings = held.findings;
+                self.detail = held.detail;
+                self.inspection = held.inspection;
+                if let Some(queue) = self.queue.as_deref() {
+                    let entries = findings::entries(queue, &self.findings).len();
+                    self.findings.clamp(entries);
+                }
+            }
+            None => {
+                self.findings = findings::State::default();
+                self.detail = panel::Scroll::default();
+                self.inspection = panel::Scroll::default();
+            }
+        }
         self.reobserve = None;
         self.note = None;
     }
@@ -302,7 +484,12 @@ impl App {
     #[cfg_attr(not(test), allow(dead_code))]
     #[must_use]
     pub fn signing_in(mut self, state: crate::admin::sign_in::SignIn) -> Self {
-        self.screen = Screen::SignIn;
+        // A re-authorization is this same flow drawn over the screen the grant
+        // lapsed on, so giving it a state must not move the operator to
+        // sign-in: the held screen is the position being held.
+        if self.reauthorization.is_none() {
+            self.screen = Screen::SignIn;
+        }
         self.sign_in = sign_in::Screen::at(state);
         self
     }
@@ -351,6 +538,12 @@ impl App {
             && matches!(event.code, KeyCode::Char('c'))
         {
             return Flow::Exit;
+        }
+        // The overlay takes every remaining key. Nothing behind it can act:
+        // what the held screen's keys acted on was observed under a grant that
+        // has lapsed, and none of it is on the screen any more.
+        if self.reauthorization.is_some() {
+            return self.reauthorizing(event.code);
         }
         if self.screen == Screen::Remediation && self.remediation.is_input() {
             if event.code == KeyCode::Esc {
@@ -422,6 +615,26 @@ impl App {
             KeyCode::Char('r')
                 if self.screen == Screen::SignIn && self.sign_in.state().has_code() =>
             {
+                self.sign_in.state_mut().reissue(Reason::Asked);
+                return Flow::Reissue;
+            }
+            _ => {}
+        }
+        Flow::Continue
+    }
+
+    /// Keys the re-authorization overlay takes.
+    ///
+    /// Sign-in's own, because the overlay is sign-in drawn over the screen the
+    /// operator was on. `esc` abandons and leaves rather than walking back a
+    /// screen: there is nothing behind this to return to until an
+    /// authorization exists again.
+    fn reauthorizing(&mut self, code: KeyCode) -> Flow {
+        match code {
+            KeyCode::Esc => return Flow::Exit,
+            KeyCode::Char('t') => self.theme = self.theme.toggled(),
+            KeyCode::Char('q') => self.sign_in.cycle_scan(),
+            KeyCode::Char('r') if self.sign_in.state().has_code() => {
                 self.sign_in.state_mut().reissue(Reason::Asked);
                 return Flow::Reissue;
             }
@@ -752,6 +965,10 @@ impl App {
             self.requested = Some(request.clone());
             self.pending_observation = Some(request);
             self.screen = Screen::Findings;
+            // A position in one repository's queue is not a position in
+            // another's, so opening a different repository lets go of a
+            // position an expiry was holding.
+            self.held_queue = None;
         }
         Flow::Continue
     }
@@ -805,6 +1022,73 @@ impl App {
     /// lies, so the loop ticks whether or not anything happened.
     pub fn tick(&mut self, elapsed: std::time::Duration) {
         self.sign_in.state_mut().tick(elapsed);
+        if let Some(Validity::Until(remaining)) = &mut self.grant {
+            *remaining = remaining.saturating_sub(elapsed);
+            if remaining.is_zero() {
+                self.lapse();
+            }
+        }
+    }
+
+    /// The grant lapsed. Hold the position; discard what was observed under it.
+    ///
+    /// The two halves are deliberately asymmetric, and the asymmetry is the
+    /// whole point. Everything that says where the operator is survives;
+    /// everything that says what airlock saw does not, because an observation
+    /// made under a grant that has since lapsed is not evidence of the present
+    /// state, and this is exactly the moment that rule would be tempting to
+    /// break.
+    ///
+    /// Nothing is refreshed here. The lapsed credential is discarded by the run
+    /// loop when it takes the request below, and what follows is a device
+    /// approval — the same and only way a credential ever comes to exist.
+    pub fn lapse(&mut self) {
+        if self.reauthorization.is_some() {
+            return;
+        }
+        let position = Position::of(self);
+        self.authorized = false;
+        self.grant = None;
+        // Observations, every one of them.
+        self.catalogue = catalogue::State::Unauthorized;
+        self.observations = Observations::default();
+        self.queue = None;
+        self.inspector = None;
+        self.remediation = remediation::State::Empty;
+        self.reobserve = None;
+        self.note = None;
+        // Requests made under the lapsed grant, which nothing may now carry
+        // out: a write authorized by a credential that no longer exists is not
+        // a write this session consented to.
+        self.pending_observation = None;
+        self.pending_remediation = None;
+        self.pending_preparation = None;
+        self.pending_undo = None;
+        self.requested = None;
+        self.sign_in = sign_in::Screen::at(SignIn::Requesting {
+            reason: Reason::Lapsed,
+        });
+        self.reauthorization = Some(position);
+        self.reauthorization_requested = true;
+    }
+
+    /// Take the request to discard the credential and re-authorize, once.
+    pub fn take_reauthorization_request(&mut self) -> bool {
+        std::mem::take(&mut self.reauthorization_requested)
+    }
+
+    /// Whether the re-authorization overlay is up.
+    #[cfg_attr(not(test), allow(dead_code))]
+    #[must_use]
+    pub const fn reauthorizing_now(&self) -> bool {
+        self.reauthorization.is_some()
+    }
+
+    /// What is left of the grant, as the header states it.
+    #[cfg_attr(not(test), allow(dead_code))]
+    #[must_use]
+    pub const fn grant(&self) -> Option<Validity> {
+        self.grant
     }
 
     /// Apply what the device flow reported.
@@ -846,13 +1130,38 @@ impl App {
     ///
     /// A notification rather than a value. The interface is told that an
     /// authorization exists; it is never told what it is.
-    pub fn authorization_granted(&mut self) {
+    pub fn authorization_granted(&mut self, grant: Validity) {
         self.authorized = true;
-        self.screen = Screen::Organizations;
+        self.grant = Some(grant);
         // The read is in flight from here. Said as its own state rather than as
         // an empty list, because an answer that has not arrived and an answer of
         // "nothing" are two different things to put on a screen.
         self.catalogue = catalogue::State::Reading;
+        match self.reauthorization.take() {
+            Some(position) => self.restore(position),
+            None => self.screen = Screen::Organizations,
+        }
+    }
+
+    /// Put the operator back where they were, with nothing they had been shown.
+    ///
+    /// Every address is restored and every reading is asked for again. The
+    /// screens draw their own "nothing observed yet" until the answers arrive,
+    /// which is the honest reading of the moment: the position exists, and what
+    /// stands at it has not been established under this authorization yet.
+    fn restore(&mut self, position: Position) {
+        self.screen = position.screen;
+        self.filter = position.filter;
+        self.held_selection = Some((position.installation, position.repository));
+        self.requested = position.target.clone();
+        if let Some(target) = position.target {
+            self.pending_observation = Some(target);
+        }
+        self.held_queue = Some(HeldQueue {
+            findings: position.findings,
+            detail: position.detail,
+            inspection: position.inspection,
+        });
     }
 
     /// Apply what the catalogue worker reported.
@@ -861,13 +1170,45 @@ impl App {
     /// the worker owns the only client, and what crosses the channel is a read
     /// model whose every server-supplied string was sanitized on the way out.
     pub fn catalogue_read(&mut self, read: catalogue::Read) {
+        // The credential was rejected rather than the question refused, so
+        // this is the grant having lapsed, observed.
+        if matches!(read, catalogue::Read::Unauthorized) {
+            self.lapse();
+            return;
+        }
         self.catalogue = match read {
             catalogue::Read::Ready(catalogue) => catalogue::State::Ready(catalogue),
             catalogue::Read::Failed(cause) => catalogue::State::Failed(cause),
+            catalogue::Read::Unauthorized => unreachable!("taken above"),
         };
         self.installation = 0;
         self.repository = 0;
-        self.filter.close();
+        match self.held_selection.take() {
+            // Found again by name in the list as it now reads. An index kept
+            // across a re-read would point at whatever moved into that slot.
+            Some((installation, repository)) => {
+                if let Some(account) = installation {
+                    if let Some(index) = self
+                        .catalogue
+                        .installations()
+                        .iter()
+                        .position(|candidate| candidate.account == account)
+                    {
+                        self.installation = index;
+                    }
+                }
+                if let Some(name) = repository {
+                    if let Some(index) = self
+                        .visible_rows()
+                        .iter()
+                        .position(|row| row.repository.name == name)
+                    {
+                        self.repository = index;
+                    }
+                }
+            }
+            None => self.filter.close(),
+        }
     }
 
     /// Whether the session holds an authorization.
@@ -900,6 +1241,7 @@ impl App {
             styles,
             area.width,
             &keys,
+            self.grant,
         ))
         .render(frame.header, buffer);
         for rule in [frame.rule_top, frame.rule_bottom].into_iter().flatten() {
@@ -975,6 +1317,9 @@ impl App {
     /// printable key there is typing. `ctrl-c` is in both readings, because it
     /// is live without exception.
     fn keymap(&self) -> Vec<Key> {
+        if self.reauthorization.is_some() {
+            return REAUTHORIZATION_KEYS.to_vec();
+        }
         if self.screen == Screen::Repositories && self.filter.is_open() {
             return INPUT_KEYS.to_vec();
         }
@@ -989,6 +1334,12 @@ impl App {
     /// Two screens now know something the shell did not, and they say it. The
     /// rest still state that nothing has been observed, which remains true.
     fn status(&self) -> String {
+        if let Some(position) = &self.reauthorization {
+            // The facts after the first are what is being held. The body says
+            // so in the word; this line has the columns for the position or
+            // for the word, and the position is the fact.
+            return format!("re-authorizing \u{b7} {}", position.holding(Density::Tight));
+        }
         if let Some(note) = &self.note {
             return note.clone();
         }
@@ -1014,6 +1365,9 @@ impl App {
 
     fn body(&self, width: u16, height: u16) -> Vec<Line<'static>> {
         let styles = self.styles();
+        if let Some(position) = &self.reauthorization {
+            return self.reauthorization_body(styles, width, height, position);
+        }
         if self.screen == Screen::SignIn {
             return self.sign_in.body(styles, width, height);
         }
@@ -1074,6 +1428,54 @@ impl App {
             lines.push(Line::default());
         }
         lines.extend(self.emptiness(width));
+        lines
+    }
+
+    /// The device flow, drawn over the screen the operator was on.
+    ///
+    /// Sign-in's own body: the five states, the code frame, the scan code, and
+    /// the standing statement that nothing is stored are one rendering of the
+    /// flow, and a second one here would be a second thing to keep true.
+    ///
+    /// What is being held is added under it where there are rows for all of it.
+    /// The status line carries the same reading on every screen and at every
+    /// size, so the fact is never the thing that was withheld: what the rows
+    /// decide is whether it is said twice.
+    fn reauthorization_body(
+        &self,
+        styles: Styles,
+        width: u16,
+        height: u16,
+        position: &Position,
+    ) -> Vec<Line<'static>> {
+        let mut lines = self.sign_in.body(styles, width, height);
+        let width = width as usize;
+        let held = |density| panel::field(styles, "holding", &position.holding(density), width);
+        let discarded = panel::field(
+            styles,
+            "discarded",
+            "every observation this session made. Each row is observed again \
+             once the authorization returns, because a reading taken under a \
+             grant that has lapsed is not evidence of the present state.",
+            width,
+        );
+        // The fullest reading the rows will carry, in order. Each rung says
+        // less than the one above it and none of them says something else: the
+        // position is stated at every size, and what a short terminal costs is
+        // the words around it rather than the fact.
+        let mut blank = vec![Line::default()];
+        blank.extend(held(Density::Full));
+        let mut with_discarded = blank.clone();
+        with_discarded.extend(discarded);
+        let mut tight = vec![Line::default()];
+        tight.extend(held(Density::Tight));
+        let ladder = [with_discarded, blank, tight, held(Density::Tight)];
+        let room = (height as usize).saturating_sub(lines.len());
+        let block = ladder
+            .into_iter()
+            .find(|candidate| candidate.len() <= room)
+            .unwrap_or_default();
+        lines.extend(block);
         lines
     }
 
@@ -1202,6 +1604,21 @@ impl App {
     }
 }
 
+/// Whether a run reports GitHub rejecting the credential it was made with.
+///
+/// 401 and nothing else: it is the one status that is unambiguously about the
+/// credential rather than about the question, which is why the audit's own
+/// classification treats it the same way. A 403 is a grant that is too narrow
+/// and re-authorizing would not widen it.
+fn rejected(report: &airlock_core::findings::Report) -> bool {
+    report.findings.iter().any(|finding| {
+        finding
+            .error
+            .as_ref()
+            .is_some_and(|error| error.status == Some(401))
+    })
+}
+
 fn bulk_kind(code: &str) -> Option<crate::admin::remediation::BulkKind> {
     crate::admin::remediation::Action::for_code(code).map(|action| action.bulk_kind())
 }
@@ -1254,6 +1671,15 @@ mod tests {
         &request.items[0].rule
     }
 
+    /// The grant a test session is authorized with.
+    ///
+    /// Eight hours, which is what GitHub states for a user access token with
+    /// expiry enabled. A shape, not a fixture: what is asserted is that the
+    /// interface counts down what it was given.
+    fn granted() -> Validity {
+        Validity::Until(std::time::Duration::from_secs(28_800))
+    }
+
     fn issued() -> crate::admin::flow::Issued {
         crate::admin::flow::Issued {
             user_code: "WDJB-MJHT".to_owned(),
@@ -1298,7 +1724,7 @@ mod tests {
         // by a grant arriving, and the two selection screens open what they
         // have selected rather than an empty screen about nothing.
         let mut app = app().with_catalogue(catalogue());
-        app.authorization_granted();
+        app.authorization_granted(granted());
         app.catalogue_read(catalogue::Read::Ready(Box::new(catalogue())));
         assert_eq!(app.screen(), Screen::Organizations);
         for expected in [
@@ -1559,7 +1985,7 @@ mod tests {
         // the notification does what it says.
         let mut app = app();
         assert!(!app.authorized());
-        app.authorization_granted();
+        app.authorization_granted(granted());
         assert!(app.authorized(), "the session holds an authorization");
         assert_eq!(app.screen(), Screen::Organizations);
     }
@@ -1715,7 +2141,7 @@ mod tests {
     #[test]
     fn an_authorization_puts_the_catalogue_read_in_flight_rather_than_showing_an_empty_list() {
         let mut app = app();
-        app.authorization_granted();
+        app.authorization_granted(granted());
         assert_eq!(app.catalogue, catalogue::State::Reading);
         assert!(
             organizations::status(&app.catalogue).contains("reading"),
@@ -1884,6 +2310,7 @@ mod tests {
             app.styles(),
             chrome::REFERENCE_WIDTH,
             &app.keymap(),
+            app.grant(),
         )
         .spans
         .iter()
@@ -2409,5 +2836,551 @@ mod tests {
         for lane in Lane::ALL {
             assert!(text.contains(lane.heading()), "{lane:?}");
         }
+    }
+
+    // ---------------------------------------------------------------------
+    // Mid-session expiry, and re-authorizing in place
+    // ---------------------------------------------------------------------
+
+    /// A session standing on the findings queue of an observed repository.
+    ///
+    /// Driven to where it stands rather than assembled there: an authorization,
+    /// a catalogue, a repository opened, and a run observed, which is the whole
+    /// of what an expiry has to survive.
+    fn working_session() -> App {
+        let mut app = app();
+        app.authorization_granted(granted());
+        app.catalogue_read(catalogue::Read::Ready(Box::new(catalogue())));
+        press(&mut app, KeyCode::Enter);
+        press(&mut app, KeyCode::Enter);
+        app.take_observation_request();
+        app.observed_run(
+            &findings::fixture::mixed(),
+            &findings::fixture::deliveries(),
+        );
+        app
+    }
+
+    /// Everything the interface would draw, frame and all.
+    fn frame_text(app: &App) -> String {
+        let mut buffer = ratatui::buffer::Buffer::empty(Rect {
+            x: 0,
+            y: 0,
+            width: chrome::REFERENCE_WIDTH,
+            height: chrome::REFERENCE_HEIGHT,
+        });
+        app.render(buffer.area, &mut buffer);
+        (0..buffer.area.height)
+            .map(|y| {
+                (0..buffer.area.width)
+                    .map(|x| {
+                        buffer
+                            .cell((x, y))
+                            .map_or(" ", ratatui::buffer::Cell::symbol)
+                            .to_owned()
+                    })
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    /// A run in which GitHub rejected the credential it was made with.
+    fn rejected_run() -> airlock_core::findings::Report {
+        let mut finding =
+            findings::fixture::finding("REPO-GIT-01", Severity::Blocking, Status::Error);
+        finding.error = Some(airlock_core::findings::FindingError {
+            cause: "unauthenticated".to_owned(),
+            endpoint: "GET /repos/{owner}/{repo}".to_owned(),
+            status: Some(401),
+            message: Some("Bad credentials".to_owned()),
+            request_id: None,
+            accepted_permissions: None,
+            documentation_url: None,
+            message_hints_version: airlock_core::github::MESSAGE_HINTS_VERSION,
+        });
+        findings::fixture::report(airlock_core::findings::Gate::Required, vec![finding])
+    }
+
+    #[test]
+    fn the_grant_is_counted_down_and_the_countdown_is_what_lapses_it() {
+        let mut app = working_session();
+        assert_eq!(
+            app.grant(),
+            Some(Validity::Until(std::time::Duration::from_secs(28_800)))
+        );
+        assert!(header(&app).contains("grant ends in"), "{}", header(&app));
+
+        app.tick(std::time::Duration::from_secs(28_799));
+        assert!(!app.reauthorizing_now(), "a second is a second");
+        assert!(app.queue.is_some(), "nothing is discarded before the lapse");
+
+        app.tick(std::time::Duration::from_secs(1));
+        assert!(app.reauthorizing_now(), "the grant ran out");
+        assert_eq!(app.grant(), None, "there is no grant to count down");
+        assert!(
+            !header(&app).contains("grant"),
+            "a lapsed grant is not a countdown of zero"
+        );
+    }
+
+    #[test]
+    fn a_grant_that_states_no_expiry_is_never_lapsed_by_a_clock() {
+        // GitHub states no expiry when token expiry is disabled for the app.
+        // Inventing one would be demanding a re-authorization for no observed
+        // reason.
+        let mut app = working_session();
+        app.grant = Some(Validity::Unstated);
+        app.tick(std::time::Duration::from_secs(60 * 60 * 24));
+        assert!(!app.reauthorizing_now());
+        assert!(header(&app).contains("expiry"), "{}", header(&app));
+    }
+
+    #[test]
+    fn expiry_raises_the_overlay_on_every_screen_and_holds_the_screen_it_was_on() {
+        // Every screen an authorized session can stand on. Sign-in is not one:
+        // there is no grant there to lapse.
+        for screen in [
+            Screen::Organizations,
+            Screen::Repositories,
+            Screen::Findings,
+            Screen::FindingDetail,
+            Screen::PolicyInspector,
+            Screen::PublishingBootstrap,
+            Screen::Remediation,
+        ] {
+            let mut app = working_session();
+            app.screen = screen;
+
+            app.lapse();
+
+            assert!(app.reauthorizing_now(), "{screen:?}");
+            assert!(app.take_reauthorization_request(), "{screen:?}");
+            // The transcript is an observation; the queue behind it is where
+            // the operator stands once it is gone.
+            let expected = if screen == Screen::Remediation {
+                Screen::Findings
+            } else {
+                screen
+            };
+            // Abandon-and-exit is offered at every width. The footer drops
+            // entries from the end, so the key that leaves leads it.
+            for width in [chrome::REFERENCE_WIDTH, chrome::FLOOR_WIDTH] {
+                let footer: String = chrome::keymap_line(&app.keymap(), app.styles(), width)
+                    .spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect();
+                assert!(
+                    footer.contains("esc abandon and exit"),
+                    "{screen:?} at {width}: {footer}"
+                );
+                assert!(
+                    footer.contains("r issue a new code"),
+                    "{screen:?} at {width}: {footer}"
+                );
+                assert!(footer.contains("ctrl-c") || footer.contains("more\u{2026}"));
+            }
+
+            app.authorization_granted(granted());
+            assert_eq!(app.screen(), expected, "{screen:?}");
+        }
+    }
+
+    #[test]
+    fn no_observation_survives_the_boundary_on_any_screen() {
+        for screen in [
+            Screen::Organizations,
+            Screen::Repositories,
+            Screen::Findings,
+            Screen::FindingDetail,
+            Screen::PolicyInspector,
+        ] {
+            let mut app = working_session();
+            app.screen = screen;
+            app.observed(
+                &Observe {
+                    owner: "acme-industries".to_owned(),
+                    name: "widget".to_owned(),
+                },
+                "this session",
+                "nonconformant",
+            );
+            assert!(app.queue.is_some(), "{screen:?}: there is a run to lose");
+
+            app.lapse();
+
+            // The state that carried what was seen.
+            assert!(app.queue.is_none(), "{screen:?}");
+            assert!(app.inspector.is_none(), "{screen:?}");
+            assert_eq!(app.catalogue, catalogue::State::Unauthorized, "{screen:?}");
+            assert_eq!(app.observations, Observations::default(), "{screen:?}");
+            assert!(
+                matches!(app.remediation, remediation::State::Empty),
+                "{screen:?}"
+            );
+            assert!(!app.authorized(), "{screen:?}");
+
+            // And the screen, which is where it would have been read. Every
+            // one of these is something airlock saw: a rule it evaluated, the
+            // verdict it reached, what it counted in an installation, and what
+            // kind of account GitHub said that installation was.
+            let after = frame_text(&app);
+            for observed in [
+                "REPO-GIT-01",
+                "REPO-GIT-04",
+                "nonconformant",
+                "2 repositories",
+                "user account",
+            ] {
+                assert!(
+                    !after.contains(observed),
+                    "{screen:?}: {observed} survived the boundary\n{after}"
+                );
+            }
+            // The address did survive, and says so: it is where to look again,
+            // not something that was seen there.
+            assert!(
+                after.contains("acme-industries/widget"),
+                "{screen:?}: the position was not held\n{after}"
+            );
+        }
+    }
+
+    #[test]
+    fn nothing_the_lapsed_grant_authorized_is_still_waiting_to_be_carried_out() {
+        // A write authorized by a credential that no longer exists is not a
+        // write this session consented to.
+        let mut app = working_session();
+        focus(&mut app, findings::Group::Settings);
+        press(&mut app, KeyCode::Char('a'));
+        assert_eq!(app.screen(), Screen::Remediation);
+        press(&mut app, KeyCode::Enter);
+        assert!(app.pending_remediation.is_some(), "the confirmation stands");
+
+        app.lapse();
+
+        assert!(app.take_remediation_request().is_none());
+        assert!(app.take_undo_request().is_none());
+        assert!(app.take_preparation_request().is_none());
+        assert!(app.take_observation_request().is_none());
+        assert!(matches!(app.remediation, remediation::State::Empty));
+    }
+
+    #[test]
+    fn a_remediation_in_flight_is_re_observed_rather_than_resumed_from_memory() {
+        let mut app = working_session();
+        focus(&mut app, findings::Group::Settings);
+        press(&mut app, KeyCode::Char('a'));
+        press(&mut app, KeyCode::Enter);
+        app.take_remediation_request();
+        app.remediation_complete(crate::admin::remediation::Transcript {
+            rule: "REPO-GIT-01".to_owned(),
+            remediation: "correct-merge-settings".to_owned(),
+            proposed_change: "disable merge commits".to_owned(),
+            steps: Vec::new(),
+            observed: crate::admin::remediation::ObservedStatus::Pass,
+            undo: None,
+        });
+        assert!(matches!(
+            app.remediation,
+            remediation::State::Complete { .. }
+        ));
+
+        app.lapse();
+        app.authorization_granted(granted());
+
+        assert_eq!(app.screen(), Screen::Findings, "the queue behind it");
+        assert!(matches!(app.remediation, remediation::State::Empty));
+        assert_eq!(
+            app.take_observation_request(),
+            Some(Observe {
+                owner: "acme-industries".to_owned(),
+                name: "widget".to_owned()
+            }),
+            "the queue is asked for again rather than resumed"
+        );
+    }
+
+    #[test]
+    fn the_position_is_held_across_the_boundary_and_restored_with_a_fresh_run() {
+        let mut app = working_session();
+        // A place in the queue that is nobody's default: a filter, a collapsed
+        // group, a moved row, and an open detail.
+        press(&mut app, KeyCode::Char('f'));
+        press(&mut app, KeyCode::Char(' '));
+        press(&mut app, KeyCode::Down);
+        press(&mut app, KeyCode::Down);
+        let held = app.findings.clone();
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(app.screen(), Screen::FindingDetail);
+
+        app.lapse();
+        app.authorization_granted(granted());
+        app.catalogue_read(catalogue::Read::Ready(Box::new(catalogue())));
+        let requested = app
+            .take_observation_request()
+            .expect("the repository is observed again");
+        assert_eq!(requested.name, "widget");
+        app.observed_run(
+            &findings::fixture::mixed(),
+            &findings::fixture::deliveries(),
+        );
+
+        assert_eq!(app.screen(), Screen::FindingDetail, "the detail was open");
+        assert_eq!(app.findings.selected(), held.selected());
+        assert_eq!(app.findings.filter(), held.filter());
+        for group in findings::Group::ALL {
+            assert_eq!(
+                app.findings.is_collapsed(group),
+                held.is_collapsed(group),
+                "{group:?}"
+            );
+        }
+        assert_eq!(app.installation, 0);
+        assert_eq!(app.repository, 0);
+    }
+
+    #[test]
+    fn a_held_queue_position_is_let_go_of_when_another_repository_is_opened() {
+        // A position in one repository's queue is not a position in another's.
+        let mut app = working_session();
+        press(&mut app, KeyCode::Down);
+        press(&mut app, KeyCode::Down);
+        app.lapse();
+        app.authorization_granted(granted());
+        app.catalogue_read(catalogue::Read::Ready(Box::new(catalogue())));
+        app.take_observation_request();
+        // The operator opens the other repository instead of waiting.
+        app.screen = Screen::Repositories;
+        press(&mut app, KeyCode::Down);
+        press(&mut app, KeyCode::Enter);
+        app.take_observation_request();
+        app.observed_run(
+            &findings::fixture::mixed(),
+            &findings::fixture::deliveries(),
+        );
+        assert_eq!(
+            app.findings.selected(),
+            0,
+            "a fresh queue is read from the top"
+        );
+    }
+
+    #[test]
+    fn the_held_position_is_found_again_by_name_rather_than_by_index() {
+        // A list read again is not the list that was read: an index kept across
+        // the boundary would point at whatever moved into that slot.
+        use airlock_core::github::{AccountKind, RepositorySelection};
+        let mut app = app();
+        app.authorization_granted(granted());
+        app.catalogue_read(catalogue::Read::Ready(Box::new(catalogue())));
+        press(&mut app, KeyCode::Down);
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(app.screen(), Screen::Repositories);
+        assert_eq!(
+            app.selected_installation().map(|i| i.account.as_str()),
+            Some("sample-operator")
+        );
+
+        app.lapse();
+        app.authorization_granted(granted());
+        // The same installations, in the other order.
+        app.catalogue_read(catalogue::Read::Ready(Box::new(catalogue::Catalogue::of(
+            vec![
+                installation(
+                    "sample-operator",
+                    AccountKind::UserAccount,
+                    RepositorySelection::Selected,
+                    &["notes"],
+                ),
+                installation(
+                    "acme-industries",
+                    AccountKind::Organization,
+                    RepositorySelection::All,
+                    &["widget", "sprocket"],
+                ),
+            ],
+        ))));
+
+        assert_eq!(
+            app.selected_installation().map(|i| i.account.as_str()),
+            Some("sample-operator"),
+            "the position is an address, and the address was found again"
+        );
+    }
+
+    #[test]
+    fn an_installation_that_is_gone_leaves_the_selection_at_the_top() {
+        let mut app = app();
+        app.authorization_granted(granted());
+        app.catalogue_read(catalogue::Read::Ready(Box::new(catalogue())));
+        press(&mut app, KeyCode::Down);
+        app.lapse();
+        app.authorization_granted(granted());
+        app.catalogue_read(catalogue::Read::Ready(Box::new(catalogue::Catalogue::of(
+            Vec::new(),
+        ))));
+        assert_eq!(app.installation, 0);
+        assert!(app.selected_installation().is_none());
+    }
+
+    #[test]
+    fn a_rejected_observation_lapses_the_session_rather_than_drawing_a_queue() {
+        // 401 is the credential being rejected, not the repository failing a
+        // rule. Drawing it as a queue would report a repository as failing
+        // rules nothing was able to ask about.
+        let mut app = working_session();
+        app.observed_run(&rejected_run(), &findings::Deliveries::default());
+        assert!(app.reauthorizing_now());
+        assert!(app.queue.is_none(), "nothing of it was drawn");
+    }
+
+    #[test]
+    fn a_catalogue_read_that_was_rejected_lapses_the_session() {
+        let mut app = working_session();
+        app.catalogue_read(catalogue::Read::Unauthorized);
+        assert!(app.reauthorizing_now());
+        assert!(app.take_reauthorization_request());
+    }
+
+    #[test]
+    fn the_overlay_says_what_it_is_holding_at_every_size() {
+        let mut app = working_session();
+        press(&mut app, KeyCode::Char('f'));
+        press(&mut app, KeyCode::Down);
+        app.lapse();
+
+        // The status line carries the reading at both sizes, so the fact is
+        // never what a short terminal withheld.
+        // The status line summarises it, and fits the floor without eliding.
+        let status = app.status();
+        assert!(status.contains("re-authorizing"), "{status}");
+        assert!(status.contains("findings"), "{status}");
+        assert!(status.contains("acme-industries/widget"), "{status}");
+        assert!(status.contains("row 2"), "{status}");
+        assert!(status.contains("gating failures"), "{status}");
+        assert!(
+            status.chars().count() <= chrome::FLOOR_WIDTH as usize,
+            "{} columns: {status}",
+            status.chars().count()
+        );
+
+        // The body carries it at both sizes: the reading is where the fact
+        // lives, and a short terminal costs the words around it rather than
+        // the fact itself.
+        for width in [chrome::REFERENCE_WIDTH, chrome::FLOOR_WIDTH] {
+            let height = if width == chrome::FLOOR_WIDTH { 21 } else { 35 };
+            let text = app
+                .body(width, height)
+                .iter()
+                .flat_map(|line| line.spans.iter())
+                .map(|span| span.content.as_ref())
+                .collect::<String>()
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ");
+            assert!(text.contains("holding"), "at {width}: {text}");
+            assert!(
+                text.contains("acme-industries/widget"),
+                "at {width}: {text}"
+            );
+            assert!(text.contains("row 2"), "at {width}: {text}");
+        }
+
+        // At the reference there are rows for the whole of it.
+        let body = body_text(&app);
+        assert!(body.contains("discarded"), "{body}");
+        assert!(body.contains("observed again"), "{body}");
+        assert!(body.contains("detail closed"), "{body}");
+        // And the flow itself is sign-in's, not a second rendering of it.
+        assert!(
+            body.contains("No credential of any kind is stored"),
+            "{body}"
+        );
+        assert!(body.contains("lapsed"), "{body}");
+    }
+
+    #[test]
+    fn the_overlay_fits_the_floor_whole() {
+        let mut app = working_session();
+        app.lapse();
+        for state in [
+            SignIn::Requesting {
+                reason: Reason::Lapsed,
+            },
+            {
+                let mut awaiting = SignIn::opening();
+                awaiting.code_issued(&issued());
+                awaiting
+            },
+            SignIn::Expired,
+            SignIn::Denied,
+        ] {
+            app.sign_in = sign_in::Screen::at(state);
+            let lines = app.body(chrome::FLOOR_WIDTH, 21);
+            assert!(lines.len() <= 21, "{} rows", lines.len());
+            for line in lines {
+                let printed: usize = line
+                    .spans
+                    .iter()
+                    .map(|span| span.content.chars().count())
+                    .sum();
+                assert!(printed <= chrome::FLOOR_WIDTH as usize, "{printed} columns");
+            }
+        }
+    }
+
+    #[test]
+    fn the_overlay_takes_the_keys_and_esc_abandons_the_session() {
+        let mut app = working_session();
+        app.lapse();
+
+        // Nothing behind the overlay may act: what those keys acted on was
+        // observed under a grant that has lapsed.
+        for code in [
+            KeyCode::Enter,
+            KeyCode::Down,
+            KeyCode::Char('a'),
+            KeyCode::Char('f'),
+            KeyCode::Char('p'),
+            KeyCode::Char('o'),
+        ] {
+            assert_eq!(press(&mut app, code), Flow::Continue, "{code:?}");
+            assert!(app.reauthorizing_now(), "{code:?}");
+            assert!(app.queue.is_none(), "{code:?}");
+        }
+
+        // Sign-in's own two are live, on sign-in's own terms.
+        assert_eq!(press(&mut app, KeyCode::Char('r')), Flow::Continue);
+        app.report(Progress::CodeIssued(Box::new(issued())));
+        assert_eq!(press(&mut app, KeyCode::Char('r')), Flow::Reissue);
+        let before = app.theme();
+        press(&mut app, KeyCode::Char('t'));
+        assert_ne!(app.theme(), before);
+
+        assert_eq!(
+            press(&mut app, KeyCode::Esc),
+            Flow::Exit,
+            "esc abandons the re-authorization and exits"
+        );
+        assert_eq!(
+            app.handle_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)),
+            Flow::Exit
+        );
+    }
+
+    #[test]
+    fn a_lapse_is_asked_for_once_however_many_ways_it_is_noticed() {
+        let mut app = working_session();
+        app.lapse();
+        let held = app.status();
+        // A second notice while the overlay is up must not replace the
+        // position it is holding with the position of the overlay itself.
+        app.lapse();
+        app.catalogue_read(catalogue::Read::Unauthorized);
+        assert_eq!(app.status(), held);
+        assert!(app.take_reauthorization_request());
+        assert!(!app.take_reauthorization_request(), "asked for once");
     }
 }

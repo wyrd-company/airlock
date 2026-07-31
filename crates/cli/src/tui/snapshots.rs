@@ -21,7 +21,8 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::admin::catalogue::{Catalogue, Installation, Listing, Repository};
 use crate::admin::flow::Issued;
-use crate::admin::sign_in::SignIn;
+use crate::admin::session::Validity;
+use crate::admin::sign_in::{Reason, SignIn};
 use airlock_core::github::{AccountKind, RepositorySelection};
 
 use super::app::App;
@@ -381,6 +382,68 @@ fn check_remediation(
         assert_eq!(
             std::fs::read_to_string(&path).expect("the snapshot is recorded"),
             rendered
+        );
+    }
+}
+
+/// A session that has been working, and whose grant has just lapsed.
+///
+/// Driven rather than assembled: authorized, given a catalogue, moved into a
+/// repository, observed, moved inside the queue, and only then lapsed. What is
+/// recorded is therefore the interface's own answer to an expiry rather than a
+/// state the suite arranged.
+#[cfg_attr(feature = "test-identity", allow(dead_code))]
+fn lapsed(state: SignIn) -> App {
+    let mut app = App::new(VERSION, ColorMode::Color).at(Screen::Findings, Theme::Dark);
+    app.authorization_granted(Validity::Until(std::time::Duration::from_secs(28_800)));
+    app.catalogue_read(crate::admin::catalogue::Read::Ready(Box::new(catalogue())));
+    let press = |app: &mut App, code| {
+        app.handle_key(KeyEvent::new(code, KeyModifiers::NONE));
+    };
+    // Into the first installation, then into its first repository.
+    press(&mut app, KeyCode::Enter);
+    press(&mut app, KeyCode::Enter);
+    app.take_observation_request();
+    app.observed_run(
+        &super::findings::fixture::mixed(),
+        &super::findings::fixture::deliveries(),
+    );
+    press(&mut app, KeyCode::Char('f'));
+    press(&mut app, KeyCode::Down);
+    press(&mut app, KeyCode::Down);
+    app.lapse();
+    app.signing_in(state)
+}
+
+#[cfg_attr(feature = "test-identity", allow(dead_code))]
+fn check_reauthorization(name: &'static str, width: u16, height: u16, state: SignIn) {
+    let case = Case {
+        name,
+        screen: Screen::Findings,
+        theme: Theme::Dark,
+        color: ColorMode::Color,
+        width,
+        height,
+        flow: None,
+        selection: None,
+        run: None,
+    };
+    let backend = TestBackend::new(width, height);
+    let mut terminal = Terminal::new(backend).expect("a test terminal");
+    let app = lapsed(state);
+    terminal
+        .draw(|frame| app.render(frame.area(), frame.buffer_mut()))
+        .expect("the frame draws");
+    let rendered = serialise(&case, terminal.backend().buffer());
+    let path = path(name);
+    if std::env::var_os("UPDATE_SNAPSHOTS").is_some() {
+        std::fs::write(&path, rendered).expect("the snapshot is writable");
+    } else {
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("the snapshot is recorded"),
+            rendered,
+            "{} changed. Run with UPDATE_SNAPSHOTS=1 and review the diff.",
+            path.display()
         );
     }
 }
@@ -782,6 +845,54 @@ fn queues() -> Vec<Case> {
 fn the_frame_renders_as_recorded() {
     for case in cases() {
         check(&case);
+    }
+}
+
+/// The re-authorization overlay, at both sizes and in two of its states.
+///
+/// The reading being recorded is the one the invariant lives in: the frame is
+/// still the findings screen's, the flow drawn in it is sign-in's own, the
+/// position is stated, and not one thing the run had observed is anywhere on
+/// the screen.
+#[cfg(not(feature = "test-identity"))]
+#[test]
+fn the_reauthorization_overlay_renders_as_recorded() {
+    let awaiting = || {
+        let mut state = SignIn::opening();
+        state.code_issued(&fixture());
+        state
+    };
+    for (name, width, height, state) in [
+        (
+            "reauthorization-requesting-120x40-dark",
+            REFERENCE_WIDTH,
+            REFERENCE_HEIGHT,
+            SignIn::Requesting {
+                reason: Reason::Lapsed,
+            },
+        ),
+        (
+            "reauthorization-requesting-80x24-dark",
+            FLOOR_WIDTH,
+            FLOOR_HEIGHT,
+            SignIn::Requesting {
+                reason: Reason::Lapsed,
+            },
+        ),
+        (
+            "reauthorization-awaiting-120x40-dark",
+            REFERENCE_WIDTH,
+            REFERENCE_HEIGHT,
+            awaiting(),
+        ),
+        (
+            "reauthorization-awaiting-80x24-dark",
+            FLOOR_WIDTH,
+            FLOOR_HEIGHT,
+            awaiting(),
+        ),
+    ] {
+        check_reauthorization(name, width, height, state);
     }
 }
 

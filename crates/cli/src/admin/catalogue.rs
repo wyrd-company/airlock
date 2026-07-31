@@ -19,7 +19,7 @@ use std::sync::mpsc::{Receiver as SyncReceiver, Sender as SyncSender};
 use std::time::Duration;
 
 use airlock_core::github::{
-    AccountKind, GitHub as _, RepositorySelection, RestClient, RestClientConfig,
+    AccountKind, ErrorCause, GitHub as _, RepositorySelection, RestClient, RestClientConfig,
 };
 
 use super::session::SessionCredential;
@@ -497,6 +497,13 @@ impl State {
 pub enum Read {
     /// The catalogue, read whole.
     Ready(Box<Catalogue>),
+    /// GitHub rejected the credential itself.
+    ///
+    /// Its own arm rather than a failure with a recognisable message, because
+    /// it is the one failure that is not about the catalogue at all: the grant
+    /// this session holds is no longer one, and the remedy is a new device
+    /// approval rather than anything the operator can do to this list.
+    Unauthorized,
     /// The read failed. The cause is sanitized and carries no credential.
     Failed(String),
 }
@@ -583,6 +590,8 @@ async fn read(client: &RestClient) -> Read {
     let attested = identity::bound();
     let installations = match client.user_installations().await {
         Ok(installations) => installations,
+        // 401 is unambiguous: the credential was rejected, not the question.
+        Err(error) if error.cause == ErrorCause::Unauthenticated => return Read::Unauthorized,
         Err(error) => return Read::Failed(text::sanitize(&error.to_string(), CAUSE_LIMIT)),
     };
     let mut catalogue = Vec::new();

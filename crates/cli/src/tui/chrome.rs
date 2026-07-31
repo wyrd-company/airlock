@@ -10,6 +10,9 @@ use ratatui::layout::Rect;
 use ratatui::style::Modifier;
 use ratatui::text::{Line, Span};
 
+use crate::admin::session::Validity;
+use crate::admin::sign_in::humanize;
+
 use super::screen::{Key, Screen, THEME_KEY, UNIVERSAL_KEYS};
 use super::theme::{Role, Styles};
 
@@ -136,11 +139,35 @@ pub fn breadcrumb(screen: Screen) -> String {
     trail.join(CRUMB_SEPARATOR)
 }
 
+/// How the header states what is left of the session's grant.
+///
+/// The grant lapses on GitHub's schedule and the lapse can fall mid-session, so
+/// what is left of it is a standing session fact rather than something the
+/// operator discovers when it happens. It sits in the facts group at both
+/// sizes: the two readings are the same fact in fewer words, and neither of
+/// them is the fact being dropped.
+///
+/// A grant that states no expiry says so. Inventing an interval would be
+/// demanding a re-authorization for no observed reason, and assuming one away
+/// would be a lapse nothing warned about.
+#[must_use]
+fn grant_fact(validity: Validity, width: u16) -> String {
+    let full = width >= FULL_FACTS_NEED_WIDTH;
+    match (validity, full) {
+        (Validity::Until(remaining), true) => format!("grant ends in {}", humanize(remaining)),
+        (Validity::Until(remaining), false) => format!("grant {}", humanize(remaining)),
+        (Validity::Unstated, true) => "grant states no expiry".to_owned(),
+        (Validity::Unstated, false) => "grant expiry unstated".to_owned(),
+    }
+}
+
 /// The header line.
 ///
 /// The right-hand group states the session facts that hold whatever screen is
-/// open. This shell holds no credential, and it says exactly that rather than
-/// printing a grant or an expiry it does not have.
+/// open: that no credential is stored, what is left of the grant where one is
+/// held, and the palette. The grant is stated by its remaining validity and
+/// never by its value — there is no value here to state, because the type this
+/// takes has no field one could travel in.
 ///
 /// The keys live in the open state are passed in, and the header reads its own
 /// key slot out of them rather than assuming the toggle is available. The
@@ -153,6 +180,7 @@ pub fn header_line(
     styles: Styles,
     width: u16,
     keys: &[Key],
+    grant: Option<Validity>,
 ) -> Line<'static> {
     let identity = format!("AIRLOCK {version}");
     let theme = format!(
@@ -160,10 +188,13 @@ pub fn header_line(
         theme_slot(keys),
         styles.theme().name()
     );
+    let grant = grant.map_or_else(String::new, |validity| {
+        format!("{}{FACT_SEPARATOR}", grant_fact(validity, width))
+    });
     let facts = if width >= FULL_FACTS_NEED_WIDTH {
-        format!("no credential stored{FACT_SEPARATOR}tty required{FACT_SEPARATOR}{theme}")
+        format!("{grant}no credential stored{FACT_SEPARATOR}tty required{FACT_SEPARATOR}{theme}")
     } else {
-        format!("no credential stored{FACT_SEPARATOR}{theme}")
+        format!("{grant}no credential stored{FACT_SEPARATOR}{theme}")
     };
     let width = width as usize;
     let identity_width = identity.chars().count();
@@ -402,6 +433,8 @@ pub fn elide_start(text: &str, width: usize) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
     use crate::tui::theme::{ColorMode, Theme};
 
@@ -476,7 +509,23 @@ mod tests {
         for width in [REFERENCE_WIDTH, FLOOR_WIDTH] {
             for screen in Screen::ALL {
                 for line in [
-                    header_line(screen, "0.0.0", styles(), width, &keys_of(screen)),
+                    header_line(screen, "0.0.0", styles(), width, &keys_of(screen), None),
+                    header_line(
+                        screen,
+                        "0.0.0",
+                        styles(),
+                        width,
+                        &keys_of(screen),
+                        Some(Validity::Until(Duration::from_secs(872))),
+                    ),
+                    header_line(
+                        screen,
+                        "0.0.0",
+                        styles(),
+                        width,
+                        &keys_of(screen),
+                        Some(Validity::Unstated),
+                    ),
                     keymap_line(&keys_of(screen), styles(), width),
                     status_line(&status_text(screen), styles(), width),
                     rule_line(styles(), width),
@@ -500,6 +549,7 @@ mod tests {
                 styles(),
                 FLOOR_WIDTH,
                 &keys_of(screen),
+                None,
             ));
             assert!(text.starts_with("AIRLOCK 0.0.0"), "{screen:?}: {text}");
             assert!(text.contains("no credential stored"), "{screen:?}: {text}");
@@ -508,6 +558,60 @@ mod tests {
                 "{screen:?}: {text}"
             );
         }
+    }
+
+    #[test]
+    fn the_header_states_what_is_left_of_the_grant_at_both_sizes() {
+        // The lapse can fall mid-session, so what is left of the grant is a
+        // standing fact rather than a surprise. Both sizes carry it; the floor
+        // says it in fewer words rather than not at all.
+        for (width, expected) in [
+            (REFERENCE_WIDTH, "grant ends in 14m 32s"),
+            (FLOOR_WIDTH, "grant 14m 32s"),
+        ] {
+            let text = rendered(&header_line(
+                Screen::Findings,
+                "0.0.0",
+                styles(),
+                width,
+                &keys_of(Screen::Findings),
+                Some(Validity::Until(Duration::from_secs(872))),
+            ));
+            assert!(text.contains(expected), "at {width}: {text}");
+            assert!(text.contains("no credential stored"), "at {width}: {text}");
+        }
+    }
+
+    #[test]
+    fn a_grant_that_states_no_expiry_says_so_rather_than_showing_a_countdown() {
+        for width in [REFERENCE_WIDTH, FLOOR_WIDTH] {
+            let text = rendered(&header_line(
+                Screen::Findings,
+                "0.0.0",
+                styles(),
+                width,
+                &keys_of(Screen::Findings),
+                Some(Validity::Unstated),
+            ));
+            assert!(text.contains("expiry"), "at {width}: {text}");
+            assert!(!text.contains("ends in"), "at {width}: {text}");
+        }
+    }
+
+    #[test]
+    fn a_session_with_no_grant_states_no_grant_fact_at_all() {
+        // Before the first authorization, and while one is being replaced,
+        // there is no grant to count down. A zero would be a value airlock was
+        // never given.
+        let text = rendered(&header_line(
+            Screen::SignIn,
+            "0.0.0",
+            styles(),
+            REFERENCE_WIDTH,
+            &keys_of(Screen::SignIn),
+            None,
+        ));
+        assert!(!text.contains("grant"), "{text}");
     }
 
     #[test]
@@ -520,6 +624,7 @@ mod tests {
                     styles(),
                     width,
                     &keys_of(screen),
+                    None,
                 ));
                 let light = rendered(&header_line(
                     screen,
@@ -527,6 +632,7 @@ mod tests {
                     Styles::new(Theme::Light, ColorMode::Color),
                     width,
                     &keys_of(screen),
+                    None,
                 ));
                 assert_eq!(dark.chars().count(), light.chars().count(), "{screen:?}");
                 assert_eq!(
@@ -556,6 +662,7 @@ mod tests {
                 styles(),
                 width,
                 &live,
+                None,
             ));
             let withdrawn = rendered(&header_line(
                 Screen::Repositories,
@@ -563,6 +670,7 @@ mod tests {
                 styles(),
                 width,
                 &captured,
+                None,
             ));
 
             assert!(offered.contains("theme t \u{b7} dark"), "{offered}");
@@ -603,6 +711,7 @@ mod tests {
             styles(),
             FLOOR_WIDTH,
             &keys_of(Screen::FindingDetail),
+            None,
         ));
         assert!(text.contains("finding detail"), "{text}");
         assert!(text.contains(ELLIPSIS), "the head was dropped: {text}");

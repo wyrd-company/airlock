@@ -16,6 +16,24 @@ use zeroize::Zeroize as _;
 use super::identity::{self, WriteIdentity};
 use crate::device::TokenGrant;
 
+/// What the interface may know about the session's grant.
+///
+/// A duration, or the statement that GitHub gave none. It is the drawable half
+/// of a credential and carries nothing else: there is no field here a token
+/// could travel in, which is why the countdown can be handed to the rendering
+/// layer when the credential itself never is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Validity {
+    /// GitHub stated how long the grant is good for, and this is what is left.
+    Until(std::time::Duration),
+    /// GitHub stated no expiry, so there is no countdown to draw.
+    ///
+    /// Said rather than guessed at. An expiry airlock invented would be a
+    /// re-authorization it demanded for no observed reason, and an expiry it
+    /// assumed away would be a lapse the operator was not warned about.
+    Unstated,
+}
+
 /// A write credential, alive for as long as the session and no longer.
 ///
 /// It has no `Debug`, no `Display`, no `Serialize`, and no `Clone`. A value
@@ -28,6 +46,10 @@ pub struct SessionCredential {
     /// import — a displayed grant must be the grant this credential has.
     #[cfg_attr(not(test), allow(dead_code))]
     identity: WriteIdentity,
+    /// How long GitHub said this grant is good for, read from the grant it was
+    /// built from. Held here for the same reason the identity is: what the
+    /// interface counts down must be what this credential actually has.
+    validity: Validity,
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
@@ -41,10 +63,20 @@ impl SessionCredential {
     /// merely dropped.
     #[must_use]
     pub fn from_device_grant(mut grant: TokenGrant) -> Self {
+        let validity = grant.expires_in.map_or(Validity::Unstated, |seconds| {
+            Validity::Until(std::time::Duration::from_secs(seconds))
+        });
         Self {
             token: strip(&mut grant),
             identity: identity::bound(),
+            validity,
         }
+    }
+
+    /// How long this grant is good for, as GitHub stated it.
+    #[must_use]
+    pub const fn validity(&self) -> Validity {
+        self.validity
     }
 
     /// The identity this credential was issued by, as the build binds it.
@@ -139,6 +171,26 @@ mod tests {
         );
         assert_eq!(supplied.refresh_token_expires_in, None);
         assert!(supplied.access_token.is_empty());
+    }
+
+    #[test]
+    fn a_credential_states_the_validity_the_grant_stated_and_never_invents_one() {
+        let credential = SessionCredential::from_device_grant(grant());
+        assert_eq!(
+            credential.validity(),
+            Validity::Until(std::time::Duration::from_secs(28_800))
+        );
+
+        // GitHub sends no expiry when token expiry is disabled for the app.
+        // An interval airlock made up would be a re-authorization demanded for
+        // no observed reason.
+        let credential = SessionCredential::from_device_grant(TokenGrant {
+            access_token: "ghu_session_only".to_owned(),
+            expires_in: None,
+            refresh_token: None,
+            refresh_token_expires_in: None,
+        });
+        assert_eq!(credential.validity(), Validity::Unstated);
     }
 
     #[test]

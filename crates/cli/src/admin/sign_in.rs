@@ -68,6 +68,14 @@ pub enum Reason {
     Opening,
     /// The operator asked for a new one.
     Asked,
+    /// The session's authorization lapsed and is being replaced in place.
+    ///
+    /// The third reason a code is asked for, and the one the operator has not
+    /// asked for at all. It is a reason rather than a state of its own because
+    /// the re-authorization is the same device flow, presented over the screen
+    /// the operator was on: reusing these five states is what keeps one
+    /// rendering of the flow rather than two that can drift.
+    Lapsed,
 }
 
 /// The sign-in screen's state.
@@ -291,6 +299,18 @@ impl SignIn {
                         .to_owned()
                 }
                 Reason::Asked => "Airlock is asking GitHub for a new code.".to_owned(),
+                Reason::Lapsed if tight => {
+                    "The session's authorization lapsed. Asking GitHub for a new code; \
+                     your position is held, what it had observed is not."
+                        .to_owned()
+                }
+                Reason::Lapsed => {
+                    "The session's authorization lapsed on GitHub's schedule. Airlock is \
+                     asking for a new device code and presenting it over the screen you \
+                     were on: your position is held, and everything it had observed has \
+                     been discarded and will be observed again."
+                        .to_owned()
+                }
             },
             Self::Awaiting { .. } if tight => {
                 "Enter the code at the address below. Airlock polls until you approve \
@@ -360,6 +380,17 @@ impl SignIn {
     pub fn remedy(&self, density: Density) -> String {
         let tight = density == Density::Tight;
         match self {
+            Self::Requesting {
+                reason: Reason::Lapsed,
+            } if tight => {
+                "Approve the new code when it arrives. esc abandons and leaves.".to_owned()
+            }
+            Self::Requesting {
+                reason: Reason::Lapsed,
+            } => "Approve the new code when it arrives. Nothing is refreshed and nothing \
+                 was stored: this is a new approval, exactly like the first one. Press \
+                 esc to abandon it and leave."
+                .to_owned(),
             Self::Requesting { .. } if tight => {
                 "Nothing yet. r and q are not live until a code exists.".to_owned()
             }
@@ -376,13 +407,21 @@ impl SignIn {
                  stale, or ctrl-c to leave without authorizing."
                     .to_owned()
             }
+            // What the screen may say here is bounded by what airlock asked.
+            // GitHub was polled once more as the validity ran out, so an
+            // approval given at the last moment was taken; one given after
+            // that is an approval of a code nothing is watching any more, and
+            // saying "nothing was granted" would be claiming an answer to a
+            // question airlock stopped asking.
             Self::Expired if tight => {
-                "Wait for the replacement, then enter it. Nothing was granted against \
-                 the code that lapsed."
+                "Enter the replacement when it arrives. An approval given to the lapsed \
+                 code after this does not carry over."
                     .to_owned()
             }
-            Self::Expired => "Wait for the replacement code, then enter it. Nothing was granted \
-                 against the code that lapsed."
+            Self::Expired => "Enter the replacement code when it arrives, even if you have just \
+                 approved the one that lapsed: airlock asked GitHub once more as the \
+                 validity ran out, and an approval given after that does not carry over \
+                 to the new code."
                 .to_owned(),
             Self::Denied if tight => {
                 "If this was not you, nothing was granted and there is nothing to \
@@ -413,7 +452,13 @@ pub fn humanize(duration: Duration) -> String {
     if seconds < 60 {
         return format!("{seconds}s");
     }
-    format!("{}m {:02}s", seconds / 60, seconds % 60)
+    if seconds < 3600 {
+        return format!("{}m {:02}s", seconds / 60, seconds % 60);
+    }
+    // A grant runs for hours where a device code runs for minutes, and a
+    // reading of "480m" is a number the reader has to do arithmetic on before
+    // it means anything.
+    format!("{}h {:02}m", seconds / 3600, (seconds % 3600) / 60)
 }
 
 #[cfg(test)]
@@ -512,12 +557,50 @@ mod tests {
     }
 
     #[test]
-    fn expiry_reissues_in_place_and_says_nothing_was_granted() {
+    fn expiry_reissues_in_place_and_claims_nothing_about_a_late_approval() {
         let mut state = awaiting();
         state.expired();
         assert_eq!(state, SignIn::Expired);
         assert!(state.statement(Density::Full).contains("not restarted"));
-        assert!(state.remedy(Density::Full).contains("Nothing was granted"));
+        for density in [Density::Full, Density::Tight] {
+            let remedy = state.remedy(density);
+            assert!(remedy.contains("does not carry over"), "{remedy}");
+            // The claim the ceremony race makes false: an operator can approve
+            // the lapsed code moments after airlock stopped watching it, and
+            // airlock cannot see what that approval did.
+            assert!(
+                !remedy.to_lowercase().contains("nothing was granted"),
+                "{remedy}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_lapsed_grant_asks_for_a_code_saying_what_is_held_and_what_is_not() {
+        let mut state = awaiting();
+        state.reissue(Reason::Lapsed);
+        assert_eq!(
+            state,
+            SignIn::Requesting {
+                reason: Reason::Lapsed
+            }
+        );
+        for density in [Density::Full, Density::Tight] {
+            let statement = state.statement(density);
+            assert!(statement.contains("lapsed"), "{statement}");
+            assert!(statement.contains("position is held"), "{statement}");
+            let remedy = state.remedy(density);
+            assert!(remedy.contains("esc"), "{remedy}");
+            assert!(remedy.len() > 20, "{remedy}");
+        }
+        assert!(
+            state.statement(Density::Tight).len() <= state.statement(Density::Full).len(),
+            "the tight reading is never the longer one"
+        );
+        assert!(
+            !state.has_code(),
+            "there is nothing to reissue or encode until a code arrives"
+        );
     }
 
     #[test]
@@ -632,6 +715,9 @@ mod tests {
         assert_eq!(humanize(Duration::from_secs(59)), "59s");
         assert_eq!(humanize(Duration::from_secs(60)), "1m 00s");
         assert_eq!(humanize(Duration::from_secs(872)), "14m 32s");
+        assert_eq!(humanize(Duration::from_secs(3599)), "59m 59s");
+        assert_eq!(humanize(Duration::from_secs(3600)), "1h 00m");
+        assert_eq!(humanize(Duration::from_secs(28_800)), "8h 00m");
     }
 
     /// One of each of the five states.
