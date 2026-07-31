@@ -595,20 +595,24 @@ request. They are proposed for review and are never written to the default
 branch. Settings-level fixes are applied directly, because they are not files.
 The sole file-write exception is the first commit of an empty repository: an
 empty repository has no branch against which a pull request can be opened, so
-the interactive session creates that branch with one Git Data API commit. The
-exception is the branch-creating commit, not a repository Airlock created, an
+the interactive session writes that branch-creating commit directly. The
+exception is the branch-creating commit, not a repository airlock created, an
 unprotected branch, or any later commit.
 
 Repository scaffolding is align against the maximally unaligned case. The
-operator chooses the owner, visibility, and capability declarations, then
-confirms creation. Airlock creates the empty repository, assigns declared
-capabilities as organization custom-property values, resolves the owner's
-policy, and places the deterministic files required by its unconditional base
-profile in the single branch-creating commit. Airlock ships no fallback policy
-or built-in scaffold. It immediately runs the ordinary audit against the new
-repository; settings that could not be applied during creation and every
-remaining file or judgment gap enter the ordinary remediation lanes. Once the
-default branch exists, every file-level change leaves as a pull request.
+operator chooses the owner from the reachable installations — the same list the
+Organizations screen shows — names the repository in a focused text input,
+chooses its visibility and capability declarations, then confirms creation.
+Airlock creates the empty repository, resolves the owner's policy, and places
+the deterministic files its unconditional base profile requires in the single
+branch-creating commit. Each declared capability is written and settled exactly
+as a confirmed capability decision is — the same organization custom-property
+write, the same re-observation, the same discrepancy handling. Airlock ships no
+fallback policy or built-in scaffold. It immediately runs the ordinary audit
+against the new repository; settings that could not be applied during creation
+and every remaining file or judgment gap enter the ordinary remediation lanes.
+Once the default branch exists, every file-level change leaves as a pull
+request.
 
 A queue shows the remaining remediations with their rule ids and, for each,
 its remediation code, whether it is a file change or a setting, and how it

@@ -71,13 +71,14 @@ therefore has nothing to invoke: the guarantee is that the code path does not
 exist, not that a check declines to take it.
 
 Creating a repository is align against the maximally unaligned case. The
-operator chooses its owner, visibility, and declared capabilities in the
-console. Because an empty repository has no branch against which Airlock can
-open a pull request, the console creates exactly one direct Git Data API commit
-containing the deterministic files required by the owner's policy. That
-branch-creating commit is the sole direct file-write exception; after it,
-Airlock audits the repository normally and every later file change follows the
-ordinary pull-request path. Airlock ships no policy and no built-in scaffold.
+operator chooses the owner, names the repository, and chooses its visibility
+and declared capabilities in the console. Because an empty repository has no
+branch against which Airlock can open a pull request, the console writes the
+first commit directly: a single branch-creating commit carrying the
+deterministic files the owner's policy requires. That commit is the sole direct
+file-write exception; after it, Airlock audits the repository normally and
+every later file change follows the ordinary pull-request path. Airlock ships
+no policy and no built-in scaffold.
 
 It requires an interactive terminal on both stdin and stdout. Under a pipe, a
 redirect, or a scheduler it exits non-zero without rendering anything, and names
