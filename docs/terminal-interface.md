@@ -537,8 +537,9 @@ failing, and says why.
 **Inputs.** Most settings-level remediations name their entire change
 themselves; the confirmation is the only input. A remediation that cannot
 derive its target takes it here, before the confirmation, and the confirmation
-then names the operator's chosen value verbatim. Three input surfaces exist,
-and no remediation defines a fourth:
+then names the operator's chosen input — verbatim for a choice or a text target,
+by name alone for a secret value. Three input surfaces exist, and no remediation
+defines a fourth:
 
 - **A choice from observed data.** Attaching organization rulesets selects from
   the rulesets observed on the organization on entry, re-observed and never
@@ -568,8 +569,8 @@ and no remediation defines a fourth:
   length — and only a fixed, value-independent entry indicator shows that the
   surface holds input. **SPEC PROPOSAL (task 97; adjudication required):** The
   value exists only in the zeroizing entry buffer and the credential-owning
-  write path; it never enters a queue item, confirmation model, transcript,
-  snapshot, log, pane, or error. **SPEC PROPOSAL (task 97; adjudication
+  write path; it never enters a queue item, a confirmation, a transcript, a
+  snapshot, a log, a pane, or an error. **SPEC PROPOSAL (task 97; adjudication
   required):** Submitting an empty value is refused without sending a request,
   and submitting a non-empty value consumes the entry buffer into the pending
   write. **SPEC PROPOSAL (task 97; adjudication required):** Confirmation names
