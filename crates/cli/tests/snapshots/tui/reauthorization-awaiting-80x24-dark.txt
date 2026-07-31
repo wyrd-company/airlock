@@ -16,11 +16,11 @@ remedy        Approve in the browser. r for a new code, ctrl-c to leave.
 CREDENTIAL                                                                      
 source        GitHub App Airlock Admin · device flow                            
 grant         read: metadata, actions · write: administration, contents,        
-              environments, repository_custom_properties, secrets, variables,   
-              workflows, organization_administration, organization_secrets ·    
-              admin: organization_custom_properties                             
+              environments, secrets, variables, organization_administration,    
+              organization_secrets · admin: organization_custom_properties      
 storage       none. No credential of any kind is stored, anywhere, ever. Its    
               value is never displayed.                                         
+                                                                                
 holding       findings · acme-industries/widget · row 3 · gating failures       
 esc abandon and exit · r issue a new code · 3 more…                             
 re-authorizing · findings · acme-industries/widget · row 3 · gating failures    
@@ -41,11 +41,11 @@ gggggggggggggghhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhdddddddd
 iiiiiiiiiidddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 gggggggggggggghhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhdddddddddddddddddddddddddddd
 gggggggggggggghhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhdddddddd
-gggggggggggggghhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhddd
 gggggggggggggghhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhdddd
-gggggggggggggghhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhddddddddddddddddddddddddddddd
+gggggggggggggghhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhdddddd
 gggggggggggggghhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhdddd
 gggggggggggggghhhhhhhhhhhhhhhhhhhhhhhhhddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 gggggggggggggghhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhddddddd
 cccdhhhhhhhhhhhhhhhhgggcdhhhhhhhhhhhhhhhhgggjjjjjjjddddddddddddddddddddddddddddd
 kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk

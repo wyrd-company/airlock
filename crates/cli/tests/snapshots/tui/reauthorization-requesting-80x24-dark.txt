@@ -15,13 +15,13 @@ remedy        Approve the new code when it arrives. esc abandons and leaves.
 CREDENTIAL                                                                      
 source        GitHub App Airlock Admin · device flow                            
 grant         read: metadata, actions · write: administration, contents,        
-              environments, repository_custom_properties, secrets, variables,   
-              workflows, organization_administration, organization_secrets ·    
-              admin: organization_custom_properties                             
+              environments, secrets, variables, organization_administration,    
+              organization_secrets · admin: organization_custom_properties      
 storage       none. No credential of any kind is stored, anywhere, ever. Its    
               value is never displayed.                                         
                                                                                 
-holding       findings · acme-industries/widget · row 3 · gating failures       
+holding       findings · acme-industries/widget · row 3 · gating failures ·     
+              groups 8 collapsed · detail closed                                
 esc abandon and exit · r issue a new code · 3 more…                             
 re-authorizing · findings · acme-industries/widget · row 3 · gating failures    
 --- style keys ---
@@ -40,13 +40,13 @@ ffffffffffffffggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggdddd
 hhhhhhhhhhdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 ffffffffffffffggggggggggggggggggggggggggggggggggggggdddddddddddddddddddddddddddd
 ffffffffffffffggggggggggggggggggggggggggggggggggggggggggggggggggggggggggdddddddd
-ffffffffffffffgggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggddd
 ffffffffffffffggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggdddd
-ffffffffffffffgggggggggggggggggggggggggggggggggggggddddddddddddddddddddddddddddd
+ffffffffffffffggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggdddddd
 ffffffffffffffggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggdddd
 ffffffffffffffgggggggggggggggggggggggggddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-ffffffffffffffgggggggggggggggggggggggggggggggggggggggggggggggggggggggggggddddddd
+ffffffffffffffgggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggddddd
+ffffffffffffffggggggggggggggggggggggggggggggggggdddddddddddddddddddddddddddddddd
 cccdggggggggggggggggfffcdggggggggggggggggfffiiiiiiiddddddddddddddddddddddddddddd
 jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj
 --- legend ---
