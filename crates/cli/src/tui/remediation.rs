@@ -953,7 +953,9 @@ mod tests {
     fn secret_entry_frame_is_value_and_length_independent() {
         let entered_value = "opaque-input-7391";
         let mut entry = crate::admin::remediation::SecretEntry::default();
-        entry.paste(entered_value);
+        let mut pasted = entered_value.to_owned();
+        entry.paste(&mut pasted);
+        assert!(pasted.is_empty());
         let item = Item {
             rule: "REPO-SAMPLE-01".to_owned(),
             remediation: "rename-app-credentials".to_owned(),

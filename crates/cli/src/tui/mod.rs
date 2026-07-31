@@ -119,8 +119,8 @@ fn drive(app: &mut App, session: &mut terminal::Session, authorizing: Authorizin
 
         if event::poll(TICK).context("cannot wait on the terminal")? {
             match event::read().context("cannot read from the terminal")? {
-                Event::Paste(value) if app.accepts_secret() => {
-                    secret_entry.paste(&value);
+                Event::Paste(mut value) if app.accepts_secret() => {
+                    secret_entry.paste(&mut value);
                     continue;
                 }
                 Event::Key(key) if app.accepts_secret() => {

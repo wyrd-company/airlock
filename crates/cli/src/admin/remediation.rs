@@ -230,8 +230,9 @@ impl SecretEntry {
         self.value.push(character);
     }
 
-    pub fn paste(&mut self, value: &str) {
+    pub fn paste(&mut self, value: &mut String) {
         self.value.push_str(value);
+        value.zeroize();
     }
 
     pub fn backspace(&mut self) {
@@ -2000,7 +2001,12 @@ mod tests {
     fn secret_entry_treats_paste_as_value_input_and_consumes_once() {
         let mut entry = SecretEntry::default();
         entry.push('t');
-        entry.paste("opaque-input-7391");
+        let mut pasted = "opaque-input-7391".to_owned();
+        entry.paste(&mut pasted);
+        assert!(
+            pasted.is_empty(),
+            "the paste event allocation was not cleared"
+        );
         entry.push('x');
         entry.backspace();
         let value = entry.take().expect("non-empty entry is consumed");
