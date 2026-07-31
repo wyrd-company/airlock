@@ -224,8 +224,13 @@ The screen has five states:
   state, because there is not yet a code to reissue or to encode.
 - **Awaiting approval.** The code, the address, the polling interval, the
   attempt number, and the code's remaining validity are shown.
-- **Expired.** The code lapsed without approval. A new code is issued in
-  place; the session is not restarted and nothing else is lost.
+- **Expired.** The code lapsed without approval. GitHub is asked once more as
+  the validity runs out, so an approval given at the last moment is taken
+  rather than thrown away. A new code is issued in place; the session is not
+  restarted and nothing else is lost. An approval given to the lapsed code
+  after that does not carry over to its replacement, and the screen says so
+  rather than leaving an operator who has just approved in a browser waiting
+  on a flow that is no longer watching that code.
 - **Denied.** GitHub reported `access_denied` for the code. The screen states
   that the request was rejected in the browser or the account is not permitted
   to authorize the app, and that if this was not the operator, no action is
@@ -664,17 +669,32 @@ position was re-observed on entry.
 
 ## Mid-session expiry
 
-The grant lapses on GitHub's schedule, which can fall mid-session. When it
-does, the interface re-authorizes in place: the device flow is presented over
-the current screen rather than returning the operator to a launch state.
+The grant lapses on GitHub's schedule, which can fall mid-session. Its
+remaining validity is a session fact and is carried in the header for as long
+as a grant is held, so the lapse is expected rather than sudden. A grant that
+states no expiry says so rather than showing a countdown: the interval is
+GitHub's to state, and airlock does not infer one it was not given.
+
+Expiry is observed rather than assumed — the stated validity running out, or a
+rejection of the credential in an observation airlock made. Either way the
+interface re-authorizes in place: the device flow is presented over the current
+screen, in the sign-in states, rather than returning the operator to a launch
+state. The keys are sign-in's own, and the credential the lapse ended is
+discarded at the boundary. Nothing is refreshed and nothing is stored; a new
+authorization is a new device approval, exactly as the first one was.
 
 Interface position is held across the boundary — the selected row, the active
 filters, the expanded and collapsed groups, and whether a detail pane was
-open — and the screen says what it is holding.
+open — and the screen says what it is holding. Position is an address: the
+installation and the repository the operator stood in, and where they stood
+inside the queue. Nothing observed at that address is held with it.
 
 No observation is reused across the boundary. Every visible row is re-observed
 once authorization returns, because an observation made under a grant that has
-since lapsed is not evidence of the present state.
+since lapsed is not evidence of the present state. A remediation in flight is
+not resumed: a partly applied queue is re-observed like everything else, and
+the transcript of what was applied does not survive the boundary, because it is
+a reading of a repository under a grant that has lapsed.
 
 `esc` abandons the re-authorization and exits.
 
