@@ -4,12 +4,9 @@ AIRLOCK 0.0.0  sign-in › organizations › repositories
 REPOSITORIES  acme-industries  organization                                     
 filter        et█ typing filters as you go                                      
                                                                                 
-  NAME                    VISIBILITY  DEFAULT BRANCH  LAST AUDIT  PRIOR VERDICT 
-▸ widget                  private     main            never       never observed
-  sprocket                private     main            never       never observed
-                                                                                
-Prior verdicts are orientation only, and only from this session. Opening a      
-repository re-observes it in full; nothing is acted on from memory.             
+  NAME                                                VISIBILITY  SESSION AUDIT 
+▸ widget                                              private     never observed
+  sprocket                                            private     never observed
                                                                                 
                                                                                 
                                                                                 
@@ -22,16 +19,19 @@ repository re-observes it in full; nothing is acted on from memory.
                                                                                 
                                                                                 
                                                                                 
-↵ observe · ↑↓ select · backspace delete · esc close the filter · ctrl-c exit   
-2 of 3 shown · prior verdicts are shown for orientation only                    
+                                                                                
+                                                                                
+                                                                                
+↵ select · ↑↓ move · esc close the filter · ctrl-c exit                         
+2 of 3 shown                                                                    
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 ccccccccccccdddddddddddddddddddddddddddddddeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 ddddddddddddddffffffffffffffffffffffffffffeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 ggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggge
-hhccccccccccccccccccccccccffffffffffffffffffffffffffffdddddddddddddddddddddddddd
-hheeeeeeeeeeeeeeeeeeeeeeeeffffffffffffffffffffffffffffdddddddddddddddddddddddddd
+hhccccccccccccccccccccccccccccccccccccccccccccccccccccffffffffffffdddddddddddddd
+hheeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeffffffffffffdddddddddddddd
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
@@ -47,7 +47,7 @@ eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-hefffffffdddhheffffffdddhhhhhhhhheffffffdddhhheffffffffffffffffdddhhhhhheffffeee
+heffffffdddhheffffdddhhheffffffffffffffffdddhhhhhheffffeeeeeeeeeeeeeeeeeeeeeeeee
 iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii
 --- legend ---
 a fg=#CBD3DD bg=#14181D BOLD

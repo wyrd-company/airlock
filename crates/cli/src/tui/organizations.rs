@@ -262,7 +262,6 @@ mod tests {
                         owner: account.to_owned(),
                         name: (*name).to_owned(),
                         visibility: "private".to_owned(),
-                        default_branch: Some("main".to_owned()),
                     })
                     .collect(),
                 total: names.len() as u64,

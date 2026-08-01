@@ -8,8 +8,6 @@ filter        / to filter by name · no repository
               screen; the repositories shown here are the ones that installation
               reaches, and that is not the same set as the ones the account has.
                                                                                 
-Prior verdicts are orientation only, and only from this session. Opening a      
-repository re-observes it in full; nothing is acted on from memory.             
                                                                                 
                                                                                 
                                                                                 
@@ -22,8 +20,10 @@ repository re-observes it in full; nothing is acted on from memory.
                                                                                 
                                                                                 
                                                                                 
-↑↓ select · / filter · n new repository · ↵ observe · esc back · 2 more…        
-0 of 0 shown · prior verdicts are shown for orientation only                    
+                                                                                
+                                                                                
+↑↓ move · / filter · n new repository · ↵ select · esc back · q quit · t theme  
+0 of 0 shown                                                                    
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 ccccccccccccdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
@@ -47,8 +47,8 @@ dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-ggdffffffeeegdffffffeeegdffffffffffffffeeegdfffffffeeegggdffffeeehhhhhhhdddddddd
-iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii
+ggdffffeeegdffffffeeegdffffffffffffffeeegdffffffeeegggdffffeeegdffffeeegdfffffdd
+hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh
 --- legend ---
 a fg=#CBD3DD bg=#14181D BOLD
 b fg=#CBD3DD bg=#14181D
@@ -57,5 +57,4 @@ d fg=#CBD3DD bg=#0B0D10
 e fg=#4C5661 bg=#0B0D10
 f fg=#79838F bg=#0B0D10
 g fg=#E8B84B bg=#0B0D10 BOLD
-h fg=#4C5661 bg=#0B0D10 ITALIC
-i fg=#79838F bg=#101419
+h fg=#79838F bg=#101419

@@ -93,6 +93,19 @@ pub const INPUT_KEYS: [Key; 5] = [
     EXIT_KEY,
 ];
 
+/// The keys live while the repository-name filter holds focus.
+///
+/// The filter's own keys, in place of the screen's. `backspace` is not among
+/// them: it deletes the character just typed, which is what backspace does in
+/// any text entry, and a footer entry for it reads as though something larger
+/// than a character were at stake.
+pub const FILTER_KEYS: [Key; 4] = [
+    key!("\u{21b5}", "select"),
+    key!("\u{2191}\u{2193}", "move"),
+    key!("esc", "close the filter"),
+    EXIT_KEY,
+];
+
 /// The repository-name field's keys while it holds focus.
 pub const SCAFFOLD_INPUT_KEYS: [Key; 5] = [
     key!("↵", "continue"),
@@ -215,10 +228,10 @@ impl Screen {
                 key!("h", "troubleshooting"),
             ],
             Self::Repositories => &[
-                key!("\u{2191}\u{2193}", "select"),
+                key!("\u{2191}\u{2193}", "move"),
                 key!("/", "filter"),
                 key!("n", "new repository"),
-                key!("\u{21b5}", "observe"),
+                key!("\u{21b5}", "select"),
                 key!("esc", "back"),
             ],
             Self::Scaffold => &[
@@ -340,18 +353,20 @@ mod tests {
 
     #[test]
     fn a_focused_input_offers_its_own_keys_and_never_the_one_it_captured() {
-        assert!(
-            !INPUT_KEYS.iter().any(|entry| entry.key == THEME_KEY.key),
-            "the input takes printable keys as text, so the footer must not offer `t`"
-        );
-        assert!(
-            INPUT_KEYS.contains(&EXIT_KEY),
-            "ctrl-c is live without exception, in this state as in every other"
-        );
+        for keys in [INPUT_KEYS.as_slice(), FILTER_KEYS.as_slice()] {
+            assert!(
+                !keys.iter().any(|entry| entry.key == THEME_KEY.key),
+                "the input takes printable keys as text, so the footer must not offer `t`"
+            );
+            assert!(
+                keys.contains(&EXIT_KEY),
+                "ctrl-c is live without exception, in this state as in every other"
+            );
+        }
         // Nothing that types is listed as a key. A single printable character
         // in this footer would name something the input would have typed
         // instead — which is the whole class of mistake `t theme` was.
-        for entry in INPUT_KEYS {
+        for entry in INPUT_KEYS.into_iter().chain(FILTER_KEYS) {
             let mut characters = entry.key.chars();
             let single_printable = characters
                 .next()

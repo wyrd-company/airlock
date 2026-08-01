@@ -5,13 +5,13 @@ AIRLOCK 0.0.0  sign-in › organizations › repositories
 REPOSITORIES  acme-industries  organization                                                                             
 filter        et█ typing filters as you go                                                                              
                                                                                                                         
-  NAME                                                            VISIBILITY  DEFAULT BRANCH  LAST AUDIT  PRIOR VERDICT 
-▸ widget                                                          private     main            never       never observed
-  sprocket                                                        private     main            never       never observed
+  NAME                                                                                        VISIBILITY  SESSION AUDIT 
+▸ widget                                                                                      private     never observed
+  sprocket                                                                                    private     never observed
                                                                                                                         
-A prior verdict is shown for orientation only, and it is one this session made: airlock keeps no audit history, so a    
-repository it has not observed in this session says so rather than showing a blank. Nothing is acted upon from memory — 
-opening a repository re-observes it in full.                                                                            
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
                                                                                                                         
                                                                                                                         
                                                                                                                         
@@ -38,8 +38,8 @@ opening a repository re-observes it in full.
                                                                                                                         
                                                                                                                         
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-↵ observe · ↑↓ select · backspace delete · esc close the filter · ctrl-c exit                                           
-2 of 3 shown · prior verdicts are shown for orientation only                                                            
+↵ select · ↑↓ move · esc close the filter · ctrl-c exit                                                                 
+2 of 3 shown                                                                                                            
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
@@ -47,8 +47,8 @@ ddddddddddddeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeefffffffffffffffffffffffffffffffffffff
 eeeeeeeeeeeeeeggggggggggggggggggggggggggggffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhf
-iiddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeee
-iiffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeee
+iiddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddggggggggggggeeeeeeeeeeeeee
+iiffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffggggggggggggeeeeeeeeeeeeee
 ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
@@ -79,7 +79,7 @@ ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-ifgggggggeeeiifggggggeeeiiiiiiiiifggggggeeeiiifggggggggggggggggeeeiiiiiifggggfffffffffffffffffffffffffffffffffffffffffff
+ifggggggeeeiifggggeeeiiifggggggggggggggggeeeiiiiiifggggfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj
 --- legend ---
 a fg=#CBD3DD bg=#14181D BOLD

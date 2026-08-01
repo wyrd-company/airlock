@@ -324,20 +324,23 @@ in — no authorization yet, reading, or a read that failed.
 **Purpose.** Choose a repository to observe.
 
 **Content.** An incremental filter over the repository name, and a table of
-name, visibility, date of last audit, the verdict that audit reached, and
-default branch. A repository never audited shows so explicitly rather than
-showing a blank verdict.
+name, visibility, and the verdict this session reached, under SESSION AUDIT. A
+repository this session has not audited says so explicitly rather than showing
+a blank verdict. No time is shown against a verdict: the audit it reports is
+one this session ran.
 
-A prior verdict is displayed for orientation only. Nothing is acted upon from
-memory: opening a repository re-observes it in full.
+Nothing is acted upon from a verdict already on the screen: opening a
+repository re-observes it in full.
 
-**Keymap.** `↑↓` select · `/` filter · `↵` observe · `esc` back.
+**Keymap.** `↑↓` move · `/` filter · `↵` select · `esc` back.
 
 While the filter is focused, printable keys type into it, `esc` closes it, and
-`t` is not live as the theme toggle; the keymap says so.
+`t` is not live as the theme toggle; the keymap says so. `backspace` deletes the
+character just typed and is not listed, because that is what backspace does in
+any text entry.
 
 **Status line.** The count shown against the count available in the
-installation, and the note that prior verdicts are shown for orientation only.
+installation.
 
 ### Findings
 

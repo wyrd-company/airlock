@@ -40,19 +40,6 @@ pub struct Repository {
     pub name: String,
     /// `public`, `private`, or `internal`, sanitized.
     pub visibility: String,
-    /// The default branch, when the repository has one.
-    pub default_branch: Option<String>,
-}
-
-impl Repository {
-    /// What the row prints where a default branch would go.
-    ///
-    /// An empty repository has no branch, which is a fact rather than a blank:
-    /// there is nothing yet for a pull request to be opened against.
-    #[must_use]
-    pub fn branch(&self) -> &str {
-        self.default_branch.as_deref().unwrap_or("no branch yet")
-    }
 }
 
 /// What an installation's repository listing came back as.
@@ -364,15 +351,6 @@ pub enum PriorAudit {
 }
 
 impl PriorAudit {
-    /// The date column.
-    #[must_use]
-    pub fn date(&self) -> &str {
-        match self {
-            Self::NeverObserved => "never",
-            Self::Observed { at, .. } => at,
-        }
-    }
-
     /// The verdict column.
     ///
     /// A repository never audited says so rather than showing a blank, because
@@ -654,10 +632,6 @@ async fn read(client: &RestClient, cancelled: &AtomicBool) -> Read {
                         owner: text::sanitize(&repository.owner, NAME_LIMIT),
                         name: text::sanitize(&repository.name, NAME_LIMIT),
                         visibility: text::sanitize(&repository.visibility, NAME_LIMIT),
-                        default_branch: repository
-                            .default_branch
-                            .as_ref()
-                            .map(|branch| text::sanitize(branch, NAME_LIMIT)),
                     })
                     .collect(),
                 total: listing.total_count,
@@ -694,7 +668,6 @@ mod tests {
             owner: owner.to_owned(),
             name: name.to_owned(),
             visibility: "private".to_owned(),
-            default_branch: Some("main".to_owned()),
         }
     }
 
@@ -715,14 +688,6 @@ mod tests {
                 truncated: false,
             },
         }
-    }
-
-    #[test]
-    fn a_repository_with_no_branch_says_so_rather_than_naming_one() {
-        let mut fresh = repository("acme-industries", "widget");
-        fresh.default_branch = None;
-        assert_eq!(fresh.branch(), "no branch yet");
-        assert_eq!(repository("acme-industries", "widget").branch(), "main");
     }
 
     #[test]
@@ -873,7 +838,6 @@ mod tests {
         let observations = Observations::default();
         let prior = observations.prior("acme-industries", "widget");
         assert_eq!(prior, PriorAudit::NeverObserved);
-        assert_eq!(prior.date(), "never");
         assert_eq!(prior.verdict(), "never observed");
     }
 
@@ -889,7 +853,6 @@ mod tests {
             "nonconformant",
         );
         let prior = observations.prior("acme-industries", "widget");
-        assert_eq!(prior.date(), "2026-01-02");
         assert_eq!(prior.verdict(), "nonconformant");
         assert_eq!(
             observations.prior("acme-industries", "sprocket"),

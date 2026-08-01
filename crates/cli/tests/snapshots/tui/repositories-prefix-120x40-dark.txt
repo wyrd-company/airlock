@@ -6,14 +6,14 @@ REPOSITORIES  acme-industries  organization
 filter        / to filter by name · 3 of 400 read — the listing stopped at airlock's page budget, so what is missing is 
               the listing rather than the repositories                                                                  
                                                                                                                         
-  NAME                                                            VISIBILITY  DEFAULT BRANCH  LAST AUDIT  PRIOR VERDICT 
-▸ widget                                                          private     main            never       never observed
-  sprocket                                                        private     main            never       never observed
-  public-flywheel                                                 public      main            never       never observed
+  NAME                                                                                        VISIBILITY  SESSION AUDIT 
+▸ widget                                                                                      private     never observed
+  sprocket                                                                                    private     never observed
+  public-flywheel                                                                             public      never observed
                                                                                                                         
-A prior verdict is shown for orientation only, and it is one this session made: airlock keeps no audit history, so a    
-repository it has not observed in this session says so rather than showing a blank. Nothing is acted upon from memory — 
-opening a repository re-observes it in full.                                                                            
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
                                                                                                                         
                                                                                                                         
                                                                                                                         
@@ -38,8 +38,8 @@ opening a repository re-observes it in full.
                                                                                                                         
                                                                                                                         
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-↑↓ select · / filter · n new repository · ↵ observe · esc back · q quit · t theme                                       
-3 of 400 shown, a prefix · prior verdicts are shown for orientation only                                                
+↑↓ move · / filter · n new repository · ↵ select · esc back · q quit · t theme                                          
+3 of 400 shown, a prefix                                                                                                
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
@@ -48,9 +48,9 @@ eeeeeeeeeeeeeegggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
 eeeeeeeeeeeeeeggggggggggggggggggggggggggggggggggggggggffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhf
-iiddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeee
-iiffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeee
-iiffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeee
+iiddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddggggggggggggeeeeeeeeeeeeee
+iiffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffggggggggggggeeeeeeeeeeeeee
+iiffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffggggggggggggeeeeeeeeeeeeee
 ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
@@ -79,7 +79,7 @@ ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-iifggggggeeeifggggggeeeifggggggggggggggeeeifgggggggeeeiiifggggeeeifggggeeeifgggggfffffffffffffffffffffffffffffffffffffff
+iifggggeeeifggggggeeeifggggggggggggggeeeifggggggeeeiiifggggeeeifggggeeeifgggggffffffffffffffffffffffffffffffffffffffffff
 jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj
 --- legend ---
 a fg=#CBD3DD bg=#14181D BOLD

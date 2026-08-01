@@ -45,7 +45,7 @@ use super::remediation;
 use super::repositories::{self, Filter};
 use super::scaffold;
 use super::screen::{
-    Key, Screen, HELP_KEYS, INPUT_KEYS, REAUTHORIZATION_KEYS, SCAFFOLD_INPUT_KEYS,
+    Key, Screen, FILTER_KEYS, HELP_KEYS, INPUT_KEYS, REAUTHORIZATION_KEYS, SCAFFOLD_INPUT_KEYS,
     SECRET_INPUT_KEYS,
 };
 use super::sign_in;
@@ -1843,7 +1843,7 @@ impl App {
             return HELP_KEYS.to_vec();
         }
         if self.screen == Screen::Repositories && self.filter.is_open() {
-            return INPUT_KEYS.to_vec();
+            return FILTER_KEYS.to_vec();
         }
         if self.screen == Screen::PublishingBootstrap && self.bootstrap.captures_text() {
             return SECRET_INPUT_KEYS.to_vec();
@@ -2789,7 +2789,6 @@ mod tests {
                         owner: account.to_owned(),
                         name: (*name).to_owned(),
                         visibility: "private".to_owned(),
-                        default_branch: Some("main".to_owned()),
                     })
                     .collect(),
                 total: names.len() as u64,
@@ -2969,7 +2968,11 @@ mod tests {
             "esc closes the filter here rather than leaving the screen: {focused}"
         );
         assert!(focused.contains("esc close the filter"), "{focused}");
-        assert!(focused.contains("backspace delete"), "{focused}");
+        assert!(
+            !focused.contains("backspace"),
+            "backspace in a text entry deletes the character just typed, which \
+             is not news the footer has to carry: {focused}"
+        );
         assert!(
             focused.contains("ctrl-c exit"),
             "ctrl-c is live without exception: {focused}"
@@ -3209,11 +3212,6 @@ mod tests {
         );
         let app = app.at(Screen::Repositories, Theme::Dark);
         assert!(app.status().contains("2 of 2 shown"), "{}", app.status());
-        assert!(
-            app.status().contains("orientation only"),
-            "{}",
-            app.status()
-        );
     }
 
     #[test]

@@ -4,13 +4,10 @@ AIRLOCK 0.0.0  sign-in › organizations › repositories
 REPOSITORIES  acme-industries  organization                                     
 filter        / to filter by name · all 3 repositories                          
                                                                                 
-  NAME                    VISIBILITY  DEFAULT BRANCH  LAST AUDIT  PRIOR VERDICT 
-▸ widget                  private     main            never       never observed
-  sprocket                private     main            never       never observed
-  public-flywheel         public      main            never       never observed
-                                                                                
-Prior verdicts are orientation only, and only from this session. Opening a      
-repository re-observes it in full; nothing is acted on from memory.             
+  NAME                                                VISIBILITY  SESSION AUDIT 
+▸ widget                                              private     never observed
+  sprocket                                            private     never observed
+  public-flywheel                                     public      never observed
                                                                                 
                                                                                 
                                                                                 
@@ -22,17 +19,20 @@ repository re-observes it in full; nothing is acted on from memory.
                                                                                 
                                                                                 
                                                                                 
-↑↓ select · / filter · n new repository · ↵ observe · esc back · 2 more…        
-3 of 3 shown · prior verdicts are shown for orientation only                    
+                                                                                
+                                                                                
+                                                                                
+↑↓ move · / filter · n new repository · ↵ select · esc back · q quit · t theme  
+3 of 3 shown                                                                    
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 ccccccccccccdddddddddddddddddddddddddddddddeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 ddddddddddddddffffffffffffffffffffffffffffffffffffffffeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 ggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggge
-hhccccccccccccccccccccccccffffffffffffffffffffffffffffdddddddddddddddddddddddddd
-hheeeeeeeeeeeeeeeeeeeeeeeeffffffffffffffffffffffffffffdddddddddddddddddddddddddd
-hheeeeeeeeeeeeeeeeeeeeeeeeffffffffffffffffffffffffffffdddddddddddddddddddddddddd
+hhccccccccccccccccccccccccccccccccccccccccccccccccccccffffffffffffdddddddddddddd
+hheeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeffffffffffffdddddddddddddd
+hheeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeffffffffffffdddddddddddddd
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
@@ -47,8 +47,8 @@ eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-hheffffffdddheffffffdddheffffffffffffffdddhefffffffdddhhheffffdddiiiiiiieeeeeeee
-jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj
+hheffffdddheffffffdddheffffffffffffffdddheffffffdddhhheffffdddheffffdddhefffffee
+iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii
 --- legend ---
 a fg=#CBD3DD bg=#14181D BOLD
 b fg=#CBD3DD bg=#14181D
@@ -58,5 +58,4 @@ e fg=#CBD3DD bg=#0B0D10
 f fg=#79838F bg=#0B0D10
 g fg=#4C5661 bg=#0B0D10 BOLD
 h fg=#E8B84B bg=#0B0D10 BOLD
-i fg=#4C5661 bg=#0B0D10 ITALIC
-j fg=#79838F bg=#101419
+i fg=#79838F bg=#101419

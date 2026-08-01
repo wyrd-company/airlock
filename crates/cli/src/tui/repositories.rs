@@ -1,7 +1,7 @@
 //! The repositories screen: choose a repository to observe.
 //!
-//! The table shows a prior verdict, and the prior verdict is orientation and
-//! nothing else. Opening a repository re-observes it in full — the request the
+//! The table shows the verdict this session reached, and nothing is acted upon
+//! from it. Opening a repository re-observes it in full — the request the
 //! screen produces is built from the row's coordinates alone, so there is no
 //! path by which a remembered verdict could shorten, skip, or steer what
 //! follows.
@@ -15,9 +15,8 @@ use ratatui::style::Modifier;
 use ratatui::text::{Line, Span};
 
 use crate::admin::catalogue::{Catalogue, Installation, Listing, Reach, Row};
-use crate::admin::sign_in::Density;
 
-use super::chrome::{fit, wrap};
+use super::chrome::fit;
 use super::panel;
 use super::theme::{Role, Styles};
 
@@ -30,14 +29,9 @@ const UNSELECTED: &str = "  ";
 /// The visibility column.
 const VISIBILITY_WIDTH: usize = 12;
 
-/// The default-branch column.
-const BRANCH_WIDTH: usize = 16;
-
-/// The last-audit column. Wide enough for an ISO date and the gap after it.
-const AUDIT_WIDTH: usize = 12;
-
-/// The prior-verdict column.
-const VERDICT_WIDTH: usize = 14;
+/// The session-audit column. The verdict alone: the audit it reports is this
+/// session's, so there is no time to state that would mean anything.
+const SESSION_AUDIT_WIDTH: usize = 14;
 
 /// The blank columns between two columns.
 const GAP: usize = 2;
@@ -46,8 +40,7 @@ const GAP: usize = 2;
 ///
 /// Every column but the name is fixed, and each carries its own trailing gap,
 /// so the name takes whatever the width leaves and is elided into it.
-const FIXED: usize =
-    UNSELECTED.len() + VISIBILITY_WIDTH + BRANCH_WIDTH + AUDIT_WIDTH + VERDICT_WIDTH;
+const FIXED: usize = UNSELECTED.len() + VISIBILITY_WIDTH + SESSION_AUDIT_WIDTH;
 
 /// The incremental filter over the repository name.
 ///
@@ -147,7 +140,6 @@ pub fn body(styles: Styles, width: u16, height: u16, view: &View<'_>) -> Vec<Lin
         selected,
     } = *view;
     let width = width as usize;
-    let density = panel::density(width);
 
     let mut head = vec![Line::from(vec![
         Span::styled("REPOSITORIES", styles.bold(Role::Text)),
@@ -161,9 +153,6 @@ pub fn body(styles: Styles, width: u16, height: u16, view: &View<'_>) -> Vec<Lin
     head.extend(filter_line(styles, width, filter, rows.len(), reach));
     head.push(Line::default());
 
-    let mut tail = vec![Line::default()];
-    tail.extend(orientation(styles, width, density));
-
     let Some(installation) = installation else {
         head.extend(panel::field(
             styles,
@@ -173,7 +162,6 @@ pub fn body(styles: Styles, width: u16, height: u16, view: &View<'_>) -> Vec<Lin
              is not the same set as the ones the account has.",
             width,
         ));
-        head.extend(tail);
         return head;
     };
 
@@ -187,7 +175,6 @@ pub fn body(styles: Styles, width: u16, height: u16, view: &View<'_>) -> Vec<Lin
             ),
             width,
         ));
-        head.extend(tail);
         return head;
     }
 
@@ -198,13 +185,10 @@ pub fn body(styles: Styles, width: u16, height: u16, view: &View<'_>) -> Vec<Lin
             &empty(installation, catalogue, filter, reach),
             width,
         ));
-        head.extend(tail);
         return head;
     }
 
-    let room = (height as usize)
-        .saturating_sub(head.len() + tail.len() + 1)
-        .max(1);
+    let room = (height as usize).saturating_sub(head.len() + 1).max(1);
     let (start, end) = panel::window(selected, rows.len(), room);
     head.push(header(styles, width));
     for (index, row) in rows.iter().enumerate().take(end).skip(start) {
@@ -221,12 +205,10 @@ pub fn body(styles: Styles, width: u16, height: u16, view: &View<'_>) -> Vec<Lin
             styles.of(Role::Faint).add_modifier(Modifier::ITALIC),
         )));
     }
-    head.extend(tail);
     head
 }
 
-/// The status line: what is shown against what is available, and the standing
-/// statement that a prior verdict is orientation only.
+/// The status line: what is shown against what is available.
 ///
 /// The count available is the installation's, not the screen's. A listing
 /// airlock walked only part of says so here, because a prefix presented as a
@@ -234,10 +216,7 @@ pub fn body(styles: Styles, width: u16, height: u16, view: &View<'_>) -> Vec<Lin
 /// is not there.
 #[must_use]
 pub fn status(shown: usize, reach: Reach) -> String {
-    format!(
-        "{} \u{b7} prior verdicts are shown for orientation only",
-        reach.against(shown)
-    )
+    reach.against(shown)
 }
 
 /// The rows of one installation, narrowed by the filter.
@@ -317,14 +296,11 @@ fn header(styles: Styles, width: usize) -> Line<'static> {
     let name_width = name_width(width);
     Line::from(Span::styled(
         format!(
-            "{:UNSELECTED_WIDTH$}{:<name_width$}{:<VISIBILITY_WIDTH$}{:<BRANCH_WIDTH$}\
-             {:<AUDIT_WIDTH$}{}",
+            "{:UNSELECTED_WIDTH$}{:<name_width$}{:<VISIBILITY_WIDTH$}{}",
             "",
             "NAME",
             "VISIBILITY",
-            "DEFAULT BRANCH",
-            "LAST AUDIT",
-            "PRIOR VERDICT",
+            "SESSION AUDIT",
             UNSELECTED_WIDTH = UNSELECTED.len(),
         ),
         styles.bold(Role::Faint),
@@ -357,18 +333,7 @@ fn line(styles: Styles, width: usize, row: &Row, selected: bool) -> Line<'static
             styles.of(Role::Dim),
         ),
         Span::styled(
-            format!(
-                "{:<BRANCH_WIDTH$}",
-                fit(row.repository.branch(), BRANCH_WIDTH - GAP)
-            ),
-            styles.of(Role::Dim),
-        ),
-        Span::styled(
-            format!("{:<AUDIT_WIDTH$}", fit(row.prior.date(), AUDIT_WIDTH - GAP)),
-            styles.of(Role::Faint),
-        ),
-        Span::styled(
-            fit(row.prior.verdict(), VERDICT_WIDTH),
+            fit(row.prior.verdict(), SESSION_AUDIT_WIDTH),
             styles.of(Role::Faint),
         ),
     ])
@@ -376,26 +341,6 @@ fn line(styles: Styles, width: usize, row: &Row, selected: bool) -> Line<'static
 
 fn name_width(width: usize) -> usize {
     width.saturating_sub(FIXED).max(12)
-}
-
-/// The standing statement about what a prior verdict is for.
-fn orientation(styles: Styles, width: usize, density: Density) -> Vec<Line<'static>> {
-    let text = match density {
-        Density::Full => {
-            "A prior verdict is shown for orientation only, and it is one this session \
-             made: airlock keeps no audit history, so a repository it has not observed \
-             in this session says so rather than showing a blank. Nothing is acted upon \
-             from memory \u{2014} opening a repository re-observes it in full."
-        }
-        Density::Tight => {
-            "Prior verdicts are orientation only, and only from this session. Opening a \
-             repository re-observes it in full; nothing is acted on from memory."
-        }
-    };
-    wrap(text, width)
-        .into_iter()
-        .map(|line| Line::from(Span::styled(line, styles.of(Role::Text))))
-        .collect()
 }
 
 #[cfg(test)]
@@ -431,7 +376,6 @@ mod tests {
                         owner: "acme-industries".to_owned(),
                         name: (*name).to_owned(),
                         visibility: "private".to_owned(),
-                        default_branch: Some("main".to_owned()),
                     })
                     .collect(),
                 total: names.len() as u64,
@@ -484,17 +428,23 @@ mod tests {
         assert!(text.contains("never observed"), "{text}");
         assert!(text.contains("NAME"), "{text}");
         assert!(text.contains("VISIBILITY"), "{text}");
-        assert!(text.contains("DEFAULT BRANCH"), "{text}");
-        assert!(text.contains("LAST AUDIT"), "{text}");
-        assert!(text.contains("PRIOR VERDICT"), "{text}");
+        assert!(text.contains("SESSION AUDIT"), "{text}");
         assert!(text.contains("private"), "{text}");
-        assert!(text.contains("main"), "{text}");
     }
 
     #[test]
-    fn the_prior_verdict_is_labelled_as_orientation_at_both_sizes() {
+    fn the_table_carries_neither_the_default_branch_nor_an_audit_time() {
         let installation = installation(&["widget"]);
-        let rows = Row::of(&installation, &Observations::default());
+        let mut observations = Observations::default();
+        observations.record(
+            &Observe {
+                owner: "acme-industries".to_owned(),
+                name: "widget".to_owned(),
+            },
+            "2026-01-02",
+            "nonconformant",
+        );
+        let rows = Row::of(&installation, &observations);
         for width in [120, 80] {
             let text = rendered(
                 Some(&installation),
@@ -503,13 +453,14 @@ mod tests {
                 &Filter::default(),
                 width,
             );
-            assert!(text.contains("orientation only"), "{text}");
-            assert!(text.contains("re-observes it in full"), "{text}");
+            assert!(!text.contains("DEFAULT BRANCH"), "{text}");
+            assert!(!text.contains("2026-01-02"), "{text}");
+            assert!(!text.contains("orientation only"), "{text}");
         }
     }
 
     #[test]
-    fn an_observation_from_this_session_is_shown_with_its_date() {
+    fn an_observation_from_this_session_is_shown_as_its_verdict() {
         let installation = installation(&["widget"]);
         let mut observations = Observations::default();
         observations.record(
@@ -535,7 +486,6 @@ mod tests {
             &Filter::default(),
             120,
         );
-        assert!(text.contains("2026-01-02"), "{text}");
         assert!(text.contains("nonconformant"), "{text}");
     }
 
@@ -639,7 +589,6 @@ mod tests {
     fn the_status_line_states_what_is_shown_against_what_is_available() {
         let line = status(2, complete(12));
         assert!(line.contains("2 of 12 shown"), "{line}");
-        assert!(line.contains("orientation only"), "{line}");
     }
 
     /// An installation of four hundred repositories, of which airlock read a

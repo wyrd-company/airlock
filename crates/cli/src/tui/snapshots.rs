@@ -118,7 +118,6 @@ fn installation(
                     } else {
                         "private".to_owned()
                     },
-                    default_branch: Some("main".to_owned()),
                 })
                 .collect(),
             total: names.len() as u64,
