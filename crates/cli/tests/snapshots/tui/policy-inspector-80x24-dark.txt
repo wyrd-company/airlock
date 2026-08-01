@@ -1,6 +1,6 @@
 policy-inspector-80x24-dark · 80x24 · theme dark · colour
 --- text ---
-AIRLOCK 0.0.0  …n › organizations › repositories › findings › policy inspector  
+AIRLOCK 0.0.0  …-in › organizations › repositories › findings › policy inspector
 NO POLICY OBSERVED                                                              
 would show    every rule the run asked about, the registry digest and what it   
               proves, where the rules came from, and the run's provenance.      
@@ -22,7 +22,7 @@ next          press esc to return to the queue, and observe a repository.
                                                                                 
                                                                                 
                                                                                 
-esc back · ↑↓ move · c copy digest · q quit · t theme · ctrl-c exit             
+esc back · ↑↓ move · c copy digest · q quit · t theme                           
 no repository observed · this shell renders the frame only                      
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
@@ -47,7 +47,7 @@ dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-gggdffffeeeggdffffeeegdfffffffffffeeegdffffeeegdfffffeeeggggggdffffddddddddddddd
+gggdffffeeeggdffffeeegdfffffffffffeeegdffffeeegdfffffddddddddddddddddddddddddddd
 hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh
 --- legend ---
 a fg=#CBD3DD bg=#14181D BOLD

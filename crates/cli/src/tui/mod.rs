@@ -14,6 +14,7 @@ mod findings;
 mod hyperlink;
 mod lane;
 mod organizations;
+mod overlay;
 mod panel;
 mod policy;
 mod remediation;

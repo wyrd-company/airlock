@@ -53,8 +53,10 @@ per-finding and run-level observation sources.
 Authorization is requested on every launch through the GitHub App device flow
 and is discarded on exit. No credential is written to disk, and none is read
 from the environment, the `gh` credential store, or a git credential helper.
-The credential's value is never displayed; the interface displays only its
-source and its grant.
+The credential's value is never displayed, which is structural rather than
+promised: no screen holds a value it could draw. What the interface does state
+is what is left of the grant, in the status line, because a lapse can fall
+mid-session.
 
 The grant is write-capable, because applying a repository or organisation
 setting requires `administration: write`, which GitHub does not subdivide.
@@ -82,10 +84,13 @@ it below the code instead. A partially drawn scan code is never rendered,
 because a code that cannot be scanned is worse than an address the operator
 types, and the address it encodes is on the screen either way.
 
-The frame carries the program identity and version, the breadcrumb, and what
-is left of the session's grant. Nothing else: a fact that holds on every
-screen in every state is not news, and a key the keymap already prints does
-not need printing beside it.
+The frame carries the program identity and version and the breadcrumb in the
+header, and what is left of the session's grant at the right-hand end of the
+status line, where it is in the same column on every screen. Nothing else: a
+fact that holds on every screen in every state is not news, and a key the
+keymap already prints does not need printing beside it. Where the screen's own
+status text and the grant compete for the row, the status text is elided and
+the grant is not.
 
 Width and height are answered differently, and on purpose. A rendering too
 wide for the terminal cannot be drawn at all, so it is withheld. A reading
@@ -202,13 +207,22 @@ something it can observe, and it does not claim observations it did not make.
 ## Screens
 
 Three keys are live on every screen in every state: `q` quits, `t` switches
-theme, and `ctrl-c` exits. `ctrl-c` is live without exception; `q` is the key
-the keymap advertises for leaving, and no screen binds it to anything else.
-While a text input holds focus, printable keys are text: `q` inserts a `q`, `t`
-inserts a `t`, the keymap shows the input's own keys rather than advertising
-either, and both return when focus leaves the input. Each screen's keymap
-below lists the keys it adds, and names any state in which one of those keys
-is not live and why.
+theme, and `ctrl-c` exits. `ctrl-c` is live without exception and the keymap
+does not print it, because `q` is the key an operator reaches for and no screen
+binds it to anything else. While a text input holds focus, printable keys are
+text: `q` inserts a `q`, `t` inserts a `t`, the keymap shows the input's own
+keys — `ctrl-c` among them, because there it is the only key that leaves — and
+both return when focus leaves the input. Each screen's keymap below lists the
+keys it adds, and names any state in which one of those keys is not live and
+why.
+
+A screen may also offer a help panel, raised by `h` and drawn over the body it
+covers. While it is up it takes every key: `h` or `esc` closes it, `q` and `t`
+do what they do everywhere, and nothing reaches the screen underneath, because
+a key that acted on something the operator cannot see is a key that acted
+blind. A screen has a panel only where one is declared for it; where none is,
+`h` is neither advertised nor live. The organizations screen is the only one
+that has one today.
 
 ### Sign-in
 
@@ -280,32 +294,30 @@ to report.
 
 **Purpose.** Choose which installation to work in.
 
-**Content.** The reachable installations, each with its name, its kind
-(organization or user account), and its repository count. Where an
-installation is scoped to a subset of repositories, the row says so. The list
-is the intersection of where the app is installed and what the account can
-reach, and the screen states that an absent organization is not evidence of
-absence.
+**Content.** The installed organizations, counted under the heading, each with
+its name, its kind (organization or user account), and its repository count.
+Where an installation is scoped to a subset of repositories, the row says so.
+The list is the whole of the screen: an operator is here to choose a row, and
+every other word is a word between them and the list.
 
-Whether or not the list is empty, the screen carries the three causes of an
-absent organization, because they have three different remedies and cannot be
-distinguished from here — each one also hides the evidence of itself:
+An organization can be absent from the list for three reasons, and the three
+have three different remedies. They cannot be told apart from here — each one
+hides the evidence of itself — so all three are stated, in the help panel `h`
+raises rather than standing on the screen:
 
-1. The app is not installed on that organization. Install airlock on it; an
-   owner or an admin can do this.
-2. It is installed, but the account is not a member, or its role does not
-   reach it. Ask an owner to add the account, or to grant the role.
-3. Both are fine, but the installation was scoped to repositories the account
-   cannot see. Widen the installation's repository selection.
+1. airlock is not installed on it. An owner or an admin installs it.
+2. It is installed, but the account is not a member or its role does not reach
+   the installation. An owner adds the account, or grants the role.
+3. The installation is scoped to repositories the account cannot see. Widen
+   the installation's repository selection.
 
-The credential in force is shown alongside: its source (GitHub App, device
-flow), the permissions in its grant, and the statement that its value is never
-displayed and never written to disk.
+An empty list says the same in one line, and says which key carries the rest.
 
-**Keymap.** `↑↓` select · `↵` open.
+**Keymap.** `↑↓` select · `↵` open · `h` troubleshooting.
 
-**Status line.** The installation count and the note that the list is the
-intersection of install and access.
+**Status line.** Empty once the list has been read: the heading has already
+counted it. Before then it says which of the three other states the screen is
+in — no authorization yet, reading, or a read that failed.
 
 ### Repositories
 

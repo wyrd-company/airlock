@@ -1,6 +1,6 @@
 finding-detail-fail-80x24-no-color · 80x24 · theme dark · NO_COLOR
 --- text ---
-AIRLOCK 0.0.0  …-in › organizations › repositories › findings › finding detail  
+AIRLOCK 0.0.0  …gn-in › organizations › repositories › findings › finding detail
 ▌ REPO-GIT-01   ✗    │   │  fail  ███ blocking                                  
 gates the run: fail at blocking severity, which the required gate enforces      
                                                                                 
@@ -22,7 +22,7 @@ remediation_class
   lane                operator-setting                                          
   reversible          yes                                                       
 — 0 lines above · 21 below · ↑↓ moves the window —                              
-esc back · a remediation transcript · o re-observe this rule · 4 more…          
+esc back · a remediation transcript · o re-observe this rule · 3 more…          
 decided · gating · gates the run                                                
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb

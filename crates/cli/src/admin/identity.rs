@@ -136,12 +136,6 @@ impl WriteIdentity {
         // and the read path refuses it for the same reason.
         app_id != 0 && app_id == self.app_id && app_slug == self.slug
     }
-
-    /// How the screen names where the credential came from.
-    #[must_use]
-    pub fn source(self) -> String {
-        format!("GitHub App {} \u{b7} device flow", self.name)
-    }
 }
 
 #[cfg(test)]
@@ -214,13 +208,5 @@ mod tests {
             assert!(!seen.contains(&permission.name), "{}", permission.name);
             seen.push(permission.name);
         }
-    }
-
-    #[test]
-    fn the_source_names_the_app_and_the_flow_and_carries_no_value() {
-        let source = bound().source();
-        assert!(source.contains(bound().name), "{source}");
-        assert!(source.contains("device flow"), "{source}");
-        assert!(!source.contains(bound().client_id), "{source}");
     }
 }

@@ -38,7 +38,7 @@ why it exists solely to complete this bootstrap. The flow is not conformant unti
 Position in the sequence is never remembered. On entry airlock re-observes the repository secret, the package, and any  
 public publisher signal, and places you at the step those observations imply. Closing the terminal loses nothing.       
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-esc back · ↑↓ move · ↵ supply or confirm · tab next target · o re-observe now · q quit · t theme · ctrl-c exit          
+esc back · ↑↓ move · ↵ supply or confirm · tab next target · o re-observe now · q quit · t theme                        
 step 3 of 5 · a release workflow run publishing the package · re-observed on entry                                      
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
@@ -79,7 +79,7 @@ eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffee
 fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeeeeeee
 cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-dddeggggfffddeggggfffdegggggggggggggggggfffdddegggggggggggfffdeggggggggggggggfffdeggggfffdegggggfffddddddeggggeeeeeeeeee
+dddeggggfffddeggggfffdegggggggggggggggggfffdddegggggggggggfffdeggggggggggggggfffdeggggfffdegggggeeeeeeeeeeeeeeeeeeeeeeee
 kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk
 --- legend ---
 a fg=#CBD3DD bg=#14181D BOLD

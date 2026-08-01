@@ -121,67 +121,58 @@ pub fn breadcrumb(screen: Screen) -> String {
     trail.join(CRUMB_SEPARATOR)
 }
 
-/// How the header states what is left of the session's grant.
+/// How the frame states what is left of the session's grant.
 ///
 /// The grant lapses on GitHub's schedule and the lapse can fall mid-session, so
 /// what is left of it is a standing session fact rather than something the
-/// operator discovers when it happens. It sits in the facts group at both
-/// sizes: the two readings are the same fact in fewer words, and neither of
-/// them is the fact being dropped.
+/// operator discovers when it happens. It is stated at both sizes: the two
+/// readings are the same fact in fewer words, and neither of them is the fact
+/// being dropped.
 ///
 /// A grant that states no expiry says so. Inventing an interval would be
 /// demanding a re-authorization for no observed reason, and assuming one away
-/// would be a lapse nothing warned about.
+/// would be a lapse nothing warned about. A session with no grant at all states
+/// nothing, because a zero would be a value airlock was never given.
 #[must_use]
-fn grant_fact(validity: Validity, width: u16) -> String {
+pub fn grant_fact(grant: Option<Validity>, width: u16) -> String {
     let full = width >= FULL_FACTS_NEED_WIDTH;
-    match (validity, full) {
-        (Validity::Until(remaining), true) => format!("grant ends in {}", humanize(remaining)),
-        (Validity::Until(remaining), false) => format!("grant {}", humanize(remaining)),
-        (Validity::Unstated, true) => "grant states no expiry".to_owned(),
-        (Validity::Unstated, false) => "grant expiry unstated".to_owned(),
+    match (grant, full) {
+        (None, _) => String::new(),
+        (Some(Validity::Until(remaining)), true) => {
+            format!("grant ends in {}", humanize(remaining))
+        }
+        (Some(Validity::Until(remaining)), false) => format!("grant {}", humanize(remaining)),
+        (Some(Validity::Unstated), true) => "grant states no expiry".to_owned(),
+        (Some(Validity::Unstated), false) => "grant expiry unstated".to_owned(),
     }
 }
 
-/// The header line.
-///
-/// The right-hand group states the one session fact that changes on its own
-/// and that no screen can see coming: what is left of the grant. It is stated
-/// by its remaining validity and never by its value — there is no value here
-/// to state, because the type this takes has no field one could travel in.
+/// The header line: the program identity and the breadcrumb.
 ///
 /// Nothing else lives here. A standing fact that is the same on every screen
-/// in every state is not news, and a key that the keymap already prints does
-/// not need printing twice.
+/// in every state is not news, a key that the keymap already prints does not
+/// need printing twice, and the one session fact that moves on its own sits at
+/// the far end of the status line, where the eye that is already reading the
+/// screen's own row finds it.
 #[must_use]
-pub fn header_line(
-    screen: Screen,
-    version: &str,
-    styles: Styles,
-    width: u16,
-    grant: Option<Validity>,
-) -> Line<'static> {
+pub fn header_line(screen: Screen, version: &str, styles: Styles, width: u16) -> Line<'static> {
     let identity = format!("AIRLOCK {version}");
-    let facts = grant.map_or_else(String::new, |validity| grant_fact(validity, width));
     let width = width as usize;
     let identity_width = identity.chars().count();
-    let facts_width = facts.chars().count();
 
     let chrome = styles.of(Role::Chrome);
     let mut spans = vec![
         Span::styled(identity, styles.bold(Role::Accent).patch(chrome)),
         Span::styled("  ", chrome),
     ];
-    // The identity and the session facts are never elided: both are short and
-    // both are load-bearing. The breadcrumb gives up its width first.
-    let spent = identity_width + 2 + facts_width + 2;
-    let crumb_room = width.saturating_sub(spent);
+    // The identity is never elided: it is short and it is load-bearing. The
+    // breadcrumb gives up its width first.
+    let crumb_room = width.saturating_sub(identity_width + 2);
     let crumb = elide_start(&breadcrumb(screen), crumb_room);
     let crumb_width = crumb.chars().count();
     spans.push(Span::styled(crumb, styles.of(Role::Dim).patch(chrome)));
-    let gap = width.saturating_sub(identity_width + 2 + crumb_width + facts_width);
+    let gap = width.saturating_sub(identity_width + 2 + crumb_width);
     spans.push(Span::styled(" ".repeat(gap), chrome));
-    spans.push(Span::styled(facts, styles.of(Role::Faint).patch(chrome)));
     Line::from(spans)
 }
 
@@ -279,13 +270,25 @@ pub fn status_text(screen: Screen) -> String {
 }
 
 /// The status line, filling its row.
+///
+/// Two readings share the row and never each other's columns: what the screen
+/// knows, from the left, and the session fact that moves on its own, against
+/// the right edge where it is in the same place on every screen. The aside is
+/// never elided and never crowded out — it is short, it is the same length on
+/// every screen, and the screen's own text gives up its width first.
 #[must_use]
-pub fn status_line(text: &str, styles: Styles, width: u16) -> Line<'static> {
-    let text = fit(text, width as usize);
-    let padding = (width as usize).saturating_sub(text.chars().count());
+pub fn status_line(text: &str, aside: &str, styles: Styles, width: u16) -> Line<'static> {
+    let width = width as usize;
+    let bar = styles.of(Role::Bar);
+    let aside = fit(aside, width);
+    let aside_width = aside.chars().count();
+    let room = width.saturating_sub(aside_width + usize::from(aside_width > 0) * 2);
+    let text = fit(text, room);
+    let gap = width.saturating_sub(text.chars().count() + aside_width);
     Line::from(vec![
-        Span::styled(text, styles.of(Role::Bar)),
-        Span::styled(" ".repeat(padding), styles.of(Role::Bar)),
+        Span::styled(text, bar),
+        Span::styled(" ".repeat(gap), bar),
+        Span::styled(aside, bar),
     ])
 }
 
@@ -463,17 +466,21 @@ mod tests {
         for width in [REFERENCE_WIDTH, FLOOR_WIDTH] {
             for screen in Screen::ALL {
                 for line in [
-                    header_line(screen, "0.0.0", styles(), width, None),
-                    header_line(
-                        screen,
-                        "0.0.0",
+                    header_line(screen, "0.0.0", styles(), width),
+                    keymap_line(&keys_of(screen), styles(), width),
+                    status_line(&status_text(screen), "", styles(), width),
+                    status_line(
+                        &status_text(screen),
+                        &grant_fact(Some(Validity::Until(Duration::from_secs(872))), width),
                         styles(),
                         width,
-                        Some(Validity::Until(Duration::from_secs(872))),
                     ),
-                    header_line(screen, "0.0.0", styles(), width, Some(Validity::Unstated)),
-                    keymap_line(&keys_of(screen), styles(), width),
-                    status_line(&status_text(screen), styles(), width),
+                    status_line(
+                        &status_text(screen),
+                        &grant_fact(Some(Validity::Unstated), width),
+                        styles(),
+                        width,
+                    ),
                     rule_line(styles(), width),
                 ] {
                     assert!(
@@ -489,7 +496,7 @@ mod tests {
     #[test]
     fn the_header_keeps_its_identity_at_the_floor_and_says_nothing_it_need_not() {
         for screen in Screen::ALL {
-            let text = rendered(&header_line(screen, "0.0.0", styles(), FLOOR_WIDTH, None));
+            let text = rendered(&header_line(screen, "0.0.0", styles(), FLOOR_WIDTH));
             assert!(text.starts_with("AIRLOCK 0.0.0"), "{screen:?}: {text}");
             // A standing fact that holds on every screen in every state is not
             // news, and a key the keymap prints does not need printing twice.
@@ -500,7 +507,7 @@ mod tests {
     }
 
     #[test]
-    fn the_header_states_what_is_left_of_the_grant_at_both_sizes() {
+    fn the_status_line_states_what_is_left_of_the_grant_at_both_sizes() {
         // The lapse can fall mid-session, so what is left of the grant is a
         // standing fact rather than a surprise. Both sizes carry it; the floor
         // says it in fewer words rather than not at all.
@@ -508,27 +515,25 @@ mod tests {
             (REFERENCE_WIDTH, "grant ends in 14m 32s"),
             (FLOOR_WIDTH, "grant 14m 32s"),
         ] {
-            let text = rendered(&header_line(
-                Screen::Findings,
-                "0.0.0",
+            let grant = grant_fact(Some(Validity::Until(Duration::from_secs(872))), width);
+            let text = rendered(&status_line(
+                &status_text(Screen::Findings),
+                &grant,
                 styles(),
                 width,
-                Some(Validity::Until(Duration::from_secs(872))),
             ));
             assert!(text.contains(expected), "at {width}: {text}");
+            assert!(
+                text.ends_with(expected),
+                "it sits against the right edge: {text}"
+            );
         }
     }
 
     #[test]
     fn a_grant_that_states_no_expiry_says_so_rather_than_showing_a_countdown() {
         for width in [REFERENCE_WIDTH, FLOOR_WIDTH] {
-            let text = rendered(&header_line(
-                Screen::Findings,
-                "0.0.0",
-                styles(),
-                width,
-                Some(Validity::Unstated),
-            ));
+            let text = grant_fact(Some(Validity::Unstated), width);
             assert!(text.contains("expiry"), "at {width}: {text}");
             assert!(!text.contains("ends in"), "at {width}: {text}");
         }
@@ -539,27 +544,38 @@ mod tests {
         // Before the first authorization, and while one is being replaced,
         // there is no grant to count down. A zero would be a value airlock was
         // never given.
-        let text = rendered(&header_line(
-            Screen::SignIn,
-            "0.0.0",
+        assert!(grant_fact(None, REFERENCE_WIDTH).is_empty());
+        let text = rendered(&status_line(
+            &status_text(Screen::SignIn),
+            &grant_fact(None, REFERENCE_WIDTH),
             styles(),
             REFERENCE_WIDTH,
-            None,
         ));
         assert!(!text.contains("grant"), "{text}");
+    }
+
+    #[test]
+    fn the_screens_own_text_gives_up_its_width_before_the_grant_does() {
+        // The aside is the same length on every screen and the text is not, so
+        // a long reading is elided rather than pushing the fact off the row.
+        let long = "x".repeat(200);
+        let grant = grant_fact(Some(Validity::Until(Duration::from_secs(872))), FLOOR_WIDTH);
+        let text = rendered(&status_line(&long, &grant, styles(), FLOOR_WIDTH));
+        assert_eq!(text.chars().count(), FLOOR_WIDTH as usize);
+        assert!(text.ends_with(&grant), "{text}");
+        assert!(text.contains(ELLIPSIS), "{text}");
     }
 
     #[test]
     fn the_header_does_not_reflow_when_the_palette_changes() {
         for width in [REFERENCE_WIDTH, FLOOR_WIDTH] {
             for screen in Screen::ALL {
-                let dark = rendered(&header_line(screen, "0.0.0", styles(), width, None));
+                let dark = rendered(&header_line(screen, "0.0.0", styles(), width));
                 let light = rendered(&header_line(
                     screen,
                     "0.0.0",
                     Styles::new(Theme::Light, ColorMode::Color),
                     width,
-                    None,
                 ));
                 assert_eq!(dark, light, "{screen:?} at {width}");
             }
@@ -573,7 +589,6 @@ mod tests {
             "0.0.0",
             styles(),
             FLOOR_WIDTH,
-            None,
         ));
         assert!(text.contains("finding detail"), "{text}");
         assert!(text.contains(ELLIPSIS), "the head was dropped: {text}");
@@ -625,14 +640,17 @@ mod tests {
     }
 
     #[test]
-    fn the_universal_keys_are_printed_where_they_fit() {
+    fn the_universal_keys_are_printed_where_they_fit_and_ctrl_c_is_not_among_them() {
         let text = rendered(&keymap_line(
             &keys_of(Screen::Organizations),
             styles(),
             REFERENCE_WIDTH,
         ));
-        assert!(text.contains("ctrl-c exit"), "{text}");
+        assert!(text.contains("q quit"), "{text}");
         assert!(text.contains("t theme"), "{text}");
+        // `ctrl-c` still leaves from every state. What the footer prints is
+        // the key an operator reaches for, and `q quit` has already said it.
+        assert!(!text.contains("ctrl-c"), "{text}");
     }
 
     #[test]
@@ -640,7 +658,7 @@ mod tests {
         for width in [REFERENCE_WIDTH, FLOOR_WIDTH] {
             for screen in Screen::ALL {
                 assert_eq!(
-                    rendered(&status_line(&status_text(screen), styles(), width))
+                    rendered(&status_line(&status_text(screen), "", styles(), width))
                         .chars()
                         .count(),
                     width as usize,
@@ -658,6 +676,7 @@ mod tests {
         assert_eq!(
             rendered(&status_line(
                 &status_text(Screen::SignIn),
+                "",
                 styles(),
                 REFERENCE_WIDTH
             ))

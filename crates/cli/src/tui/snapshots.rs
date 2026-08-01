@@ -409,6 +409,45 @@ fn check_populated_scaffold(width: u16, height: u16) {
     }
 }
 
+/// The help panel, raised over the organizations screen by its own key.
+///
+/// Recorded at both sizes because the panel is a rendering that has to fit
+/// inside the body it covers, and the floor is where that is decided.
+fn check_help(width: u16, height: u16) {
+    let name = format!("organizations-help-{}-dark", size_slug(width));
+    let case = Case {
+        name: Box::leak(name.into_boxed_str()),
+        screen: Screen::Organizations,
+        theme: Theme::Dark,
+        color: ColorMode::Color,
+        width,
+        height,
+        flow: None,
+        selection: None,
+        run: None,
+    };
+    let backend = TestBackend::new(width, height);
+    let mut terminal = Terminal::new(backend).expect("a test terminal");
+    let mut app = App::new(VERSION, ColorMode::Color)
+        .with_catalogue(catalogue())
+        .at(Screen::Organizations, Theme::Dark);
+    app.handle_key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE));
+    let app = app;
+    terminal
+        .draw(|frame| app.render(frame.area(), frame.buffer_mut()))
+        .expect("the frame draws");
+    let rendered = serialise(&case, terminal.backend().buffer());
+    let snapshot = path(case.name);
+    if std::env::var_os("UPDATE_SNAPSHOTS").is_some() {
+        std::fs::write(snapshot, rendered).expect("the snapshot is writable");
+    } else {
+        assert_eq!(
+            std::fs::read_to_string(snapshot).expect("the snapshot is recorded"),
+            rendered
+        );
+    }
+}
+
 #[cfg_attr(feature = "test-identity", allow(dead_code))]
 fn check_remediation(
     name: &'static str,
@@ -947,6 +986,12 @@ fn the_frame_renders_as_recorded() {
     for case in cases() {
         check(&case);
     }
+}
+
+#[test]
+fn the_help_panel_renders_as_recorded_at_both_sizes() {
+    check_help(REFERENCE_WIDTH, REFERENCE_HEIGHT);
+    check_help(FLOOR_WIDTH, FLOOR_HEIGHT);
 }
 
 #[test]

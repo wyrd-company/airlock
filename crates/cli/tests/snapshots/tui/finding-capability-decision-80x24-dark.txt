@@ -1,6 +1,6 @@
 finding-capability-decision-80x24-dark · 80x24 · theme dark · colour
 --- text ---
-AIRLOCK 0.0.0  …-in › organizations › repositories › findings › finding detail  
+AIRLOCK 0.0.0  …gn-in › organizations › repositories › findings › finding detail
 ▌ REPO-REL-04        │ ◑ │  inconclusive  ██░ required                          
 gates the run: inconclusive at required severity, which the required gate       
 enforces, so complete is false and no verdict can be certified                  
@@ -22,7 +22,7 @@ remediation_class
   code                redesign-release-trigger                                  
   change              Make release a `workflow_dispatch` on a pinned source SHA.
 — 0 lines above · 23 below · ↑↓ moves the window —                              
-esc back · a remediation transcript · o re-observe this rule · 4 more…          
+esc back · a remediation transcript · o re-observe this rule · 3 more…          
 undecided · complete: false                                                     
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb

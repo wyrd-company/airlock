@@ -38,7 +38,7 @@ next          press o to observe now, or esc to return to the findings queue.
                                                                                                                         
                                                                                                                         
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-esc back · ↑↓ move · ↵ supply or confirm · tab next target · o re-observe now · q quit · t theme · ctrl-c exit          
+esc back · ↑↓ move · ↵ supply or confirm · tab next target · o re-observe now · q quit · t theme                        
 nothing observed yet · position is derived from observation, never remembered                                           
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
@@ -79,7 +79,7 @@ eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-dddehhhhgggddehhhhgggdehhhhhhhhhhhhhhhhhgggdddehhhhhhhhhhhgggdehhhhhhhhhhhhhhgggdehhhhgggdehhhhhgggddddddehhhheeeeeeeeee
+dddehhhhgggddehhhhgggdehhhhhhhhhhhhhhhhhgggdddehhhhhhhhhhhgggdehhhhhhhhhhhhhhgggdehhhhgggdehhhhheeeeeeeeeeeeeeeeeeeeeeee
 iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii
 --- legend ---
 a fg=#CBD3DD bg=#14181D BOLD

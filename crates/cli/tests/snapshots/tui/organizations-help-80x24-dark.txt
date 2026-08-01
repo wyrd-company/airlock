@@ -1,0 +1,63 @@
+organizations-help-80x24-dark · 80x24 · theme dark · colour
+--- text ---
+AIRLOCK 0.0.0  sign-in › organizations                                          
+INSTALLED ORGANIZATIONS  2 installations                                        
+▸ acme-industries             organization    3 repositories                    
+  sa┌──────────────────────────────────────────────────────────────────────┐    
+    │  TROUBLESHOOTING                                                     │    
+    │                                                                      │    
+    │  An organization missing from the list is in one of three states,    │    
+    │  and each takes a different remedy.                                  │    
+    │                                                                      │    
+    │  1  airlock is not installed on it. An owner or an admin installs    │    
+    │     it.                                                              │    
+    │                                                                      │    
+    │  2  It is installed, but this account is not a member or its role    │    
+    │     does not reach the installation. An owner adds the account, or   │    
+    │     grants the role.                                                 │    
+    │                                                                      │    
+    │  3  The installation is scoped to repositories this account cannot   │    
+    │     see. Widen the installation's repository selection.              │    
+    └──────────────────────────────────────────────────────────────────────┘    
+                                                                                
+                                                                                
+                                                                                
+h or esc close · q quit · t theme                                               
+                                                                                
+--- style keys ---
+aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+cccccccccccccccccccccccdddddddddddddddddeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+ffccccccccccccccccccccccccccccggggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeee
+ffeehhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhheeee
+iiiiheeccccccccccccccceeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeheeee
+eeeeheeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeheeee
+eeeeheeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeheeee
+eeeeheeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeheeee
+eeeeheeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeheeee
+eeeeheejjjgggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggeeeeheeee
+eeeeheejjjgggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeheeee
+eeeeheeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeheeee
+eeeeheejjjgggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggeeeeheeee
+eeeeheejjjggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggeeeheeee
+eeeeheejjjggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeheeee
+eeeeheeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeheeee
+eeeeheejjjggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggeeeheeee
+eeeeheejjjgggggggggggggggggggggggggggggggggggggggggggggggggggeeeeeeeeeeeeeeheeee
+eeeehhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhheeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+ffffffffegggggdddfeggggdddfegggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk
+--- legend ---
+a fg=#CBD3DD bg=#14181D BOLD
+b fg=#CBD3DD bg=#14181D
+c fg=#CBD3DD bg=#0B0D10 BOLD
+d fg=#4C5661 bg=#0B0D10
+e fg=#CBD3DD bg=#0B0D10
+f fg=#E8B84B bg=#0B0D10 BOLD
+g fg=#79838F bg=#0B0D10
+h fg=#39434F bg=#0B0D10
+i fg=#4C5661 bg=#0B0D10 ITALIC
+j fg=#E8B84B bg=#0B0D10
+k fg=#79838F bg=#101419

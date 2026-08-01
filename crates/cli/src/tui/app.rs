@@ -38,13 +38,15 @@ use super::detail;
 use super::findings;
 use super::hyperlink;
 use super::organizations;
+use super::overlay;
 use super::panel;
 use super::policy;
 use super::remediation;
 use super::repositories::{self, Filter};
 use super::scaffold;
 use super::screen::{
-    Key, Screen, INPUT_KEYS, REAUTHORIZATION_KEYS, SCAFFOLD_INPUT_KEYS, SECRET_INPUT_KEYS,
+    Key, Screen, HELP_KEYS, INPUT_KEYS, REAUTHORIZATION_KEYS, SCAFFOLD_INPUT_KEYS,
+    SECRET_INPUT_KEYS,
 };
 use super::sign_in;
 use super::theme::{ColorMode, Role, Styles, Theme};
@@ -297,6 +299,12 @@ pub struct App {
     held_selection: Option<(Option<String>, Option<String>)>,
     /// A scaffold address waiting for the freshly read installation catalogue.
     held_scaffold: Option<scaffold::Position>,
+    /// Whether the open screen's help panel is up.
+    ///
+    /// A panel exists only where [`overlay::help_of`] names one, so this is
+    /// false on every screen that has none and the key that would raise it is
+    /// not advertised there.
+    help: bool,
 }
 
 impl App {
@@ -341,6 +349,7 @@ impl App {
             held_queue: None,
             held_selection: None,
             held_scaffold: None,
+            help: false,
         }
     }
 
@@ -760,6 +769,12 @@ impl App {
         if self.reauthorization.is_some() {
             return self.reauthorizing(event.code);
         }
+        // The help panel takes every remaining key too, for a plainer reason:
+        // it covers the screen it was opened over, and a key that acted on
+        // something the operator cannot see is a key that acted blind.
+        if self.help {
+            return self.helping(event.code);
+        }
         if self.screen == Screen::Remediation && self.remediation.is_input() {
             if event.code == KeyCode::Esc {
                 self.screen = Screen::Findings;
@@ -829,6 +844,7 @@ impl App {
         match event.code {
             KeyCode::Char('q') => return Flow::Exit,
             KeyCode::Char('t') => self.theme = self.theme.toggled(),
+            KeyCode::Char('h') if overlay::help_of(self.screen).is_some() => self.help = true,
             KeyCode::Enter => return self.forward(),
             KeyCode::Up => self.move_selection(-1),
             KeyCode::Down => self.move_selection(1),
@@ -921,6 +937,21 @@ impl App {
                 self.sign_in.state_mut().reissue(Reason::Asked);
                 return Flow::Reissue;
             }
+            _ => {}
+        }
+        Flow::Continue
+    }
+
+    /// Keys while a help panel is up.
+    ///
+    /// The panel is a reading and not a state to act from, so only the key that
+    /// closes it and the two that leave or repaint do anything. Everything else
+    /// is inert rather than reaching the screen underneath.
+    fn helping(&mut self, code: KeyCode) -> Flow {
+        match code {
+            KeyCode::Char('q') => return Flow::Exit,
+            KeyCode::Char('t') => self.theme = self.theme.toggled(),
+            KeyCode::Char('h') | KeyCode::Esc => self.help = false,
             _ => {}
         }
         Flow::Continue
@@ -1691,15 +1722,19 @@ impl App {
             &self.version,
             styles,
             area.width,
-            self.grant,
         ))
         .render(frame.header, buffer);
         for rule in [frame.rule_top, frame.rule_bottom].into_iter().flatten() {
             Paragraph::new(chrome::rule_line(styles, area.width)).render(rule, buffer);
         }
         Paragraph::new(chrome::keymap_line(&keys, styles, area.width)).render(frame.keymap, buffer);
-        Paragraph::new(chrome::status_line(&self.status(), styles, area.width))
-            .render(frame.status, buffer);
+        Paragraph::new(chrome::status_line(
+            &self.status(),
+            &chrome::grant_fact(self.grant, area.width),
+            styles,
+            area.width,
+        ))
+        .render(frame.status, buffer);
         // The body is wrapped here rather than by the paragraph, so a
         // continuation line lands under the text it continues instead of under
         // the label, and so a column that carries meaning cannot be reflowed
@@ -1709,6 +1744,11 @@ impl App {
             frame.body.height,
         );
         Paragraph::new(body).render(frame.body, buffer);
+        if self.help {
+            if let Some(panel) = overlay::help_of(self.screen) {
+                overlay::render(&panel, styles, frame.body, buffer);
+            }
+        }
     }
 
     /// Where the verification address is drawn, and where it points.
@@ -1798,6 +1838,9 @@ impl App {
     fn keymap(&self) -> Vec<Key> {
         if self.reauthorization.is_some() {
             return REAUTHORIZATION_KEYS.to_vec();
+        }
+        if self.help {
+            return HELP_KEYS.to_vec();
         }
         if self.screen == Screen::Repositories && self.filter.is_open() {
             return INPUT_KEYS.to_vec();
@@ -2019,7 +2062,7 @@ impl App {
                  where width allows"
             }
             Screen::Organizations => {
-                "the reachable installations, each with its kind and its \
+                "the installed organizations, each with its kind and its \
                  repository count"
             }
             Screen::Repositories => {
@@ -2908,7 +2951,11 @@ mod tests {
         assert!(unfocused.contains("t theme"), "{unfocused}");
         assert!(unfocused.contains("/ filter"), "{unfocused}");
         assert!(unfocused.contains("esc back"), "{unfocused}");
-        assert!(unfocused.contains("ctrl-c exit"), "{unfocused}");
+        assert!(unfocused.contains("q quit"), "{unfocused}");
+        assert!(
+            !unfocused.contains("ctrl-c"),
+            "the footer prints the key an operator reaches for: {unfocused}"
+        );
 
         press(&mut app, KeyCode::Char('/'));
         let focused = footer(&app);
@@ -2960,12 +3007,20 @@ mod tests {
     }
 
     fn header(app: &App) -> String {
-        chrome::header_line(
-            app.screen(),
-            "0.0.0",
+        chrome::header_line(app.screen(), "0.0.0", app.styles(), chrome::REFERENCE_WIDTH)
+            .spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect()
+    }
+
+    /// The status row as it is drawn: the screen's own reading, then the grant.
+    fn status_row(app: &App) -> String {
+        chrome::status_line(
+            &app.status(),
+            &chrome::grant_fact(app.grant(), chrome::REFERENCE_WIDTH),
             app.styles(),
             chrome::REFERENCE_WIDTH,
-            app.grant(),
         )
         .spans
         .iter()
@@ -3144,8 +3199,14 @@ mod tests {
         let app = app()
             .with_catalogue(catalogue())
             .at(Screen::Organizations, Theme::Dark);
-        assert!(app.status().contains("2 installations"), "{}", app.status());
-        assert!(app.status().contains("intersection"), "{}", app.status());
+        // A ready list counts itself under its own heading, so the row adds
+        // nothing to it.
+        assert!(app.status().is_empty(), "{}", app.status());
+        assert!(
+            body_text(&app).contains("2 installations"),
+            "{}",
+            body_text(&app)
+        );
         let app = app.at(Screen::Repositories, Theme::Dark);
         assert!(app.status().contains("2 of 2 shown"), "{}", app.status());
         assert!(
@@ -3165,10 +3226,64 @@ mod tests {
         assert!(text.contains("organization"), "{text}");
         assert!(text.contains("user account"), "{text}");
         assert!(text.contains("2 repositories"), "{text}");
-        assert!(text.contains("THREE CAUSES"), "{text}");
         // The selected installation is the one the repositories screen is
         // about, and the catalogue it draws from is the same one.
         assert_eq!(selected(&app).installations().len(), 1);
+    }
+
+    #[test]
+    fn h_raises_the_help_panel_on_the_screen_that_has_one_and_nowhere_else() {
+        let mut organizations = app()
+            .with_catalogue(catalogue())
+            .at(Screen::Organizations, Theme::Dark);
+        press(&mut organizations, KeyCode::Char('h'));
+        assert!(organizations.help, "organizations offers a panel");
+        assert!(
+            footer(&organizations).contains("close"),
+            "{}",
+            footer(&organizations)
+        );
+
+        // Every other screen: `h` is not advertised and does nothing.
+        let others = Screen::ALL
+            .into_iter()
+            .filter(|screen| *screen != Screen::Organizations);
+        for screen in others {
+            let mut elsewhere = app().at(screen, Theme::Dark);
+            press(&mut elsewhere, KeyCode::Char('h'));
+            assert!(!elsewhere.help, "{screen:?} has no panel to raise");
+            assert!(
+                !screen.keys().iter().any(|entry| entry.key == "h"),
+                "{screen:?} advertises a key it does not have"
+            );
+        }
+    }
+
+    #[test]
+    fn the_panel_takes_every_key_until_it_is_closed() {
+        let mut app = app()
+            .with_catalogue(catalogue())
+            .at(Screen::Organizations, Theme::Dark);
+        press(&mut app, KeyCode::Char('h'));
+        // The screen behind it cannot act: it is not on the screen any more.
+        press(&mut app, KeyCode::Down);
+        assert_eq!(app.installation, 0, "the selection did not move behind it");
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(app.screen(), Screen::Organizations, "and nothing opened");
+        // The two that are live everywhere still are.
+        press(&mut app, KeyCode::Char('t'));
+        assert_eq!(app.theme(), Theme::Light);
+
+        press(&mut app, KeyCode::Esc);
+        assert!(!app.help, "esc closes it");
+        press(&mut app, KeyCode::Char('h'));
+        press(&mut app, KeyCode::Char('h'));
+        assert!(!app.help, "and so does the key that raised it");
+        press(&mut app, KeyCode::Down);
+        assert_eq!(
+            app.installation, 1,
+            "the screen acts again once it is closed"
+        );
     }
 
     // ---------------------------------------------------------------------
@@ -3558,7 +3673,11 @@ mod tests {
             app.grant(),
             Some(Validity::Until(std::time::Duration::from_secs(28_800)))
         );
-        assert!(header(&app).contains("grant ends in"), "{}", header(&app));
+        assert!(
+            status_row(&app).contains("grant ends in"),
+            "{}",
+            status_row(&app)
+        );
 
         app.tick(std::time::Duration::from_secs(28_799));
         assert!(!app.reauthorizing_now(), "a second is a second");
@@ -3568,7 +3687,7 @@ mod tests {
         assert!(app.reauthorizing_now(), "the grant ran out");
         assert_eq!(app.grant(), None, "there is no grant to count down");
         assert!(
-            !header(&app).contains("grant"),
+            !status_row(&app).contains("grant"),
             "a lapsed grant is not a countdown of zero"
         );
     }
@@ -3582,7 +3701,7 @@ mod tests {
         app.grant = Some(Validity::Unstated);
         app.tick(std::time::Duration::from_secs(60 * 60 * 24));
         assert!(!app.reauthorizing_now());
-        assert!(header(&app).contains("expiry"), "{}", header(&app));
+        assert!(status_row(&app).contains("expiry"), "{}", status_row(&app));
     }
 
     #[test]

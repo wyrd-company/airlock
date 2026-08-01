@@ -38,7 +38,7 @@ expires       in 13m 57s                                                        
                                                                                                                         
                                                                                                                         
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-r issue a new code · c copy the code · s show or hide the scan code · q quit · t theme · ctrl-c exit                    
+r issue a new code · c copy the code · s show or hide the scan code · q quit · t theme                                  
                                                                                                                         
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
@@ -79,7 +79,7 @@ eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-dellllllllllllllllkkkdelllllllllllllkkkdellllllllllllllllllllllllllkkkdellllkkkdelllllkkkddddddelllleeeeeeeeeeeeeeeeeeee
+dellllllllllllllllkkkdelllllllllllllkkkdellllllllllllllllllllllllllkkkdellllkkkdellllleeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm
 --- legend ---
 a fg=#CBD3DD bg=#14181D BOLD

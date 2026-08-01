@@ -1,23 +1,17 @@
 //! The organizations screen: choose which installation to work in.
 //!
-//! The list is an intersection — where airlock is installed, crossed with what
-//! this account can reach — and the screen says so, because the difference
-//! between "not there" and "not visible from here" is the whole reason this
-//! screen has prose on it at all.
-//!
-//! The three causes of an absent organization are printed whether or not the
-//! list is empty. They have three different remedies, airlock cannot tell them
-//! apart from here, and each one hides the evidence of itself, so a screen that
-//! guessed between them would be guessing on the operator's behalf.
+//! The screen is the list and nothing else. What an absent organization means,
+//! and which of the three remedies closes it, is a reading an operator wants
+//! once and only when something looks wrong — so it is on `h`, in the help
+//! panel, rather than standing on every frame between them and the list they
+//! came to choose from.
 
 use ratatui::style::Modifier;
 use ratatui::text::{Line, Span};
 
 use crate::admin::catalogue::{Installation, State};
-use crate::admin::identity;
-use crate::admin::sign_in::Density;
 
-use super::chrome::{fit, wrap};
+use super::chrome::fit;
 use super::panel;
 use super::theme::{Role, Styles};
 
@@ -42,51 +36,21 @@ pub fn body(
     state: &State,
     selected: usize,
 ) -> Vec<Line<'static>> {
-    let width = width as usize;
-    let density = panel::density(width);
-
-    // Everything below the list is built first, because the list is what gives
-    // up rows when there are not enough. The three causes and the credential do
-    // not: they are the two things this screen exists to state.
-    // At the floor the sections sit against each other rather than taking a
-    // blank row each: a row here is a row the installation list needs, and the
-    // headings already separate them.
-    let spacer = |lines: &mut Vec<Line<'static>>| {
-        if density == Density::Full {
-            lines.push(Line::default());
-        }
-    };
-    let mut tail = Vec::new();
-    spacer(&mut tail);
-    tail.extend(intersection(styles, width, density));
-    spacer(&mut tail);
-    tail.extend(causes(styles, width, density));
-    spacer(&mut tail);
-    tail.extend(panel::credential(styles, identity::bound(), width, density));
-
-    let room = (height as usize).saturating_sub(tail.len()).max(2);
-    let mut lines = list(styles, width, room, state, selected);
-    lines.extend(tail);
-    lines
+    list(styles, width as usize, height as usize, state, selected)
 }
 
-/// The status line: what the count is, and what the list is a list of.
+/// The status line: what the screen knows that the list does not already say.
+///
+/// A ready list says its own count under its own heading, so there is nothing
+/// left for this row to add and it says nothing. The three states that are not
+/// ready are not the list at all, and each of them says which one it is.
 #[must_use]
 pub fn status(state: &State) -> String {
-    let reach = "the list is the intersection of install and access";
     match state {
-        State::Unauthorized => format!("no authorization yet \u{b7} {reach}"),
-        State::Reading => format!("reading the installations \u{b7} {reach}"),
-        State::Failed(_) => format!("the installations could not be read \u{b7} {reach}"),
-        State::Ready(catalogue) => {
-            let count = catalogue.installations().len();
-            let noun = if count == 1 {
-                "installation"
-            } else {
-                "installations"
-            };
-            format!("{count} {noun} \u{b7} {reach}")
-        }
+        State::Unauthorized => "no authorization yet".to_owned(),
+        State::Reading => "reading the installations".to_owned(),
+        State::Failed(_) => "the installations could not be read".to_owned(),
+        State::Ready(_) => String::new(),
     }
 }
 
@@ -105,10 +69,10 @@ fn list(
 ) -> Vec<Line<'static>> {
     let installations = state.installations();
     let mut lines = vec![Line::from(vec![
-        Span::styled("REACHABLE INSTALLATIONS", styles.bold(Role::Text)),
+        Span::styled("INSTALLED ORGANIZATIONS", styles.bold(Role::Text)),
         Span::styled(
             match state {
-                State::Ready(_) => format!("  {}", installations.len()),
+                State::Ready(_) => format!("  {}", counted(installations.len())),
                 State::Unauthorized | State::Reading | State::Failed(_) => String::new(),
             },
             styles.of(Role::Faint),
@@ -141,9 +105,9 @@ fn list(
                 styles,
                 width,
                 &format!(
-                    "the read failed, so this is not an empty list: {cause}. Nothing \
-                     below distinguishes a failed read from an absent install, which is \
-                     why the failure is named here."
+                    "the read failed, so this is not an empty list: {cause}. A failed \
+                     read and an absent install look alike, which is why the failure \
+                     is named here."
                 ),
             )
         }
@@ -152,9 +116,8 @@ fn list(
                 lines,
                 styles,
                 width,
-                "none. An empty list is not evidence that nothing is there: the three \
-                 causes below are the whole of what it can mean, and they have three \
-                 different remedies.",
+                "none. An empty list has three causes and three different remedies: \
+                 press h for them.",
             )
         }
         State::Ready(_) => {}
@@ -260,67 +223,14 @@ fn fitting(costs: &[usize], selected: usize, room: usize) -> (usize, usize) {
     (start, end)
 }
 
-fn intersection(styles: Styles, width: usize, density: Density) -> Vec<Line<'static>> {
-    let text = match density {
-        Density::Full => {
-            "This list is the intersection of where airlock is installed and what this \
-             account can reach. An organization that is absent from it is not evidence \
-             of absence: airlock cannot see what it is not installed on, and it cannot \
-             see what this account cannot reach."
-        }
-        Density::Tight => {
-            "The list is where airlock is installed crossed with what this account \
-             reaches. An absent organization is not evidence of absence."
-        }
+/// The count, in the noun it is a count of.
+fn counted(installations: usize) -> String {
+    let noun = if installations == 1 {
+        "installation"
+    } else {
+        "installations"
     };
-    wrap(text, width)
-        .into_iter()
-        .map(|line| Line::from(Span::styled(line, styles.of(Role::Text))))
-        .collect()
-}
-
-/// The three causes, and the three remedies they take.
-///
-/// Printed whether or not the list is empty. Each cause hides the evidence of
-/// itself, so from here they are indistinguishable — and a screen that showed
-/// only the likeliest would send the operator to the wrong owner.
-fn causes(styles: Styles, width: usize, density: Density) -> Vec<Line<'static>> {
-    let mut lines = vec![Line::from(Span::styled(
-        "AN ABSENT ORGANIZATION HAS THREE CAUSES, AND THREE DIFFERENT REMEDIES",
-        styles.bold(Role::Text),
-    ))];
-    let entries: [&str; 3] = match density {
-        Density::Full => [
-            "The app is not installed on that organization. Install airlock on it; an \
-             owner or an admin can do this.",
-            "It is installed, but this account is not a member, or its role does not \
-             reach it. Ask an owner to add the account, or to grant the role.",
-            "Both are fine, but the installation was scoped to repositories this \
-             account cannot see. Widen the installation's repository selection.",
-        ],
-        Density::Tight => [
-            "not installed there \u{2014} install airlock; an owner or admin can.",
-            "installed, but this account is not a member or lacks the role \u{2014} ask \
-             an owner.",
-            "installed and reachable, but scoped away from those repositories \u{2014} \
-             widen the selection.",
-        ],
-    };
-    for (index, entry) in entries.iter().enumerate() {
-        let room = width.saturating_sub(3).max(1);
-        for (part, text) in wrap(entry, room).into_iter().enumerate() {
-            let label = if part == 0 {
-                format!("{}  ", index + 1)
-            } else {
-                "   ".to_owned()
-            };
-            lines.push(Line::from(vec![
-                Span::styled(label, styles.of(Role::Accent)),
-                Span::styled(text, styles.of(Role::Dim)),
-            ]));
-        }
-    }
-    lines
+    format!("{installations} {noun}")
 }
 
 #[cfg(test)]
@@ -379,22 +289,16 @@ mod tests {
     }
 
     #[test]
-    fn an_empty_list_never_stands_alone() {
+    fn an_empty_list_says_what_it_can_mean_and_where_the_rest_of_it_is() {
         for width in [120, 80] {
             let text = rendered(&ready(Vec::new()), width, 40, 0);
-            assert!(text.contains("An empty list is not evidence"), "{text}");
-            assert!(text.contains("THREE CAUSES"), "{text}");
-            assert!(text.contains("Install airlock") || text.contains("install airlock"));
-            assert!(text.contains("role"), "{text}");
-            assert!(
-                text.contains("selection"),
-                "the third remedy is missing: {text}"
-            );
+            assert!(text.contains("three causes"), "{text}");
+            assert!(text.contains("press h"), "{text}");
         }
     }
 
     #[test]
-    fn the_three_causes_are_printed_whether_or_not_the_list_is_empty() {
+    fn the_screen_is_the_list_and_nothing_else() {
         let populated = rendered(
             &ready(vec![installation(
                 "acme-industries",
@@ -406,7 +310,29 @@ mod tests {
             40,
             0,
         );
-        assert!(populated.contains("THREE CAUSES"), "{populated}");
+        // The three causes moved onto `h`, the intersection sentence is gone,
+        // and the credential is not this screen's to state.
+        for absent in ["THREE CAUSES", "intersection", "CREDENTIAL", "device flow"] {
+            assert!(!populated.contains(absent), "{absent}: {populated}");
+        }
+    }
+
+    #[test]
+    fn the_heading_names_the_installations_and_counts_them_in_the_noun() {
+        let text = rendered(
+            &ready(vec![installation(
+                "acme-industries",
+                AccountKind::Organization,
+                RepositorySelection::All,
+                &["widget"],
+            )]),
+            120,
+            40,
+            0,
+        );
+        assert!(text.contains("INSTALLED ORGANIZATIONS"), "{text}");
+        assert!(text.contains("1 installation"), "{text}");
+        assert!(!text.contains("REACHABLE"), "{text}");
     }
 
     #[test]
@@ -470,17 +396,6 @@ mod tests {
     }
 
     #[test]
-    fn the_credential_is_shown_by_source_and_grant_and_never_by_value() {
-        let text = rendered(&ready(Vec::new()), 120, 40, 0);
-        assert!(text.contains("CREDENTIAL"), "{text}");
-        assert!(text.contains("device flow"), "{text}");
-        for permission in identity::bound().grant {
-            assert!(text.contains(permission.name), "{}", permission.name);
-        }
-        assert!(!text.contains(identity::bound().client_id), "{text}");
-    }
-
-    #[test]
     fn a_failed_read_is_never_drawn_as_an_empty_list() {
         let text = rendered(
             &State::Failed("rate_limit on GET /user".to_owned()),
@@ -513,17 +428,17 @@ mod tests {
     }
 
     #[test]
-    fn the_status_line_states_the_count_and_the_intersection() {
+    fn the_status_line_says_nothing_the_list_has_already_said() {
         let line = status(&ready(vec![installation(
             "acme-industries",
             AccountKind::Organization,
             RepositorySelection::All,
             &[],
         )]));
-        assert!(line.contains("1 installation"), "{line}");
-        assert!(
-            line.contains("intersection of install and access"),
-            "{line}"
-        );
+        assert!(line.is_empty(), "{line}");
+        // The three states that are not a list are not silent about it.
+        assert!(status(&State::Reading).contains("reading"));
+        assert!(status(&State::Unauthorized).contains("no authorization"));
+        assert!(status(&State::Failed("rate_limit".to_owned())).contains("could not be read"));
     }
 }

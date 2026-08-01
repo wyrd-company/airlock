@@ -1,6 +1,6 @@
 publishing-bootstrap-waiting-80x24-dark · 80x24 · theme dark · colour
 --- text ---
-AIRLOCK 0.0.0  …organizations › repositories › findings › publishing bootstrap  
+AIRLOCK 0.0.0  …› organizations › repositories › findings › publishing bootstrap
 PUBLISHING BOOTSTRAP                                                            
 Most registries will not accept a trusted publisher for a package that has never
 been published. A token exists only to produce that first release, and that     
@@ -22,7 +22,7 @@ THE FIVE STEPS
      a release workflow run publishing the package. This is an external event   
      that may take hours; leaving is expected, because nothing here is a saved  
 — 0 lines above · 23 below · ↑↓ moves the window —                              
-esc back · ↑↓ move · ↵ supply or confirm · tab next target · 4 more…            
+esc back · ↑↓ move · ↵ supply or confirm · tab next target · 3 more…            
 step 3 of 5 · a release workflow run publishing the package · re-observed on en…
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb

@@ -22,7 +22,7 @@ expires       in 14m 32s
                                                                                 
                                                                                 
                                                                                 
-r issue a new code · c copy the code · s show or hide the scan code · 3 more…   
+r issue a new code · c copy the code · s show or hide the scan code · 2 more…   
                                                                                 
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb

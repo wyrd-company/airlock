@@ -65,8 +65,20 @@ pub const QUIT_KEY: Key = key!("q", "quit");
 /// the state has captured.
 pub const THEME_KEY: Key = key!("t", "theme");
 
-/// The keys live on every screen in every state.
-pub const UNIVERSAL_KEYS: [Key; 3] = [QUIT_KEY, THEME_KEY, EXIT_KEY];
+/// The keys the footer advertises on every screen in every state.
+///
+/// `ctrl-c` is not among them, and is not less live for it: it leaves from
+/// every state without exception. What the footer prints is the key an operator
+/// reaches for, and `q quit` already says it wherever `q` is not being typed
+/// into something. The states that do capture `q` list `ctrl-c` themselves,
+/// because there it is the only key that leaves.
+pub const UNIVERSAL_KEYS: [Key; 2] = [QUIT_KEY, THEME_KEY];
+
+/// The keys live while a help panel is up.
+///
+/// The panel took every key the screen behind it had, so what is left is the
+/// key that closes it and the two that are live everywhere.
+pub const HELP_KEYS: [Key; 3] = [key!("h or esc", "close"), QUIT_KEY, THEME_KEY];
 
 /// The keys live while a text input holds focus.
 ///
@@ -197,7 +209,11 @@ impl Screen {
                 key!("c", "copy the code"),
                 key!("s", "show or hide the scan code"),
             ],
-            Self::Organizations => &[key!("\u{2191}\u{2193}", "select"), key!("\u{21b5}", "open")],
+            Self::Organizations => &[
+                key!("\u{2191}\u{2193}", "select"),
+                key!("\u{21b5}", "open"),
+                key!("h", "troubleshooting"),
+            ],
             Self::Repositories => &[
                 key!("\u{2191}\u{2193}", "select"),
                 key!("/", "filter"),

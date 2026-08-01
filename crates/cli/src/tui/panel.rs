@@ -1,10 +1,10 @@
-//! The pieces more than one screen draws: labelled fields, the credential
-//! region, and the rule that decides how much prose a width can carry.
+//! The pieces more than one screen draws: labelled fields, the provenance
+//! block, the scroll window, and the rule that decides how much prose a width
+//! can carry.
 //!
-//! The credential region is here rather than on one screen because two screens
-//! show it and they must show the same thing. What it holds is the identity —
-//! a compile-time constant — and never the credential: the grant is printed by
-//! permission list and by source, and there is no value in scope to print.
+//! No credential is among them. There is no region on any screen that states
+//! one, which is structural rather than promised: nothing here holds a value
+//! that could be drawn.
 
 use std::cell::Cell;
 
@@ -12,7 +12,6 @@ use ratatui::text::{Line, Span};
 
 use airlock_core::findings::Report;
 
-use crate::admin::identity::WriteIdentity;
 use crate::admin::sign_in::Density;
 use crate::admin::text::drawable;
 
@@ -255,76 +254,6 @@ pub fn field_at(
         .collect()
 }
 
-/// The credential region: what the grant is and where it came from.
-///
-/// Never a value. The source names the app and the flow, the grant names every
-/// permission the app registration declares, and the storage line states that
-/// there is nothing to display and nowhere it is kept.
-#[must_use]
-pub fn credential(
-    styles: Styles,
-    identity: WriteIdentity,
-    width: usize,
-    density: Density,
-) -> Vec<Line<'static>> {
-    let mut lines = vec![Line::from(Span::styled(
-        "CREDENTIAL",
-        styles.bold(Role::Text),
-    ))];
-    lines.extend(field(styles, "source", &identity.source(), width));
-    lines.extend(field(styles, "grant", &grant(identity, density), width));
-    lines.extend(field(
-        styles,
-        "storage",
-        match density {
-            Density::Full => {
-                "none. No credential of any kind is stored: not in a file, not in \
-                 the environment, not in a child process, and not after this \
-                 session ends. Its value is never displayed."
-            }
-            Density::Tight => {
-                "none. No credential of any kind is stored, anywhere, ever. Its \
-                 value is never displayed."
-            }
-        },
-        width,
-    ));
-    lines
-}
-
-/// The grant, by permission and level.
-///
-/// Every permission is named at both densities, because the grant is the
-/// screen's answer to what this credential can do and a summary of it is not
-/// that answer. What the tight reading drops is the repetition: the permissions
-/// are gathered under their level instead of each carrying it.
-#[must_use]
-pub fn grant(identity: WriteIdentity, density: Density) -> String {
-    if density == Density::Full {
-        return identity
-            .grant
-            .iter()
-            .map(|permission| format!("{} {}", permission.name, permission.level))
-            .collect::<Vec<_>>()
-            .join(" \u{b7} ");
-    }
-    let mut levels: Vec<(&str, Vec<&str>)> = Vec::new();
-    for permission in identity.grant {
-        match levels
-            .iter_mut()
-            .find(|(level, _)| *level == permission.level)
-        {
-            Some((_, names)) => names.push(permission.name),
-            None => levels.push((permission.level, vec![permission.name])),
-        }
-    }
-    levels
-        .into_iter()
-        .map(|(level, names)| format!("{level}: {}", names.join(", ")))
-        .collect::<Vec<_>>()
-        .join(" \u{b7} ")
-}
-
 /// The slice of a list to draw, and whether anything sits outside it.
 ///
 /// A list longer than the rows it has is windowed rather than cut at the top:
@@ -346,7 +275,6 @@ pub fn window(selected: usize, len: usize, room: usize) -> (usize, usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::admin::identity;
     use crate::tui::theme::{ColorMode, Theme};
 
     fn styles() -> Styles {
@@ -359,22 +287,6 @@ mod tests {
             .flat_map(|line| line.spans.iter())
             .map(|span| span.content.as_ref())
             .collect()
-    }
-
-    #[test]
-    fn the_credential_region_names_every_permission_and_no_value() {
-        for density in [Density::Full, Density::Tight] {
-            let rendered = text(&credential(styles(), identity::bound(), 120, density));
-            for permission in identity::bound().grant {
-                assert!(rendered.contains(permission.name), "{}", permission.name);
-            }
-            assert!(rendered.contains("device flow"), "{rendered}");
-            assert!(
-                !rendered.contains(identity::bound().client_id),
-                "{rendered}"
-            );
-            assert!(rendered.contains("never displayed"), "{rendered}");
-        }
     }
 
     #[test]
