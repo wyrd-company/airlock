@@ -77,10 +77,15 @@ headings.
 
 Where a rendering cannot fit, it is withheld rather than clipped. The scan
 code on the sign-in screen is the case that matters: it occupies 33 columns,
-so at the floor it is not drawn beside the device code. The screen says so,
-offers to draw it below the code instead, and states the width at which it
-would sit alongside. A partially drawn scan code is never rendered, because a
-code that cannot be scanned is worse than an address the operator types.
+so at the floor it is not drawn beside the device code, and `s` offers to draw
+it below the code instead. A partially drawn scan code is never rendered,
+because a code that cannot be scanned is worse than an address the operator
+types, and the address it encodes is on the screen either way.
+
+The frame carries the program identity and version, the breadcrumb, and what
+is left of the session's grant. Nothing else: a fact that holds on every
+screen in every state is not news, and a key the keymap already prints does
+not need printing beside it.
 
 Width and height are answered differently, and on purpose. A rendering too
 wide for the terminal cannot be drawn at all, so it is withheld. A reading

@@ -1,6 +1,6 @@
 finding-detail-fail-120x40-dark · 120x40 · theme dark · colour
 --- text ---
-AIRLOCK 0.0.0  …ations › repositories › findings › finding detail  no credential stored · tty required · theme t · dark 
+AIRLOCK 0.0.0  sign-in › organizations › repositories › findings › finding detail                                       
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 ▌ REPO-GIT-01   ✗    │   │  fail  ███ blocking                                                                          
 gates the run: fail at blocking severity, which the required gate enforces                                              

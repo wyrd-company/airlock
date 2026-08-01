@@ -1,6 +1,6 @@
 organizations-prefix-120x40-dark · 120x40 · theme dark · colour
 --- text ---
-AIRLOCK 0.0.0  sign-in › organizations                             no credential stored · tty required · theme t · dark 
+AIRLOCK 0.0.0  sign-in › organizations                                                                                  
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 REACHABLE INSTALLATIONS  1                                                                                              
 ▸ acme-industries             organization    400 repositories, 3 read                                                  

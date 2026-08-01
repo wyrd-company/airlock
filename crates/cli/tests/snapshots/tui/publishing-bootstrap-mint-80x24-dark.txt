@@ -1,6 +1,6 @@
 publishing-bootstrap-mint-80x24-dark · 80x24 · theme dark · colour
 --- text ---
-AIRLOCK 0.0.0  …s › publishing bootstrap  no credential stored · theme t · dark 
+AIRLOCK 0.0.0  …organizations › repositories › findings › publishing bootstrap  
 PUBLISHING BOOTSTRAP                                                            
 Most registries will not accept a trusted publisher for a package that has never
 been published. A token exists only to produce that first release, and that     

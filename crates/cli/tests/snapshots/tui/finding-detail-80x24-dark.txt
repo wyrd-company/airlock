@@ -1,6 +1,6 @@
 finding-detail-80x24-dark · 80x24 · theme dark · colour
 --- text ---
-AIRLOCK 0.0.0  …indings › finding detail  no credential stored · theme t · dark 
+AIRLOCK 0.0.0  …-in › organizations › repositories › findings › finding detail  
 NO FINDING SELECTED                                                             
 would show    one rule in full: its statement, its evidence, any error or       
               suppression, the remediation on offer, why the rule applies, and  
@@ -23,7 +23,7 @@ next          press esc to return to the queue, move onto a row, and press ↵.
                                                                                 
                                                                                 
 esc back · a remediation transcript · o re-observe this rule · 4 more…          
-no repository observed · this shell renders the frame only · tty required       
+no repository observed · this shell renders the frame only                      
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 cccccccccccccccccccddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd

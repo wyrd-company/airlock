@@ -1,6 +1,6 @@
 finding-detail-suppressed-120x40-no-color · 120x40 · theme dark · NO_COLOR
 --- text ---
-AIRLOCK 0.0.0  …ations › repositories › findings › finding detail  no credential stored · tty required · theme t · dark 
+AIRLOCK 0.0.0  sign-in › organizations › repositories › findings › finding detail                                       
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
   REPO-CI-02      ⊘ │   │  suppressed  ███ blocking                                                                     
 does not gate: suppressed never gates and never affects completeness                                                    

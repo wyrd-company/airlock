@@ -20,21 +20,22 @@ pub enum Theme {
 }
 
 impl Theme {
+    /// The palette's name, for the snapshot suite's case headings.
+    #[cfg_attr(not(test), allow(dead_code))]
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Dark => "dark",
+            Self::Light => "light",
+        }
+    }
+
     /// The other palette.
     #[must_use]
     pub const fn toggled(self) -> Self {
         match self {
             Self::Dark => Self::Light,
             Self::Light => Self::Dark,
-        }
-    }
-
-    /// The name the chrome prints beside the theme key.
-    #[must_use]
-    pub const fn name(self) -> &'static str {
-        match self {
-            Self::Dark => "dark",
-            Self::Light => "light",
         }
     }
 }
@@ -172,12 +173,6 @@ impl Styles {
         Self { theme, mode }
     }
 
-    /// The palette in force.
-    #[must_use]
-    pub const fn theme(self) -> Theme {
-        self.theme
-    }
-
     /// Whether colour is being emitted.
     #[must_use]
     pub const fn colored(self) -> bool {
@@ -251,7 +246,6 @@ mod tests {
         assert_eq!(Theme::Dark.toggled(), Theme::Light);
         assert_eq!(Theme::Light.toggled(), Theme::Dark);
         assert_eq!(Theme::Dark.toggled().toggled(), Theme::Dark);
-        assert_ne!(Theme::Dark.name(), Theme::Light.name());
     }
 
     #[test]

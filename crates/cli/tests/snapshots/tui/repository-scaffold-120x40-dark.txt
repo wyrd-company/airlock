@@ -1,6 +1,6 @@
 repository-scaffold-120x40-dark · 120x40 · theme dark · colour
 --- text ---
-AIRLOCK 0.0.0  …rganizations › repositories › repository scaffold  no credential stored · tty required · theme t · dark 
+AIRLOCK 0.0.0  sign-in › organizations › repositories › repository scaffold                                             
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 REPOSITORY SCAFFOLD                                                                                                     
 Create a repository, its first branch, and then observe it normally.                                                    

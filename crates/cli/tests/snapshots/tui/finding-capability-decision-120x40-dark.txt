@@ -1,6 +1,6 @@
 finding-capability-decision-120x40-dark · 120x40 · theme dark · colour
 --- text ---
-AIRLOCK 0.0.0  …ations › repositories › findings › finding detail  no credential stored · tty required · theme t · dark 
+AIRLOCK 0.0.0  sign-in › organizations › repositories › findings › finding detail                                       
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 ▌ REPO-REL-04        │ ◑ │  inconclusive  ██░ required                                                                  
 gates the run: inconclusive at required severity, which the required gate enforces, so complete is false and no verdict 

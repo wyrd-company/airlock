@@ -1690,7 +1690,6 @@ impl App {
             &self.version,
             styles,
             area.width,
-            &keys,
             self.grant,
         ))
         .render(frame.header, buffer);
@@ -2936,7 +2935,6 @@ mod tests {
             "0.0.0",
             app.styles(),
             chrome::REFERENCE_WIDTH,
-            &app.keymap(),
             app.grant(),
         )
         .spans
@@ -2946,35 +2944,30 @@ mod tests {
     }
 
     #[test]
-    fn the_header_withdraws_the_theme_key_with_the_footer_and_holds_its_geometry() {
+    fn the_footer_withdraws_the_keys_a_focused_filter_has_captured() {
         let mut app = app()
             .with_catalogue(catalogue())
             .at(Screen::Repositories, Theme::Dark);
 
         let unfocused = header(&app);
-        assert!(unfocused.contains("theme t"), "{unfocused}");
+        assert!(footer(&app).contains("t theme"), "{}", footer(&app));
+        assert!(footer(&app).contains("q quit"), "{}", footer(&app));
 
         press(&mut app, KeyCode::Char('/'));
-        let focused = header(&app);
-        assert!(
-            !focused.contains("theme t"),
-            "the header advertised a key the filter had captured: {focused}"
-        );
-        assert!(focused.contains("theme \u{2014}"), "{focused}");
-        assert!(
-            !footer(&app).contains("t theme"),
-            "the two surfaces disagreed about the same key"
-        );
-
-        // Nothing moved: a filter opening must repaint the header, never
-        // reflow it.
-        assert_eq!(unfocused.chars().count(), focused.chars().count());
-        assert_eq!(unfocused.find("theme"), focused.find("theme"));
-
-        // And the key comes back with focus leaving, on both surfaces at once.
-        press(&mut app, KeyCode::Esc);
+        let focused = footer(&app);
+        for captured in ["t theme", "q quit"] {
+            assert!(
+                !focused.contains(captured),
+                "the footer advertised {captured}, which the filter types: {focused}"
+            );
+        }
+        // The header carries no key at all, so a focus change cannot move it.
         assert_eq!(header(&app), unfocused);
+
+        // And the keys come back when focus leaves.
+        press(&mut app, KeyCode::Esc);
         assert!(footer(&app).contains("t theme"));
+        assert!(footer(&app).contains("q quit"));
     }
 
     #[test]
@@ -3401,7 +3394,6 @@ mod tests {
             KeyCode::Char('j'),
         ] {
             press(&mut app, code);
-            assert!(header(&app).contains("theme t"), "{}", header(&app));
             let footer = footer(&app);
             assert!(footer.contains("f filter"), "{footer}");
             assert!(

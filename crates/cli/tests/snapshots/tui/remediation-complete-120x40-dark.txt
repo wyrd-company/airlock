@@ -1,6 +1,6 @@
 remediation-complete-120x40-dark · 120x40 · theme dark · colour
 --- text ---
-AIRLOCK 0.0.0  …nizations › repositories › findings › remediation  no credential stored · tty required · theme t · dark 
+AIRLOCK 0.0.0  sign-in › organizations › repositories › findings › remediation                                          
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 SETTINGS REMEDIATION                                                                                                    
 repository      generic-owner/sample-repository                                                                         

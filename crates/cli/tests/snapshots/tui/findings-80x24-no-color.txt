@@ -1,6 +1,6 @@
 findings-80x24-no-color · 80x24 · theme dark · NO_COLOR
 --- text ---
-AIRLOCK 0.0.0  … repositories › findings  no credential stored · theme t · dark 
+AIRLOCK 0.0.0  sign-in › organizations › repositories › findings                
 FINDINGS                                                                        
 Present the whole standard as a work queue, ordered by what closing each gap    
 takes and who can close it.                                                     
@@ -23,7 +23,7 @@ SEVERITY  ███ blocking   ██░ required   █░░ observation
 ▌ a solid left rail marks a row that actually gates the run                     
 — 10 more lines withheld: this screen needs 30 rows and has 21 —                
 ↑↓/j/k move · space collapse or expand · ↵ finding detail · f filter · 9 more…  
-no repository observed · this shell renders the frame only · tty required       
+no repository observed · this shell renders the frame only                      
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 aaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb

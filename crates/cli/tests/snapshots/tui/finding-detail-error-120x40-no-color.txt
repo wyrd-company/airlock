@@ -1,6 +1,6 @@
 finding-detail-error-120x40-no-color · 120x40 · theme dark · NO_COLOR
 --- text ---
-AIRLOCK 0.0.0  …ations › repositories › findings › finding detail  no credential stored · tty required · theme t · dark 
+AIRLOCK 0.0.0  sign-in › organizations › repositories › findings › finding detail                                       
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 ▌ REPO-GIT-09        │ ! │  error  ███ blocking                                                                         
 gates the run: error at blocking severity, which the required gate enforces, so complete is false and no verdict can be 

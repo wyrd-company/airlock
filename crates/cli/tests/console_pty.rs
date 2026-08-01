@@ -259,8 +259,11 @@ fn a_clean_exit_gives_the_terminal_back() {
     pty.write(b"t");
     std::thread::sleep(SETTLE);
     let after_theme = pty.drain();
+    // The light palette's page background, which the dark one never paints.
+    // The redraw is the evidence the key was taken, and the palette in the
+    // cells is the evidence it was taken as the palette toggle.
     assert!(
-        after_theme.contains("theme t"),
+        after_theme.contains("48;2;246;243;236"),
         "the console redrew after the palette changed: {after_theme:?}"
     );
 

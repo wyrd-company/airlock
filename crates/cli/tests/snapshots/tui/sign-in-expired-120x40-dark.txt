@@ -1,6 +1,6 @@
 sign-in-expired-120x40-dark · 120x40 · theme dark · colour
 --- text ---
-AIRLOCK 0.0.0  sign-in                                             no credential stored · tty required · theme t · dark 
+AIRLOCK 0.0.0  sign-in                                                                                                  
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 THE CODE EXPIRED                                                                                                        
 The code lapsed before it was approved. A new code is being issued in place: the session is not restarted, and nothing  
@@ -39,7 +39,7 @@ address       not issued yet
                                                                                                                         
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 r issue a new code · c copy the code · s show or hide the scan code · q quit · t theme · ctrl-c exit                    
-no credential on disk · tty required                                                                                    
+                                                                                                                        
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc

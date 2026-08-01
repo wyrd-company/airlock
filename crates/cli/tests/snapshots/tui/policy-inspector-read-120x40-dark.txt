@@ -1,6 +1,6 @@
 policy-inspector-read-120x40-dark · 120x40 · theme dark · colour
 --- text ---
-AIRLOCK 0.0.0  …ions › repositories › findings › policy inspector  no credential stored · tty required · theme t · dark 
+AIRLOCK 0.0.0  sign-in › organizations › repositories › findings › policy inspector                                     
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 EFFECTIVE POLICY  8 rules · 6 sections                                                                                  
                                                                                                                         

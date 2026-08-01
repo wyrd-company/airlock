@@ -13,7 +13,7 @@ use ratatui::text::{Line, Span};
 use crate::admin::session::Validity;
 use crate::admin::sign_in::humanize;
 
-use super::screen::{Key, Screen, THEME_KEY, UNIVERSAL_KEYS};
+use super::screen::{Key, Screen, UNIVERSAL_KEYS};
 use super::theme::{Role, Styles};
 
 /// The reference width.
@@ -41,27 +41,9 @@ const CRUMB_SEPARATOR: &str = " \u{203a} ";
 /// The separator between facts on one chrome line.
 const FACT_SEPARATOR: &str = " \u{b7} ";
 
-/// Below this width the header drops `tty required`, which the status line on
-/// every screen already carries, and gives the room to the breadcrumb.
+/// Below this width the header says what is left of the grant in fewer words
+/// and gives the room it saves to the breadcrumb.
 const FULL_FACTS_NEED_WIDTH: u16 = 100;
-
-/// The theme name is padded to the longest one so that pressing `t` repaints
-/// the header rather than reflowing it. Text that moves when a palette changes
-/// reads as a layout bug even when it is not.
-const THEME_NAME_WIDTH: usize = 5;
-
-/// What stands in the header's key slot while the open state has captured it.
-///
-/// One column, which is what the key it replaces occupies, so the facts group
-/// is the same width whether or not the key is live. The header holds its
-/// geometry through a focus change for the same reason it holds it through a
-/// palette change: text that moves reads as a fault even when it is not, and
-/// here it would move on every keystroke that opens or closes a filter.
-///
-/// A mark rather than a blank. A slot left empty reads as a header that forgot
-/// to print something; a mark reads as a key that is not available, which is
-/// what it is. It survives `NO_COLOR` because it is a glyph and not a style.
-const KEY_WITHDRAWN: &str = "\u{2014}";
 
 /// Where each part of the frame is drawn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -163,39 +145,24 @@ fn grant_fact(validity: Validity, width: u16) -> String {
 
 /// The header line.
 ///
-/// The right-hand group states the session facts that hold whatever screen is
-/// open: that no credential is stored, what is left of the grant where one is
-/// held, and the palette. The grant is stated by its remaining validity and
-/// never by its value — there is no value here to state, because the type this
-/// takes has no field one could travel in.
+/// The right-hand group states the one session fact that changes on its own
+/// and that no screen can see coming: what is left of the grant. It is stated
+/// by its remaining validity and never by its value — there is no value here
+/// to state, because the type this takes has no field one could travel in.
 ///
-/// The keys live in the open state are passed in, and the header reads its own
-/// key slot out of them rather than assuming the toggle is available. The
-/// header and the footer are then two renderings of one fact and cannot
-/// disagree: whatever captures a key removes it from both at once.
+/// Nothing else lives here. A standing fact that is the same on every screen
+/// in every state is not news, and a key that the keymap already prints does
+/// not need printing twice.
 #[must_use]
 pub fn header_line(
     screen: Screen,
     version: &str,
     styles: Styles,
     width: u16,
-    keys: &[Key],
     grant: Option<Validity>,
 ) -> Line<'static> {
     let identity = format!("AIRLOCK {version}");
-    let theme = format!(
-        "theme {} \u{b7} {:<THEME_NAME_WIDTH$}",
-        theme_slot(keys),
-        styles.theme().name()
-    );
-    let grant = grant.map_or_else(String::new, |validity| {
-        format!("{}{FACT_SEPARATOR}", grant_fact(validity, width))
-    });
-    let facts = if width >= FULL_FACTS_NEED_WIDTH {
-        format!("{grant}no credential stored{FACT_SEPARATOR}tty required{FACT_SEPARATOR}{theme}")
-    } else {
-        format!("{grant}no credential stored{FACT_SEPARATOR}{theme}")
-    };
+    let facts = grant.map_or_else(String::new, |validity| grant_fact(validity, width));
     let width = width as usize;
     let identity_width = identity.chars().count();
     let facts_width = facts.chars().count();
@@ -216,18 +183,6 @@ pub fn header_line(
     spans.push(Span::styled(" ".repeat(gap), chrome));
     spans.push(Span::styled(facts, styles.of(Role::Faint).patch(chrome)));
     Line::from(spans)
-}
-
-/// The header's key slot: the theme key, or the mark that stands where it is
-/// not available.
-///
-/// Both are one column wide, so which one is drawn never moves anything.
-fn theme_slot(keys: &[Key]) -> &'static str {
-    if keys.contains(&THEME_KEY) {
-        THEME_KEY.key
-    } else {
-        KEY_WITHDRAWN
-    }
 }
 
 /// A horizontal rule across the frame.
@@ -310,17 +265,16 @@ fn overflow_note(dropped: usize) -> String {
 
 /// The status line a screen carries when it has nothing of its own to say.
 ///
-/// Sign-in's is fixed by the specification. The rest state what the shell
-/// actually knows, which is that no observation has been made yet. A screen
-/// that does know something states it and passes the text to [`status_line`].
+/// What the shell actually knows, which is that no observation has been made
+/// yet. Sign-in knows nothing at all until a key is pressed, and says nothing
+/// rather than filling the row with a fact that is true on every screen. A
+/// screen that does know something states it and passes the text to
+/// [`status_line`].
 #[must_use]
 pub fn status_text(screen: Screen) -> String {
     match screen {
-        Screen::SignIn => format!("no credential on disk{FACT_SEPARATOR}tty required"),
-        _ => format!(
-            "no repository observed{FACT_SEPARATOR}\
-             this shell renders the frame only{FACT_SEPARATOR}tty required"
-        ),
+        Screen::SignIn => String::new(),
+        _ => format!("no repository observed{FACT_SEPARATOR}this shell renders the frame only"),
     }
 }
 
@@ -509,23 +463,15 @@ mod tests {
         for width in [REFERENCE_WIDTH, FLOOR_WIDTH] {
             for screen in Screen::ALL {
                 for line in [
-                    header_line(screen, "0.0.0", styles(), width, &keys_of(screen), None),
+                    header_line(screen, "0.0.0", styles(), width, None),
                     header_line(
                         screen,
                         "0.0.0",
                         styles(),
                         width,
-                        &keys_of(screen),
                         Some(Validity::Until(Duration::from_secs(872))),
                     ),
-                    header_line(
-                        screen,
-                        "0.0.0",
-                        styles(),
-                        width,
-                        &keys_of(screen),
-                        Some(Validity::Unstated),
-                    ),
+                    header_line(screen, "0.0.0", styles(), width, Some(Validity::Unstated)),
                     keymap_line(&keys_of(screen), styles(), width),
                     status_line(&status_text(screen), styles(), width),
                     rule_line(styles(), width),
@@ -541,22 +487,15 @@ mod tests {
     }
 
     #[test]
-    fn the_header_keeps_its_identity_and_its_session_facts_at_the_floor() {
+    fn the_header_keeps_its_identity_at_the_floor_and_says_nothing_it_need_not() {
         for screen in Screen::ALL {
-            let text = rendered(&header_line(
-                screen,
-                "0.0.0",
-                styles(),
-                FLOOR_WIDTH,
-                &keys_of(screen),
-                None,
-            ));
+            let text = rendered(&header_line(screen, "0.0.0", styles(), FLOOR_WIDTH, None));
             assert!(text.starts_with("AIRLOCK 0.0.0"), "{screen:?}: {text}");
-            assert!(text.contains("no credential stored"), "{screen:?}: {text}");
-            assert!(
-                text.trim_end().ends_with("theme t \u{b7} dark"),
-                "{screen:?}: {text}"
-            );
+            // A standing fact that holds on every screen in every state is not
+            // news, and a key the keymap prints does not need printing twice.
+            for absent in ["no credential stored", "tty required", "theme"] {
+                assert!(!text.contains(absent), "{screen:?}: {text}");
+            }
         }
     }
 
@@ -574,11 +513,9 @@ mod tests {
                 "0.0.0",
                 styles(),
                 width,
-                &keys_of(Screen::Findings),
                 Some(Validity::Until(Duration::from_secs(872))),
             ));
             assert!(text.contains(expected), "at {width}: {text}");
-            assert!(text.contains("no credential stored"), "at {width}: {text}");
         }
     }
 
@@ -590,7 +527,6 @@ mod tests {
                 "0.0.0",
                 styles(),
                 width,
-                &keys_of(Screen::Findings),
                 Some(Validity::Unstated),
             ));
             assert!(text.contains("expiry"), "at {width}: {text}");
@@ -608,7 +544,6 @@ mod tests {
             "0.0.0",
             styles(),
             REFERENCE_WIDTH,
-            &keys_of(Screen::SignIn),
             None,
         ));
         assert!(!text.contains("grant"), "{text}");
@@ -618,88 +553,16 @@ mod tests {
     fn the_header_does_not_reflow_when_the_palette_changes() {
         for width in [REFERENCE_WIDTH, FLOOR_WIDTH] {
             for screen in Screen::ALL {
-                let dark = rendered(&header_line(
-                    screen,
-                    "0.0.0",
-                    styles(),
-                    width,
-                    &keys_of(screen),
-                    None,
-                ));
+                let dark = rendered(&header_line(screen, "0.0.0", styles(), width, None));
                 let light = rendered(&header_line(
                     screen,
                     "0.0.0",
                     Styles::new(Theme::Light, ColorMode::Color),
                     width,
-                    &keys_of(screen),
                     None,
                 ));
-                assert_eq!(dark.chars().count(), light.chars().count(), "{screen:?}");
-                assert_eq!(
-                    dark.find("theme t"),
-                    light.find("theme t"),
-                    "{screen:?} at {width}"
-                );
+                assert_eq!(dark, light, "{screen:?} at {width}");
             }
-        }
-    }
-
-    #[test]
-    fn a_captured_theme_key_leaves_the_header_and_takes_no_width_with_it() {
-        // The header and the footer read the same list, so nothing can capture
-        // a key from one and leave it advertised on the other.
-        for width in [REFERENCE_WIDTH, FLOOR_WIDTH] {
-            let live = keys_of(Screen::Repositories);
-            let captured: Vec<Key> = live
-                .iter()
-                .copied()
-                .filter(|entry| *entry != THEME_KEY)
-                .collect();
-
-            let offered = rendered(&header_line(
-                Screen::Repositories,
-                "0.0.0",
-                styles(),
-                width,
-                &live,
-                None,
-            ));
-            let withdrawn = rendered(&header_line(
-                Screen::Repositories,
-                "0.0.0",
-                styles(),
-                width,
-                &captured,
-                None,
-            ));
-
-            assert!(offered.contains("theme t \u{b7} dark"), "{offered}");
-            assert!(
-                !withdrawn.contains("theme t"),
-                "the header offered a key the open state had taken: {withdrawn}"
-            );
-            assert!(
-                withdrawn.contains("theme \u{2014} \u{b7} dark"),
-                "the slot is marked rather than left blank: {withdrawn}"
-            );
-
-            // The geometry is the whole point of a slot: same width, same
-            // column, so a focus change repaints the header and never moves it.
-            assert_eq!(
-                offered.chars().count(),
-                withdrawn.chars().count(),
-                "at {width}"
-            );
-            assert_eq!(
-                offered.find("theme"),
-                withdrawn.find("theme"),
-                "the facts group moved at {width}"
-            );
-            assert_eq!(
-                offered.find("no credential stored"),
-                withdrawn.find("no credential stored"),
-                "the facts group moved at {width}"
-            );
         }
     }
 
@@ -710,7 +573,6 @@ mod tests {
             "0.0.0",
             styles(),
             FLOOR_WIDTH,
-            &keys_of(Screen::FindingDetail),
             None,
         ));
         assert!(text.contains("finding detail"), "{text}");
@@ -789,15 +651,18 @@ mod tests {
     }
 
     #[test]
-    fn sign_in_carries_the_status_line_the_specification_fixes() {
-        let text = rendered(&status_line(
-            &status_text(Screen::SignIn),
-            styles(),
-            REFERENCE_WIDTH,
-        ));
-        assert!(
-            text.starts_with("no credential on disk \u{b7} tty required"),
-            "{text}"
+    fn sign_in_carries_no_standing_status_text_at_all() {
+        // It knows nothing until a key is pressed, and a row filled with a
+        // fact that holds on every screen is a row saying nothing.
+        assert!(status_text(Screen::SignIn).is_empty());
+        assert_eq!(
+            rendered(&status_line(
+                &status_text(Screen::SignIn),
+                styles(),
+                REFERENCE_WIDTH
+            ))
+            .trim(),
+            ""
         );
     }
 

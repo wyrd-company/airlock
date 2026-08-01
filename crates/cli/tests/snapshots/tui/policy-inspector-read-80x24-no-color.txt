@@ -1,6 +1,6 @@
 policy-inspector-read-80x24-no-color · 80x24 · theme dark · NO_COLOR
 --- text ---
-AIRLOCK 0.0.0  …dings › policy inspector  no credential stored · theme t · dark 
+AIRLOCK 0.0.0  …n › organizations › repositories › findings › policy inspector  
 EFFECTIVE POLICY  8 rules · 6 sections                                          
                                                                                 
 REGISTRY DIGEST                                                                 

@@ -1,6 +1,6 @@
 remediation-capability-confirm-80x24-dark · 80x24 · theme dark · colour
 --- text ---
-AIRLOCK 0.0.0  …› findings › remediation  no credential stored · theme t · dark 
+AIRLOCK 0.0.0  sign-in › organizations › repositories › findings › remediation  
 SETTINGS REMEDIATION                                                            
 repository      generic-owner/sample-repository                                 
 rules           1                                                               

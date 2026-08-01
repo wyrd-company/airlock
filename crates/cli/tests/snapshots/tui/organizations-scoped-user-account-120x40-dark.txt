@@ -1,6 +1,6 @@
 organizations-scoped-user-account-120x40-dark · 120x40 · theme dark · colour
 --- text ---
-AIRLOCK 0.0.0  sign-in › organizations                             no credential stored · tty required · theme t · dark 
+AIRLOCK 0.0.0  sign-in › organizations                                                                                  
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 REACHABLE INSTALLATIONS  2                                                                                              
   acme-industries             organization    3 repositories                                                            

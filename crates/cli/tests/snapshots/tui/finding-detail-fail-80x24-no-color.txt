@@ -1,6 +1,6 @@
 finding-detail-fail-80x24-no-color · 80x24 · theme dark · NO_COLOR
 --- text ---
-AIRLOCK 0.0.0  …indings › finding detail  no credential stored · theme t · dark 
+AIRLOCK 0.0.0  …-in › organizations › repositories › findings › finding detail  
 ▌ REPO-GIT-01   ✗    │   │  fail  ███ blocking                                  
 gates the run: fail at blocking severity, which the required gate enforces      
                                                                                 

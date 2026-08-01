@@ -1,6 +1,6 @@
 publishing-bootstrap-revoke-120x40-dark · 120x40 · theme dark · colour
 --- text ---
-AIRLOCK 0.0.0  … › repositories › findings › publishing bootstrap  no credential stored · tty required · theme t · dark 
+AIRLOCK 0.0.0  sign-in › organizations › repositories › findings › publishing bootstrap                                 
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 PUBLISHING BOOTSTRAP                                                                                                    
 Most registries will not accept a trusted publisher for a package that has never been published. A token exists only to 

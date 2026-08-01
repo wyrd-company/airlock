@@ -1,6 +1,6 @@
 repository-scaffold-populated-120x40-dark · 120x40 · theme dark · colour
 --- text ---
-AIRLOCK 0.0.0  …rganizations › repositories › repository scaffold  no credential stored · tty required · theme — · dark 
+AIRLOCK 0.0.0  sign-in › organizations › repositories › repository scaffold                                             
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 SCAFFOLD AS ALIGN                                                                                                       
 Create the empty repository and its one branch-creating commit from the resolved owner policy. This exception ends when 

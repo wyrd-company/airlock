@@ -1,6 +1,6 @@
 sign-in-80x24-no-color · 80x24 · theme dark · NO_COLOR
 --- text ---
-AIRLOCK 0.0.0  sign-in                    no credential stored · theme t · dark 
+AIRLOCK 0.0.0  sign-in                                                          
 REQUESTING A DEVICE CODE                                                        
                                                                                 
 ┌───────────────────┐                                                           
@@ -23,7 +23,7 @@ address       not issued yet
                                                                                 
                                                                                 
 r issue a new code · c copy the code · s show or hide the scan code · 3 more…   
-no credential on disk · tty required                                            
+                                                                                
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 aaaaaaaaaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
