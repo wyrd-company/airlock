@@ -447,6 +447,52 @@ fn check_help(width: u16, height: u16) {
     }
 }
 
+/// The findings screen with the run it draws still in flight.
+///
+/// Driven rather than assembled: authorized, given a catalogue, and opened on a
+/// repository — which is the asking. Nothing answers it, so what is recorded is
+/// the wait itself, at the first turn of the throbber.
+fn check_observing(width: u16, height: u16) {
+    let name = format!("findings-observing-{}-dark", size_slug(width));
+    let case = Case {
+        name: Box::leak(name.into_boxed_str()),
+        screen: Screen::Findings,
+        theme: Theme::Dark,
+        color: ColorMode::Color,
+        width,
+        height,
+        flow: None,
+        selection: None,
+        run: None,
+    };
+    let backend = TestBackend::new(width, height);
+    let mut terminal = Terminal::new(backend).expect("a test terminal");
+    let mut app = App::new(VERSION, ColorMode::Color).at(Screen::Organizations, Theme::Dark);
+    app.authorization_granted(Validity::Until(std::time::Duration::from_secs(28_800)));
+    app.catalogue_read(crate::admin::catalogue::Read::Ready(Box::new(catalogue())));
+    // Into the first installation, then into its first repository.
+    for _ in 0..2 {
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    }
+    let app = app;
+    assert_eq!(app.screen(), Screen::Findings);
+    terminal
+        .draw(|frame| app.render(frame.area(), frame.buffer_mut()))
+        .expect("the frame draws");
+    let rendered = serialise(&case, terminal.backend().buffer());
+    let path = path(case.name);
+    if std::env::var_os("UPDATE_SNAPSHOTS").is_some() {
+        std::fs::write(&path, rendered).expect("the snapshot is writable");
+    } else {
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("the snapshot is recorded"),
+            rendered,
+            "{} changed. Run with UPDATE_SNAPSHOTS=1 and review the diff.",
+            path.display()
+        );
+    }
+}
+
 #[cfg_attr(feature = "test-identity", allow(dead_code))]
 fn check_remediation(
     name: &'static str,
@@ -991,6 +1037,12 @@ fn the_frame_renders_as_recorded() {
 fn the_help_panel_renders_as_recorded_at_both_sizes() {
     check_help(REFERENCE_WIDTH, REFERENCE_HEIGHT);
     check_help(FLOOR_WIDTH, FLOOR_HEIGHT);
+}
+
+#[test]
+fn a_run_in_flight_renders_as_recorded_at_both_sizes() {
+    check_observing(REFERENCE_WIDTH, REFERENCE_HEIGHT);
+    check_observing(FLOOR_WIDTH, FLOOR_HEIGHT);
 }
 
 #[test]

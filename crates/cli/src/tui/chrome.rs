@@ -45,6 +45,27 @@ const FACT_SEPARATOR: &str = " \u{b7} ";
 /// and gives the room it saves to the breadcrumb.
 const FULL_FACTS_NEED_WIDTH: u16 = 100;
 
+/// The glyphs a throbber turns through, in order.
+const THROBBER: [char; 8] = [
+    '\u{280b}', '\u{2819}', '\u{2839}', '\u{2838}', '\u{283c}', '\u{2834}', '\u{2826}', '\u{2827}',
+];
+
+/// How long one glyph stands before the next takes its place.
+const THROB_INTERVAL: std::time::Duration = std::time::Duration::from_millis(125);
+
+/// The throbber's glyph after it has been turning for `turning`.
+///
+/// A glyph that turns and never a bar that fills: nothing in this process knows
+/// how much of a run is left, and a bar drawn at a rate nothing measured would
+/// be a claim about progress the interface cannot make. What a turning glyph
+/// says is only that airlock is still working and the session has not stalled,
+/// which is exactly what is known.
+#[must_use]
+pub fn throbber(turning: std::time::Duration) -> char {
+    let step = (turning.as_millis() / THROB_INTERVAL.as_millis()) as usize;
+    THROBBER[step % THROBBER.len()]
+}
+
 /// Where each part of the frame is drawn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Frame {
@@ -725,6 +746,19 @@ mod tests {
         assert_eq!(elide_start("abcdef", 6), "abcdef");
         assert_eq!(elide_start("abcdef", 4), "\u{2026}def");
         assert_eq!(elide_start("abcdef", 0), "");
+    }
+
+    #[test]
+    fn the_throbber_turns_and_comes_back_round() {
+        let first = throbber(Duration::ZERO);
+        assert_eq!(throbber(Duration::from_millis(124)), first);
+        assert_ne!(throbber(Duration::from_millis(125)), first);
+        assert_eq!(throbber(Duration::from_millis(1000)), first);
+        // One cell, so a turning glyph never moves what is beside it.
+        for step in 0..16 {
+            let glyph = throbber(Duration::from_millis(125 * step));
+            assert_eq!(glyph.to_string().chars().count(), 1);
+        }
     }
 
     #[test]

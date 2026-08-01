@@ -229,6 +229,18 @@ pub struct App {
     /// The observation the last `↵` on a repository asked for.
     requested: Option<Observe>,
     pending_observation: Option<Observe>,
+    /// Whether the observation the findings screen is placed by is in flight.
+    ///
+    /// The asking, not a result. It is set where the request is made and let go
+    /// where the run arrives or the attempt fails, so nothing can leave the
+    /// screen saying airlock is still working when it is not.
+    observing: bool,
+    /// How long the observation in flight has been in flight.
+    ///
+    /// What the throbber turns on. Reset when nothing is in flight, so the glyph
+    /// starts at the same place every time a run is asked for and a recorded
+    /// screen is the one the interface draws.
+    observing_for: std::time::Duration,
     /// The run the findings screen draws, once one has been observed.
     ///
     /// A read model rather than the audit document: it is built at one
@@ -324,6 +336,8 @@ impl App {
             observations: Observations::default(),
             requested: None,
             pending_observation: None,
+            observing: false,
+            observing_for: std::time::Duration::ZERO,
             queue: None,
             findings: findings::State::default(),
             detail: panel::Scroll::default(),
@@ -609,6 +623,10 @@ impl App {
         if self.reauthorizing_now() {
             return;
         }
+        // Whatever failed, nothing is in flight for the findings screen any
+        // more: a throbber that keeps turning past a failure reports a run that
+        // is not happening.
+        self.end_observing();
         if self.screen == Screen::Scaffold {
             self.scaffold.failed(cause);
             return;
@@ -657,6 +675,7 @@ impl App {
         if self.reauthorizing_now() {
             return;
         }
+        self.end_observing();
         // A run in which GitHub rejected airlock's own credential is not a
         // reading of the repository. It is the grant having lapsed, observed —
         // and drawing it as a queue would be drawing a repository as failing
@@ -1383,6 +1402,7 @@ impl App {
             let request = row.observe();
             self.requested = Some(request.clone());
             self.pending_observation = Some(request);
+            self.begin_observing();
             self.screen = Screen::Findings;
             // A position in one repository's queue is not a position in
             // another's, so opening a different repository lets go of a
@@ -1390,6 +1410,31 @@ impl App {
             self.held_queue = None;
         }
         Flow::Continue
+    }
+
+    /// An observation has been asked for, and the screen it will fill is empty.
+    ///
+    /// The throbber starts from its first glyph here, because what it reports is
+    /// how long this run has been in flight and not how long the session has.
+    fn begin_observing(&mut self) {
+        self.observing = true;
+        self.observing_for = std::time::Duration::ZERO;
+    }
+
+    /// Nothing is in flight: a run arrived, an attempt failed, or the grant went.
+    fn end_observing(&mut self) {
+        self.observing = false;
+        self.observing_for = std::time::Duration::ZERO;
+    }
+
+    /// Whether the findings screen is waiting on the run it exists to draw.
+    ///
+    /// A run in flight over a queue that is already drawn is not this: what the
+    /// operator has in front of them is a reading, and the screen says which one
+    /// it is. This is the empty wait, which is the one that otherwise says
+    /// nothing at all.
+    fn awaiting_run(&self) -> bool {
+        self.screen == Screen::Findings && self.observing && self.queue.is_none()
     }
 
     fn move_selection(&mut self, delta: isize) {
@@ -1444,6 +1489,12 @@ impl App {
         // The bootstrap states how stale its reading is, which is a fact about
         // this session's clock rather than about the repository.
         self.bootstrap.tick(elapsed);
+        // The throbber turns on the clock rather than on the keyboard: a glyph
+        // that only moves when a key is pressed says the session is alive when
+        // what it is asked is whether the run is.
+        if self.observing {
+            self.observing_for = self.observing_for.saturating_add(elapsed);
+        }
         if let Some(Validity::Until(remaining)) = &mut self.grant {
             *remaining = remaining.saturating_sub(elapsed);
             if remaining.is_zero() {
@@ -1496,6 +1547,7 @@ impl App {
         self.pending_scaffold_plan = None;
         self.pending_scaffold_recovery = None;
         self.pending_scaffold = None;
+        self.end_observing();
         self.requested = None;
         self.sign_in = sign_in::Screen::at(SignIn::Requesting {
             reason: Reason::Lapsed,
@@ -1596,6 +1648,7 @@ impl App {
                 self.pending_bootstrap_observation = Some(target.clone());
             }
             self.pending_observation = Some(target);
+            self.begin_observing();
         }
         self.held_queue = Some(HeldQueue {
             findings: position.findings,
@@ -1880,10 +1933,18 @@ impl App {
             Screen::Organizations => organizations::status(&self.catalogue),
             Screen::Repositories => repositories::status(self.visible_rows().len(), self.reach()),
             Screen::Scaffold => self.scaffold.status(),
-            Screen::Findings => self
-                .queue
-                .as_deref()
-                .map_or_else(|| chrome::status_text(Screen::Findings), findings::status),
+            Screen::Findings => match self.queue.as_deref() {
+                Some(queue) => findings::status(queue),
+                // The row is on every screen and at every size, so the fact that
+                // a run is in flight is said here as well as in the body: the
+                // one place it can never be the thing the height withheld.
+                None if self.awaiting_run() => format!(
+                    "{} observing {} \u{b7} the run has not returned yet",
+                    chrome::throbber(self.observing_for),
+                    self.observed_target()
+                ),
+                None => chrome::status_text(Screen::Findings),
+            },
             Screen::FindingDetail => self.focused_row().map_or_else(
                 || chrome::status_text(Screen::FindingDetail),
                 detail::status,
@@ -1960,6 +2021,13 @@ impl App {
             lines.push(Line::from(Span::styled(line, styles.of(Role::Text))));
         }
         lines.push(Line::default());
+        // A run in flight comes before everything: it is the one thing on this
+        // screen that is happening rather than described, and it is what the
+        // operator is waiting on.
+        if self.awaiting_run() {
+            lines.extend(self.in_flight(width));
+            lines.push(Line::default());
+        }
         // The vocabulary comes first because it is content this build actually
         // has. The emptiness statement describes what is absent, and a reading
         // of what is absent is worth less than a reading of what is present
@@ -1968,7 +2036,9 @@ impl App {
             lines.extend(self.vocabulary(width));
             lines.push(Line::default());
         }
-        lines.extend(self.emptiness(width));
+        if !self.awaiting_run() {
+            lines.extend(self.emptiness(width));
+        }
         lines
     }
 
@@ -2017,6 +2087,49 @@ impl App {
             .find(|candidate| candidate.len() <= room)
             .unwrap_or_default();
         lines.extend(block);
+        lines
+    }
+
+    /// The repository the run in flight is of.
+    fn observed_target(&self) -> String {
+        self.requested.as_ref().map_or_else(
+            || "the repository".to_owned(),
+            |observe| format!("{}/{}", observe.owner, observe.name),
+        )
+    }
+
+    /// The run in flight, and the glyph that says it is still turning.
+    ///
+    /// Drawn instead of the emptiness, and not beside it: "nothing observed yet"
+    /// and "the observation is happening now" are two different readings of the
+    /// same empty region, and only one of them is true while a run is out.
+    fn in_flight(&self, width: usize) -> Vec<Line<'static>> {
+        let styles = self.styles();
+        let mut lines = vec![Line::from(vec![
+            Span::styled(
+                format!("{} ", chrome::throbber(self.observing_for)),
+                styles.of(Role::Accent),
+            ),
+            Span::styled("OBSERVING NOW", styles.bold(Role::Text)),
+        ])];
+        for (label, text) in [
+            ("repository", self.observed_target()),
+            (
+                "in flight",
+                "airlock is reading the repository and asking every rule the \
+                 registry declares. The queue is drawn here as soon as the run \
+                 returns, and nothing is drawn from a previous one."
+                    .to_owned(),
+            ),
+        ] {
+            lines.extend(panel::field_at(
+                styles,
+                label,
+                &text,
+                width,
+                FIELD_LABEL_WIDTH,
+            ));
+        }
         lines
     }
 
@@ -3577,6 +3690,61 @@ mod tests {
             .split_whitespace()
             .collect::<Vec<_>>()
             .join(" ")
+    }
+
+    /// A session that has just opened a repository and is waiting on the run.
+    ///
+    /// Driven rather than assembled: the asking is the keystroke, and nothing
+    /// answers it, which is the whole of the state under test.
+    fn awaiting() -> App {
+        let mut app = app().with_catalogue(catalogue());
+        app.authorization_granted(granted());
+        app.catalogue_read(catalogue::Read::Ready(Box::new(catalogue())));
+        press(&mut app, KeyCode::Enter);
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(app.screen(), Screen::Findings);
+        app
+    }
+
+    #[test]
+    fn a_run_in_flight_is_said_in_the_body_and_in_the_status_line() {
+        let mut app = awaiting();
+        let text = body_text(&app);
+        assert!(text.contains("OBSERVING NOW"), "{text}");
+        assert!(text.contains("in flight"), "{text}");
+        assert!(!text.contains("NOTHING OBSERVED YET"), "{text}");
+        assert!(app.status().contains("observing"), "{}", app.status());
+        assert!(
+            app.status().contains("has not returned yet"),
+            "{}",
+            app.status()
+        );
+        // The glyph turns on the clock rather than on the keyboard.
+        let first = app.status().chars().next().expect("a glyph leads the row");
+        app.tick(std::time::Duration::from_millis(500));
+        assert_ne!(
+            app.status().chars().next().expect("a glyph leads the row"),
+            first
+        );
+    }
+
+    #[test]
+    fn nothing_says_a_run_is_in_flight_once_one_has_arrived() {
+        let mut app = awaiting();
+        app.observed_run(
+            &findings::fixture::mixed(),
+            &findings::Deliveries::default(),
+        );
+        assert!(!app.status().contains("has not returned yet"));
+        assert!(!body_text(&app).contains("OBSERVING NOW"));
+    }
+
+    #[test]
+    fn a_failed_attempt_stops_the_throbber_rather_than_leaving_it_turning() {
+        let mut app = awaiting();
+        app.operation_failed("the request was refused".to_owned());
+        assert!(!body_text(&app).contains("OBSERVING NOW"));
+        assert!(app.status().contains("refused"), "{}", app.status());
     }
 
     #[test]
