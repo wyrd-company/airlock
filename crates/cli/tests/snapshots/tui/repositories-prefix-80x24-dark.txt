@@ -6,10 +6,10 @@ filter        / to filter by name · 3 of 400 read — the listing stopped at
               airlock's page budget, so what is missing is the listing rather   
               than the repositories                                             
                                                                                 
-  NAME                                                VISIBILITY  SESSION AUDIT 
-▸ widget                                              private     never observed
-  sprocket                                            private     never observed
-  public-flywheel                                     public      never observed
+  NAME                                              VISIBILITY  SESSION AUDIT   
+▸ widget                                            private     never observed  
+  sprocket                                          private     never observed  
+  public-flywheel                                   public      never observed  
                                                                                 
                                                                                 
                                                                                 
@@ -31,10 +31,10 @@ ddddddddddddddffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeeeeee
 ddddddddddddddfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeee
 ddddddddddddddfffffffffffffffffffffeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-ggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggge
-hhccccccccccccccccccccccccccccccccccccccccccccccccccccffffffffffffdddddddddddddd
-hheeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeffffffffffffdddddddddddddd
-hheeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeffffffffffffdddddddddddddd
+gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggeee
+hhccccccccccccccccccccccccccccccccccccccccccccccccccffffffffffffddddddddddddddee
+hheeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeffffffffffffddddddddddddddee
+hheeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeffffffffffffddddddddddddddee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee

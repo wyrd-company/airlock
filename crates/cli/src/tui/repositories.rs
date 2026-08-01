@@ -39,8 +39,11 @@ const GAP: usize = 2;
 /// Everything the table costs a row that is not the name.
 ///
 /// Every column but the name is fixed, and each carries its own trailing gap,
-/// so the name takes whatever the width leaves and is elided into it.
-const FIXED: usize = UNSELECTED.len() + VISIBILITY_WIDTH + SESSION_AUDIT_WIDTH;
+/// so the name takes whatever the width leaves and is elided into it. The last
+/// column carries the same gap as the rest, spent on the screen edge rather
+/// than on a neighbour, so the widest verdict has the same air after it that
+/// every other column has.
+const FIXED: usize = UNSELECTED.len() + VISIBILITY_WIDTH + SESSION_AUDIT_WIDTH + GAP;
 
 /// The incremental filter over the repository name.
 ///
@@ -673,6 +676,24 @@ mod tests {
         ) {
             let rendered: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
             assert!(rendered.chars().count() <= 80, "{rendered:?}");
+        }
+    }
+
+    #[test]
+    fn the_table_stops_short_of_the_edge_at_the_floor() {
+        let installation = installation(&["a-repository-with-a-very-long-name-indeed"]);
+        let rows = Row::of(&installation, &Observations::default());
+        let table = [
+            header(styles(), 80),
+            line(styles(), 80, &rows[0], true),
+            line(styles(), 80, &rows[0], false),
+        ];
+        for row in table {
+            let rendered: String = row.spans.iter().map(|s| s.content.as_ref()).collect();
+            assert!(
+                rendered.chars().count() <= 80 - GAP,
+                "the last column runs into the edge: {rendered:?}"
+            );
         }
     }
 }
