@@ -206,8 +206,9 @@ theme, and `ctrl-c` exits. `ctrl-c` is live without exception; `q` is the key
 the keymap advertises for leaving, and no screen binds it to anything else.
 While a text input holds focus, printable keys are text: `q` inserts a `q`, `t`
 inserts a `t`, the keymap shows the input's own keys rather than advertising
-either, and both return when focus leaves the input. Each screen's keymap below lists the keys it adds, and names
-any state in which one of those keys is not live and why.
+either, and both return when focus leaves the input. Each screen's keymap
+below lists the keys it adds, and names any state in which one of those keys
+is not live and why.
 
 ### Sign-in
 
