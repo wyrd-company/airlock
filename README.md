@@ -45,7 +45,7 @@ hand-written in Airlock. This includes the rule-by-rule inspection guidance in
 without owning its evaluation modes. Command output also reminds operators to
 cite a rule id and its statement together, never the id alone.
 
-The minimum supported Rust version is 1.86.
+The minimum supported Rust version is 1.88.
 
 ## Quickstart
 
