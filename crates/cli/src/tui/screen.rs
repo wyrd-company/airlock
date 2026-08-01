@@ -115,6 +115,50 @@ pub const SCAFFOLD_INPUT_KEYS: [Key; 5] = [
     EXIT_KEY,
 ];
 
+/// The visibility field's keys while it holds focus.
+///
+/// The scaffold form's fields do not share a keymap: `space` toggles a
+/// capability and nothing else, and a footer that offered it here would read as
+/// though this field had a toggle too. Each field advertises the keys it acts
+/// on, and only those.
+pub const SCAFFOLD_VISIBILITY_KEYS: [Key; 6] = [
+    key!("↑↓", "field"),
+    key!("←→", "visibility"),
+    key!("↵", "continue"),
+    key!("esc", "back"),
+    QUIT_KEY,
+    THEME_KEY,
+];
+
+/// The capabilities field's keys while it holds focus.
+pub const SCAFFOLD_CAPABILITY_KEYS: [Key; 7] = [
+    key!("↑↓", "field"),
+    key!("←→", "move"),
+    key!("space", "toggle"),
+    key!("↵", "continue"),
+    key!("esc", "back"),
+    QUIT_KEY,
+    THEME_KEY,
+];
+
+/// The confirm row's keys while it holds focus.
+///
+/// `↓` is not among them: the confirm row is the last, and the footer does not
+/// name a key that would move nowhere.
+pub const SCAFFOLD_CONFIRM_KEYS: [Key; 5] = [
+    key!("↑", "field"),
+    key!("↵", "create and audit"),
+    key!("esc", "back"),
+    QUIT_KEY,
+    THEME_KEY,
+];
+
+/// The keys live while the scaffold is resolving policy or creating.
+///
+/// The form takes no key in either state, so the only keys it can honestly
+/// advertise are the ones that leave.
+pub const SCAFFOLD_WAITING_KEYS: [Key; 3] = [key!("esc", "back"), QUIT_KEY, THEME_KEY];
+
 /// The keys live while the re-authorization overlay is up.
 ///
 /// Sign-in's own two, because the overlay is sign-in presented over the screen

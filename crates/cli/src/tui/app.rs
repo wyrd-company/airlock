@@ -45,8 +45,7 @@ use super::remediation;
 use super::repositories::{self, Filter};
 use super::scaffold;
 use super::screen::{
-    Key, Screen, FILTER_KEYS, HELP_KEYS, INPUT_KEYS, REAUTHORIZATION_KEYS, SCAFFOLD_INPUT_KEYS,
-    SECRET_INPUT_KEYS,
+    Key, Screen, FILTER_KEYS, HELP_KEYS, INPUT_KEYS, REAUTHORIZATION_KEYS, SECRET_INPUT_KEYS,
 };
 use super::sign_in;
 use super::theme::{ColorMode, Role, Styles, Theme};
@@ -1848,8 +1847,10 @@ impl App {
         if self.screen == Screen::PublishingBootstrap && self.bootstrap.captures_text() {
             return SECRET_INPUT_KEYS.to_vec();
         }
-        if self.screen == Screen::Scaffold && self.scaffold.captures_text() {
-            return SCAFFOLD_INPUT_KEYS.to_vec();
+        // The scaffold form keys per field rather than per screen: which keys
+        // act there is a property of the focused row, not of the screen.
+        if self.screen == Screen::Scaffold && self.scaffold.started() {
+            return self.scaffold.keys().to_vec();
         }
         if self.screen == Screen::Remediation && self.remediation.captures_text() {
             return if self.remediation.accepts_secret() {

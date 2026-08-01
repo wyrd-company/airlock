@@ -8,6 +8,10 @@ use crate::admin::remediation::{
 };
 
 use super::chrome::wrap;
+use super::screen::{
+    Key, SCAFFOLD_CAPABILITY_KEYS, SCAFFOLD_CONFIRM_KEYS, SCAFFOLD_INPUT_KEYS,
+    SCAFFOLD_VISIBILITY_KEYS, SCAFFOLD_WAITING_KEYS,
+};
 use super::theme::{Role, Styles};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -113,6 +117,25 @@ impl State {
 
     pub fn started(&self) -> bool {
         !self.owner.is_empty()
+    }
+
+    /// The keys the focused field acts on, and only those.
+    ///
+    /// The form is one screen but its fields are not one keymap: `←→` chooses
+    /// a visibility on one row and moves between capabilities on the next,
+    /// `space` toggles on that row alone, and none of them act while the form
+    /// is waiting. A single footer for the whole screen named all of them at
+    /// once, which read as though every key acted wherever the cursor was.
+    pub fn keys(&self) -> &'static [Key] {
+        if self.loading || self.creating {
+            return &SCAFFOLD_WAITING_KEYS;
+        }
+        match self.field {
+            Field::Name => &SCAFFOLD_INPUT_KEYS,
+            Field::Visibility => &SCAFFOLD_VISIBILITY_KEYS,
+            Field::Capabilities => &SCAFFOLD_CAPABILITY_KEYS,
+            Field::Confirm => &SCAFFOLD_CONFIRM_KEYS,
+        }
     }
 
     pub fn key(&mut self, code: KeyCode) -> Option<ScaffoldRequest> {
@@ -451,6 +474,37 @@ mod tests {
         {
             assert!(text.contains(fact), "{fact}");
         }
+    }
+
+    #[test]
+    fn every_field_advertises_only_the_keys_it_acts_on() {
+        let mut state = State::default();
+        state.begin("generic-account".to_owned(), true);
+        state.prepared(plan());
+
+        assert!(state.keys().iter().any(|entry| entry.key == "backspace"));
+
+        state.field = Field::Visibility;
+        let visibility = state.keys();
+        assert!(visibility.iter().any(|entry| entry.key == "←→"));
+        assert!(
+            !visibility.iter().any(|entry| entry.key == "space"),
+            "space toggles a capability, and nothing on the visibility row"
+        );
+
+        state.field = Field::Capabilities;
+        assert!(state.keys().iter().any(|entry| entry.key == "space"));
+
+        state.field = Field::Confirm;
+        let confirm = state.keys();
+        assert!(!confirm.iter().any(|entry| entry.key == "space"));
+        assert!(!confirm.iter().any(|entry| entry.key == "←→"));
+
+        state.creating = true;
+        assert!(
+            !state.keys().iter().any(|entry| entry.key == "↵"),
+            "no key the form has stopped taking may be advertised"
+        );
     }
 
     #[test]
