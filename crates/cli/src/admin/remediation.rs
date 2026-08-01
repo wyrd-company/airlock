@@ -1746,11 +1746,10 @@ impl Session {
                     let settlement = self
                         .settle_capability_decision(owner, repo, property, expected)
                         .await;
-                    let changed = settlement
-                        .changed
-                        .as_ref()
-                        .map(|()| ())
-                        .map_err(|error| anyhow::anyhow!("{error:#}"));
+                    let changed = match &settlement.changed {
+                        Ok(()) => Ok(()),
+                        Err(error) => Err(anyhow::anyhow!("{error:#}")),
+                    };
                     capability_settlement = Some(settlement);
                     changed
                 } else {
