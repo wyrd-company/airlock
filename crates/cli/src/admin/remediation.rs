@@ -1668,16 +1668,28 @@ impl Session {
         }
     }
 
-    async fn recover_empty_scaffold(&self, target: &Target) -> anyhow::Result<Report> {
-        let (_, files) = self.scaffold_plan(&target.owner).await?;
+    async fn recover_empty_scaffold(
+        &self,
+        target: &Target,
+        files: &[airlock_core::alignment::ScaffoldFile],
+    ) -> anyhow::Result<()> {
         anyhow::ensure!(
             !files.is_empty(),
             "the resolved owner policy requires no fixed deterministic file for the initial commit"
         );
+        let empty = self
+            .reader()?
+            .repository(&target.owner, &target.repo)
+            .await?;
+        anyhow::ensure!(
+            empty.default_branch.is_empty(),
+            "empty-repository recovery expected no default branch before the first commit but observed `{}`",
+            empty.default_branch
+        );
         // The repository is still empty, so this branch-creating commit remains
         // the sole direct file-write exception described by the interface contract.
         self.writer
-            .create_initial_commit(&target.owner, &target.repo, &files)
+            .create_initial_commit(&target.owner, &target.repo, files)
             .await?;
         let repository = self
             .reader()?
@@ -1688,7 +1700,7 @@ impl Session {
             "recovered initial-commit observation expected default branch `main` but observed `{}`",
             repository.default_branch
         );
-        self.observe(target).await
+        Ok(())
     }
 
     async fn prepare(&self, target: &Target, remediation: &str) -> anyhow::Result<PreparedInput> {
@@ -2851,7 +2863,11 @@ fn run(mut session: Session, requests: Receiver<Request>, responses: &Sender<Res
                         }
                     }
                     Ok(ScaffoldRecoveryState::Empty) => {
-                        match runtime.block_on(session.recover_empty_scaffold(&target)) {
+                        match runtime.block_on(async {
+                            let (_, files) = session.scaffold_plan(&target.owner).await?;
+                            session.recover_empty_scaffold(&target, &files).await?;
+                            session.observe(&target).await
+                        }) {
                             Ok(report) => Response::Scaffolded {
                                 target,
                                 report: Box::new(report),
@@ -3146,6 +3162,135 @@ mod tests {
             .await
             .expect("initial commit");
         assert_eq!(sha, "commit");
+    }
+
+    async fn mount_recovery_commit(server: &MockServer) {
+        Mock::given(method("POST"))
+            .and(path("/repos/generic-owner/sample-repository/git/blobs"))
+            .respond_with(
+                ResponseTemplate::new(201).set_body_json(serde_json::json!({"sha": "blob"})),
+            )
+            .expect(1)
+            .mount(server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/repos/generic-owner/sample-repository/git/trees"))
+            .respond_with(
+                ResponseTemplate::new(201).set_body_json(serde_json::json!({"sha": "tree"})),
+            )
+            .expect(1)
+            .mount(server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/repos/generic-owner/sample-repository/git/commits"))
+            .and(body_json(serde_json::json!({
+                "message": "chore: scaffold repository",
+                "tree": "tree",
+                "parents": []
+            })))
+            .respond_with(
+                ResponseTemplate::new(201).set_body_json(serde_json::json!({"sha": "commit"})),
+            )
+            .expect(1)
+            .mount(server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/repos/generic-owner/sample-repository/git/refs"))
+            .and(body_json(
+                serde_json::json!({"ref": "refs/heads/main", "sha": "commit"}),
+            ))
+            .respond_with(ResponseTemplate::new(201))
+            .expect(1)
+            .mount(server)
+            .await;
+    }
+
+    fn recovery_files() -> Vec<airlock_core::alignment::ScaffoldFile> {
+        vec![airlock_core::alignment::ScaffoldFile {
+            path: "LICENSE".to_owned(),
+            contents: b"license".to_vec(),
+        }]
+    }
+
+    async fn mount_repository_sequence(server: &MockServer, branches: &[&str]) {
+        for branch in branches {
+            let mut body = repository(false);
+            body["default_branch"] = serde_json::Value::String((*branch).to_owned());
+            Mock::given(method("GET"))
+                .and(path("/repos/generic-owner/sample-repository"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(body))
+                .up_to_n_times(1)
+                .expect(1)
+                .mount(server)
+                .await;
+        }
+    }
+
+    #[tokio::test]
+    async fn empty_scaffold_recovery_creates_the_branch_commit_and_reobserves_main() {
+        let server = MockServer::start().await;
+        mount_repository_sequence(&server, &["", "main"]).await;
+        mount_recovery_commit(&server).await;
+        session(&server)
+            .await
+            .recover_empty_scaffold(
+                &Target {
+                    owner: "generic-owner".to_owned(),
+                    repo: "sample-repository".to_owned(),
+                },
+                &recovery_files(),
+            )
+            .await
+            .expect("empty repository recovery");
+    }
+
+    #[tokio::test]
+    async fn empty_scaffold_recovery_refuses_when_main_is_not_reobserved() {
+        let server = MockServer::start().await;
+        mount_repository_sequence(&server, &["", ""]).await;
+        mount_recovery_commit(&server).await;
+        let error = session(&server)
+            .await
+            .recover_empty_scaffold(
+                &Target {
+                    owner: "generic-owner".to_owned(),
+                    repo: "sample-repository".to_owned(),
+                },
+                &recovery_files(),
+            )
+            .await
+            .expect_err("missing main must fail recovery");
+        assert_eq!(
+            error.to_string(),
+            "recovered initial-commit observation expected default branch `main` but observed ``"
+        );
+    }
+
+    #[tokio::test]
+    async fn empty_scaffold_recovery_rechecks_emptiness_immediately_before_writing() {
+        let server = MockServer::start().await;
+        mount_repository_sequence(&server, &["main"]).await;
+        Mock::given(method("POST"))
+            .and(path("/repos/generic-owner/sample-repository/git/blobs"))
+            .respond_with(ResponseTemplate::new(201))
+            .expect(0)
+            .mount(&server)
+            .await;
+        let error = session(&server)
+            .await
+            .recover_empty_scaffold(
+                &Target {
+                    owner: "generic-owner".to_owned(),
+                    repo: "sample-repository".to_owned(),
+                },
+                &recovery_files(),
+            )
+            .await
+            .expect_err("a repository with a branch must not receive a direct commit");
+        assert_eq!(
+            error.to_string(),
+            "empty-repository recovery expected no default branch before the first commit but observed `main`"
+        );
     }
 
     #[test]
