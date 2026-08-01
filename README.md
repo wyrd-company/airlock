@@ -656,7 +656,11 @@ it follows:
 - **No refresh token is kept.** GitHub sends one alongside the access token; it
   is overwritten on arrival and never reaches the session.
 - **No child process is started**, so there is nothing to export it to. The
-  console does not open your browser for you, for exactly that reason.
+  console does not open your browser for you, for exactly that reason. It marks
+  the verification address as a link and leaves following it to the terminal and
+  the operator's click, which is the same arrangement as the clipboard: a
+  request written to the terminal, carried out by the terminal, and ignored
+  without complaint by one that does not implement it.
 - **Its value is never displayed.** The sign-in screen shows the credential's
   source and its grant, and nothing else. The interface is not given the
   credential at all: it is told that one exists, and the type that draws names
@@ -665,10 +669,11 @@ it follows:
   error text are sanitized where they leave the network worker: control
   characters, escape sequences, and bidirectional overrides are replaced, and
   lengths are bounded.
-- **A scan code never points anywhere the response chose.** A scan code is
-  followed without being read, so one is drawn only for an address at the origin
-  airlock sent its own request to. Any other address is printed as the text it
-  is, and the screen says why it was not encoded.
+- **Neither a scan code nor a link ever points anywhere the response chose.** A
+  scan code is followed without being read and so is a link, so both are offered
+  only for an address at the origin airlock sent its own request to. Any other
+  address is printed as the text it is, and the screen says why it was not
+  encoded.
 - **There is no subcommand and no flag** that acquires it, and none that
   mutates. `--yes` exists on nothing.
 

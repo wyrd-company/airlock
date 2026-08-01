@@ -232,6 +232,16 @@ The scan code holds one size and the text column takes whatever width the scan
 code is not using, so the address grows with the terminal rather than being
 wrapped to the width of the symbol beside it.
 
+The address is also marked as a link, so a terminal that draws links lets the
+operator click it and opens their browser itself. Airlock starts no process to
+do it — the mark is an escape sequence written around the cells the address was
+already drawn in, on the same terms as the clipboard request: the terminal
+either honours it or ignores it, and the address is legible text either way.
+The mark is offered only for an address at the origin airlock sent its own
+request to, which is the test the scan code passes for the same reason: a link
+is followed without being read. An address the response chose, or one the row
+wrapped, is the text it is and nothing more.
+
 The screen has five states. The one waiting for an approval says nothing
 beyond the four facts above; the other four say in one sentence what happened,
 because their headings cannot carry it.

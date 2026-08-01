@@ -36,6 +36,7 @@ use crate::admin::sign_in::{Density, Reason, SignIn};
 use super::bootstrap;
 use super::detail;
 use super::findings;
+use super::hyperlink;
 use super::organizations;
 use super::panel;
 use super::policy;
@@ -1708,6 +1709,35 @@ impl App {
             frame.body.height,
         );
         Paragraph::new(body).render(frame.body, buffer);
+    }
+
+    /// Where the verification address is drawn, and where it points.
+    ///
+    /// Computed rather than drawn: the caller owns the terminal, and the cells
+    /// are wrapped after this same frame has been rendered into them. `None` is
+    /// the ordinary answer — no address on screen, an address a response chose
+    /// rather than one airlock asked for, or an address the row wrapped.
+    ///
+    /// The frame is worked out the same way [`Self::render`] works it out,
+    /// because a placement decided against a different layout would underline
+    /// the wrong cells.
+    #[must_use]
+    pub fn hyperlink(&self, area: Rect) -> Option<hyperlink::Placement> {
+        if !chrome::fits(area) {
+            return None;
+        }
+        // Only the two screens that draw the flow. Nothing else has an address
+        // to offer, and asking anyway would be a second rule to keep true.
+        if self.reauthorization.is_none() && self.screen != Screen::SignIn {
+            return None;
+        }
+        let url = self.sign_in.address_link()?.to_owned();
+        let frame = chrome::layout(area);
+        let body = self.withhold(
+            self.body(frame.body.width, frame.body.height),
+            frame.body.height,
+        );
+        hyperlink::locate(&body, frame.body, &url)
     }
 
     /// Cut the body to the rows available, saying so on the last of them.
@@ -4150,5 +4180,164 @@ mod tests {
         assert_eq!(app.status(), held);
         assert!(app.take_reauthorization_request());
         assert!(!app.take_reauthorization_request(), "asked for once");
+    }
+
+    /// A screen waiting for the operator to approve a device code.
+    fn awaiting_approval(verification_uri: &str) -> App {
+        let mut state = crate::admin::sign_in::SignIn::opening();
+        state.code_issued(&crate::admin::flow::Issued {
+            verification_uri: verification_uri.to_owned(),
+            ..issued()
+        });
+        app().signing_in(state)
+    }
+
+    /// The whole frame drawn at the accessibility floor.
+    fn floor_frame(app: &App) -> ratatui::buffer::Buffer {
+        let mut buffer = ratatui::buffer::Buffer::empty(Rect {
+            x: 0,
+            y: 0,
+            width: chrome::FLOOR_WIDTH,
+            height: chrome::FLOOR_HEIGHT,
+        });
+        app.render(buffer.area, &mut buffer);
+        buffer
+    }
+
+    /// What a terminal shows, with every escape sequence taken back out.
+    ///
+    /// A sequence runs from the escape to the bell that ends it, so what is
+    /// left is exactly the characters that occupy columns.
+    fn visible(buffer: &ratatui::buffer::Buffer) -> Vec<String> {
+        (0..buffer.area.height)
+            .map(|y| {
+                (0..buffer.area.width)
+                    .map(|x| {
+                        let symbol = buffer[(x, y)].symbol();
+                        let mut kept = String::new();
+                        let mut inside = false;
+                        for character in symbol.chars() {
+                            match character {
+                                '\u{1b}' => inside = true,
+                                '\u{7}' => inside = false,
+                                other if !inside => kept.push(other),
+                                _ => {}
+                            }
+                        }
+                        kept
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_address_airlock_asked_for_is_clickable_and_nothing_visible_moves() {
+        let app = awaiting_approval("https://github.com/login/device");
+        let mut buffer = floor_frame(&app);
+        let before = visible(&buffer);
+
+        let link = app
+            .hyperlink(buffer.area)
+            .expect("the address is on the screen");
+        assert_eq!(link.url(), "https://github.com/login/device");
+        // The cells the placement names are the address, in the order it is
+        // read: the sequence is wrapped around the text, never instead of it.
+        let area = link.area();
+        let spelled: String = (area.x..area.x + area.width)
+            .map(|x| buffer[(x, area.y)].symbol().to_owned())
+            .collect();
+        assert_eq!(spelled, "https://github.com/login/device");
+
+        hyperlink::place(&mut buffer, &link);
+        assert_eq!(
+            visible(&buffer),
+            before,
+            "the eighty by twenty-four rendering changed where it must not"
+        );
+        assert!(
+            buffer[(area.x, area.y)]
+                .symbol()
+                .starts_with("\u{1b}]8;;https://github.com/login/device\u{7}"),
+            "the address was not handed to the terminal"
+        );
+        assert!(
+            buffer[(area.x + area.width - 1, area.y)]
+                .symbol()
+                .ends_with("\u{1b}]8;;\u{7}"),
+            "the link was never closed"
+        );
+    }
+
+    #[test]
+    fn an_address_the_server_chose_is_printed_and_never_made_clickable() {
+        // The same rule the scan code is under, for the same reason: a link is
+        // followed without being read.
+        for hostile in [
+            "https://attacker.example/login/device",
+            "https://github.com.attacker.example/login/device",
+            "https://github.com@attacker.example/login/device",
+            "http://github.com/login/device",
+            "javascript:alert(1)",
+        ] {
+            let app = awaiting_approval(hostile);
+            let buffer = floor_frame(&app);
+            assert!(
+                app.hyperlink(buffer.area).is_none(),
+                "{hostile} was made clickable"
+            );
+            // And is still printed, because reading it is the operator's.
+            assert!(
+                visible(&buffer)
+                    .join("")
+                    .contains(hostile.get(..40).unwrap_or(hostile)),
+                "{hostile} is not on the screen"
+            );
+        }
+    }
+
+    #[test]
+    fn nothing_but_the_flow_offers_a_link() {
+        let area = Rect {
+            x: 0,
+            y: 0,
+            width: chrome::FLOOR_WIDTH,
+            height: chrome::FLOOR_HEIGHT,
+        };
+        // No code yet, so there is no address to offer.
+        assert!(app().hyperlink(area).is_none());
+        // A screen the flow is not on, with a code still held.
+        let mut elsewhere = awaiting_approval("https://github.com/login/device");
+        elsewhere.screen = Screen::Organizations;
+        assert!(elsewhere.hyperlink(area).is_none());
+        // A terminal too small to draw a screen at all.
+        assert!(awaiting_approval("https://github.com/login/device")
+            .hyperlink(Rect {
+                width: 40,
+                height: 10,
+                ..area
+            })
+            .is_none());
+    }
+
+    #[test]
+    fn the_overlay_over_a_held_screen_offers_the_same_link() {
+        let mut app = working_session();
+        app.lapse();
+        assert!(app.take_reauthorization_request());
+        let mut state = crate::admin::sign_in::SignIn::opening();
+        state.code_issued(&issued());
+        let app = app.signing_in(state);
+        assert_ne!(app.screen(), Screen::SignIn, "the position is held");
+        let area = Rect {
+            x: 0,
+            y: 0,
+            width: chrome::REFERENCE_WIDTH,
+            height: chrome::REFERENCE_HEIGHT,
+        };
+        assert_eq!(
+            app.hyperlink(area).expect("the overlay draws it too").url(),
+            "https://github.com/login/device"
+        );
     }
 }

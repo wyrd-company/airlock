@@ -213,11 +213,19 @@ impl Screen {
     /// response. It is encoded only when it sits at the origin airlock sent its
     /// own request to; otherwise it is printed as text and the screen says why.
     fn encoded(&self) -> Option<ScanCode> {
-        let address = &self.state.code()?.verification_uri;
-        if !text::is_at_origin(address, &flow::login_origin()) {
-            return None;
-        }
-        ScanCode::encode(address).ok()
+        ScanCode::encode(self.address_link()?).ok()
+    }
+
+    /// The address, where it is one airlock may hand to the terminal.
+    ///
+    /// The origin test above, and the same reasoning: a clickable address is
+    /// followed without being read, exactly as a scan code is. Both surfaces
+    /// ask this one question, so there is one answer to keep true rather than
+    /// two that could drift apart.
+    #[must_use]
+    pub fn address_link(&self) -> Option<&str> {
+        let address = self.state.code()?.verification_uri.as_str();
+        text::is_at_origin(address, &flow::login_origin()).then_some(address)
     }
 
     /// Paint the scan code into the right-hand columns of the lines already

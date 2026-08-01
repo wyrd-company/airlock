@@ -11,6 +11,7 @@ mod bootstrap;
 mod chrome;
 mod detail;
 mod findings;
+mod hyperlink;
 mod lane;
 mod organizations;
 mod panel;
@@ -162,7 +163,17 @@ fn drive(app: &mut App, session: &mut terminal::Session, authorizing: Authorizin
     loop {
         session
             .terminal()
-            .draw(|frame| app.render(frame.area(), frame.buffer_mut()))
+            .draw(|frame| {
+                let area = frame.area();
+                // Decided before the frame is drawn and applied to the cells
+                // after, so what draws stays a pure rendering and the address
+                // is made clickable exactly where it was printed.
+                let link = app.hyperlink(area);
+                app.render(area, frame.buffer_mut());
+                if let Some(link) = link {
+                    hyperlink::place(frame.buffer_mut(), &link);
+                }
+            })
             .context("cannot draw the interface")?;
 
         if event::poll(TICK).context("cannot wait on the terminal")? {
