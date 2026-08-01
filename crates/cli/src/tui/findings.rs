@@ -922,7 +922,7 @@ pub fn body(
             density,
         ));
     }
-    head.push(scroll(styles, width, &entries, start, end, queue, state));
+    head.extend(scroll(styles, width, &entries, start, end, queue, state));
     head
 }
 
@@ -1458,6 +1458,11 @@ fn tail_of(row: &Row) -> String {
 }
 
 /// What lies above and below, and the size of the working set.
+///
+/// Withheld where the window holds the whole queue. A line reporting nothing
+/// above and nothing below says only that the screen is showing what is on it,
+/// which the screen already says by showing it, and a row spent on that is a
+/// row not spent on the queue.
 fn scroll(
     styles: Styles,
     width: usize,
@@ -1466,7 +1471,10 @@ fn scroll(
     end: usize,
     queue: &Queue,
     state: &State,
-) -> Line<'static> {
+) -> Option<Line<'static>> {
+    if start == 0 && end >= entries.len() {
+        return None;
+    }
     let working = if state.flat() {
         queue.rows.len()
     } else {
@@ -1479,10 +1487,10 @@ fn scroll(
         entries.len().saturating_sub(end),
         queue.rows.len()
     );
-    Line::from(Span::styled(
+    Some(Line::from(Span::styled(
         fit(&text, width),
         styles.of(Role::Faint).add_modifier(Modifier::ITALIC),
-    ))
+    )))
 }
 
 /// The runs the suites draw.
@@ -2410,6 +2418,19 @@ mod tests {
         let rendered = rendered(&queue, &state, 80, 24);
         assert!(rendered.contains("above"), "{rendered}");
         assert!(rendered.contains("below"), "{rendered}");
+        assert!(rendered.contains("working set"), "{rendered}");
+    }
+
+    #[test]
+    fn a_window_that_holds_the_whole_queue_says_nothing_about_scrolling() {
+        let queue = mixed();
+        let state = State::default();
+        // Rows enough for every entry, so nothing is above and nothing below.
+        let rendered = rendered(&queue, &state, 120, 200);
+        assert!(!rendered.contains(" above \u{b7} "), "{rendered}");
+        assert!(!rendered.contains(" below \u{b7} "), "{rendered}");
+        assert!(!rendered.contains("moves through the rest"), "{rendered}");
+        // The size of the set is not what was withheld: the summary states it.
         assert!(rendered.contains("working set"), "{rendered}");
     }
 

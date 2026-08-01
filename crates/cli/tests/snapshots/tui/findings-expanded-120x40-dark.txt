@@ -36,7 +36,7 @@ showing       the whole working set · 9 of 9 shown · gate required · f select
 ▸  - 8 ALIGNED  2  passing rules, and rules skipped because a capability condition does not apply                       
     ███  ✓    │   │ REPO-META-01   pass          identity       the condition REPO-META-01 states                       
     ██░     ○ │   │ REPO-META-02   skipped       identity       the condition REPO-META-02 states                       
-0 above · 0 below · working set 9 of 9 · ↑↓ moves through the rest                                                      
+                                                                                                                        
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 ↑↓/j/k move · space collapse or expand · ↵ finding detail · f filter · a apply · A bulk apply · l flat list · 5 more…   
 incomplete · complete false · 9 rules · registry 0.4.0 · gate required                                                  
@@ -77,7 +77,7 @@ ppqeeeeeeeetttreeereeeeeeeeeeeeeeeettttttttttttttkkkkkkkkkkkkkgggggggggggggggggg
 iiiiiiiiiiiiiinnnnnkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkeeeeeeeeeeeeeeeeeeeeeee
 ppqeeeeeuuueeereeereeeeeeeeeeeeeeeeuuuuuuuuuuuuuukkkkkkkkkkkkkkkgggggggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeee
 ppqeeeeeeeevvvreeereeeeeeeeeeeeeeeevvvvvvvvvvvvvvkkkkkkkkkkkkkkkgggggggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeee
-ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 ppppppeggggkkkpppppeggggggggggggggggggkkkpeggggggggggggggkkkpeggggggkkkpegggggkkkpeggggggggggkkkpegggggggggkkkoooooooeee
 wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww

@@ -24,7 +24,7 @@ showing       the whole working set · 2 of 2 shown · gate required · f select
   ┃- 6 ADMIN-ONLY  0  no rule was withheld by a disclosure gate; this session's credential is write-capable, so gated f…
    - 7 AUTHORIZED BUT NOT ALIGNED  0  the policy authorized no failure                                                  
    + 8 ALIGNED  1  passing rules, and rules skipped because a capability condition does not apply                       
-0 above · 0 below · working set 2 of 2 · ↑↓ moves through the rest                                                      
+                                                                                                                        
                                                                                                                         
                                                                                                                         
                                                                                                                         
@@ -65,7 +65,7 @@ llllllllllllllllllllllllllllllljjjjjffffffffffffffffffffffffffffffffffffffhhhhhh
 llllllllllllllllljjjjjffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 dddddddddddddddddddddddddddddddddjjjjjffffffffffffffffffffffffffffffffhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh
 ddddddddddddddjjjjjffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffhhhhhhhhhhhhhhhhhhhhhhh
-kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh
+hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh
 hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh
 hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh
 hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh

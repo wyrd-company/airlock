@@ -28,7 +28,7 @@ showing       lookup · every finding ordered by rule id · all 9 shown, never n
     ██░     ○ │   │ REPO-META-02   skipped       identity       the condition REPO-META-02 states                       
     ██░     ◆ │   │ REPO-README-04 manual        readme         the condition REPO-README-04 states                     
   ▌ ██░       │ ◑ │ REPO-REL-04    inconclusive  release        the condition REPO-REL-04 states                        
-0 above · 0 below · working set 9 of 9 · ↑↓ moves through the rest                                                      
+                                                                                                                        
                                                                                                                         
                                                                                                                         
                                                                                                                         
@@ -69,7 +69,7 @@ ppqeeeeettteeereeereeeeeeeeeeeeeeeettttttttttttttkkkkkkkkkkkkkkkgggggggggggggggg
 ppqeeeeeeeeuuureeereeeeeeeeeeeeeeeeuuuuuuuuuuuuuukkkkkkkkkkkkkkkgggggggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeee
 ppqeeeeeeeevvvreeereeeeeeeeeeeeeeeevvvvvvvvvvvvvvkkkkkkkkkkkkkkkgggggggggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeee
 ppqeeeeeeeeeeerhhhreeeeeeeeeeeeeeeehhhhhhhhhhhhhhkkkkkkkkkkkkkkkggggggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeee
-ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
