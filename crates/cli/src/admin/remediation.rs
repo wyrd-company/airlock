@@ -1668,11 +1668,16 @@ impl Session {
         }
     }
 
-    async fn recover_empty_scaffold(
+    async fn recover_empty_scaffold_then<T, F, Fut>(
         &self,
         target: &Target,
         files: &[airlock_core::alignment::ScaffoldFile],
-    ) -> anyhow::Result<()> {
+        after_commit: F,
+    ) -> anyhow::Result<T>
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = anyhow::Result<T>>,
+    {
         anyhow::ensure!(
             !files.is_empty(),
             "the resolved owner policy requires no fixed deterministic file for the initial commit"
@@ -1700,7 +1705,16 @@ impl Session {
             "recovered initial-commit observation expected default branch `main` but observed `{}`",
             repository.default_branch
         );
-        Ok(())
+        after_commit().await
+    }
+
+    async fn recover_empty_scaffold(
+        &self,
+        target: &Target,
+        files: &[airlock_core::alignment::ScaffoldFile],
+    ) -> anyhow::Result<Report> {
+        self.recover_empty_scaffold_then(target, files, || self.observe(target))
+            .await
     }
 
     async fn prepare(&self, target: &Target, remediation: &str) -> anyhow::Result<PreparedInput> {
@@ -2865,8 +2879,7 @@ fn run(mut session: Session, requests: Receiver<Request>, responses: &Sender<Res
                     Ok(ScaffoldRecoveryState::Empty) => {
                         match runtime.block_on(async {
                             let (_, files) = session.scaffold_plan(&target.owner).await?;
-                            session.recover_empty_scaffold(&target, &files).await?;
-                            session.observe(&target).await
+                            session.recover_empty_scaffold(&target, &files).await
                         }) {
                             Ok(report) => Response::Scaffolded {
                                 target,
@@ -3231,14 +3244,25 @@ mod tests {
         let server = MockServer::start().await;
         mount_repository_sequence(&server, &["", "main"]).await;
         mount_recovery_commit(&server).await;
+        Mock::given(method("GET"))
+            .and(path("/ordinary-audit"))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let audit_url = format!("{}/ordinary-audit", server.uri());
         session(&server)
             .await
-            .recover_empty_scaffold(
+            .recover_empty_scaffold_then(
                 &Target {
                     owner: "generic-owner".to_owned(),
                     repo: "sample-repository".to_owned(),
                 },
                 &recovery_files(),
+                || async move {
+                    reqwest::get(audit_url).await?.error_for_status()?;
+                    Ok(())
+                },
             )
             .await
             .expect("empty repository recovery");
