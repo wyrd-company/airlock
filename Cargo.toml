@@ -5,7 +5,7 @@ resolver = "2"
 [workspace.package]
 version = "0.0.0"
 edition = "2021"
-rust-version = "1.86"
+rust-version = "1.88"
 license = "Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/wyrd-company/airlock"
@@ -23,6 +23,17 @@ clap = { version = "4.5", features = ["derive"] }
 hex = "0.4"
 libc = "0.2"
 percent-encoding = "2.3"
+# qrcode encodes the sign-in address as a scan code. Pure Rust, no default
+# features, and no image or svg back end: the interface draws the modules
+# itself so it can paint its own light field and quiet zone.
+qrcode = { version = "0.14", default-features = false }
+# ratatui draws the terminal interface; crossterm is its terminal backend and
+# the source of key events. Both are pure Rust with no C dependency.
+ratatui = "0.30"
+crossterm = "0.29"
+# crypto_box implements GitHub's documented LibSodium sealed-box contract for
+# repository secret values without introducing a native library dependency.
+crypto_box = { version = "0.9", features = ["seal"] }
 reqwest = { version = "0.12", default-features = false, features = [
   "json",
   "rustls-tls",
@@ -34,8 +45,13 @@ serde_json = "1.0"
 serde_norway = "0.9"
 sha2 = "0.10"
 thiserror = "2.0"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
 toml = "0.8"
+# url is the parser reqwest resolves with. The write path validates its OAuth
+# host with the same type the request will use, so the two cannot disagree.
+url = "2.5"
+# zeroize overwrites the write credential rather than only dropping it.
+zeroize = "1"
 
 assert_cmd = "2.0"
 predicates = "3.1"

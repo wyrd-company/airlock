@@ -15,7 +15,8 @@ use airlock_core::audit::{self, AuditOptions};
 use airlock_core::findings::{Report, Status};
 use airlock_core::github::{
     ApiError, ApiResult, AuthenticatedUser, BranchRule, CommitSummary, EntryKind, ErrorCause,
-    GitHub, Installation, Paged, Repository, Ruleset, TagRef, Tree, TreeEntry,
+    GitHub, Installation, InstallationRepositories, Paged, Repository, Ruleset, TagRef, Tree,
+    TreeEntry,
 };
 use airlock_core::limits::Limits;
 use airlock_core::policy::{Condition, ResolvedPolicy, RuleInstance};
@@ -221,6 +222,17 @@ impl GitHub for FakeGitHub {
         Ok(Vec::new())
     }
 
+    async fn installation_repositories(
+        &self,
+        _installation_id: u64,
+    ) -> ApiResult<InstallationRepositories> {
+        Ok(InstallationRepositories {
+            repositories: Vec::new(),
+            total_count: 0,
+            truncated: false,
+        })
+    }
+
     async fn authenticated_user(&self) -> ApiResult<AuthenticatedUser> {
         Err(ApiError::local(
             ErrorCause::Unauthenticated,
@@ -251,6 +263,7 @@ fn full_policy() -> ResolvedPolicy {
             .collect(),
         suppressions: Default::default(),
         reference_data: BTreeMap::new(),
+        capabilities: Vec::new(),
     }
 }
 

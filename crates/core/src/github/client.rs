@@ -13,11 +13,13 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use base64::Engine as _;
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 use serde_json::Value;
+use zeroize::Zeroize as _;
 
 use super::classify::{self, all_headers, single_header, ErrorCause, Headers, Response};
 use super::{
-    ApiError, ApiResult, AuthenticatedUser, BranchRule, CommitSummary, EntryKind, GitHub,
-    Installation, OAuthScopeHeader, Paged, Repository, Ruleset, TagRef, Tree, TreeEntry,
+    AccountKind, ApiError, ApiResult, AuthenticatedUser, BranchRule, CommitSummary, EntryKind,
+    GitHub, Installation, InstallationRepositories, InstallationRepository, OAuthScopeHeader,
+    Paged, Repository, RepositorySelection, Ruleset, TagRef, Tree, TreeEntry,
 };
 use crate::limits::Limits;
 
@@ -76,6 +78,15 @@ pub struct RestClientConfig {
     pub max_rate_limit_retries: usize,
     /// The longest airlock will wait for a rate limit to reset, in seconds.
     pub max_rate_limit_wait_seconds: u64,
+    /// Whether a redirect may be followed.
+    ///
+    /// A redirect is the server choosing where the next request — and the
+    /// credential on it — goes. The read path follows them, because GitHub
+    /// answers a renamed repository with one and a read-only token going to a
+    /// GitHub host is the same token going to the same place. A client carrying
+    /// a write-capable credential sets this false: there, the host is the whole
+    /// of what the binding protects.
+    pub follow_redirects: bool,
 }
 
 impl Default for RestClientConfig {
@@ -102,6 +113,16 @@ impl RestClientConfig {
             audit_budget: limits.audit_budget,
             max_rate_limit_retries: 2,
             max_rate_limit_wait_seconds: 60,
+            follow_redirects: true,
+        }
+    }
+
+    /// The same configuration, refusing every redirect.
+    #[must_use]
+    pub fn refusing_redirects(self) -> Self {
+        Self {
+            follow_redirects: false,
+            ..self
         }
     }
 }
@@ -112,6 +133,12 @@ pub struct RestClient {
     token: String,
     config: RestClientConfig,
     deadline: Instant,
+}
+
+impl Drop for RestClient {
+    fn drop(&mut self) {
+        self.token.zeroize();
+    }
 }
 
 impl std::fmt::Debug for RestClient {
@@ -163,10 +190,19 @@ impl RestClient {
     pub fn new(token: impl Into<String>, config: RestClientConfig) -> ApiResult<Self> {
         let http = reqwest::Client::builder()
             .user_agent(config.user_agent.clone())
+            // Audits are bursty, and the interactive session may sit idle
+            // longer than GitHub keeps a connection alive. Retain connections
+            // within a burst, but drop them across the longer idle stretches.
+            .pool_idle_timeout(Duration::from_secs(5))
             // Without these, a server that accepts a connection and never
             // finishes the body hangs the audit forever.
             .connect_timeout(config.connect_timeout)
             .timeout(config.request_timeout)
+            .redirect(if config.follow_redirects {
+                reqwest::redirect::Policy::default()
+            } else {
+                reqwest::redirect::Policy::none()
+            })
             .build()
             .map_err(|error| ApiError::local(ErrorCause::Transport, "client", error.to_string()))?;
         let deadline = Instant::now() + config.audit_budget;
@@ -267,11 +303,32 @@ impl RestClient {
             .map_err(|error| ApiError::local(ErrorCause::Malformed, endpoint, error.to_string()))
     }
 
-    /// Perform one GET, retrying a rate-limited response within budget.
+    /// Perform one GET, retrying one request transport failure and rate-limited
+    /// responses within budget. Completed HTTP responses later classified as
+    /// transport failures are returned without retry.
     async fn get(&self, endpoint: &str, url: &str) -> ApiResult<RawResponse> {
-        let mut attempt = 0;
+        let mut rate_limit_attempt = 0;
+        let mut transport_retried = false;
         loop {
-            let raw = self.send(endpoint, url).await?;
+            let raw = match self.send(endpoint, url).await {
+                Ok(raw) => raw,
+                Err(error) if error.cause == ErrorCause::Transport && !transport_retried => {
+                    transport_retried = true;
+                    continue;
+                }
+                Err(mut error) => {
+                    if error.cause == ErrorCause::Transport && transport_retried {
+                        let detail = error
+                            .message
+                            .take()
+                            .unwrap_or_else(|| "the transport failed".to_owned());
+                        error.message = Some(format!(
+                            "the request still failed after one transport retry: {detail}"
+                        ));
+                    }
+                    return Err(error);
+                }
+            };
             if (200..300).contains(&raw.status) {
                 return Ok(raw);
             }
@@ -280,7 +337,8 @@ impl RestClient {
             let cause = classify::classify(&summary);
             let wait = classify::retry_delay_seconds(&summary, now_epoch_seconds()).unwrap_or(1);
             let error = self.to_error(endpoint, &raw, cause, summary);
-            if error.cause != ErrorCause::RateLimit || attempt >= self.config.max_rate_limit_retries
+            if error.cause != ErrorCause::RateLimit
+                || rate_limit_attempt >= self.config.max_rate_limit_retries
             {
                 return Err(error);
             }
@@ -293,7 +351,7 @@ impl RestClient {
                 return Err(error);
             }
             tokio::time::sleep(Duration::from_secs(wait)).await;
-            attempt += 1;
+            rate_limit_attempt += 1;
         }
     }
 
@@ -573,18 +631,30 @@ fn decode_ruleset(endpoint: &str, item: &Value) -> ApiResult<Ruleset> {
     Ok(Ruleset {
         id: require_u64(endpoint, item, "id")?,
         name: require_string(endpoint, item, "name")?,
-        target: optional_string(item, "target"),
-        source_type: optional_string(item, "source_type"),
+        target: require_string(endpoint, item, "target")?,
+        source_type: require_string(endpoint, item, "source_type")?,
         source: optional_string(item, "source"),
-        enforcement: optional_string(item, "enforcement"),
+        enforcement: require_string(endpoint, item, "enforcement")?,
     })
 }
 
 fn decode_branch_rule(endpoint: &str, item: &Value) -> ApiResult<BranchRule> {
+    let rule_type = require_string(endpoint, item, "type")?;
+    if rule_type == "pull_request"
+        && !item
+            .get("parameters")
+            .and_then(Value::as_object)
+            .is_some_and(|parameters| parameters.contains_key("allowed_merge_methods"))
+    {
+        return Err(malformed(
+            endpoint,
+            "the pull request rule is missing the parameter `allowed_merge_methods`",
+        ));
+    }
+    let parameters = item.get("parameters").cloned().unwrap_or(Value::Null);
     Ok(BranchRule {
-        rule_type: require_string(endpoint, item, "type")?,
-        source_type: optional_string(item, "source_type"),
-        parameters: item.get("parameters").cloned().unwrap_or(Value::Null),
+        rule_type,
+        parameters,
     })
 }
 
@@ -621,7 +691,49 @@ fn decode_installation(endpoint: &str, item: &Value) -> ApiResult<Installation> 
             .and_then(|account| account.get("login"))
             .and_then(Value::as_str)
             .map(ToOwned::to_owned),
+        // Read rather than required: an account type airlock does not
+        // recognise is an unread kind, and refusing the whole installation over
+        // it would hide an installation the operator can genuinely work in.
+        account_kind: AccountKind::from_api(
+            item.get("account")
+                .and_then(|account| account.get("type"))
+                .and_then(Value::as_str),
+        ),
+        repository_selection: RepositorySelection::from_api(
+            item.get("repository_selection").and_then(Value::as_str),
+        ),
         permissions,
+    })
+}
+
+fn decode_installation_repository(
+    endpoint: &str,
+    item: &Value,
+) -> ApiResult<InstallationRepository> {
+    let full_name = require_string(endpoint, item, "full_name")?;
+    Ok(InstallationRepository {
+        id: require_u64(endpoint, item, "id")?,
+        owner: item
+            .get("owner")
+            .and_then(|owner| owner.get("login"))
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned)
+            .or_else(|| full_name.split_once('/').map(|(owner, _)| owner.to_owned()))
+            .ok_or_else(|| {
+                malformed(endpoint, format!("repository `{full_name}` names no owner"))
+            })?,
+        name: require_string(endpoint, item, "name")?,
+        visibility: optional_string(item, "visibility").unwrap_or_else(|| {
+            if field_bool(item, "private") {
+                "private".to_owned()
+            } else {
+                "public".to_owned()
+            }
+        }),
+        // An empty repository has no default branch, which is a different fact
+        // from one airlock failed to read, and neither is a branch name.
+        default_branch: optional_string(item, "default_branch"),
+        full_name,
     })
 }
 
@@ -731,6 +843,63 @@ impl GitHub for RestClient {
             .collect()
     }
 
+    async fn custom_property_values(
+        &self,
+        owner: &str,
+        repo: &str,
+    ) -> ApiResult<Vec<crate::github::CustomPropertyValue>> {
+        let endpoint = format!("GET /repos/{owner}/{repo}/properties/values");
+        let path = format!(
+            "/repos/{}/{}/properties/values",
+            encode_segment(owner),
+            encode_segment(repo)
+        );
+        let (value, _) = self.get_json(&endpoint, &path).await?;
+        let rows = value
+            .as_array()
+            .ok_or_else(|| malformed(&endpoint, "custom-property response is not an array"))?;
+        rows.iter()
+            .map(|row| {
+                let property_name = require_string(&endpoint, row, "property_name")?;
+                let property_value = match row.get("value") {
+                    Some(Value::String(value)) => {
+                        crate::github::CustomPropertyValueKind::String(value.clone())
+                    }
+                    Some(Value::Array(values)) => crate::github::CustomPropertyValueKind::Strings(
+                        values
+                            .iter()
+                            .map(|value| {
+                                value.as_str().map(ToOwned::to_owned).ok_or_else(|| {
+                                    malformed(
+                                        &endpoint,
+                                        "a multi-select custom-property value contains a non-string",
+                                    )
+                                })
+                            })
+                            .collect::<ApiResult<_>>()?,
+                    ),
+                    Some(Value::Null) => crate::github::CustomPropertyValueKind::Null,
+                    Some(_) => {
+                        return Err(malformed(
+                            &endpoint,
+                            "a custom-property value is not a string, string array, or null",
+                        ));
+                    }
+                    None => {
+                        return Err(malformed(
+                            &endpoint,
+                            "a custom-property row has no value",
+                        ));
+                    }
+                };
+                Ok(crate::github::CustomPropertyValue {
+                    property_name,
+                    value: property_value,
+                })
+            })
+            .collect()
+    }
+
     async fn resolve_commit(&self, owner: &str, repo: &str, reference: &str) -> ApiResult<String> {
         let endpoint = format!("GET /repos/{owner}/{repo}/commits/{reference}");
         let path = format!(
@@ -807,21 +976,13 @@ impl GitHub for RestClient {
     }
 
     async fn tags(&self, owner: &str, repo: &str) -> ApiResult<Paged<TagRef>> {
-        let endpoint = format!("GET /repos/{owner}/{repo}/git/refs/tags");
+        let endpoint = format!("GET /repos/{owner}/{repo}/git/matching-refs/tags/");
         let path = format!(
-            "/repos/{}/{}/git/refs/tags?per_page=100",
+            "/repos/{}/{}/git/matching-refs/tags/?per_page=100",
             encode_segment(owner),
             encode_segment(repo)
         );
-        let (items, truncated) = match self.get_paged(&endpoint, &path).await {
-            Ok(pages) => pages,
-            // A repository with no tags answers 404 on this endpoint, which is
-            // a legitimate empty answer rather than a failure.
-            Err(error) if error.cause == ErrorCause::NotFound => {
-                return Ok(Paged::complete(Vec::new()))
-            }
-            Err(error) => return Err(error),
-        };
+        let (items, truncated) = self.get_paged(&endpoint, &path).await?;
         Ok(Paged {
             items: items
                 .iter()
@@ -927,6 +1088,53 @@ impl GitHub for RestClient {
             }
         }
         Ok(installations)
+    }
+
+    async fn installation_repositories(
+        &self,
+        installation_id: u64,
+    ) -> ApiResult<InstallationRepositories> {
+        let endpoint = "GET /user/installations/{installation_id}/repositories".to_owned();
+        let mut url = format!(
+            "{}/user/installations/{installation_id}/repositories?per_page=100",
+            self.config.base_url
+        );
+        let mut repositories = Vec::new();
+        // GitHub's own count, taken from the first page. A later page repeating
+        // a different one is not averaged or overwritten: the first answer is
+        // the one this listing is being read against.
+        let mut total_count = None;
+        for page in 0..self.config.max_pages {
+            let raw = self.get(&endpoint, &url).await?;
+            let value = parse_json(&endpoint, &raw.body)?;
+            if total_count.is_none() {
+                total_count = Some(require_u64(&endpoint, &value, "total_count")?);
+            }
+            for item in require_array(&endpoint, &value, "repositories")? {
+                repositories.push(decode_installation_repository(&endpoint, item)?);
+            }
+            match next_link(&endpoint, &raw)? {
+                Some(next) => url = next,
+                None => {
+                    return Ok(InstallationRepositories {
+                        total_count: total_count.unwrap_or(repositories.len() as u64),
+                        repositories,
+                        truncated: false,
+                    })
+                }
+            }
+            if page + 1 == self.config.max_pages {
+                break;
+            }
+        }
+        // A prefix rather than a refusal, and it says so. The selection screen
+        // can still work in what it saw; what it may not do is conclude that a
+        // repository it did not see is absent, and `truncated` is what stops it.
+        Ok(InstallationRepositories {
+            total_count: total_count.unwrap_or(repositories.len() as u64),
+            repositories,
+            truncated: true,
+        })
     }
 
     async fn authenticated_user(&self) -> ApiResult<AuthenticatedUser> {
@@ -1112,11 +1320,34 @@ mod tests {
 
     #[test]
     fn a_ruleset_without_a_name_is_malformed_not_dropped() {
-        let ruleset = serde_json::json!({ "id": 1, "source_type": "Organization" });
+        let ruleset = serde_json::json!({
+            "id": 1,
+            "source_type": "Organization",
+            "target": "branch",
+            "enforcement": "active"
+        });
         assert_eq!(
             decode_ruleset("GET /rulesets", &ruleset).unwrap_err().cause,
             ErrorCause::Malformed
         );
+    }
+
+    #[test]
+    fn a_ruleset_without_verdict_fields_is_malformed() {
+        let complete = serde_json::json!({
+            "id": 1,
+            "name": "default",
+            "source_type": "Organization",
+            "target": "branch",
+            "enforcement": "active"
+        });
+        for field in ["source_type", "target", "enforcement"] {
+            let mut ruleset = complete.clone();
+            ruleset.as_object_mut().unwrap().remove(field);
+            let error = decode_ruleset("GET /rulesets", &ruleset).unwrap_err();
+            assert_eq!(error.cause, ErrorCause::Malformed, "{field}");
+            assert!(error.to_string().contains(field), "{field}: {error}");
+        }
     }
 
     #[test]
@@ -1126,6 +1357,19 @@ mod tests {
             decode_branch_rule("GET /rules", &rule).unwrap_err().cause,
             ErrorCause::Malformed
         );
+    }
+
+    #[test]
+    fn a_pull_request_rule_without_merge_method_parameters_is_malformed() {
+        for parameters in [None, Some(serde_json::json!({})), Some(Value::Null)] {
+            let mut rule = serde_json::json!({ "type": "pull_request" });
+            if let Some(parameters) = parameters {
+                rule["parameters"] = parameters;
+            }
+            let error = decode_branch_rule("GET /rules", &rule).unwrap_err();
+            assert_eq!(error.cause, ErrorCause::Malformed);
+            assert!(error.to_string().contains("allowed_merge_methods"));
+        }
     }
 
     #[test]

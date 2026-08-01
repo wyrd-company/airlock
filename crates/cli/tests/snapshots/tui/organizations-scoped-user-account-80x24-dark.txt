@@ -1,0 +1,62 @@
+organizations-scoped-user-account-80x24-dark · 80x24 · theme dark · colour
+--- text ---
+AIRLOCK 0.0.0  sign-in › organizations    no credential stored · theme t · dark 
+REACHABLE INSTALLATIONS  2                                                      
+  acme-industries             organization    3 repositories                    
+▸ sample-operator             user account    1 repository                      
+    scoped to 1 selected repository; the rest are invisible here                
+The list is where airlock is installed crossed with what this account reaches.  
+An absent organization is not evidence of absence.                              
+AN ABSENT ORGANIZATION HAS THREE CAUSES, AND THREE DIFFERENT REMEDIES           
+1  not installed there — install airlock; an owner or admin can.                
+2  installed, but this account is not a member or lacks the role — ask an owner.
+3  installed and reachable, but scoped away from those repositories — widen the 
+   selection.                                                                   
+CREDENTIAL                                                                      
+source        GitHub App Airlock Admin · device flow                            
+grant         read: metadata, actions · write: administration, contents,        
+              environments, secrets, variables, organization_administration,    
+              organization_secrets · admin: organization_custom_properties      
+storage       none. No credential of any kind is stored, anywhere, ever. Its    
+              value is never displayed.                                         
+                                                                                
+                                                                                
+                                                                                
+↑↓ select · ↵ open · t theme · ctrl-c exit                                      
+2 installations · the list is the intersection of install and access            
+--- style keys ---
+aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+cccccccccccccccccccccccdddeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+ffeeeeeeeeeeeeeeeeeeeeeeeeeeeeggggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeee
+ffccccccccccccccccccccccccccccggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeee
+hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhheeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccceeeeeeeeeee
+iiigggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggeeeeeeeeeeeeeeee
+iiiggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+iiigggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggge
+iiiggggggggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+cccccccccceeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+ddddddddddddddggggggggggggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeeeee
+ddddddddddddddggggggggggggggggggggggggggggggggggggggggggggggggggggggggggeeeeeeee
+ddddddddddddddggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggeeee
+ddddddddddddddggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggeeeeee
+ddddddddddddddggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggeeee
+ddddddddddddddgggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+ffeggggggdddfeggggdddfegggggdddffffffeggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj
+--- legend ---
+a fg=#CBD3DD bg=#14181D BOLD
+b fg=#CBD3DD bg=#14181D
+c fg=#CBD3DD bg=#0B0D10 BOLD
+d fg=#4C5661 bg=#0B0D10
+e fg=#CBD3DD bg=#0B0D10
+f fg=#E8B84B bg=#0B0D10 BOLD
+g fg=#79838F bg=#0B0D10
+h fg=#4C5661 bg=#0B0D10 ITALIC
+i fg=#E8B84B bg=#0B0D10
+j fg=#79838F bg=#101419

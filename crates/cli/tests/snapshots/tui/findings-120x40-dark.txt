@@ -1,0 +1,114 @@
+findings-120x40-dark · 120x40 · theme dark · colour
+--- text ---
+AIRLOCK 0.0.0  sign-in › organizations › repositories › findings   no credential stored · tty required · theme t · dark 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+FINDINGS                                                                                                                
+Present the whole standard as a work queue, ordered by what closing each gap takes and who can close it.                
+                                                                                                                        
+STATUS VOCABULARY                                                                                                       
+DECIDED · GATING  counts toward the verdict                                                                             
+ ✓    │   │  pass          the condition was observed to hold                                                           
+ ✗    │   │  fail          the condition was observed not to hold                                                       
+DECIDED · INERT  never gates                                                                                            
+    ◆ │   │  manual        judgment_rule, reported for a human                                                          
+    ⊘ │   │  suppressed    a failure the policy authorized                                                              
+    ○ │   │  skipped       condition_not_met, the capability condition did not apply                                    
+UNDECIDED  makes the run incomplete at a gating severity, unless the fact requires admin access to verify               
+      │ ▢ │  unimplemented registered and enabled, not yet evaluated                                                    
+      │ ◑ │  inconclusive  the question could not be established                                                        
+      │ ◍ │  admin-only    the rule requires admin access to verify, so the question is answered on the verification su…
+      │ ! │  error         the call did not complete, so no evidence exists                                             
+                                                                                                                        
+SEVERITY  ███ blocking   ██░ required   █░░ observation                                                                 
+▌ a solid left rail marks a row that actually gates the run                                                             
+                                                                                                                        
+NOTHING OBSERVED YET                                                                                                    
+would show      the verdict, the status summary, and the eight groups of the work queue                                 
+empty because   this build is the interface shell. It draws the frame, the status vocabulary, and the navigation between
+                screens. No authorization is requested and no repository is observed, so there is nothing for this      
+                region to hold.                                                                                         
+next            navigate with ↵ and esc to read the frame on every screen, press t to compare the palettes, and ctrl-c  
+                to leave.                                                                                               
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓/j/k move · space collapse or expand · ↵ finding detail · f filter · a apply · A bulk apply · l flat list · 5 more…   
+no repository observed · this shell renders the frame only · tty required                                               
+--- style keys ---
+aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+ddddddddeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+fffffffffffffffffeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+gggggggggggggggghhhhhhhhhhhhhhhhhhhhhhhhhhheeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+iiieeejeeejeekkkkkkkkkkkkkklllllllllllllllllllllllllllllllllleeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+mmmeeejeeejeennnnnnnnnnnnnnlllllllllllllllllllllllllllllllllllllleeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+ggggggggggggggghhhhhhhhhhhhheeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeooojeeejeeppppppppppppppllllllllllllllllllllllllllllllllllleeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeqqqjeeejeerrrrrrrrrrrrrrllllllllllllllllllllllllllllllleeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeesssjeeejeettttttttttttttllllllllllllllllllllllllllllllllllllllllllllllllllllllllleeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+ggggggggghhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhheeeeeeeeeeeeeee
+eeeeeejuuujeevvvvvvvvvvvvvvllllllllllllllllllllllllllllllllllllllllleeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeejwwwjeexxxxxxxxxxxxxxllllllllllllllllllllllllllllllllllllleeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeejyyyjeezzzzzzzzzzzzzzlllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+eeeeeejAAAjeeBBBBBBBBBBBBBBlllllllllllllllllllllllllllllllllllllllllllllllleeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+ggggggggeeeeeellllllllhhheeeellllllllhhheeeellllllllllleeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+mmCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+ffffffffffffffffffffeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+hhhhhhhhhhhhhhhhllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllleeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+hhhhhhhhhhhhhhhhllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+hhhhhhhhhhhhhhhhlllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllleeeeee
+hhhhhhhhhhhhhhhhllllllllllllllleeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+hhhhhhhhhhhhhhhhllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllee
+hhhhhhhhhhhhhhhhllllllllleeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+ddddddellllhhhdddddellllllllllllllllllhhhdellllllllllllllhhhdellllllhhhdelllllhhhdellllllllllhhhdelllllllllhhhCCCCCCCeee
+DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD
+--- legend ---
+a fg=#CBD3DD bg=#14181D BOLD
+b fg=#CBD3DD bg=#14181D
+c fg=#39434F bg=#0B0D10
+d fg=#E8B84B bg=#0B0D10 BOLD
+e fg=#CBD3DD bg=#0B0D10
+f fg=#CBD3DD bg=#0B0D10 BOLD
+g fg=#79838F bg=#0B0D10 BOLD
+h fg=#4C5661 bg=#0B0D10
+i fg=#5FB98A bg=#0B0D10
+j fg=#232A33 bg=#0B0D10
+k fg=#5FB98A bg=#0B0D10 BOLD
+l fg=#79838F bg=#0B0D10
+m fg=#E05C58 bg=#0B0D10
+n fg=#E05C58 bg=#0B0D10 BOLD
+o fg=#6C9BE0 bg=#0B0D10
+p fg=#6C9BE0 bg=#0B0D10 BOLD
+q fg=#A886D8 bg=#0B0D10
+r fg=#A886D8 bg=#0B0D10 BOLD
+s fg=#77818C bg=#0B0D10
+t fg=#77818C bg=#0B0D10 BOLD
+u fg=#B79A5A bg=#0B0D10
+v fg=#B79A5A bg=#0B0D10 BOLD
+w fg=#D9A441 bg=#0B0D10
+x fg=#D9A441 bg=#0B0D10 BOLD
+y fg=#4FA5A5 bg=#0B0D10
+z fg=#4FA5A5 bg=#0B0D10 BOLD
+A fg=#E8843A bg=#0B0D10
+B fg=#E8843A bg=#0B0D10 BOLD
+C fg=#4C5661 bg=#0B0D10 ITALIC
+D fg=#79838F bg=#101419

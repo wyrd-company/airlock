@@ -36,11 +36,12 @@ capabilities:
 
 apply:
   base: always
-  # Release rules describe repositories that publish something. A repository
-  # with no declared release units is not one, and its release findings are
-  # skipped rather than failed.
+  # Release rules describe repositories whose organization-owned classification
+  # says downstream consumers pin a version of their output.
   registry:
-    when: intentional-config-present
+    when:
+      property: release
+      value: "true"
 
 checks:
   # The organisation preset every repository extends.

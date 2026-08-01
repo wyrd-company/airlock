@@ -1,0 +1,62 @@
+sign-in-awaiting-80x24-dark · 80x24 · theme dark · colour
+--- text ---
+AIRLOCK 0.0.0  sign-in                    no credential stored · theme t · dark 
+AWAITING APPROVAL                                                               
+Enter the code at the address below. Airlock polls until you approve it.        
+                                                                                
+┌─────────────────────┐                                                         
+│  W D J B - M J H T  │                                                         
+└─────────────────────┘                                                         
+address       https://github.com/login/device                                   
+code          eight characters, case-insensitive; no 0, O, 1, or I.             
+polling       attempt 3, every 5s                                               
+code expires  in 14m 32s                                                        
+scan code     withheld: needs 95 columns, this has 80. q draws it below.        
+remedy        Approve in the browser. r for a new code, ctrl-c to leave.        
+CREDENTIAL                                                                      
+source        GitHub App Airlock Admin · device flow                            
+grant         read: metadata, actions · write: administration, contents,        
+              environments, secrets, variables, organization_administration,    
+              organization_secrets · admin: organization_custom_properties      
+storage       none. No credential of any kind is stored, anywhere, ever. Its    
+              value is never displayed.                                         
+                                                                                
+                                                                                
+r issue a new code · q show or hide the scan code · t theme · ctrl-c exit       
+no credential on disk · tty required                                            
+--- style keys ---
+aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+cccccccccccccccccddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+eeeeeeeeeeeeeeeeeeeeeeeddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+efffffffffffffffffffffeddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+eeeeeeeeeeeeeeeeeeeeeeeddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+gggggggggggggghhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhddddddddddddddddddddddddddddddddddd
+gggggggggggggghhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhddddddddddddd
+gggggggggggggghhhhhhhhhhhhhhhhhhhddddddddddddddddddddddddddddddddddddddddddddddd
+gggggggggggggghhhhhhhhhhdddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+gggggggggggggghhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhdddddddd
+gggggggggggggghhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhdddddddd
+iiiiiiiiiidddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+gggggggggggggghhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhdddddddddddddddddddddddddddd
+gggggggggggggghhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhdddddddd
+gggggggggggggghhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhdddd
+gggggggggggggghhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhdddddd
+gggggggggggggghhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhdddd
+gggggggggggggghhhhhhhhhhhhhhhhhhhhhhhhhddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+cdhhhhhhhhhhhhhhhhgggcdhhhhhhhhhhhhhhhhhhhhhhhhhhgggcdhhhhhgggccccccdhhhhddddddd
+jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj
+--- legend ---
+a fg=#CBD3DD bg=#14181D BOLD
+b fg=#CBD3DD bg=#14181D
+c fg=#E8B84B bg=#0B0D10 BOLD
+d fg=#CBD3DD bg=#0B0D10
+e fg=#39434F bg=#0B0D10
+f fg=#E8B84B bg=#0B0D10 BOLD | UNDERLINED
+g fg=#4C5661 bg=#0B0D10
+h fg=#79838F bg=#0B0D10
+i fg=#CBD3DD bg=#0B0D10 BOLD
+j fg=#79838F bg=#101419

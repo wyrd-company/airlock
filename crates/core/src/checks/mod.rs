@@ -30,7 +30,8 @@ mod release;
 
 use crate::findings::{Evidence, FindingError, Remediation, Status};
 use crate::github::{
-    ApiError, BranchRule, CommitSummary, Paged, Repository, Ruleset, TagRef, MESSAGE_HINTS_VERSION,
+    ApiError, BranchRule, CommitSummary, CustomPropertyValue, Paged, Repository, Ruleset, TagRef,
+    MESSAGE_HINTS_VERSION,
 };
 use crate::limits::Limits;
 use crate::policy::{Condition, ResolvedPolicy, RuleInstance};
@@ -344,6 +345,8 @@ pub struct AuditContext<'a> {
     pub workflows: Vec<Workflow>,
     /// Whether the workflow listing was cut short by a budget.
     pub workflows_truncated: bool,
+    /// Organization-owned custom property values assigned to this repository.
+    pub custom_property_values: Result<Vec<CustomPropertyValue>, ApiError>,
     /// The repository's tags, and whether the listing was complete.
     pub tags: Result<Paged<TagRef>, ApiError>,
     /// Default-branch history, and whether the walk stopped at a budget.
@@ -468,7 +471,7 @@ impl AuditContext<'_> {
 /// rather than through a check pretending to have looked.
 #[must_use]
 pub fn evaluate(rule: &RuleInstance, context: &AuditContext) -> Verdict {
-    if let Some(verdict) = condition_verdict(condition_holds(rule.condition, context), || {
+    if let Some(verdict) = condition_verdict(condition_holds(&rule.condition, context), || {
         format!(
             "the capability that enables this rule applies only when `{}`",
             rule.condition.code()
@@ -525,10 +528,13 @@ fn condition_verdict(
 ) -> Option<Verdict> {
     match outcome {
         ConditionOutcome::Holds => {}
-        ConditionOutcome::DoesNotHold => {
+        ConditionOutcome::DoesNotHold(detail) => {
             return Some(Verdict {
                 status: Status::Skipped,
-                evidence: Some(Evidence::new("condition_not_met", skipped_detail())),
+                evidence: Some(Evidence::new(
+                    "condition_not_met",
+                    detail.unwrap_or_else(skipped_detail),
+                )),
                 remediation: None,
                 error: None,
             })
@@ -550,17 +556,67 @@ enum ConditionOutcome {
     /// The condition holds; the rule runs.
     Holds,
     /// The condition conclusively does not hold; the rule is skipped.
-    DoesNotHold,
+    DoesNotHold(Option<String>),
     /// Airlock could not evaluate the condition.
     Undecided(Box<Verdict>),
 }
 
-fn condition_holds(condition: Condition, context: &AuditContext) -> ConditionOutcome {
+fn condition_holds(condition: &Condition, context: &AuditContext) -> ConditionOutcome {
     match condition {
         Condition::Always => ConditionOutcome::Holds,
         Condition::IntentionalConfigPresent => {
             file_condition(context, ".intentional/config.yml", condition)
         }
+        Condition::CustomProperty { name, value } => {
+            custom_property_condition(context, name, value)
+        }
+    }
+}
+
+fn custom_property_condition(
+    context: &AuditContext,
+    name: &str,
+    expected: &str,
+) -> ConditionOutcome {
+    let values = match &context.custom_property_values {
+        Ok(values) => values,
+        Err(error) => {
+            let detail = Verdict::from_api_error(error);
+            return ConditionOutcome::Undecided(Box::new(Verdict {
+                status: detail.status,
+                evidence: Some(Evidence::new(
+                    "condition_undecided",
+                    format!(
+                        "the custom-property condition `{name}={expected}` could not be read: {error}"
+                    ),
+                )),
+                remediation: detail.remediation,
+                error: detail.error,
+            }));
+        }
+    };
+    match values
+        .iter()
+        .find(|property| property.property_name == name)
+    {
+        // GitHub uses null for an unassigned property. A multi-select array is
+        // assigned data, but a scalar capability binding cannot exactly match
+        // it; classify that honestly as declared-but-not-matching rather than
+        // turning a valid API value into an input failure.
+        None | Some(CustomPropertyValue {
+            value: crate::github::CustomPropertyValueKind::Null,
+            ..
+        }) => ConditionOutcome::Undecided(Box::new(Verdict {
+            status: Status::Inconclusive,
+            evidence: Some(Evidence::capability_undeclared(name, expected)),
+            remediation: None,
+            error: None,
+        })),
+        Some(property) if property.value.as_str() == Some(expected) => ConditionOutcome::Holds,
+        Some(property) => ConditionOutcome::DoesNotHold(Some(format!(
+            "organization custom property `{name}` must equal `{expected}` for this capability; observed {}",
+            property.value.reading()
+        ))),
     }
 }
 
@@ -573,11 +629,11 @@ fn applicability_holds(applicability: Applicability, context: &AuditContext) -> 
 
 fn release_units_declared_condition(context: &AuditContext) -> ConditionOutcome {
     match context.yaml(".intentional/config.yml") {
-        ParsedFile::Missing | ParsedFile::NotAFile(_) => ConditionOutcome::DoesNotHold,
+        ParsedFile::Missing | ParsedFile::NotAFile(_) => ConditionOutcome::DoesNotHold(None),
         ParsedFile::Parsed(document) => match document.get("release-units") {
-            None => ConditionOutcome::DoesNotHold,
+            None => ConditionOutcome::DoesNotHold(None),
             Some(units) => match units.as_map() {
-                Some([]) => ConditionOutcome::DoesNotHold,
+                Some([]) => ConditionOutcome::DoesNotHold(None),
                 Some(_) => ConditionOutcome::Holds,
                 None => ConditionOutcome::Undecided(Box::new(Verdict::inconclusive(
                     "condition_undecided",
@@ -600,10 +656,10 @@ fn release_units_declared_condition(context: &AuditContext) -> ConditionOutcome 
 }
 
 /// A condition that turns on whether one file exists.
-fn file_condition(context: &AuditContext, path: &str, condition: Condition) -> ConditionOutcome {
+fn file_condition(context: &AuditContext, path: &str, condition: &Condition) -> ConditionOutcome {
     match context.snapshot.file(path) {
         FileState::Content { .. } => ConditionOutcome::Holds,
-        FileState::Missing => ConditionOutcome::DoesNotHold,
+        FileState::Missing => ConditionOutcome::DoesNotHold(None),
         FileState::TreeTruncated => ConditionOutcome::Undecided(Box::new(Verdict::inconclusive(
             "condition_undecided",
             format!(
@@ -632,7 +688,9 @@ fn file_condition(context: &AuditContext, path: &str, condition: Condition) -> C
         )),
         // A symlink or a directory where the condition expects a file is a
         // conclusive answer: the file the condition asks about is not there.
-        FileState::Symlink { .. } | FileState::NotAFile { .. } => ConditionOutcome::DoesNotHold,
+        FileState::Symlink { .. } | FileState::NotAFile { .. } => {
+            ConditionOutcome::DoesNotHold(None)
+        }
     }
 }
 
@@ -1018,6 +1076,7 @@ pub(crate) mod fixtures {
             rules: Vec::new(),
             suppressions: Default::default(),
             reference_data: BTreeMap::new(),
+            capabilities: Vec::new(),
         }
     }
 
@@ -1055,6 +1114,7 @@ pub(crate) mod fixtures {
             limits: Limits::default(),
             workflows,
             workflows_truncated: false,
+            custom_property_values: Ok(Vec::new()),
             tags: Ok(Paged::complete(Vec::new())),
             history: Ok(Paged::complete(Vec::new())),
             rulesets: Ok(Paged::complete(Vec::new())),
@@ -1071,6 +1131,104 @@ mod tests {
     use super::fixtures::*;
     use super::*;
     use crate::findings::Undecided;
+    use crate::github::ErrorCause;
+
+    #[test]
+    fn an_unset_custom_property_is_a_capability_decision() {
+        let fixture = CheckFixture::new(&[]);
+        let mut rule = rule("REPO-REL-04");
+        rule.condition = Condition::CustomProperty {
+            name: "release".to_owned(),
+            value: "true".to_owned(),
+        };
+        let verdict = evaluate(&rule, &fixture.context());
+        assert_eq!(verdict.status, Status::Inconclusive);
+        assert_eq!(verdict.evidence.unwrap().code, "capability_undeclared");
+    }
+
+    #[test]
+    fn a_custom_property_that_declares_the_capability_absent_skips_the_rule() {
+        let fixture = CheckFixture::new(&[]);
+        let mut context = fixture.context();
+        context.custom_property_values = Ok(vec![CustomPropertyValue {
+            property_name: "release".to_owned(),
+            value: crate::github::CustomPropertyValueKind::String("false".to_owned()),
+        }]);
+        let mut rule = rule("REPO-REL-04");
+        rule.condition = Condition::CustomProperty {
+            name: "release".to_owned(),
+            value: "true".to_owned(),
+        };
+        let verdict = evaluate(&rule, &context);
+        assert_eq!(verdict.status, Status::Skipped);
+        let evidence = verdict.evidence.unwrap();
+        assert_eq!(evidence.code, "condition_not_met");
+        assert_eq!(
+            evidence.detail,
+            "organization custom property `release` must equal `true` for this capability; observed `false`"
+        );
+    }
+
+    #[test]
+    fn null_on_the_bound_property_is_an_undeclared_capability() {
+        let fixture = CheckFixture::new(&[]);
+        let mut context = fixture.context();
+        context.custom_property_values = Ok(vec![CustomPropertyValue {
+            property_name: "release".to_owned(),
+            value: crate::github::CustomPropertyValueKind::Null,
+        }]);
+        let mut rule = rule("REPO-REL-04");
+        rule.condition = Condition::CustomProperty {
+            name: "release".to_owned(),
+            value: "true".to_owned(),
+        };
+
+        let verdict = evaluate(&rule, &context);
+        assert_eq!(verdict.status, Status::Inconclusive);
+        assert_eq!(verdict.evidence.unwrap().code, "capability_undeclared");
+    }
+
+    #[test]
+    fn an_array_on_the_bound_property_is_declared_but_not_matching() {
+        let fixture = CheckFixture::new(&[]);
+        let mut context = fixture.context();
+        context.custom_property_values = Ok(vec![CustomPropertyValue {
+            property_name: "release".to_owned(),
+            value: crate::github::CustomPropertyValueKind::Strings(vec![
+                "true".to_owned(),
+                "sample".to_owned(),
+            ]),
+        }]);
+        let mut rule = rule("REPO-REL-04");
+        rule.condition = Condition::CustomProperty {
+            name: "release".to_owned(),
+            value: "true".to_owned(),
+        };
+
+        let verdict = evaluate(&rule, &context);
+        assert_eq!(verdict.status, Status::Skipped);
+        let evidence = verdict.evidence.unwrap();
+        assert_eq!(evidence.code, "condition_not_met");
+        assert!(evidence.detail.contains("observed [`true`, `sample`]"));
+    }
+
+    #[test]
+    fn an_unreadable_custom_property_is_not_a_capability_decision() {
+        let fixture = CheckFixture::new(&[]);
+        let mut context = fixture.context();
+        context.custom_property_values = Err(ApiError::local(
+            ErrorCause::Permission,
+            "GET /repos/owner/name/properties/values",
+            "Resource not accessible by integration",
+        ));
+        let mut rule = rule("REPO-REL-04");
+        rule.condition = Condition::CustomProperty {
+            name: "release".to_owned(),
+            value: "true".to_owned(),
+        };
+        let verdict = evaluate(&rule, &context);
+        assert_eq!(verdict.evidence.unwrap().code, "condition_undecided");
+    }
 
     #[test]
     fn a_withheld_field_is_structural_only_where_the_registry_declares_a_gate() {

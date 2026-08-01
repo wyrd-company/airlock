@@ -1,0 +1,62 @@
+reauthorization-requesting-80x24-dark · 80x24 · theme dark · colour
+--- text ---
+AIRLOCK 0.0.0  … repositories › findings  no credential stored · theme t · dark 
+REQUESTING A DEVICE CODE                                                        
+The session's authorization lapsed. Asking GitHub for a new code; your position 
+is held, what it had observed is not.                                           
+                                                                                
+┌───────────────────┐                                                           
+│                   │                                                           
+└───────────────────┘                                                           
+address       not issued yet                                                    
+code          eight characters, case-insensitive; no 0, O, 1, or I.             
+scan code     none yet: it encodes the address.                                 
+remedy        Approve the new code when it arrives. esc abandons and leaves.    
+CREDENTIAL                                                                      
+source        GitHub App Airlock Admin · device flow                            
+grant         read: metadata, actions · write: administration, contents,        
+              environments, secrets, variables, organization_administration,    
+              organization_secrets · admin: organization_custom_properties      
+storage       none. No credential of any kind is stored, anywhere, ever. Its    
+              value is never displayed.                                         
+                                                                                
+holding       findings · acme-industries/widget · row 3 · gating failures ·     
+              groups 8 collapsed · detail closed                                
+esc abandon and exit · r issue a new code · 3 more…                             
+re-authorizing · findings · acme-industries/widget · row 3 · gating failures    
+--- style keys ---
+aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+ccccccccccccccccccccccccdddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+eeeeeeeeeeeeeeeeeeeeeddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+efffffffffffffffffffeddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+eeeeeeeeeeeeeeeeeeeeeddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+ffffffffffffffggggggggggggggdddddddddddddddddddddddddddddddddddddddddddddddddddd
+ffffffffffffffgggggggggggggggggggggggggggggggggggggggggggggggggggggddddddddddddd
+ffffffffffffffgggggggggggggggggggggggggggggggggddddddddddddddddddddddddddddddddd
+ffffffffffffffggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggdddd
+hhhhhhhhhhdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+ffffffffffffffggggggggggggggggggggggggggggggggggggggdddddddddddddddddddddddddddd
+ffffffffffffffggggggggggggggggggggggggggggggggggggggggggggggggggggggggggdddddddd
+ffffffffffffffggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggdddd
+ffffffffffffffggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggdddddd
+ffffffffffffffggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggdddd
+ffffffffffffffgggggggggggggggggggggggggddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+ffffffffffffffgggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggddddd
+ffffffffffffffggggggggggggggggggggggggggggggggggdddddddddddddddddddddddddddddddd
+cccdggggggggggggggggfffcdggggggggggggggggfffiiiiiiiddddddddddddddddddddddddddddd
+jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj
+--- legend ---
+a fg=#CBD3DD bg=#14181D BOLD
+b fg=#CBD3DD bg=#14181D
+c fg=#E8B84B bg=#0B0D10 BOLD
+d fg=#CBD3DD bg=#0B0D10
+e fg=#39434F bg=#0B0D10
+f fg=#4C5661 bg=#0B0D10
+g fg=#79838F bg=#0B0D10
+h fg=#CBD3DD bg=#0B0D10 BOLD
+i fg=#4C5661 bg=#0B0D10 ITALIC
+j fg=#79838F bg=#101419

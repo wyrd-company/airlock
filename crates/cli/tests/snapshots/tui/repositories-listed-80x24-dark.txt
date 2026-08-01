@@ -1,0 +1,62 @@
+repositories-listed-80x24-dark · 80x24 · theme dark · colour
+--- text ---
+AIRLOCK 0.0.0  …nizations › repositories  no credential stored · theme t · dark 
+REPOSITORIES  acme-industries  organization                                     
+filter        / to filter by name · all 3 repositories                          
+                                                                                
+  NAME                    VISIBILITY  DEFAULT BRANCH  LAST AUDIT  PRIOR VERDICT 
+▸ widget                  private     main            never       never observed
+  sprocket                private     main            never       never observed
+  public-flywheel         public      main            never       never observed
+                                                                                
+Prior verdicts are orientation only, and only from this session. Opening a      
+repository re-observes it in full; nothing is acted on from memory.             
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+↑↓ select · / filter · n new repository · ↵ observe · esc back · 2 more…        
+3 of 3 shown · prior verdicts are shown for orientation only                    
+--- style keys ---
+aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+ccccccccccccdddddddddddddddddddddddddddddddeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+ddddddddddddddffffffffffffffffffffffffffffffffffffffffeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+ggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggge
+hhccccccccccccccccccccccccffffffffffffffffffffffffffffdddddddddddddddddddddddddd
+hheeeeeeeeeeeeeeeeeeeeeeeeffffffffffffffffffffffffffffdddddddddddddddddddddddddd
+hheeeeeeeeeeeeeeeeeeeeeeeeffffffffffffffffffffffffffffdddddddddddddddddddddddddd
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+hheffffffdddheffffffdddheffffffffffffffdddhefffffffdddhhheffffdddiiiiiiieeeeeeee
+jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj
+--- legend ---
+a fg=#CBD3DD bg=#14181D BOLD
+b fg=#CBD3DD bg=#14181D
+c fg=#CBD3DD bg=#0B0D10 BOLD
+d fg=#4C5661 bg=#0B0D10
+e fg=#CBD3DD bg=#0B0D10
+f fg=#79838F bg=#0B0D10
+g fg=#4C5661 bg=#0B0D10 BOLD
+h fg=#E8B84B bg=#0B0D10 BOLD
+i fg=#4C5661 bg=#0B0D10 ITALIC
+j fg=#79838F bg=#101419

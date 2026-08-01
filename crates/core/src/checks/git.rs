@@ -49,9 +49,9 @@ fn org_ruleset_coverage(context: &AuditContext) -> Verdict {
     let covering: Vec<&crate::github::Ruleset> = rulesets
         .iter()
         .filter(|ruleset| {
-            ruleset.source_type.as_deref() == Some("Organization")
-                && ruleset.target.as_deref().unwrap_or("branch") == "branch"
-                && ruleset.enforcement.as_deref() == Some("active")
+            ruleset.source_type == "Organization"
+                && ruleset.target == "branch"
+                && ruleset.enforcement == "active"
         })
         .collect();
 
@@ -551,10 +551,10 @@ mod tests {
         context.rulesets = Ok(Paged::complete(vec![Ruleset {
             id: 1,
             name: "org-default".to_owned(),
-            target: Some("branch".to_owned()),
-            source_type: Some("Organization".to_owned()),
+            target: "branch".to_owned(),
+            source_type: "Organization".to_owned(),
             source: Some("owner".to_owned()),
-            enforcement: Some("active".to_owned()),
+            enforcement: "active".to_owned(),
         }]));
         assert_eq!(
             evaluate(&rule("REPO-GIT-02"), &context).status,
@@ -569,10 +569,10 @@ mod tests {
         context.rulesets = Ok(Paged::complete(vec![Ruleset {
             id: 1,
             name: "local".to_owned(),
-            target: Some("branch".to_owned()),
-            source_type: Some("Repository".to_owned()),
+            target: "branch".to_owned(),
+            source_type: "Repository".to_owned(),
             source: Some("owner/name".to_owned()),
-            enforcement: Some("active".to_owned()),
+            enforcement: "active".to_owned(),
         }]));
         assert_eq!(
             evaluate(&rule("REPO-GIT-02"), &context).status,
@@ -632,12 +632,10 @@ mod tests {
         context.branch_rules = Ok(Paged::complete(vec![
             BranchRule {
                 rule_type: "pull_request".to_owned(),
-                source_type: Some("Organization".to_owned()),
                 parameters: json!({ "allowed_merge_methods": ["squash", "rebase"] }),
             },
             BranchRule {
                 rule_type: "required_linear_history".to_owned(),
-                source_type: Some("Organization".to_owned()),
                 parameters: json!({}),
             },
         ]));
@@ -648,7 +646,6 @@ mod tests {
 
         context.branch_rules = Ok(Paged::complete(vec![BranchRule {
             rule_type: "pull_request".to_owned(),
-            source_type: None,
             parameters: json!({ "allowed_merge_methods": ["squash", "rebase", "merge"] }),
         }]));
         assert_eq!(
@@ -941,10 +938,10 @@ mod tests {
             items: vec![Ruleset {
                 id: 1,
                 name: "repo-local".to_owned(),
-                target: Some("branch".to_owned()),
-                source_type: Some("Repository".to_owned()),
+                target: "branch".to_owned(),
+                source_type: "Repository".to_owned(),
                 source: Some("owner/name".to_owned()),
-                enforcement: Some("active".to_owned()),
+                enforcement: "active".to_owned(),
             }],
             truncated: true,
         });
@@ -961,10 +958,10 @@ mod tests {
             items: vec![Ruleset {
                 id: 1,
                 name: "org-default".to_owned(),
-                target: Some("branch".to_owned()),
-                source_type: Some("Organization".to_owned()),
+                target: "branch".to_owned(),
+                source_type: "Organization".to_owned(),
                 source: Some("owner".to_owned()),
-                enforcement: Some("active".to_owned()),
+                enforcement: "active".to_owned(),
             }],
             truncated: true,
         });
@@ -981,7 +978,6 @@ mod tests {
         context.branch_rules = Ok(Paged {
             items: vec![BranchRule {
                 rule_type: "pull_request".to_owned(),
-                source_type: None,
                 parameters: json!({ "allowed_merge_methods": ["squash", "rebase"] }),
             }],
             truncated: true,
@@ -1002,12 +998,10 @@ mod tests {
             items: vec![
                 BranchRule {
                     rule_type: "pull_request".to_owned(),
-                    source_type: None,
                     parameters: json!({ "allowed_merge_methods": ["squash", "rebase"] }),
                 },
                 BranchRule {
                     rule_type: "required_linear_history".to_owned(),
-                    source_type: None,
                     parameters: json!({}),
                 },
             ],
@@ -1040,12 +1034,10 @@ mod tests {
         context.branch_rules = Ok(Paged::complete(vec![
             BranchRule {
                 rule_type: "pull_request".to_owned(),
-                source_type: None,
                 parameters: json!({ "allowed_merge_methods": ["squash", 7] }),
             },
             BranchRule {
                 rule_type: "required_linear_history".to_owned(),
-                source_type: None,
                 parameters: json!({}),
             },
         ]));

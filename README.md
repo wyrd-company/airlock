@@ -45,7 +45,7 @@ hand-written in Airlock. This includes the rule-by-rule inspection guidance in
 without owning its evaluation modes. Command output also reminds operators to
 cite a rule id and its statement together, never the id alone.
 
-The minimum supported Rust version is 1.86.
+The minimum supported Rust version is 1.88.
 
 ## Quickstart
 
@@ -55,6 +55,44 @@ Acquire a read-only credential, then audit a repository:
 airlock auth login
 airlock audit wyrd-company/airlock
 ```
+
+## The console
+
+Bare `airlock`, with no arguments, opens the interactive release-readiness
+console:
+
+```sh
+airlock
+```
+
+The console is the only surface that carries out the closing moves a person
+must make, and it has no subcommand and no flag. An agent holding this binary
+therefore has nothing to invoke: the guarantee is that the code path does not
+exist, not that a check declines to take it.
+
+Creating a repository is align against the maximally unaligned case. The
+operator chooses the owner, names the repository, and chooses its visibility
+and declared capabilities in the console. Because an empty repository has no
+branch against which Airlock can open a pull request, the console writes the
+first commit directly: a single branch-creating commit carrying the
+deterministic files the owner's policy requires. That commit is the sole direct
+file-write exception; after it, Airlock audits the repository normally and
+every later file change follows the ordinary pull-request path. Airlock ships
+no policy and no built-in scaffold.
+
+It requires an interactive terminal on both stdin and stdout. Under a pipe, a
+redirect, or a scheduler it exits non-zero without rendering anything, and names
+what to run instead. `airlock audit` is the complete unattended findings
+surface, and `airlock agent-work` is its lane-scoped projection for an executing
+agent.
+
+Two keys are live everywhere: `t` switches between the dark and light palettes,
+and `ctrl-c` exits. `NO_COLOR` is honoured, and every distinction the interface
+draws survives it. The terminal is restored on every exit path, including a
+panic and a signal.
+
+See [`docs/terminal-interface.md`](docs/terminal-interface.md) for what each
+screen shows and why.
 
 ## GitHub Action
 
@@ -168,11 +206,11 @@ airlock align-files wyrd-company/airlock --working-tree .
 
 ## What the exit code means
 
-| Code | Outcome         | Meaning                                                  |
-| ---- | --------------- | -------------------------------------------------------- |
+| Code | Outcome         | Meaning                                                                 |
+| ---- | --------------- | ----------------------------------------------------------------------- |
 | `0`  | `conformant`    | Every question this run could settle was settled; the gate is satisfied |
-| `1`  | `nonconformant` | Every question this run could settle was settled; a gating rule failed |
-| `2`  | `incomplete`    | This run left a gating rule undecided, or never started    |
+| `1`  | `nonconformant` | Every question this run could settle was settled; a gating rule failed  |
+| `2`  | `incomplete`    | This run left a gating rule undecided, or never started                 |
 
 A rule behind a declared disclosure gate requires admin access to verify. It is
 reported `admin-only`, named as its own group, and counted against no exit code
@@ -185,10 +223,10 @@ commonly reported by shells as status 141.
 `airlock agent-work` uses the same numeric codes for a different, explicitly
 lane-scoped question:
 
-| Code | Outcome                   | Meaning                                                        |
-| ---- | ------------------------- | -------------------------------------------------------------- |
-| `0`  | `agent_lane_clear`        | No deterministic or judgment file failure remains              |
-| `1`  | `agent_lane_work_remains` | At least one deterministic or judgment file failure remains    |
+| Code | Outcome                   | Meaning                                                             |
+| ---- | ------------------------- | ------------------------------------------------------------------- |
+| `0`  | `agent_lane_clear`        | No deterministic or judgment file failure remains                   |
+| `1`  | `agent_lane_work_remains` | At least one deterministic or judgment file failure remains         |
 | `2`  | `could_not_settle`        | The audit left a gate-relevant question unanswered or could not run |
 
 Operator-setting failures are always counted and identified in
@@ -209,9 +247,9 @@ to verify), `error` (an API failure, with its cause).
 four leave the assertion undecided, and each one carries which kind of
 undecided it is.
 
-`unimplemented`, `inconclusive`, and `error` are *circumstantial*: this run did
+`unimplemented`, `inconclusive`, and `error` are _circumstantial_: this run did
 not establish what it can normally establish, so at a gating severity they make
-the whole audit incomplete. `admin-only` is *structural*: the registry
+the whole audit incomplete. `admin-only` is _structural_: the registry
 declares, per rule, a **disclosure gate** — a fact the platform reveals only to
 a grant the audit is not allowed to hold, plus the surface that verifies it
 instead. GitHub discloses merge settings only to `contents: write`
@@ -260,16 +298,15 @@ after it.
 Every registered rule declares, as compiled-in data, what closing its gap
 takes. Each finding carries that declaration in `remediation_class`: a stable
 code, what the change would be, whether it is reversible, and the lane it
-travels in — or `none_reason` when airlock offers no remediation. Airlock
-itself never performs any of them; the classification tells the consumer who
-can.
+travels in — or `none_reason` when airlock offers no remediation. The
+classification tells the consumer who can act and through which surface.
 
-| Lane                 | What it means                                                                                              | Who does the work                    |
-| -------------------- | ---------------------------------------------------------------------------------------------------------- | ------------------------------------ |
-| `deterministic-file` | The same gap resolves to the same file content in every repository                                          | Airlock authors locally; the caller delivers a PR |
-| `judgment-file`      | The fix is repository-specific file content — prose, or configuration wired to this repository's toolchain | An agent authors it; a human reviews |
-| `operator-setting`   | The fix sits behind the administration API, and `administration: write` is indivisible                     | A human, behind the TUI              |
-| *(none)*             | A human attestation, a fix outside the repository, or history surgery airlock will not automate            | Nobody — the reason says why         |
+| Lane                 | What it means                                                                                              | Who does the work                                 |
+| -------------------- | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| `deterministic-file` | The same gap resolves to the same file content in every repository                                         | Airlock authors locally; the caller delivers a PR |
+| `judgment-file`      | The fix is repository-specific file content — prose, or configuration wired to this repository's toolchain | An agent authors it; a human reviews              |
+| `operator-setting`   | The fix sits behind the administration API, and `administration: write` is indivisible                     | A human, behind the TUI                           |
+| _(none)_             | A human attestation, a fix outside the repository, or history surgery airlock will not automate            | Nobody — the reason says why                      |
 
 Lane is the only authorship gate. Mechanical evaluation is not enough:
 README presence, task wiring, job permissions, and other mechanically observed
@@ -311,6 +348,30 @@ there is no observed gap to propose a change for.
 `airlock plan` exits 0 whenever it could observe and render at all. It is not a
 second gate; `airlock audit` is the surface whose exit code carries the
 verdict.
+
+## Closing settings gaps
+
+The interactive terminal session is the only surface that holds the
+write-capable Airlock Admin credential. Opening a repository performs a fresh
+full observation. Applying a settings remediation then observes that rule
+again immediately before the request and once more afterwards. The transcript
+reports the request as one step, but derives pass or fail only from the final
+observation. An accepted request that leaves the setting unchanged remains a
+failure in the queue.
+
+The confirmation names the rule, remediation code, exact change, and
+reversibility before any request is sent. Input-free settings of the same kind
+can share one confirmation, but each retains its own pre-observation, request,
+post-observation, and transcript. Transfers, repository names, and ruleset
+choices are confirmed singly from values the session has freshly observed or
+the operator has explicitly entered. Airlock never guesses a target.
+
+GitHub does not reveal secret values. A credential rename that creates a new
+secret therefore opens the shared value- and length-hidden entry surface; the
+operator supplies the value immediately before confirming the named write.
+The value never enters the queue, confirmation, transcript, or any rendered
+frame, and airlock never claims it verified the value works. No settings flow
+writes a repository file.
 
 ## Closing file gaps
 
@@ -412,8 +473,8 @@ It expresses no logic of its own: the checks are the only place logic lives.
 ```yaml
 version: 1
 name: wyrd-company
-requires-registry: ">=0.2"    # the binary's registry must satisfy this
-gate: blocking                # which failing severities count: blocking | required
+requires-registry: ">=0.2" # the binary's registry must satisfy this
+gate: blocking # which failing severities count: blocking | required
 
 capabilities:
   base: [identity, licensing, files, git, automation]
@@ -422,7 +483,9 @@ capabilities:
 apply:
   base: always
   registry:
-    when: intentional-config-present
+    when:
+      property: release
+      value: "true"
 
 checks:
   REPO-META-06:
@@ -438,6 +501,13 @@ suppressions:
 reference-data:
   topics: wyrd-company/.github:airlock/topics.yml
 ```
+
+The custom-property condition binds the capability to organization-owned policy
+data. A matching value enables its rules, a different value skips them, and an
+unset value is reported as `capability_undeclared` for an operator decision.
+An unreadable value is `condition_undecided`, never a decision or a skip. The
+reference vocabulary defines `release`, `product`, `component`, and `website`;
+the policy selects which property and value govern each capability.
 
 Anything airlock does not recognise — an unknown key, section, rule id,
 parameter, severity, or condition — is an error, never a silently narrower
@@ -467,7 +537,7 @@ moved it:
 ```
 
 Suppression authority lives in the policy. An audited repository's
-`.github/airlock.yml` holds *requests*:
+`.github/airlock.yml` holds _requests_:
 
 ```yaml
 version: 1
@@ -486,8 +556,14 @@ Worked examples are in [`docs/examples/`](docs/examples/).
 
 ## Credentials
 
-Airlock reads a token from `--token`, `--token-file`, or `--token-stdin` first,
-then `AIRLOCK_TOKEN`, then the profile written by `airlock auth login`.
+Airlock has two credential paths. They share no code, no storage, and no
+identity, and neither can reach the other's.
+
+### The read path
+
+Every subcommand runs on it. Airlock reads a token from `--token`,
+`--token-file`, or `--token-stdin` first, then `AIRLOCK_TOKEN`, then the profile
+written by `airlock auth login`.
 
 It deliberately ignores `GH_TOKEN`, `GITHUB_TOKEN`, the `gh` credential store,
 and git credential helpers. A tool that refuses write access should not quietly
@@ -560,3 +636,77 @@ leave later and concurrent jobs with a stale token. The accepted trade-off is
 a long-lived token whose permissions are read-only by app registration and are
 verified again by Airlock before every audit. To rotate it, repeat the device
 flow and replace the repository secret.
+
+### The write path
+
+The interactive console runs on it, and reads with it too, so a session never
+acquires a second token.
+
+It has exactly one source: the GitHub App device flow, approved by you in a
+browser. There is no config file entry, no environment variable, and no
+command-line flag, because the type that holds the credential can be built from
+nothing else. Everything below is a property of the code rather than a policy
+it follows:
+
+- **It is never stored.** Not in a file, not in the environment, not in a child
+  process, and not after the session ends. Its bytes are overwritten when it
+  goes — wherever it is dropped, including on the way out of a session that has
+  already closed. A session leaves its home directory and its working directory
+  exactly as it found them; the suite runs one and watches both.
+- **No refresh token is kept.** GitHub sends one alongside the access token; it
+  is overwritten on arrival and never reaches the session.
+- **No child process is started**, so there is nothing to export it to. The
+  console does not open your browser for you, for exactly that reason.
+- **Its value is never displayed.** The sign-in screen shows the credential's
+  source and its grant, and nothing else. The interface is not given the
+  credential at all: it is told that one exists, and the type that draws names
+  nothing that could carry it.
+- **Nothing a server says is executed by your terminal.** Codes, addresses, and
+  error text are sanitized where they leave the network worker: control
+  characters, escape sequences, and bidirectional overrides are replaced, and
+  lengths are bounded.
+- **A scan code never points anywhere the response chose.** A scan code is
+  followed without being read, so one is drawn only for an address at the origin
+  airlock sent its own request to. Any other address is printed as the text it
+  is, and the screen says why it was not encoded.
+- **There is no subcommand and no flag** that acquires it, and none that
+  mutates. `--yes` exists on nothing.
+
+The grant is write-capable because applying a repository or organisation
+setting requires `administration: write`, which GitHub does not subdivide. That
+grant belongs to the interactive session alone. `airlock audit` refuses any
+token carrying write access, and does so before its first request.
+
+The accepted app is bound at compile time, by both its numeric id and its slug —
+an id survives a rename and a slug does not, so neither alone is sufficient. A
+runtime override would be a way to point airlock at an app of someone's
+choosing, which is the whole thing the binding prevents.
+
+| App           |    App id | Slug            | Client id              | Build                      |
+| ------------- | --------: | --------------- | ---------------------- | -------------------------- |
+| Airlock Admin | `4409767` | `airlock-admin` | `Iv23li6LeVszqbchI9Ah` | shipped                    |
+| Airlock Test  | `4419504` | `airlock-test`  | `Iv23liTl9KRNwxjFhrfA` | `--features test-identity` |
+
+**Airlock Test is a development affordance**, not a supported configuration. It
+is installed on `mmenm` only, and that bound is the point of it: while the
+aligning code is least trustworthy, a wrong repository selection cannot reach a
+production account, because the console's organization list is the set of
+reachable installations and no production account is on it. A shipped binary is
+built without the feature and contains no code, and no string, that could accept
+it; the test suite asserts that against the built artifact rather than against a
+setting.
+
+Airlock Admin's registered grant is:
+
+| Permission                       | Level |
+| -------------------------------- | ----- |
+| `metadata`                       | read  |
+| `actions`                        | read  |
+| `administration`                 | write |
+| `contents`                       | write |
+| `environments`                   | write |
+| `secrets`                        | write |
+| `variables`                      | write |
+| `organization_administration`    | write |
+| `organization_secrets`           | write |
+| `organization_custom_properties` | admin |

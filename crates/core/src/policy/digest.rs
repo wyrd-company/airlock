@@ -22,7 +22,7 @@ pub(super) fn bundle_digest(
         hasher.update(b"\x1f");
         hasher.update(rule.severity.code().as_bytes());
         hasher.update(b"\x1f");
-        hasher.update(rule.condition.code().as_bytes());
+        hasher.update(rule.condition.digest_identity().as_bytes());
         hasher.update(b"\x1f");
         hasher.update(
             serde_json::to_string(&rule.params)

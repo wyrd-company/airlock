@@ -1,0 +1,66 @@
+findings-withheld-fact-80x24-dark · 80x24 · theme dark · colour
+--- text ---
+AIRLOCK 0.0.0  … repositories › findings  no credential stored · theme t · dark 
+VERDICT  ✗ nonconformant   ALIGNED 1 of 2                                       
+  complete    true   every rule at a gating severity was decided                
+  conformant  false  1 rules at a gating severity ended in fail                 
+DECIDED · GATING    ✓ pass 1 · ✗ fail 1                                         
+DECIDED · INERT     ◆ manual 0 · ⊘ suppressed 0 · ○ skipped 0                   
+UNDECIDED                                                                       
+  ▢ unimplemented 0 · ◑ inconclusive 0 · ◍ admin-only 0 · ! error 0             
+  makes the run incomplete at a gating severity, unless the fact requires admin…
+groups        1:0 · 2:0 · 3:0 · 4:1 · 5:0 · 6:0 · 7:0 · 8:1                     
+showing       the whole working set · 2 of 2 · gate required · f                
+▸  - 1 AIRLOCK CLOSES THIS  0  no failing rule closes by a setting              
+   - 2 CLOSES BY PULL REQUEST — AGENT WORK  0  no failing rule closes by a file…
+  ┃- 3 NEEDS A DECISION  0  the repository declared everything airlock asked    
+  ┃- 4 NEEDS A JUDGMENT  1  rules a person must attest to                       
+  ▌ ██░  ✗    │   │ REPO-DOCS-05   fail          the condition REPO-DOCS-05 sta…
+                    docs · fact withheld for width · ↵ shows it whole           
+  ┃- 5 AIRLOCK COULD NOT ANSWER  0  every rule this run asked was answered      
+  ┃- 6 ADMIN-ONLY  0  no rule was withheld by a disclosure gate; this session's…
+   - 7 AUTHORIZED BUT NOT ALIGNED  0  the policy authorized no failure          
+   + 8 ALIGNED  1  passing rules, and rules skipped because a capability condit…
+0 above · 0 below · working set 2 of 2 · ↑↓ moves through the rest              
+↑↓/j/k move · space collapse or expand · ↵ finding detail · f filter · 8 more…  
+nonconformant · complete true · 2 rules · registry 0.4.0 · gate required        
+--- style keys ---
+aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+cccccccccdddddddddddddddeeeffffffffffffffggggggggggggggggggggggggggggggggggggggg
+ggggggggggggggggggggghhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhgggggggggggggggg
+ggggggggggggggggggggghhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhggggggggggggggggg
+iiiiiiiiiiiiiiiiiiiigggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+iiiiiiiiiiiiiiiiiiiigggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+iiiiiiiiiggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj
+eeeeeeeeeeeeeehhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhggggggggggggggggggggg
+eeeeeeeeeeeeeehhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhgggggggggggggggg
+cccccccccccccccccccccccccciiiiieeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeegggggggggggggg
+cccccccccccccccccccccccccccccccccccccccccciiiiieeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+kkkkkkkkkkkkkkkkkkkkkkkiiiiieeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeegggg
+kkkkkkkkkkkkkkkkkkkkkkkiiiiieeeeeeeeeeeeeeeeeeeeeeeeeeeeeggggggggggggggggggggggg
+kklggggglllgggmgggmggggggggggggggggllllllllllllllhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeggggggggggg
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkiiiiieeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeegggggg
+kkkkkkkkkkkkkkkkkiiiiieeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+ccccccccccccccccccccccccccccccccciiiiieeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeegggggggggg
+cccccccccccccciiiiieeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjgggggggggggggg
+kkkkkkghhhheeekkkkkghhhhhhhhhhhhhhhhhheeekghhhhhhhhhhhhhheeekghhhhhheeejjjjjjjgg
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn
+--- legend ---
+a fg=#CBD3DD bg=#14181D BOLD
+b fg=#CBD3DD bg=#14181D
+c fg=#CBD3DD bg=#0B0D10 BOLD
+d fg=#E05C58 bg=#0B0D10 BOLD
+e fg=#4C5661 bg=#0B0D10
+f fg=#5FB98A bg=#0B0D10 BOLD
+g fg=#CBD3DD bg=#0B0D10
+h fg=#79838F bg=#0B0D10
+i fg=#79838F bg=#0B0D10 BOLD
+j fg=#4C5661 bg=#0B0D10 ITALIC
+k fg=#E8B84B bg=#0B0D10 BOLD
+l fg=#E05C58 bg=#0B0D10
+m fg=#232A33 bg=#0B0D10
+n fg=#79838F bg=#101419

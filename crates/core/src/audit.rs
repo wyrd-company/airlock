@@ -159,6 +159,7 @@ pub async fn run<G: GitHub>(
     let branch = snapshot.repository.default_branch.clone();
     let commit = snapshot.commit.clone();
     let platform = PlatformData {
+        custom_property_values: observe_custom_property_values(client, owner, repo, policy).await,
         tags: client.tags(owner, repo).await,
         history: client
             .history(owner, repo, &commit, options.limits.max_history_commits)
@@ -216,6 +217,7 @@ async fn run_mixed<G: GitHub>(
     let workflows = parse_workflows(&snapshot, &workflow_paths.paths, options.limits);
 
     let platform = PlatformData {
+        custom_property_values: observe_custom_property_values(client, owner, repo, policy).await,
         tags: client.tags(owner, repo).await,
         history: client
             .history(
@@ -310,6 +312,7 @@ pub fn run_local(
     let workflows = parse_workflows(&snapshot, &workflow_paths.paths, options.limits);
 
     let platform = PlatformData {
+        custom_property_values: Err(not_observed_error("custom property values")),
         tags: Err(not_observed_error("tags")),
         history: Err(not_observed_error("history")),
         rulesets: Err(not_observed_error("rulesets")),
@@ -417,10 +420,29 @@ fn not_observed_error(subject: &str) -> ApiError {
 /// The platform-owned inputs of one run, however they were (or were not)
 /// gathered.
 struct PlatformData {
+    custom_property_values: std::result::Result<Vec<crate::github::CustomPropertyValue>, ApiError>,
     tags: std::result::Result<crate::github::Paged<crate::github::TagRef>, ApiError>,
     history: std::result::Result<crate::github::Paged<crate::github::CommitSummary>, ApiError>,
     rulesets: std::result::Result<crate::github::Paged<crate::github::Ruleset>, ApiError>,
     branch_rules: std::result::Result<crate::github::Paged<crate::github::BranchRule>, ApiError>,
+}
+
+async fn observe_custom_property_values<G: GitHub>(
+    client: &G,
+    owner: &str,
+    repo: &str,
+    policy: &ResolvedPolicy,
+) -> std::result::Result<Vec<crate::github::CustomPropertyValue>, ApiError> {
+    if policy.rules.iter().any(|rule| {
+        matches!(
+            rule.condition,
+            crate::policy::Condition::CustomProperty { .. }
+        )
+    }) {
+        client.custom_property_values(owner, repo).await
+    } else {
+        Ok(Vec::new())
+    }
 }
 
 /// Evaluate every enabled rule and assemble the report.
@@ -444,6 +466,7 @@ fn complete_run(
         limits: options.limits,
         workflows,
         workflows_truncated,
+        custom_property_values: platform.custom_property_values,
         tags: platform.tags,
         history: platform.history,
         rulesets: platform.rulesets,
@@ -805,6 +828,7 @@ mod tests {
             rules: Vec::new(),
             suppressions: Default::default(),
             reference_data: BTreeMap::new(),
+            capabilities: Vec::new(),
         };
         policy.suppressions.direct = direct;
         policy.suppressions.allow_repo_requests =

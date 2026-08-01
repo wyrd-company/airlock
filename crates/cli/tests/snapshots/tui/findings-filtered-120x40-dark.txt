@@ -1,0 +1,103 @@
+findings-filtered-120x40-dark · 120x40 · theme dark · colour
+--- text ---
+AIRLOCK 0.0.0  sign-in › organizations › repositories › findings   no credential stored · tty required · theme t · dark 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+RUN INCOMPLETE  complete is false, and no verdict below it can be certified                                             
+  ▢ REPO-CI-02     unimplemented registered and enabled, not yet evaluated                                              
+  ◑ REPO-REL-04    inconclusive  capability_undeclared: the repository has no organization custom property `release`; d…
+                                                                                                                        
+VERDICT  ◑ incomplete   ALIGNED 2 of 9                                                                                  
+  complete    false  2 rules at a gating severity ended undecided because this run fell short                           
+  conformant  false  2 rules at a gating severity ended in fail                                                         
+  unanswered  1      ended admin-only and are still undecided, so this verdict is not every rule having been decided    
+DECIDED · GATING    ✓ pass 1 · ✗ fail 2                                                                                 
+  counts toward the verdict                                                                                             
+DECIDED · INERT     ◆ manual 1 · ⊘ suppressed 1 · ○ skipped 1                                                           
+  never gates                                                                                                           
+UNDECIDED           ▢ unimplemented 1 · ◑ inconclusive 1 · ◍ admin-only 1 · ! error 0                                   
+  makes the run incomplete at a gating severity, unless the fact requires admin access to verify                        
+groups        1 settings 1 · 2 agent 1 · 3 decision 1 · 4 judgment 1 · 5 unanswered 1 · 6 admin-only 1 · 7 authorized 1 
+              · 8 aligned 2                                                                                             
+showing       gating failures · 2 of 9 shown · gate required · f selects one of five sets                               
+▸  - 1 AIRLOCK CLOSES THIS  1  settings-level changes applied from here; confirm rather than study                      
+  ▌ ███  ✗    │   │ REPO-GIT-01    fail          git            the condition REPO-GIT-01 states                        
+   - 2 CLOSES BY PULL REQUEST — AGENT WORK  1  file-level gaps an agent closes and a pull request delivers; shown only  
+  ▌ ██░  ✗    │   │ REPO-LIC-01    fail          licensing      pull request open · the condition REPO-LIC-01 states    
+  ┃- 3 NEEDS A DECISION  1  the repository has not declared what it is, so airlock cannot know what to apply            
+  ┃- 4 NEEDS A JUDGMENT  1  rules a person must attest to                                                               
+  ┃- 5 AIRLOCK COULD NOT ANSWER  1  the undecided lane; the remedy often sits outside the repository                    
+  ┃- 6 ADMIN-ONLY  1  facts that require admin access to verify, answered on the surface the gate names                 
+   - 7 AUTHORIZED BUT NOT ALIGNED  1  the policy permitted the failure; it did not close the gap, and the remediation i…
+   + 8 ALIGNED  2  passing rules, and rules skipped because a capability condition does not apply                       
+0 above · 0 below · working set 2 of 9 · ↑↓ moves through the rest                                                      
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓/j/k move · space collapse or expand · ↵ finding detail · f filter · a apply · A bulk apply · l flat list · 5 more…   
+incomplete · complete false · 9 rules · registry 0.4.0 · gate required                                                  
+--- style keys ---
+aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+ddddddddddddddddeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+fffffffffffffffffffffffffffffffffgggggggggggggggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+iiiiiiiiijjjjjjjjjjjjkkklllllllllllllleeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeggggggggggggggggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+mmmmmmmmmmmmmmmmmmmmmgggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggeeee
+nnnnnnnnnnnnnnnnnnnneeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+oooooooooooooooooooooooooooeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+nnnnnnnnnnnnnnnnnnnneeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+oooooooooooooeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+nnnnnnnnnnnnnnnnnnnneeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooeeeeeeeeeeeeeeeeeeeeeeee
+kkkkkkkkkkkkkkggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggge
+kkkkkkkkkkkkkkgggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+kkkkkkkkkkkkkkgggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+iiiiiiiiiiiiiiiiiiiiiiiiiinnnnnkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkeeeeeeeeeeeeeeeeeeeeee
+ppqeeeeeqqqeeereeereeeeeeeeeeeeeeeeqqqqqqqqqqqqqqkkkkkkkkkkkkkkkggggggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeee
+iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiinnnnnkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkee
+ppqeeeeeqqqeeereeereeeeeeeeeeeeeeeeqqqqqqqqqqqqqqkkkkkkkkkkkkkkkggggggggggggggggggggggggggggggggggggggggggggggggggggeeee
+pppppppppppppppppppppppnnnnnkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkeeeeeeeeeeee
+pppppppppppppppppppppppnnnnnkkkkkkkkkkkkkkkkkkkkkkkkkkkkkeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+pppppppppppppppppppppppppppppppnnnnnkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkeeeeeeeeeeeeeeeeeeee
+pppppppppppppppppnnnnnkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkeeeeeeeeeeeeeeeee
+iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiinnnnnkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk
+iiiiiiiiiiiiiinnnnnkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkeeeeeeeeeeeeeeeeeeeeeee
+ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+ppppppeggggkkkpppppeggggggggggggggggggkkkpeggggggggggggggkkkpeggggggkkkpegggggkkkpeggggggggggkkkpegggggggggkkkoooooooeee
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss
+--- legend ---
+a fg=#CBD3DD bg=#14181D BOLD
+b fg=#CBD3DD bg=#14181D
+c fg=#39434F bg=#0B0D10
+d fg=#E8843A bg=#0B0D10 BOLD
+e fg=#CBD3DD bg=#0B0D10
+f fg=#B79A5A bg=#0B0D10
+g fg=#79838F bg=#0B0D10
+h fg=#D9A441 bg=#0B0D10
+i fg=#CBD3DD bg=#0B0D10 BOLD
+j fg=#D9A441 bg=#0B0D10 BOLD
+k fg=#4C5661 bg=#0B0D10
+l fg=#5FB98A bg=#0B0D10 BOLD
+m fg=#4FA5A5 bg=#0B0D10
+n fg=#79838F bg=#0B0D10 BOLD
+o fg=#4C5661 bg=#0B0D10 ITALIC
+p fg=#E8B84B bg=#0B0D10 BOLD
+q fg=#E05C58 bg=#0B0D10
+r fg=#232A33 bg=#0B0D10
+s fg=#79838F bg=#101419

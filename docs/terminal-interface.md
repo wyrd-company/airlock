@@ -82,6 +82,13 @@ offers to draw it below the code instead, and states the width at which it
 would sit alongside. A partially drawn scan code is never rendered, because a
 code that cannot be scanned is worse than an address the operator types.
 
+Width and height are answered differently, and on purpose. A rendering too
+wide for the terminal cannot be drawn at all, so it is withheld. A reading
+longer than the terminal is tall is still entirely drawable, so it scrolls:
+the screen moves under the frame and states how many lines lie above the
+window and how many below. Nothing is shortened or dropped to make a reading
+fit a height.
+
 Type is monospaced throughout, and the device code is rendered in a face that
 distinguishes `0` from `O` and `1` from `l` and `I`.
 
@@ -92,17 +99,17 @@ three lanes, and the lane is a physical column position on every row that
 shows a status. Position carries the meaning; hue confirms it and never
 carries it alone.
 
-| Status | Glyph | Lane | Effect on the run |
-| --- | --- | --- | --- |
-| `pass` | `✓` | gating | Counts toward the verdict |
-| `fail` | `✗` | gating | Counts toward the verdict |
-| `manual` | `◆` | inert | Never gates, never affects completeness |
-| `suppressed` | `⊘` | inert | Never gates, never affects completeness |
-| `skipped` | `○` | inert | Never gates, never affects completeness |
-| `unimplemented` | `▢` | undecided | Makes the run incomplete at a gating severity |
-| `inconclusive` | `◑` | undecided | Makes the run incomplete at a gating severity |
-| `admin-only` | `◍` | undecided | Never affects completeness; the rule requires admin access to verify |
-| `error` | `!` | undecided | Makes the run incomplete at a gating severity |
+| Status          | Glyph | Lane      | Effect on the run                                                    |
+| --------------- | ----- | --------- | -------------------------------------------------------------------- |
+| `pass`          | `✓`   | gating    | Counts toward the verdict                                            |
+| `fail`          | `✗`   | gating    | Counts toward the verdict                                            |
+| `manual`        | `◆`   | inert     | Never gates, never affects completeness                              |
+| `suppressed`    | `⊘`   | inert     | Never gates, never affects completeness                              |
+| `skipped`       | `○`   | inert     | Never gates, never affects completeness                              |
+| `unimplemented` | `▢`   | undecided | Makes the run incomplete at a gating severity                        |
+| `inconclusive`  | `◑`   | undecided | Makes the run incomplete at a gating severity                        |
+| `admin-only`    | `◍`   | undecided | Never affects completeness; the rule requires admin access to verify |
+| `error`         | `!`   | undecided | Makes the run incomplete at a gating severity                        |
 
 The three lanes read as three shape families: the gating lane uses stroke
 marks, the inert lane uses closed outlines, and the undecided lane uses
@@ -165,10 +172,34 @@ have populated it, why it is empty, and what the operator can do next. Where
 an emptiness has more than one possible cause, all of the causes are listed,
 because an empty result cannot distinguish between them.
 
+## The copy action
+
+Two screens offer to copy a value: the finding detail copies the rule id, and
+the policy inspector copies the registry digest. This list is the whole
+copyable set: a screen gains a copyable value only by naming it here, so every
+copy travels the one reviewed path rather than constructing its own request. A
+copyable value is an identifier the operator will paste outside the session —
+never prose, never anything server-authored beyond the vetted identifiers, and
+never a credential, which is structural rather than promised: no credential is
+on any screen to copy.
+
+The copy is a request made to the terminal with the terminal's own clipboard
+facility. Airlock runs no subprocess to make it, and a terminal that does not
+carry the request out ignores it silently. The value being copied is
+therefore always printed on the screen in full as well, so the copy is a
+convenience and never the only way to obtain it.
+
+The interface reports the request and never the result. It states what it
+asked the terminal to hold, because whether the terminal complied is not
+something it can observe, and it does not claim observations it did not make.
+
 ## Screens
 
 Two keys are live on every screen in every state: `t` switches theme and
-`ctrl-c` exits. Each screen's keymap below lists the keys it adds, and names
+`ctrl-c` exits. `ctrl-c` is live without exception. While a text input holds
+focus, printable keys are text: `t` inserts a `t`, the keymap shows the input's
+own keys rather than advertising `t theme`, and the toggle returns when focus
+leaves the input. Each screen's keymap below lists the keys it adds, and names
 any state in which one of those keys is not live and why.
 
 ### Sign-in
@@ -193,8 +224,13 @@ The screen has five states:
   state, because there is not yet a code to reissue or to encode.
 - **Awaiting approval.** The code, the address, the polling interval, the
   attempt number, and the code's remaining validity are shown.
-- **Expired.** The code lapsed without approval. A new code is issued in
-  place; the session is not restarted and nothing else is lost.
+- **Expired.** The code lapsed without approval. GitHub is asked once more as
+  the validity runs out, so an approval given at the last moment is taken
+  rather than thrown away. A new code is issued in place; the session is not
+  restarted and nothing else is lost. An approval given to the lapsed code
+  after that does not carry over to its replacement, and the screen says so
+  rather than leaving an operator who has just approved in a browser waiting
+  on a flow that is no longer watching that code.
 - **Denied.** GitHub reported `access_denied` for the code. The screen states
   that the request was rejected in the browser or the account is not permitted
   to authorize the app, and that if this was not the operator, no action is
@@ -254,6 +290,9 @@ memory: opening a repository re-observes it in full.
 
 **Keymap.** `↑↓` select · `/` filter · `↵` observe · `esc` back.
 
+While the filter is focused, printable keys type into it, `esc` closes it, and
+`t` is not live as the theme toggle; the keymap says so.
+
 **Status line.** The count shown against the count available in the
 installation, and the note that prior verdicts are shown for orientation only.
 
@@ -300,7 +339,11 @@ its count and a one-line gloss of the work:
    agent work in flight from agent work not yet picked up. No action is offered
    on these rows.
 3. **Needs a decision.** The repository has not declared what it is, so airlock
-   cannot know what to apply.
+   cannot know what to apply. Each row names the organization-owned custom
+   property and the value the policy defines as the capability holding. The
+   operator may confirm that value from this group; the confirmation names the
+   property, value, organization, and audited repository before any request is
+   made.
 4. **Needs a judgment.** Rules a person must attest to.
 5. **Airlock could not answer.** The undecided lane. Blocks certification where
    the effective gate enforces the rule's severity, and the remedy often sits
@@ -329,7 +372,7 @@ A finding takes the first group it matches, tested in this order:
 
 1. `suppressed` → group 7.
 2. `admin-only` → group 6.
-3. `inconclusive` with `evidence.code` of `condition_undecided` → group 3.
+3. `inconclusive` with `evidence.code` of `capability_undeclared` → group 3.
 4. `unimplemented`, `inconclusive`, or `error` → group 5.
 5. `manual` → group 4.
 6. `pass` or `skipped` → group 8.
@@ -342,6 +385,15 @@ A finding takes the first group it matches, tested in this order:
 
 Only group 8 is done. Groups 3, 4, 5, and 6 are where the operator's attention
 goes.
+
+A confirmed capability decision writes the value to the organization's
+custom-property values, scoped to the audited repository — the property is the
+organization's object, not the repository's. The session re-observes the
+repository's property values after the request and derives the row and
+transcript status only from that observation. A successful request whose
+written value is absent or different on re-observation remains open and reports
+the observed discrepancy; an unreadable re-observation is
+`condition_undecided` and moves to **Airlock could not answer**.
 
 Each row carries its rule id, its severity bar, its three status lanes with
 the glyph in the lane its status belongs to, its status name, its statement,
@@ -366,19 +418,43 @@ it needs no action. No other group starts collapsed.
 
 A filter narrows the working set across all groups: the whole working set,
 gating failures, undecided, all failures, or inert. The filter changes what is
-shown; it never changes a count in a group heading.
+shown; it never changes a count in a group heading. It selects between the five
+named sets rather than taking text, so nothing here captures a printable key and
+both chrome surfaces go on offering every key they offer.
+
+The per-group counts are carried by a standing tally above the queue as well as
+by the headings, so scrolling never takes a count off the screen. The narrower
+reading keys that tally by group number, which every heading carries.
+
+Every group heading is drawn whatever the filter and whatever is collapsed, so
+every group is addressable and an empty one states what would have populated it
+rather than being absent. The queue scrolls under them, and says how many
+entries lie above the window, how many below it, and the size of the working set
+against the whole.
+
+A row is one line where the width carries its whole reading and two where it
+does not; the section and the row's own fact take the second line rather than
+being elided away. Where a row carries such a fact — a delivery state, the grant
+a gated fact requires, why airlock declares no remediation — the statement is
+what is shortened for room, never the fact. A fact the width cannot carry even
+alone is withheld and the row says so, never rendered partially; the finding
+detail always carries it whole.
 
 A secondary view lists every finding flat, ordered by rule id. Its purpose is
 lookup — a predictable address for every rule, for answering what airlock says
 about a given rule id. It is reached by keystroke and is labelled as a lookup
-view.
+view. The filter does not narrow it: an address is only predictable if every
+rule has one.
 
 **Keymap.** `↑↓`/`j`/`k` move · `space` collapse or expand the focused group ·
-`↵` finding detail · `f` filter · `a` apply, on group 1 rows only · `l` flat
-list by rule id · `p` policy inspector · `b` publishing bootstrap · `esc` back.
+`↵` finding detail · `f` filter · `a` apply the focused remediation, on group
+1 rows only · `A` apply its same-kind, input-free group · `l` flat list by rule
+id · `p` policy inspector · `b` publishing bootstrap · `esc` back.
 
-`a` is inert on every row outside group 1, and the status line says why rather
-than the key silently doing nothing.
+`a` and `A` are inert on every row outside group 1, and the status line says
+why rather than the key silently doing nothing. `A` is also inert when the
+focused remediation takes an input or no other open remediation has the same
+kind.
 
 **Status line.** The verdict, `complete` as a separate boolean, the rule count,
 the registry version, and the gate in force.
@@ -392,9 +468,11 @@ it would take.
 and a gate note stating whether this finding gates the run and why. Then the
 rule's statement, followed by:
 
-- **Evidence.** `evidence.code`, `evidence.path`, and `evidence.detail`. A rule
-  that could not be evaluated shows evidence as explicitly absent, with the
-  reason, rather than as blank.
+- **Evidence.** `evidence.code`, `evidence.path`, and `evidence.detail`.
+  `evidence.capability` is explicitly `null` unless the evidence carries an
+  undeclared capability's property and holding value. A rule that could not be
+  evaluated shows evidence as explicitly absent, with the reason, rather than
+  as blank.
 - **Error**, when the status is `error`. `error.cause`, `error.status`,
   `error.endpoint`, `error.request_id`, `error.message`,
   `accepted_permissions`, and `documentation_url`. The two 403s are separated
@@ -419,9 +497,24 @@ rule's statement, followed by:
 - **Effect on the run.** A sentence stating in plain terms what this status at
   this severity does to `complete` and to `conformant`.
 
-**Keymap.** `esc` back · `a` open the remediation transcript, where a
-remediation is on offer and its lane is `operator-setting` · `o` re-observe
-this rule · `y` copy the rule id.
+Every fact here is printed whole. This is the screen a fact the queue could
+not carry is read on, so nothing is shortened to fit a width and nothing is
+dropped to fit a height; where the reading is longer than the terminal is
+tall, the screen scrolls.
+
+Only the regions the finding has are drawn. A region is absent because the
+finding has no such fact, never because there was no room for it, and the
+regions that are always present — evidence, remediation, why the rule
+applies, and the effect on the run — state their own absence in the terms the
+emptiness rule requires rather than being omitted.
+
+**Keymap.** `esc` back · `↑↓` scroll · `a` open the remediation transcript,
+where a remediation is on offer and its lane is `operator-setting` · `o`
+re-observe this rule · `y` copy the rule id.
+
+`o` records the request and says so. It never reports a result it has not
+observed: what a re-observation concluded is shown when the observation
+returns, and not before.
 
 **Status line.** The finding's lane and gating effect, and for a suppressed
 finding, what authorized it.
@@ -441,19 +534,85 @@ airlock then sees. Status follows observation, never the request's success: a
 change that was accepted and did not close the gap is reported as still
 failing, and says why.
 
+**Inputs.** Most settings-level remediations name their entire change
+themselves; the confirmation is the only input. A remediation that cannot
+derive its target takes it here, before the confirmation, and the confirmation
+then names the operator's chosen input — verbatim for a choice or a text target,
+by name alone for a secret value. Three input surfaces exist, and no remediation
+defines a fourth:
+
+- **A choice from observed data.** Attaching organization rulesets selects from
+  the rulesets observed on the organization on entry, re-observed and never
+  remembered; where none matches, the offered creation carries the
+  policy-derived body, shown in full in the confirmation, and nothing here
+  authors a ruleset from typed text. Transferring a repository selects its
+  destination from the reachable installations — the same list the
+  Organizations screen shows — and never from typed text. An empty choice list
+  follows the Emptiness rule: it states what would have populated it and what
+  to do next, and the remediation is not applicable from this session until it
+  is non-empty.
+- **A text target.** A rename takes its new name in a focused text input,
+  prefilled with the derived candidate where one exists — the kebab-case of
+  the current name, the undotted form, the family-prefixed form. While the
+  input holds focus, printable keys are text, `esc` cancels, and `t` is not
+  live as the theme toggle, exactly as the repository filter behaves. A
+  candidate is validated before it is offered for confirmation: it must be a
+  name GitHub accepts, and it must itself satisfy the rule being remediated —
+  airlock does not apply a fix it can already observe failing.
+- **A secret value.** A secret-bearing remediation takes its value through the
+  shared secret-entry surface immediately before its single-item confirmation.
+  The focused input accepts printable text and paste as value input, `esc`
+  cancels, and `t` inserts text rather than toggling the theme. The value is
+  never rendered — not as entered text, replacement glyphs, or a length — and
+  only a fixed, value-independent entry indicator shows that the surface holds
+  input. The value exists only in the zeroizing entry buffer and the
+  credential-owning write path; it never enters a queue item, a confirmation,
+  a transcript, a snapshot, a log, a pane, or an error. Submitting an empty
+  value is refused without sending a request, and submitting a non-empty value
+  consumes the entry buffer into the pending write. Confirmation names the
+  target secret and states that the operator just supplied its value, but
+  neither carries the value nor implies that airlock can verify it works.
+
+**Ceremony scales with reversibility.** A reversible setting confirms once,
+naming what will change. A transfer is not undone from here — reversing it
+requires an admin of the destination — so its confirmation additionally
+requires the repository's name typed in full, and a transfer is never part of
+a bulk confirmation.
+
+**Bulk.** A bulk confirmation covers remediations of the same kind, none of
+which takes an input. Two remediations are the same kind when they change the
+same object: the fields of the repository's settings are one kind, however
+many rules they close. The default branch is a ref, not a settings field, and
+an organization ruleset is the organization's object, not the repository's, so
+each of those confirms alone whatever it takes as input. The confirmation
+names every change in the group in full. Each rule in the group keeps its own
+transcript lines and its own re-observation; bulk is one consent, never one
+observation. A remediation that takes an input is confirmed singly, because
+the input is the confirmation's substance.
+
 The screen states the boundary plainly: file-level gaps leave as a pull
 request. They are proposed for review and are never written to the default
-branch, and this interface does not author them. Settings-level fixes are
-applied directly, because they are not files. There is no exception: the
-interface writes no file, in any flow, at any point.
+branch. Settings-level fixes are applied directly, because they are not files.
+The sole file-write exception is the first commit of an empty repository: an
+empty repository has no branch against which a pull request can be opened, so
+the interactive session writes that branch-creating commit directly. The
+exception is the branch-creating commit, not a repository airlock created, an
+unprotected branch, or any later commit.
 
-Creating a repository is settings-level and is applied directly. Its first
-commit is not, and the interface does not make it. An empty repository has no
-branch to open a pull request against, so until a first commit exists the
-agentic path has nothing to deliver against. The screen names that step,
-states that it is performed outside this interface — by a person, or by the
-agentic path committing directly to the new repository — and re-observes until
-a default branch exists. The pull-request path resumes at that point.
+Repository scaffolding is align against the maximally unaligned case. The
+operator chooses the owner from the reachable installations — the same list the
+Organizations screen shows — names the repository in a focused text input,
+chooses its visibility and capability declarations, then confirms creation.
+Airlock creates the empty repository, resolves the owner's policy, and places
+the deterministic files its unconditional base profile requires in the single
+branch-creating commit. Each declared capability is written and settled exactly
+as a confirmed capability decision is — the same organization custom-property
+write, the same re-observation, the same discrepancy handling. Airlock ships no
+fallback policy or built-in scaffold. It immediately runs the ordinary audit
+against the new repository; settings that could not be applied during creation
+and every remaining file or judgment gap enter the ordinary remediation lanes.
+Once the default branch exists, every file-level change leaves as a pull
+request.
 
 A queue shows the remaining remediations with their rule ids and, for each,
 its remediation code, whether it is a file change or a setting, and how it
@@ -488,6 +647,13 @@ suppressions marked as policy-sourced rather than registry-sourced.
 A run provenance block repeats airlock's version, the registry version, the
 schema version, the audited commit, and the time the settings were observed.
 
+The digest, the sources, the run provenance, and the table are one reading and
+scroll as one. None of them is a decoration of the others: a table read
+without the digest is a list of rule ids, and a digest read without the table
+is a number. Where the reading is longer than the terminal is tall, `↑↓` moves
+the window over it and the screen states how many lines lie above and how many
+below.
+
 **Keymap.** `esc` back · `↑↓` move · `y` copy digest.
 
 **Status line.** The registry version, the abbreviated digest, the rule count,
@@ -503,23 +669,90 @@ accept a trusted publisher for a package that has never been published, so a
 token exists only to produce that first release, and that token is the thing
 the policy is trying to eliminate.
 
+The screen is opened for the repository the queue was observed from, and its
+targets are read from that repository: each declared release unit, crossed with
+the manifest observed at its path, is one package on one registry. A repository
+that declares more than one is read one target at a time, and the screen says
+which.
+
+A step's state is one of four, and the fourth is what keeps the sequence honest:
+
+- **done** — observation established that the step happened.
+- **live** — the step to act on now.
+- **blocked** — an earlier step has not happened, and the row names which.
+- **unobservable** — the step's completion is not a fact airlock can read, so
+  it is neither claimed nor denied. The row names why, from the registry's own
+  disclosure rather than from prose written here.
+
+These four are the bootstrap's own vocabulary, and none of them is a finding
+status: no step row carries one of the nine, no findings surface carries a step
+state, and the glyphs the steps use are not the finding glyphs.
+
+An unobservable step blocks nothing. `blocked` names an earlier step whose
+absence was observed; a step that is neither claimed nor denied is not one, so a
+later step's state is decided by its own observed facts. Step 5 goes live when
+the publication is observed and the credential still exists, whatever step 4
+reads.
+
 The five steps, each with a glyph, a state, and a note:
 
 1. **Mint a registry token.** Scoped to publishing this package. Airlock never
-   displays the value.
-2. **Set it as a repository secret.** Observed present; the value is not
-   readable back, by GitHub or by airlock.
+   displays the value, and no registry mints one headlessly before a trusted
+   publisher exists, so this step is a human instruction. The expiry to mint
+   with is seven days — short but comfortably longer than the time to first
+   publish, because too long leaves a live credential in a forgotten repository
+   and too short stalls the ceremony at its external step — and the screen names
+   both the number and the reasoning.
+   The step's own completion is unobservable — a minted token is the registry's,
+   not GitHub's — so the presence of the secret is the first observable fact.
+2. **Set it as a repository secret.** The token value is supplied through the
+   same shared secret-entry surface used by secret-bearing remediations and is
+   consumed by the repository-secret write only after the operator confirms
+   that named write. Completion is the re-observed presence of the secret; its
+   value is not readable back by GitHub or by airlock, and the interface does
+   not claim that the value works.
+   Setting the secret again is also how a token that died before the first
+   publish is replaced: the step is offered while the credential step is live,
+   whether or not the repository already holds the name, and the confirmation
+   says which of the two it is.
 3. **Wait for a release to run and publish.** The external step.
 4. **Configure the trusted publisher.** Binds the repository and workflow to
-   the package so publishing needs no token at all. Blocked by step 3.
+   the package so publishing needs no token at all. Blocked by step 3. Its
+   completion is readable on no registry airlock holds a credential for, so it
+   is `unobservable` except where a public credential-free signal says
+   otherwise — crates.io's `trustpub_only`, which when true proves the crate
+   refuses any publish that did not come through trusted publishing.
 5. **Revoke the token and delete the secret.** Blocked by step 4. The bootstrap
    is not conformant until the credential it created no longer exists.
+
+Two registries do not walk those five.
+
+- A registry that accepts a publisher before the package exists skips the
+  ceremony entirely, and the screen says so instead of drawing five steps that
+  do not apply. PyPI's pending publisher creates the project on first upload,
+  so there is no token to mint, set, or revoke.
+- GHCR's first publication is a different shape and is drawn as its own three
+  steps: the package is published private, then linked to the repository, then
+  made public. No credential is involved. The screen states what airlock can
+  read — visibility and linked repository, by name — and stops at the two moves
+  that have no endpoint: connecting a repository afterwards, and a visibility
+  flip that cannot be undone. It also names the move that collapses all three
+  into one, which is pushing the image carrying
+  `org.opencontainers.image.source` so the package is linked before it exists.
+
+Homebrew has no first publication to bootstrap: a tap is a git repository and
+publishing is a push, so there is no registry to trust anything.
 
 Position in the sequence is never remembered. On entry the interface
 re-observes the repository secret, the registry credential, and the package's
 publish history, and places the operator at the step those observations imply.
 The screen says so: closing the terminal does not lose progress, because
 nothing here is a saved wizard position.
+
+A read that did not answer is never drawn as an absence. A registry airlock
+could not reach leaves the publication `not established`, which is a different
+fact from a package that is not there, and the step it decides says
+`unobservable` rather than picking one.
 
 While step 3 is live, the screen names what it is waiting for, shows how long
 ago it last re-observed, and states that the step is an external event that may
@@ -528,26 +761,59 @@ take hours and that leaving is expected.
 An outstanding credential block is shown for as long as one exists: the secret
 name, its scope, when it was created, and the statement that its value is never
 displayed. It states that the credential exists solely to complete this
-bootstrap and that the flow is not conformant until it is gone.
+bootstrap and that the flow is not conformant until it is gone. It also states
+the one fact that is not observable at all: the token's expiry is the
+registry's and GitHub does not hold it, so airlock states that rather than
+inferring an interval it was not given.
 
-**Keymap.** `esc` back · `o` re-observe now.
+The whole reading — the five steps with their notes, the credential block, and
+the surface step 2 opens — is longer than the floor is tall, so it scrolls under
+the frame on the same terms as every other long reading. Nothing is shortened
+or dropped to make it fit. What step 2 is doing is drawn above the steps while
+it is doing it, so the surface taking the operator's input is never the part
+below the fold.
+
+**Keymap.** `esc` back, or leave the token surface without making a request ·
+`↑↓` move the window · `↵` supply the token value, and confirm the named write ·
+`tab` next publication target · `o` re-observe now.
+
+While the token surface holds focus the keys are the shared secret entry's own,
+and `t` is not live as the theme toggle, exactly as every other secret-bearing
+surface behaves.
+`↵` on a step that takes no value says why rather than silently doing nothing.
 
 **Status line.** The current step of five, what it is waiting on, and that the
 position was re-observed on entry.
 
 ## Mid-session expiry
 
-The grant lapses on GitHub's schedule, which can fall mid-session. When it
-does, the interface re-authorizes in place: the device flow is presented over
-the current screen rather than returning the operator to a launch state.
+The grant lapses on GitHub's schedule, which can fall mid-session. Its
+remaining validity is a session fact and is carried in the header — the
+standing line of session facts every screen shares — for as long as a grant is
+held, so the lapse is expected rather than sudden. A grant that states no
+expiry says so rather than showing a countdown: the interval is GitHub's to
+state, and airlock does not infer one it was not given.
+
+Expiry is observed rather than assumed — the stated validity running out, or a
+rejection of the credential in an observation airlock made. Either way the
+interface re-authorizes in place: the device flow is presented over the current
+screen, in the sign-in states, rather than returning the operator to a launch
+state. The keys are sign-in's own, and the credential the lapse ended is
+discarded at the boundary. Nothing is refreshed and nothing is stored; a new
+authorization is a new device approval, exactly as the first one was.
 
 Interface position is held across the boundary — the selected row, the active
 filters, the expanded and collapsed groups, and whether a detail pane was
-open — and the screen says what it is holding.
+open — and the screen says what it is holding. Position is an address: the
+installation and the repository the operator stood in, and where they stood
+inside the queue. Nothing observed at that address is held with it.
 
 No observation is reused across the boundary. Every visible row is re-observed
 once authorization returns, because an observation made under a grant that has
-since lapsed is not evidence of the present state.
+since lapsed is not evidence of the present state. A remediation in flight is
+not resumed: a partly applied queue is re-observed like everything else, and
+the transcript of what was applied does not survive the boundary, because it is
+a reading of a repository under a grant that has lapsed.
 
 `esc` abandons the re-authorization and exits.
 
@@ -574,6 +840,8 @@ Two vocabularies are adjacent and are not interchangeable:
 
 No token, secret, or key material appears on any screen, including the
 credential airlock itself holds. Only its grant and its source are shown.
+Secret entry does not weaken this rule: the surface renders only fixed,
+value-independent status and instruction text.
 
 Illustrative values — rule counts, digests, repository names, device codes,
 timestamps — are shapes, not fixtures. Any value the interface renders comes

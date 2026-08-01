@@ -7,8 +7,9 @@
 //! nothing read through it can pass a check.
 
 use super::{
-    ApiError, ApiResult, AuthenticatedUser, BranchRule, CommitSummary, ErrorCause, GitHub,
-    Installation, Paged, Repository, Ruleset, TagRef, Tree,
+    ApiError, ApiResult, AuthenticatedUser, BranchRule, CommitSummary, CustomPropertyValue,
+    ErrorCause, GitHub, Installation, InstallationRepositories, Paged, Repository, Ruleset, TagRef,
+    Tree,
 };
 
 /// A [`GitHub`] implementation with no credential and no network.
@@ -33,6 +34,14 @@ impl GitHub for Offline {
 
     async fn topics(&self, _owner: &str, _repo: &str) -> ApiResult<Vec<String>> {
         Err(refusal("topics"))
+    }
+
+    async fn custom_property_values(
+        &self,
+        _owner: &str,
+        _repo: &str,
+    ) -> ApiResult<Vec<CustomPropertyValue>> {
+        Err(refusal("custom property values"))
     }
 
     async fn resolve_commit(
@@ -81,6 +90,13 @@ impl GitHub for Offline {
 
     async fn user_installations(&self) -> ApiResult<Vec<Installation>> {
         Err(refusal("installations"))
+    }
+
+    async fn installation_repositories(
+        &self,
+        _installation_id: u64,
+    ) -> ApiResult<InstallationRepositories> {
+        Err(refusal("the repositories an installation reaches"))
     }
 
     async fn authenticated_user(&self) -> ApiResult<AuthenticatedUser> {

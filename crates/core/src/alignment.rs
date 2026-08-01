@@ -17,6 +17,52 @@ use crate::remediation::Lane;
 use crate::worktree::{self, WorkingTreeFacts, AUTHORIZATION_BEARING_PATHS};
 use crate::{Error, Result};
 
+/// One deterministic file suitable for the branch-creating commit of an empty
+/// repository.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScaffoldFile {
+    pub path: String,
+    pub contents: Vec<u8>,
+}
+
+/// Resolve the fixed-content deterministic files required by a policy's
+/// unconditional capability profile.
+///
+/// Repository-specific and destructive transformations are deliberately not
+/// expressible here. They remain ordinary audit gaps after the first commit.
+#[must_use]
+pub fn scaffold_files(policy: &crate::policy::ResolvedPolicy) -> Vec<ScaffoldFile> {
+    let mut files = BTreeMap::new();
+    for rule in policy
+        .rules
+        .iter()
+        .filter(|rule| rule.condition == crate::policy::Condition::Always)
+    {
+        let Some(definition) = crate::remediation::classify(rule.def.id)
+            .and_then(crate::remediation::Classification::remediation)
+            .filter(|definition| definition.lane == Lane::DeterministicFile)
+        else {
+            continue;
+        };
+        match deterministic_author(definition.code, rule.param_str("renovate-preset"), None)
+            .unwrap_or_else(|| {
+                panic!(
+                    "deterministic remediation `{}` has no scaffold author dispatch",
+                    definition.code
+                )
+            }) {
+            DeterministicAuthor::File(path, contents) => {
+                files.entry(path).or_insert(contents);
+            }
+            DeterministicAuthor::OrdinaryLane => {}
+        }
+    }
+    files
+        .into_iter()
+        .map(|(path, contents)| ScaffoldFile { path, contents })
+        .collect()
+}
+
 const APACHE_2_LICENSE: &str = include_str!("../../../LICENSE");
 const EDITORCONFIG: &str = "\
 root = true
@@ -402,36 +448,30 @@ fn author_for(code: &str, finding: &Finding, facts: &WorkingTreeFacts) -> Author
         .unwrap_or("(no path identified)");
     let fallback = || operation(fallback_path, OperationKind::Skip(String::new()));
     let operations = match code {
-        "add-license-file" => vec![operation(
-            "LICENSE",
-            OperationKind::Write(APACHE_2_LICENSE.into()),
-        )],
-        "add-gitattributes" => vec![operation(
-            ".gitattributes",
-            OperationKind::Write(
-                append_line_if_present(&facts.root, ".gitattributes", GITATTRIBUTES).into_bytes(),
-            ),
-        )],
-        "add-editorconfig" => vec![operation(
-            ".editorconfig",
-            OperationKind::Write(EDITORCONFIG.into()),
-        )],
-        "add-ci-workflow" => vec![operation(
-            ".github/workflows/ci.yml",
-            OperationKind::Write(CI_WORKFLOW.into()),
-        )],
-        "add-renovate-config" => vec![operation(
-            ".github/renovate.json",
-            OperationKind::Write(renovate_contents(finding, facts).into_bytes()),
-        )],
-        "add-audit-workflow" => vec![operation(
-            ".github/workflows/audit.yml",
-            OperationKind::Write(AUDIT_WORKFLOW.into()),
-        )],
-        "add-lefthook-config" => vec![operation(
-            ".config/lefthook.yml",
-            OperationKind::Write(LEFTHOOK.into()),
-        )],
+        code @ ("add-license-file"
+        | "add-gitattributes"
+        | "add-editorconfig"
+        | "add-ci-workflow"
+        | "add-renovate-config"
+        | "add-audit-workflow"
+        | "add-lefthook-config"
+        | "add-title-check") => deterministic_author(
+            code,
+            finding
+                .remediation
+                .as_ref()
+                .and_then(|remediation| remediation.detail.split('`').nth(1))
+                .or((code == "add-renovate-config").then_some("github>wyrd-company/.github")),
+            Some(&facts.root),
+        )
+        .and_then(|author| match author {
+            DeterministicAuthor::File(path, contents) => {
+                Some(operation(&path, OperationKind::Write(contents)))
+            }
+            DeterministicAuthor::OrdinaryLane => None,
+        })
+        .into_iter()
+        .collect(),
         "add-claude-symlink" => {
             if facts.root.join("AGENTS.md").is_file() {
                 vec![operation(
@@ -457,10 +497,6 @@ fn author_for(code: &str, finding: &Finding, facts: &WorkingTreeFacts) -> Author
             .filter(|path| facts.tree.entries.iter().any(|entry| entry.path == *path))
             .map(|path| operation(path, OperationKind::Remove))
             .collect(),
-        "add-title-check" => vec![operation(
-            ".github/workflows/pr-title.yml",
-            OperationKind::Write(TITLE_WORKFLOW.into()),
-        )],
         "add-unit-changelogs" => release_unit_paths(&facts.root)
             .into_iter()
             .map(|path| operation(&path, OperationKind::Write(CHANGELOG.into())))
@@ -504,28 +540,85 @@ fn author_for(code: &str, finding: &Finding, facts: &WorkingTreeFacts) -> Author
     )
 }
 
-fn append_line_if_present(root: &Path, path: &str, line: &str) -> String {
-    match fs::read_to_string(root.join(path)) {
-        Ok(mut text) => {
+enum DeterministicAuthor {
+    File(String, Vec<u8>),
+    OrdinaryLane,
+}
+
+fn deterministic_author(
+    code: &str,
+    renovate_preset: Option<&str>,
+    root: Option<&Path>,
+) -> Option<DeterministicAuthor> {
+    let fixed = |path: &str, contents: &str| {
+        Some(DeterministicAuthor::File(
+            path.to_owned(),
+            contents.as_bytes().to_vec(),
+        ))
+    };
+    match code {
+        "add-license-file" => fixed("LICENSE", APACHE_2_LICENSE),
+        "add-gitattributes" => Some(DeterministicAuthor::File(
+            ".gitattributes".to_owned(),
+            append_line_if_present(root, ".gitattributes", GITATTRIBUTES).into_bytes(),
+        )),
+        "add-editorconfig" => fixed(".editorconfig", EDITORCONFIG),
+        "add-ci-workflow" => fixed(".github/workflows/ci.yml", CI_WORKFLOW),
+        "add-renovate-config" => Some(renovate_preset.map_or(
+            DeterministicAuthor::OrdinaryLane,
+            |preset| {
+                DeterministicAuthor::File(
+                    ".github/renovate.json".to_owned(),
+                    renovate_contents(root, preset).into_bytes(),
+                )
+            },
+        )),
+        "add-audit-workflow" => fixed(".github/workflows/audit.yml", AUDIT_WORKFLOW),
+        "add-lefthook-config" => fixed(".config/lefthook.yml", LEFTHOOK),
+        "add-title-check" => fixed(".github/workflows/pr-title.yml", TITLE_WORKFLOW),
+        "remove-org-name-topics"
+        | "declare-merge-settings"
+        | "remove-visibility-field"
+        | "declare-package-license"
+        | "add-claude-symlink"
+        | "remove-agent-harness-config"
+        | "remove-codeowners"
+        | "set-include-dirs"
+        | "align-include-namespaces"
+        | "add-pull-request-trigger"
+        | "empty-workflow-permissions"
+        | "pin-actions-to-shas"
+        | "add-ci-concurrency-group"
+        | "supply-airlock-token"
+        | "add-tag-trigger"
+        | "add-push-trigger"
+        | "set-cd-concurrency"
+        | "configure-pre-commit-hook"
+        | "configure-commit-msg-hook"
+        | "configure-pre-push-hook"
+        | "add-unit-changelogs"
+        | "remove-root-changelog"
+        | "remove-custom-property-values" => Some(DeterministicAuthor::OrdinaryLane),
+        _ => None,
+    }
+}
+
+fn append_line_if_present(root: Option<&Path>, path: &str, line: &str) -> String {
+    match root.and_then(|root| fs::read_to_string(root.join(path)).ok()) {
+        Some(mut text) => {
             if !text.ends_with('\n') {
                 text.push('\n');
             }
             text.push_str(line);
             text
         }
-        Err(_) => line.to_owned(),
+        None => line.to_owned(),
     }
 }
 
-fn renovate_contents(finding: &Finding, facts: &WorkingTreeFacts) -> String {
-    let expected = finding
-        .remediation
-        .as_ref()
-        .and_then(|remediation| remediation.detail.split('`').nth(1))
-        .unwrap_or("github>wyrd-company/.github");
-    let path = facts.root.join(".github/renovate.json");
-    let mut value = fs::read_to_string(path)
-        .ok()
+fn renovate_contents(root: Option<&Path>, expected: &str) -> String {
+    let mut value = root
+        .and_then(|root| fs::read_to_string(root.join(".github/renovate.json")).ok())
         .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
         .unwrap_or_else(|| serde_json::json!({}));
     value["extends"] = serde_json::json!([expected]);
@@ -1261,6 +1354,77 @@ mod tests {
     };
     use crate::remediation;
 
+    #[test]
+    fn scaffold_files_include_only_fixed_deterministic_unconditional_rules() {
+        let rule = |id, condition| crate::policy::RuleInstance {
+            def: crate::registry::find(id).expect("registered rule"),
+            severity: crate::registry::Severity::Required,
+            params: BTreeMap::new(),
+            provenance: "capability:fixture".to_owned(),
+            condition,
+        };
+        let policy = crate::policy::ResolvedPolicy {
+            name: "fixture".to_owned(),
+            source: "fixture".to_owned(),
+            commit: None,
+            bundle_digest: "digest".to_owned(),
+            sources: Vec::new(),
+            gate: Gate::Blocking,
+            rules: vec![
+                rule("REPO-LIC-01", crate::policy::Condition::Always),
+                rule(
+                    "REPO-FILE-05",
+                    crate::policy::Condition::CustomProperty {
+                        name: "publishes".to_owned(),
+                        value: "true".to_owned(),
+                    },
+                ),
+            ],
+            suppressions: Default::default(),
+            reference_data: Default::default(),
+            capabilities: Vec::new(),
+        };
+        let files = scaffold_files(&policy);
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, "LICENSE");
+        assert_eq!(files[0].contents, APACHE_2_LICENSE.as_bytes());
+    }
+
+    #[test]
+    fn scaffolded_bytes_are_the_bytes_the_deterministic_author_would_write() {
+        let preset = "github>wyrd-company/.github";
+        let policy = crate::policy::ResolvedPolicy {
+            name: "fixture".to_owned(),
+            source: "fixture".to_owned(),
+            commit: None,
+            bundle_digest: "digest".to_owned(),
+            sources: Vec::new(),
+            gate: Gate::Blocking,
+            rules: vec![crate::policy::RuleInstance {
+                def: crate::registry::find("REPO-FILE-08").expect("registered rule"),
+                severity: crate::registry::Severity::Required,
+                params: BTreeMap::from([("renovate-preset".to_owned(), serde_json::json!(preset))]),
+                provenance: "fixture".to_owned(),
+                condition: crate::policy::Condition::Always,
+            }],
+            suppressions: Default::default(),
+            reference_data: Default::default(),
+            capabilities: Vec::new(),
+        };
+        let scaffolded = scaffold_files(&policy);
+        let directory = repository();
+        let facts = worktree::read_facts(directory.path()).unwrap();
+        let authored = report("REPO-FILE-08");
+        let operations =
+            author_for("add-renovate-config", &authored.findings[0], &facts).into_operations();
+        let OperationKind::Write(expected) = &operations[0].kind else {
+            panic!("renovate author did not produce a write")
+        };
+
+        assert_eq!(scaffolded[0].path, operations[0].path);
+        assert_eq!(&scaffolded[0].contents, expected);
+    }
+
     fn git(root: &Path, args: &[&str]) {
         let output = Command::new("git")
             .current_dir(root)
@@ -1336,6 +1500,16 @@ mod tests {
             .map(|definition| definition.code)
             .collect();
         assert_eq!(implemented_codes(), declared);
+    }
+
+    #[test]
+    fn every_deterministic_author_declares_its_scaffold_disposition() {
+        for code in implemented_codes() {
+            assert!(
+                deterministic_author(code, Some("generic-preset"), None).is_some(),
+                "{code} has no scaffold disposition"
+            );
+        }
     }
 
     #[test]

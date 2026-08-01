@@ -4,10 +4,15 @@
 //! reaches `api.github.com`.
 
 use airlock_core::auth::{verify, TokenKind, AIRLOCK_SAFE_APP_ID, AIRLOCK_SAFE_APP_SLUG};
-use airlock_core::github::{ErrorCause, GitHub, OAuthScopeHeader, RestClient, RestClientConfig};
+use airlock_core::github::{
+    AccountKind, ErrorCause, GitHub, OAuthScopeHeader, RepositorySelection, RestClient,
+    RestClientConfig,
+};
 use airlock_core::limits::Limits;
 use serde_json::{json, Value};
 use std::time::Duration;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
 use wiremock::matchers::{method, path, query_param, query_param_is_missing};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -47,6 +52,164 @@ fn quota_headers(template: ResponseTemplate) -> ResponseTemplate {
 // ---------------------------------------------------------------------------
 // Error taxonomy
 // ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn repository_custom_property_values_are_read_without_elision() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/repos/owner/name/properties/values"))
+        .respond_with(
+            quota_headers(ResponseTemplate::new(200)).set_body_json(json!([
+                {"property_name": "release", "value": "true"},
+                {"property_name": "product", "value": "sample-product"}
+            ])),
+        )
+        .mount(&server)
+        .await;
+
+    let values = client(&server)
+        .custom_property_values("owner", "name")
+        .await
+        .unwrap();
+    assert_eq!(values.len(), 2);
+    assert_eq!(values[0].property_name, "release");
+    assert_eq!(values[0].value.as_str(), Some("true"));
+    assert_eq!(values[1].property_name, "product");
+}
+
+#[tokio::test]
+async fn an_unrelated_null_custom_property_does_not_poison_the_read() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/repos/owner/name/properties/values"))
+        .respond_with(
+            quota_headers(ResponseTemplate::new(200)).set_body_json(json!([
+                {"property_name": "release", "value": "true"},
+                {"property_name": "unrelated", "value": null}
+            ])),
+        )
+        .mount(&server)
+        .await;
+
+    let values = client(&server)
+        .custom_property_values("owner", "name")
+        .await
+        .unwrap();
+    assert_eq!(values.len(), 2);
+    assert_eq!(values[0].value.as_str(), Some("true"));
+    assert_eq!(
+        values[1].value,
+        airlock_core::github::CustomPropertyValueKind::Null
+    );
+}
+
+#[tokio::test]
+async fn an_unrelated_multi_select_custom_property_does_not_poison_the_read() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/repos/owner/name/properties/values"))
+        .respond_with(
+            quota_headers(ResponseTemplate::new(200)).set_body_json(json!([
+                {"property_name": "release", "value": "true"},
+                {"property_name": "unrelated", "value": ["one", "two"]}
+            ])),
+        )
+        .mount(&server)
+        .await;
+
+    let values = client(&server)
+        .custom_property_values("owner", "name")
+        .await
+        .unwrap();
+    assert_eq!(values.len(), 2);
+    assert_eq!(values[0].value.as_str(), Some("true"));
+    assert_eq!(
+        values[1].value,
+        airlock_core::github::CustomPropertyValueKind::Strings(vec![
+            "one".to_owned(),
+            "two".to_owned()
+        ])
+    );
+}
+
+#[tokio::test]
+async fn an_idempotent_get_retries_one_transport_failure() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (first, _) = listener.accept().await.unwrap();
+        drop(first);
+
+        let (mut second, _) = listener.accept().await.unwrap();
+        let mut request = vec![0; 4096];
+        let size = second.read(&mut request).await.unwrap();
+        assert!(String::from_utf8_lossy(&request[..size]).starts_with("GET /user HTTP/1.1"));
+
+        let body = r#"{"login":"generic-user","id":1}"#;
+        let response = format!(
+            "HTTP/1.1 200 OK\r\ncontent-length: {}\r\nx-oauth-scopes: \r\nconnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        second.write_all(response.as_bytes()).await.unwrap();
+    });
+
+    let client = RestClient::new(
+        "ghu_fixture_token",
+        RestClientConfig {
+            base_url: format!("http://{address}"),
+            max_rate_limit_retries: 0,
+            ..RestClientConfig::default()
+        },
+    )
+    .unwrap();
+
+    let user = client.authenticated_user().await.unwrap();
+    assert_eq!(user.login, "generic-user");
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn a_get_gives_up_after_a_single_retry() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        for _ in 0..2 {
+            let (connection, _) = listener.accept().await.unwrap();
+            drop(connection);
+        }
+
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), listener.accept())
+                .await
+                .is_err(),
+            "the GET attempted more than its initial request and single retry"
+        );
+    });
+
+    let client = RestClient::new(
+        "ghu_fixture_token",
+        RestClientConfig {
+            base_url: format!("http://{address}"),
+            max_rate_limit_retries: 0,
+            ..RestClientConfig::default()
+        },
+    )
+    .unwrap();
+
+    let error = tokio::time::timeout(Duration::from_secs(2), client.authenticated_user())
+        .await
+        .expect("the GET stops after its single retry")
+        .expect_err("both transport attempts fail");
+    assert_eq!(error.cause, ErrorCause::Transport);
+    assert!(
+        error
+            .message
+            .as_deref()
+            .is_some_and(|message| message.contains("after one transport retry")),
+        "the error preserves that the request was already retried: {error}"
+    );
+    server.await.unwrap();
+}
 
 #[tokio::test]
 async fn a_permission_403_names_the_permission_the_endpoint_wanted() {
@@ -353,11 +516,8 @@ async fn a_blob_is_decoded_from_base64() {
 async fn a_repository_without_tags_answers_an_empty_list_rather_than_failing() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/repos/owner/name/git/refs/tags"))
-        .respond_with(
-            quota_headers(ResponseTemplate::new(404))
-                .set_body_json(json!({ "message": "Not Found" })),
-        )
+        .and(path("/repos/owner/name/git/matching-refs/tags/"))
+        .respond_with(quota_headers(ResponseTemplate::new(200)).set_body_json(json!([])))
         .mount(&server)
         .await;
 
@@ -694,7 +854,7 @@ async fn a_tag_listing_stopped_at_the_page_budget_says_so() {
     let server = MockServer::start().await;
     mount_two_pages(
         &server,
-        "/repos/owner/name/git/refs/tags",
+        "/repos/owner/name/git/matching-refs/tags/",
         json!([{ "ref": "refs/tags/1.0.0", "object": { "sha": "a" } }]),
         // The `v`-prefixed tag lives on the page a one-page budget never sees.
         json!([{ "ref": "refs/tags/v2.0.0", "object": { "sha": "b" } }]),
@@ -726,8 +886,20 @@ async fn a_ruleset_listing_stopped_at_the_page_budget_says_so() {
     mount_two_pages(
         &server,
         "/repos/owner/name/rulesets",
-        json!([{ "id": 1, "name": "repo-local", "source_type": "Repository" }]),
-        json!([{ "id": 2, "name": "org-wide", "source_type": "Organization" }]),
+        json!([{
+            "id": 1,
+            "name": "repo-local",
+            "source_type": "Repository",
+            "target": "branch",
+            "enforcement": "active"
+        }]),
+        json!([{
+            "id": 2,
+            "name": "org-wide",
+            "source_type": "Organization",
+            "target": "branch",
+            "enforcement": "active"
+        }]),
     )
     .await;
 
@@ -752,7 +924,10 @@ async fn a_branch_rule_listing_stopped_at_the_page_budget_says_so() {
     mount_two_pages(
         &server,
         "/repos/owner/name/rules/branches/main",
-        json!([{ "type": "pull_request", "parameters": {} }]),
+        json!([{
+            "type": "pull_request",
+            "parameters": { "allowed_merge_methods": ["squash", "rebase"] }
+        }]),
         json!([{ "type": "required_linear_history", "parameters": {} }]),
     )
     .await;
@@ -914,8 +1089,19 @@ async fn a_malformed_ruleset_fails_the_listing() {
         .and(path("/repos/owner/name/rulesets"))
         .respond_with(
             quota_headers(ResponseTemplate::new(200)).set_body_json(json!([
-                { "id": 1, "name": "fine", "source_type": "Repository" },
-                { "id": 2, "source_type": "Organization" }
+                {
+                    "id": 1,
+                    "name": "fine",
+                    "source_type": "Repository",
+                    "target": "branch",
+                    "enforcement": "active"
+                },
+                {
+                    "id": 2,
+                    "source_type": "Organization",
+                    "target": "branch",
+                    "enforcement": "active"
+                }
             ])),
         )
         .mount(&server)
@@ -926,10 +1112,60 @@ async fn a_malformed_ruleset_fails_the_listing() {
 }
 
 #[tokio::test]
+async fn absent_ruleset_verdict_fields_fail_the_listing() {
+    for field in ["source_type", "target", "enforcement"] {
+        let server = MockServer::start().await;
+        let mut ruleset = json!({
+            "id": 1,
+            "name": "org-default",
+            "source_type": "Organization",
+            "target": "branch",
+            "enforcement": "active"
+        });
+        ruleset.as_object_mut().unwrap().remove(field);
+        Mock::given(method("GET"))
+            .and(path("/repos/owner/name/rulesets"))
+            .respond_with(quota_headers(ResponseTemplate::new(200)).set_body_json(json!([ruleset])))
+            .mount(&server)
+            .await;
+
+        let error = client(&server).rulesets("owner", "name").await.unwrap_err();
+        assert_eq!(error.cause, ErrorCause::Malformed, "{field}");
+        assert!(error.to_string().contains(field), "{field}: {error}");
+    }
+}
+
+#[tokio::test]
+async fn a_pull_request_rule_without_merge_method_evidence_fails_the_listing() {
+    for parameters in [None, Some(json!({})), Some(Value::Null)] {
+        let server = MockServer::start().await;
+        let mut rule = json!({
+            "type": "pull_request",
+            "ruleset_source_type": "Organization"
+        });
+        if let Some(parameters) = parameters {
+            rule["parameters"] = parameters;
+        }
+        Mock::given(method("GET"))
+            .and(path("/repos/owner/name/rules/branches/main"))
+            .respond_with(quota_headers(ResponseTemplate::new(200)).set_body_json(json!([rule])))
+            .mount(&server)
+            .await;
+
+        let error = client(&server)
+            .branch_rules("owner", "name", "main")
+            .await
+            .unwrap_err();
+        assert_eq!(error.cause, ErrorCause::Malformed);
+        assert!(error.to_string().contains("allowed_merge_methods"));
+    }
+}
+
+#[tokio::test]
 async fn a_malformed_tag_fails_the_listing() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/repos/owner/name/git/refs/tags"))
+        .and(path("/repos/owner/name/git/matching-refs/tags/"))
         .respond_with(
             quota_headers(ResponseTemplate::new(200)).set_body_json(json!([
                 { "ref": "refs/tags/1.0.0", "object": { "sha": "a" } },
@@ -1094,5 +1330,285 @@ async fn a_response_that_never_arrives_is_abandoned_at_the_request_timeout() {
     assert!(
         started.elapsed() < Duration::from_secs(5),
         "the request should have been abandoned promptly"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// The installation catalogue the console selects from
+// ---------------------------------------------------------------------------
+
+fn scoped_installation(id: u64, account_type: &str, selection: &str) -> Value {
+    json!({
+        "id": id,
+        "app_id": AIRLOCK_SAFE_APP_ID,
+        "app_slug": AIRLOCK_SAFE_APP_SLUG,
+        "account": { "login": format!("account-{id}"), "type": account_type },
+        "repository_selection": selection,
+        "permissions": { "metadata": "read" },
+    })
+}
+
+async fn mount_installation_repos(server: &MockServer, id: u64, page: &str, body: Value) {
+    let route = format!("/user/installations/{id}/repositories");
+    let mut template = quota_headers(ResponseTemplate::new(200)).set_body_json(body);
+    if page == "1" {
+        template = template.insert_header(
+            "link",
+            format!("<{}{route}?page=2>; rel=\"next\"", server.uri()).as_str(),
+        );
+    }
+    let mock = Mock::given(method("GET")).and(path(route));
+    let mock = if page == "1" {
+        mock.and(query_param_is_missing("page"))
+    } else {
+        mock.and(query_param("page", page))
+    };
+    mock.respond_with(template).mount(server).await;
+}
+
+fn listed_repository(owner: &str, name: &str, visibility: &str) -> Value {
+    json!({
+        "id": 41,
+        "full_name": format!("{owner}/{name}"),
+        "name": name,
+        "owner": { "login": owner },
+        "visibility": visibility,
+        "default_branch": "main",
+    })
+}
+
+#[tokio::test]
+async fn an_installation_reports_its_account_kind_and_its_repository_selection() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/user/installations"))
+        .respond_with(
+            quota_headers(ResponseTemplate::new(200)).set_body_json(json!({
+                "total_count": 3,
+                "installations": [
+                    scoped_installation(1, "Organization", "all"),
+                    scoped_installation(2, "User", "selected"),
+                    scoped_installation(3, "Enterprise", "something-new"),
+                ]
+            })),
+        )
+        .mount(&server)
+        .await;
+
+    let installations = client(&server).user_installations().await.unwrap();
+    assert_eq!(installations[0].account_kind, AccountKind::Organization);
+    assert_eq!(
+        installations[0].repository_selection,
+        RepositorySelection::All
+    );
+    assert_eq!(installations[1].account_kind, AccountKind::UserAccount);
+    assert_eq!(
+        installations[1].repository_selection,
+        RepositorySelection::Selected
+    );
+    // A kind airlock does not recognise is an unread kind, and is never
+    // rounded down to the commoner of the two it does recognise.
+    assert_eq!(installations[2].account_kind, AccountKind::Unrecognised);
+    assert_eq!(
+        installations[2].repository_selection,
+        RepositorySelection::Unrecognised
+    );
+}
+
+#[tokio::test]
+async fn an_installation_with_no_stated_kind_is_unrecognised_rather_than_a_user() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/user/installations"))
+        .respond_with(
+            quota_headers(ResponseTemplate::new(200)).set_body_json(json!({
+                "total_count": 1,
+                "installations": [installation(1, AIRLOCK_SAFE_APP_SLUG, &[("metadata", "read")])]
+            })),
+        )
+        .mount(&server)
+        .await;
+
+    let installations = client(&server).user_installations().await.unwrap();
+    assert_eq!(installations[0].account_kind, AccountKind::Unrecognised);
+    assert_eq!(
+        installations[0].repository_selection,
+        RepositorySelection::Unrecognised
+    );
+}
+
+#[tokio::test]
+async fn an_installations_repositories_are_listed_with_the_count_github_reports() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .respond_with(
+            quota_headers(ResponseTemplate::new(200)).set_body_json(json!({
+                "total_count": 2,
+                "repository_selection": "selected",
+                "repositories": [
+                    listed_repository("acme-industries", "widget", "public"),
+                    listed_repository("acme-industries", "sprocket", "private"),
+                ]
+            })),
+        )
+        .mount(&server)
+        .await;
+
+    let listing = client(&server).installation_repositories(7).await.unwrap();
+    let requests = server.received_requests().await.unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(
+        requests[0].url.path(),
+        "/user/installations/7/repositories",
+        "the request path must match GitHub's documented endpoint literally"
+    );
+    assert_eq!(listing.total_count, 2);
+    assert!(!listing.truncated);
+    assert_eq!(listing.repositories[0].full_name, "acme-industries/widget");
+    assert_eq!(listing.repositories[0].owner, "acme-industries");
+    assert_eq!(listing.repositories[0].visibility, "public");
+    assert_eq!(
+        listing.repositories[0].default_branch.as_deref(),
+        Some("main")
+    );
+    assert_eq!(listing.repositories[1].visibility, "private");
+}
+
+#[tokio::test]
+async fn a_repository_with_no_default_branch_reports_none_rather_than_a_name() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/user/installations/7/repositories"))
+        .respond_with(
+            quota_headers(ResponseTemplate::new(200)).set_body_json(json!({
+                "total_count": 1,
+                "repositories": [{
+                    "id": 9,
+                    "full_name": "acme-industries/fresh",
+                    "name": "fresh",
+                    "owner": { "login": "acme-industries" },
+                    "visibility": "private",
+                }]
+            })),
+        )
+        .mount(&server)
+        .await;
+
+    let listing = client(&server).installation_repositories(7).await.unwrap();
+    assert_eq!(listing.repositories[0].default_branch, None);
+}
+
+#[tokio::test]
+async fn every_page_of_an_installations_repositories_is_walked() {
+    let server = MockServer::start().await;
+    mount_installation_repos(
+        &server,
+        7,
+        "1",
+        json!({
+            "total_count": 2,
+            "repositories": [listed_repository("acme-industries", "widget", "public")]
+        }),
+    )
+    .await;
+    mount_installation_repos(
+        &server,
+        7,
+        "2",
+        json!({
+            "total_count": 2,
+            "repositories": [listed_repository("acme-industries", "sprocket", "internal")]
+        }),
+    )
+    .await;
+
+    let listing = client(&server).installation_repositories(7).await.unwrap();
+    assert_eq!(listing.repositories.len(), 2);
+    assert!(!listing.truncated);
+    // The count is the first page's answer, not the sum of the pages.
+    assert_eq!(listing.total_count, 2);
+}
+
+#[tokio::test]
+async fn a_listing_that_runs_past_the_page_budget_says_it_is_a_prefix() {
+    let server = MockServer::start().await;
+    mount_installation_repos(
+        &server,
+        7,
+        "1",
+        json!({
+            "total_count": 400,
+            "repositories": [listed_repository("acme-industries", "widget", "public")]
+        }),
+    )
+    .await;
+
+    let listing = client_with_page_budget(&server, 1)
+        .installation_repositories(7)
+        .await
+        .unwrap();
+    assert!(
+        listing.truncated,
+        "a prefix that did not say so would let a screen conclude absence from it"
+    );
+    assert_eq!(listing.total_count, 400);
+    assert_eq!(listing.repositories.len(), 1);
+}
+
+#[tokio::test]
+async fn a_repository_airlock_cannot_read_is_a_malformed_response_rather_than_one_fewer() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/user/installations/7/repositories"))
+        .respond_with(
+            quota_headers(ResponseTemplate::new(200)).set_body_json(json!({
+                "total_count": 1,
+                "repositories": [{ "id": 9, "owner": { "login": "acme-industries" } }]
+            })),
+        )
+        .mount(&server)
+        .await;
+
+    let error = client(&server)
+        .installation_repositories(7)
+        .await
+        .unwrap_err();
+    assert_eq!(error.cause, ErrorCause::Malformed);
+}
+
+#[tokio::test]
+async fn a_client_that_refuses_redirects_never_carries_its_credential_to_another_host() {
+    // The console's client holds a write-capable credential, so a redirect is
+    // the server choosing where that credential goes next.
+    let elsewhere = MockServer::start().await;
+    Mock::given(method("GET"))
+        .respond_with(
+            quota_headers(ResponseTemplate::new(200))
+                .set_body_json(json!({ "total_count": 0, "repositories": [] })),
+        )
+        .mount(&elsewhere)
+        .await;
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/user/installations/7/repositories"))
+        .respond_with(ResponseTemplate::new(302).insert_header(
+            "location",
+            format!("{}/user/installations/7/repositories", elsewhere.uri()).as_str(),
+        ))
+        .mount(&server)
+        .await;
+
+    let refusing = client_with(&server, RestClientConfig::default().refusing_redirects());
+    refusing
+        .installation_repositories(7)
+        .await
+        .expect_err("a redirect is not a listing");
+    assert!(
+        elsewhere
+            .received_requests()
+            .await
+            .unwrap_or_default()
+            .is_empty(),
+        "the client followed a redirect off the host it was pointed at"
     );
 }

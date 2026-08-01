@@ -1,0 +1,61 @@
+finding-detail-80x24-dark · 80x24 · theme dark · colour
+--- text ---
+AIRLOCK 0.0.0  …indings › finding detail  no credential stored · theme t · dark 
+NO FINDING SELECTED                                                             
+would show    one rule in full: its statement, its evidence, any error or       
+              suppression, the remediation on offer, why the rule applies, and  
+              what this status at this severity does to the run.                
+empty because this screen is opened from a finding, and the queue's focus is on 
+              a group heading rather than on a row — or no repository has been  
+              observed in this session yet.                                     
+next          press esc to return to the queue, move onto a row, and press ↵.   
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+esc back · a remediation transcript · o re-observe this rule · 3 more…          
+no repository observed · this shell renders the frame only · tty required       
+--- style keys ---
+aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+cccccccccccccccccccddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+eeeeeeeeeeeeeefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffddddddd
+eeeeeeeeeeeeeeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffdd
+eeeeeeeeeeeeeeffffffffffffffffffffffffffffffffffffffffffffffffffdddddddddddddddd
+eeeeeeeeeeeeeefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffd
+eeeeeeeeeeeeeeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffdd
+eeeeeeeeeeeeeefffffffffffffffffffffffffffffddddddddddddddddddddddddddddddddddddd
+eeeeeeeeeeeeeefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+gggdffffeeegdffffffffffffffffffffffeeegdffffffffffffffffffffeeehhhhhhhdddddddddd
+iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii
+--- legend ---
+a fg=#CBD3DD bg=#14181D BOLD
+b fg=#CBD3DD bg=#14181D
+c fg=#CBD3DD bg=#0B0D10 BOLD
+d fg=#CBD3DD bg=#0B0D10
+e fg=#4C5661 bg=#0B0D10
+f fg=#79838F bg=#0B0D10
+g fg=#E8B84B bg=#0B0D10 BOLD
+h fg=#4C5661 bg=#0B0D10 ITALIC
+i fg=#79838F bg=#101419

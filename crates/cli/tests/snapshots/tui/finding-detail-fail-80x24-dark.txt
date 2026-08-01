@@ -1,0 +1,64 @@
+finding-detail-fail-80x24-dark · 80x24 · theme dark · colour
+--- text ---
+AIRLOCK 0.0.0  …indings › finding detail  no credential stored · theme t · dark 
+▌ REPO-GIT-01   ✗    │   │  fail  ███ blocking                                  
+gates the run: fail at blocking severity, which the required gate enforces      
+                                                                                
+the condition REPO-GIT-01 states                                                
+                                                                                
+EVIDENCE                                                                        
+evidence.code         branch_unprotected                                        
+evidence.path         null                                                      
+evidence.detail       no ruleset applies                                        
+evidence.capability   null                                                      
+                                                                                
+REMEDIATION                                                                     
+remediation.code      tighten_ruleset                                           
+remediation.detail    Protect the default branch with a ruleset that requires a 
+                      pull request.                                             
+remediation_class                                                               
+  code                set-default-branch-main                                   
+  change              Rename the default branch to `main`.                      
+  lane                operator-setting                                          
+  reversible          yes                                                       
+— 0 lines above · 21 below · ↑↓ moves the window —                              
+esc back · a remediation transcript · o re-observe this rule · 3 more…          
+decided · gating · gates the run                                                
+--- style keys ---
+aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+cdeeeeeeeeeeeddcccdddfdddfddggggddddddhhhhhhhhdddddddddddddddddddddddddddddddddd
+hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhdddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+iiiiiiiidddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+jjjjjjjjjjjjjjjjjjjjjjhhhhhhhhhhhhhhhhhhdddddddddddddddddddddddddddddddddddddddd
+jjjjjjjjjjjjjjjjjjjjjjhhhhdddddddddddddddddddddddddddddddddddddddddddddddddddddd
+jjjjjjjjjjjjjjjjjjjjjjhhhhhhhhhhhhhhhhhhdddddddddddddddddddddddddddddddddddddddd
+jjjjjjjjjjjjjjjjjjjjjjhhhhdddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+iiiiiiiiiiiddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+jjjjjjjjjjjjjjjjjjjjjjhhhhhhhhhhhhhhhddddddddddddddddddddddddddddddddddddddddddd
+jjjjjjjjjjjjjjjjjjjjjjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhd
+jjjjjjjjjjjjjjjjjjjjjjhhhhhhhhhhhhhddddddddddddddddddddddddddddddddddddddddddddd
+jjjjjjjjjjjjjjjjjddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+jjjjjjjjjjjjjjjjjjjjjjhhhhhhhhhhhhhhhhhhhhhhhddddddddddddddddddddddddddddddddddd
+jjjjjjjjjjjjjjjjjjjjjjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhdddddddddddddddddddddd
+jjjjjjjjjjjjjjjjjjjjjjhhhhhhhhhhhhhhhhdddddddddddddddddddddddddddddddddddddddddd
+jjjjjjjjjjjjjjjjjjjjjjhhhddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjdddddddddddddddddddddddddddddd
+eeedhhhhjjjedhhhhhhhhhhhhhhhhhhhhhhjjjedhhhhhhhhhhhhhhhhhhhhjjjkkkkkkkdddddddddd
+llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+--- legend ---
+a fg=#CBD3DD bg=#14181D BOLD
+b fg=#CBD3DD bg=#14181D
+c fg=#E05C58 bg=#0B0D10
+d fg=#CBD3DD bg=#0B0D10
+e fg=#E8B84B bg=#0B0D10 BOLD
+f fg=#232A33 bg=#0B0D10
+g fg=#E05C58 bg=#0B0D10 BOLD
+h fg=#79838F bg=#0B0D10
+i fg=#CBD3DD bg=#0B0D10 BOLD
+j fg=#4C5661 bg=#0B0D10
+k fg=#4C5661 bg=#0B0D10 ITALIC
+l fg=#79838F bg=#101419

@@ -131,11 +131,37 @@ async fn agent_work_json(repo: FakeRepo, policy: &str, exit_code: i32) -> Value 
 // ---------------------------------------------------------------------------
 
 #[test]
-fn bare_invocation_exits_two_and_says_why() {
-    offline()
+fn bare_invocation_under_a_pipe_refuses_before_rendering_anything() {
+    // assert_cmd captures both streams, so this run is exactly the pipe,
+    // redirect, or scheduler case: neither stdin nor stdout is a terminal.
+    let assertion = offline()
         .assert()
         .code(2)
-        .stderr(contains("TUI not yet available; use a subcommand."));
+        .stderr(contains("airlock requires an interactive terminal"))
+        .stderr(contains("airlock audit"));
+    let output = assertion.get_output();
+    // Nothing is drawn: no alternate screen, no raw mode, no cursor move.
+    assert!(output.stdout.is_empty(), "the console wrote to stdout");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains('\u{1b}'),
+        "the console emitted escapes: {stderr}"
+    );
+}
+
+#[test]
+fn no_subcommand_reaches_the_console() {
+    // The mutating surface has no subcommand, so an agent holding this binary
+    // has nothing to invoke. Help is the whole surface, and the console is not
+    // in it.
+    let assertion = offline().arg("--help").assert().success();
+    let help = String::from_utf8_lossy(&assertion.get_output().stdout).to_lowercase();
+    for word in ["tui", "console", "interactive"] {
+        assert!(
+            !help.contains(word),
+            "`{word}` appears in the command surface"
+        );
+    }
 }
 
 #[test]
@@ -1050,6 +1076,7 @@ async fn the_candidate_organisation_policy_compiles_and_resolves_its_reference_d
         .expect("the candidate topic vocabulary is committed");
 
     let audited = FakeRepo::new("wyrd-company", "example")
+        .with_custom_property("release", "false")
         .with_file("LICENSE", "Apache License 2.0")
         .with_file("README.md", "# example");
     let policy_repo =
@@ -1082,7 +1109,7 @@ async fn the_candidate_organisation_policy_compiles_and_resolves_its_reference_d
         .as_str()
         .unwrap()
         .starts_with("sha256:"));
-    // Release rules are skipped where nothing declares a release unit.
+    // Release rules are skipped where the organization declares release absent.
     assert_eq!(finding(&report, "REPO-REL-01")["status"], "skipped");
 }
 
@@ -1359,11 +1386,7 @@ async fn every_policy_reference_is_resolved_and_pinned_into_the_bundle() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_truncated_tree_cannot_skip_a_conditional_capability() {
-    // The candidate organisation policy applies its release capability only
-    // when .intentional/config.yml is present. A truncated tree never
-    // established that it is absent, so skipping every release rule would
-    // hide both the file and the checks it enables.
+async fn an_unset_property_reports_the_capability_as_undeclared() {
     let repository_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(std::path::Path::parent)
@@ -1373,6 +1396,8 @@ async fn a_truncated_tree_cannot_skip_a_conditional_capability() {
         .expect("the candidate topic vocabulary is committed");
 
     let audited = FakeRepo::new("wyrd-company", "example")
+        .with_null_custom_property("unrelated-null")
+        .with_multi_select_custom_property("unrelated-multi", &["one", "two"])
         .with_truncated_tree()
         .with_file("LICENSE", "Apache License 2.0")
         .with_file("README.md", "# example");
@@ -1401,16 +1426,19 @@ async fn a_truncated_tree_cannot_skip_a_conditional_capability() {
     assert_eq!(report["complete"], false);
     assert_eq!(
         report["summary"]["skipped"], 0,
-        "no rule may be skipped on a condition airlock could not evaluate"
+        "an undeclared capability may not be skipped"
     );
-    for rule in [
-        "REPO-REL-01",
-        "REPO-REL-04",
-        "REPO-REL-07",
-        "REPO-GIT-09",
-        "REPO-TASK-04",
-        "REPO-LIC-04",
-    ] {
+    for rule in ["REPO-REL-01", "REPO-REL-04", "REPO-REL-07"] {
+        let finding = finding(&report, rule);
+        assert_eq!(finding["status"], "inconclusive", "{rule}");
+        assert_eq!(
+            finding["evidence"]["code"], "capability_undeclared",
+            "{rule}"
+        );
+        assert_eq!(finding["evidence"]["capability"]["property"], "release");
+        assert_eq!(finding["evidence"]["capability"]["value"], "true");
+    }
+    for rule in ["REPO-GIT-09", "REPO-TASK-04", "REPO-LIC-04"] {
         let finding = finding(&report, rule);
         assert_eq!(finding["status"], "inconclusive", "{rule}");
         assert_eq!(finding["evidence"]["code"], "condition_undecided", "{rule}");
@@ -1418,9 +1446,7 @@ async fn a_truncated_tree_cannot_skip_a_conditional_capability() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_complete_tree_still_skips_a_capability_whose_condition_is_absent() {
-    // The other half of the contract: a condition airlock *can* evaluate and
-    // that does not hold still skips its rules conclusively.
+async fn a_property_that_declares_a_capability_absent_skips_its_rules() {
     let repository_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(std::path::Path::parent)
@@ -1430,6 +1456,7 @@ async fn a_complete_tree_still_skips_a_capability_whose_condition_is_absent() {
         .expect("the candidate topic vocabulary is committed");
 
     let audited = FakeRepo::new("wyrd-company", "example")
+        .with_custom_property("release", "false")
         .with_file("LICENSE", "Apache License 2.0")
         .with_file("README.md", "# example");
     let policy_repo =

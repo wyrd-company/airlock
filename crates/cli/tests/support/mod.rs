@@ -25,6 +25,7 @@ pub struct FakeRepo {
     pub malformed_tree_entry: Option<Value>,
     pub settings: Value,
     pub topics: Vec<String>,
+    pub custom_properties: Vec<(String, Value)>,
     pub rulesets: Response,
     pub branch_rules: Response,
     pub tags: Vec<String>,
@@ -80,6 +81,7 @@ impl FakeRepo {
                 "has_issues": true
             }),
             topics: Vec::new(),
+            custom_properties: Vec::new(),
             rulesets: Response::Ok(json!([])),
             branch_rules: Response::Ok(json!([])),
             tags: Vec::new(),
@@ -91,6 +93,33 @@ impl FakeRepo {
     #[must_use]
     pub fn with_file(mut self, path: &str, content: &str) -> Self {
         self.files.push((path.to_owned(), content.to_owned()));
+        self
+    }
+
+    #[must_use]
+    pub fn with_custom_property(mut self, name: &str, value: &str) -> Self {
+        self.custom_properties
+            .push((name.to_owned(), Value::String(value.to_owned())));
+        self
+    }
+
+    #[must_use]
+    pub fn with_null_custom_property(mut self, name: &str) -> Self {
+        self.custom_properties.push((name.to_owned(), Value::Null));
+        self
+    }
+
+    #[must_use]
+    pub fn with_multi_select_custom_property(mut self, name: &str, values: &[&str]) -> Self {
+        self.custom_properties.push((
+            name.to_owned(),
+            Value::Array(
+                values
+                    .iter()
+                    .map(|value| Value::String((*value).to_owned()))
+                    .collect(),
+            ),
+        ));
         self
     }
 
@@ -183,6 +212,19 @@ impl FakeRepo {
             Response::Ok(json!({ "names": self.topics })),
         )
         .await;
+        mount(
+            server,
+            &format!("{prefix}/properties/values"),
+            Response::Ok(Value::Array(
+                self.custom_properties
+                    .iter()
+                    .map(|(property_name, value)| {
+                        json!({"property_name": property_name, "value": value})
+                    })
+                    .collect(),
+            )),
+        )
+        .await;
         for reference in ["main", "HEAD", COMMIT] {
             mount(
                 server,
@@ -265,7 +307,7 @@ impl FakeRepo {
             .collect();
         mount(
             server,
-            &format!("{prefix}/git/refs/tags"),
+            &format!("{prefix}/git/matching-refs/tags/"),
             Response::Ok(Value::Array(tags)),
         )
         .await;

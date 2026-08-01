@@ -4,9 +4,11 @@
 //! author deterministic content in a caller-supplied working tree, but it
 //! never performs a git operation or holds a write credential.
 
+mod admin;
 mod config;
 mod credential;
 mod device;
+mod tui;
 
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
@@ -323,10 +325,9 @@ struct AuthTokenArgs {
 }
 
 fn main() -> ExitCode {
-    restore_sigpipe_default();
-
-    let cli = Cli::parse();
     let interactive = std::io::stdout().is_terminal();
+    configure_sigpipe(interactive);
+    let cli = Cli::parse();
 
     let runtime = match tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -348,19 +349,25 @@ fn main() -> ExitCode {
     }
 }
 
-/// Restore the Unix convention for writes to a pipe whose reader has exited.
+/// Use the Unix pipeline convention only when standard output is not a terminal.
 ///
 /// Rust ignores `SIGPIPE`, which turns `println!` failures into panics. A CLI
 /// should instead terminate silently with signal 13 (usually surfaced by a
 /// shell as status 141): that preserves the fact that its output was
-/// incomplete and covers every stdout/stderr writer, including clap.
-/// The disposition is process-global and also applies to socket writes, so a
-/// rare network `EPIPE` terminates via signal 13 rather than an exit-2 error;
-/// that is the conventional trade-off accepted by Unix pipeline tools.
+/// incomplete and covers every stdout/stderr writer, including clap. The
+/// disposition is process-global, though, so the long-lived terminal session
+/// keeps Rust's inherited `SIG_IGN`; socket `EPIPE` then remains an ordinary
+/// transport error that can be reported without killing the process.
+fn configure_sigpipe(interactive: bool) {
+    if !interactive {
+        restore_sigpipe_default();
+    }
+}
+
 #[cfg(unix)]
 fn restore_sigpipe_default() {
-    // SAFETY: this runs before the runtime or any application threads exist,
-    // and installs the operating system's default disposition for SIGPIPE.
+    // SAFETY: startup calls this before Airlock creates its runtime or performs
+    // application work.
     unsafe {
         libc::signal(libc::SIGPIPE, libc::SIG_DFL);
     }
@@ -371,8 +378,7 @@ fn restore_sigpipe_default() {}
 
 async fn run(cli: Cli, interactive: bool) -> Result<u8> {
     let Some(command) = cli.command else {
-        eprintln!("{}", bare_invocation_message(interactive));
-        return Ok(EXIT_OPERATIONAL);
+        return bare_invocation(interactive);
     };
 
     match command {
@@ -957,17 +963,22 @@ fn print_grant(grant: &VerifiedGrant) {
     }
 }
 
-/// What to say when `airlock` is run with no subcommand.
+/// What a bare `airlock` does.
 ///
-/// There is no interactive mode yet, so a bare invocation can never do work.
-/// It says so and exits 2 either way; on a terminal it also points at the help.
-fn bare_invocation_message(interactive: bool) -> &'static str {
-    if interactive {
-        "airlock has no interactive mode yet. Run a subcommand — \
-         `airlock audit <owner/repo>` — or `airlock --help` to see them all."
-    } else {
-        "TUI not yet available; use a subcommand."
+/// This is the whole entry point to the interactive console, and it is the only
+/// one. There is no subcommand for it and no flag that makes it run headlessly,
+/// so an agent holding this binary has nothing to invoke: the guarantee is the
+/// absence of the code path rather than a check declining to take it.
+///
+/// Off a terminal it exits non-zero without rendering anything at all. A
+/// scheduler that captured a half-drawn alternate screen would be worse served
+/// than one that captured an error naming what to run instead.
+fn bare_invocation(interactive: bool) -> Result<u8> {
+    if !interactive || !tui::is_interactive() {
+        eprintln!("{}", tui::non_interactive_message());
+        return Ok(EXIT_OPERATIONAL);
     }
+    tui::run(VERSION)
 }
 
 #[cfg(test)]
@@ -980,18 +991,45 @@ mod tests {
         Cli::command().debug_assert();
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn the_tui_entry_path_leaves_sigpipe_ignored() {
+        // SAFETY: this test changes and restores the process disposition while
+        // no application thread exists. `configure_sigpipe(true)` must be a
+        // no-op so the TUI retains the Rust runtime's ignored disposition.
+        unsafe {
+            let original = libc::signal(libc::SIGPIPE, libc::SIG_IGN);
+            configure_sigpipe(true);
+            let disposition = libc::signal(libc::SIGPIPE, original);
+            assert_eq!(disposition, libc::SIG_IGN);
+        }
+    }
+
     #[tokio::test]
-    async fn bare_invocation_is_an_operational_error() {
+    async fn a_bare_invocation_off_a_terminal_is_an_operational_error() {
         let cli = Cli::parse_from(["airlock"]);
         assert_eq!(run(cli, false).await.unwrap(), EXIT_OPERATIONAL);
     }
 
     #[test]
-    fn bare_invocation_messages_differ_by_terminal() {
-        assert_ne!(
-            bare_invocation_message(true),
-            bare_invocation_message(false)
-        );
+    fn no_subcommand_and_no_flag_reaches_the_interface() {
+        // The console has no invocation of its own. If one is ever added, this
+        // fails, because the boundary is that there is nothing to invoke.
+        let command = Cli::command();
+        for subcommand in command.get_subcommands() {
+            let name = subcommand.get_name();
+            assert!(
+                !name.contains("tui") && !name.contains("console"),
+                "{name} would give an agent something to invoke"
+            );
+        }
+        for argument in command.get_arguments() {
+            let name = argument.get_id().as_str();
+            assert!(
+                !name.contains("tui") && !name.contains("interactive"),
+                "{name} would make the console reachable by flag"
+            );
+        }
     }
 
     #[test]
