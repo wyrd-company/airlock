@@ -253,7 +253,7 @@ impl SignIn {
 
     /// Whether there is a code to reissue or to encode.
     ///
-    /// `r` and `q` are live only once a device code exists, because until then
+    /// `r` and `s` are live only once a device code exists, because until then
     /// there is nothing for either of them to act on.
     #[must_use]
     pub const fn has_code(&self) -> bool {
@@ -392,10 +392,10 @@ impl SignIn {
                  esc to abandon it and leave."
                 .to_owned(),
             Self::Requesting { .. } if tight => {
-                "Nothing yet. r and q are not live until a code exists.".to_owned()
+                "Nothing yet. r and s are not live until a code exists.".to_owned()
             }
             Self::Requesting { .. } => {
-                "Nothing to do yet. r and q are not live in this state, because there is \
+                "Nothing to do yet. r and s are not live in this state, because there is \
                  not yet a code to reissue or to encode."
                     .to_owned()
             }
@@ -484,7 +484,7 @@ mod tests {
     fn a_session_opens_by_asking_for_a_code_and_has_nothing_to_act_on() {
         let state = SignIn::opening();
         assert!(matches!(state, SignIn::Requesting { .. }));
-        assert!(!state.has_code(), "r and q are not live yet");
+        assert!(!state.has_code(), "r and s are not live yet");
         assert!(state.remedy(Density::Full).contains("not yet a code"));
     }
 
@@ -638,7 +638,7 @@ mod tests {
         assert_eq!(*backoff, SignIn::FIRST_BACKOFF);
         assert_eq!(*poll, 1);
         assert_eq!(cause, "connection reset");
-        assert!(state.has_code(), "r and q stay live");
+        assert!(state.has_code(), "r and s stay live");
     }
 
     #[test]

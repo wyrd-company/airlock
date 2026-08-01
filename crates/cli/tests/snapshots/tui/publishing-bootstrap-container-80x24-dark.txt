@@ -22,7 +22,7 @@ THE CONTAINER PATH
 · 3. Make it public — blocked                                                   
      step 2 — a package made public before it is linked never inherits the      
 — 0 lines above · 5 below · ↑↓ moves the window —                               
-esc back · ↑↓ move · ↵ supply or confirm · tab next target · 3 more…            
+esc back · ↑↓ move · ↵ supply or confirm · tab next target · 4 more…            
 step 2 of 3 · connect the package to this repository · re-observed on entry     
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb

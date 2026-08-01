@@ -47,7 +47,7 @@ const MODULE: Color = Color::Rgb(0x00, 0x00, 0x00);
 
 /// Where the operator has asked for the scan code.
 ///
-/// `q` cycles it. `Auto` is the specification's default — beside the device
+/// `s` cycles it. `Auto` is the specification's default — beside the device
 /// code where there is width for it, withheld where there is not. `Below` is
 /// what the withheld state offers instead, and `Hidden` is the other half of
 /// "show or hide".
@@ -63,7 +63,7 @@ pub enum ScanMode {
 }
 
 impl ScanMode {
-    /// What `q` selects next.
+    /// What `s` selects next.
     #[must_use]
     pub const fn next(self) -> Self {
         match self {
@@ -73,16 +73,16 @@ impl ScanMode {
         }
     }
 
-    /// What `q` will do, said on the screen rather than left to be discovered.
+    /// What `s` will do, said on the screen rather than left to be discovered.
     #[must_use]
     pub const fn offer(self, density: Density) -> &'static str {
         match (self, density) {
-            (Self::Auto, Density::Full) => "q draws the scan code below the device code instead",
-            (Self::Auto, Density::Tight) => "q draws it below",
-            (Self::Below, Density::Full) => "q hides the scan code",
-            (Self::Below, Density::Tight) => "q hides it",
-            (Self::Hidden, Density::Full) => "q shows the scan code again",
-            (Self::Hidden, Density::Tight) => "q shows it",
+            (Self::Auto, Density::Full) => "s draws the scan code below the device code instead",
+            (Self::Auto, Density::Tight) => "s draws it below",
+            (Self::Below, Density::Full) => "s hides the scan code",
+            (Self::Below, Density::Tight) => "s hides it",
+            (Self::Hidden, Density::Full) => "s shows the scan code again",
+            (Self::Hidden, Density::Tight) => "s shows it",
         }
     }
 }
@@ -226,7 +226,7 @@ impl Screen {
         self.scan
     }
 
-    /// Handle `q`.
+    /// Handle `s`.
     ///
     /// Inert until a code exists, because until then there is no address to
     /// encode. The keymap says so rather than the key silently doing nothing.
@@ -598,6 +598,22 @@ fn paint(code: &ScanCode, styles: Styles) -> Vec<Line<'static>> {
         .collect()
 }
 
+/// What the status line says after `c`.
+#[must_use]
+pub fn copied() -> String {
+    "the device code was offered to the terminal's clipboard \u{b7} a terminal that \
+     does not take it ignores it, and the code is above in full"
+        .to_owned()
+}
+
+/// What the status line says when `c` was pressed and there is no code yet.
+#[must_use]
+pub fn nothing_to_copy() -> String {
+    "no device code has arrived yet \u{b7} there is nothing to copy until GitHub \
+     issues one"
+        .to_owned()
+}
+
 fn paragraph(text: &str, styles: Styles, role: Role, width: usize) -> Vec<Line<'static>> {
     wrap(text, width)
         .into_iter()
@@ -770,10 +786,10 @@ mod tests {
     }
 
     #[test]
-    fn a_withheld_scan_code_offers_to_be_drawn_below_and_q_does_it() {
+    fn a_withheld_scan_code_offers_to_be_drawn_below_and_s_does_it() {
         let mut screen = awaiting();
         let narrow = flat(&screen, styles(), FLOOR_WIDTH, 21);
-        assert!(narrow.contains("q draws it below"), "{narrow}");
+        assert!(narrow.contains("s draws it below"), "{narrow}");
 
         screen.cycle_scan();
         assert_eq!(screen.scan_mode(), ScanMode::Below);
@@ -799,7 +815,7 @@ mod tests {
     }
 
     #[test]
-    fn q_cycles_and_hides_and_is_inert_until_a_code_exists() {
+    fn s_cycles_and_hides_and_is_inert_until_a_code_exists() {
         let mut screen = Screen::default();
         screen.cycle_scan();
         assert_eq!(

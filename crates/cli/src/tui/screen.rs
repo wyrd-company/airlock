@@ -51,6 +51,13 @@ macro_rules! key {
 /// The key that leaves. Live in every state without exception.
 pub const EXIT_KEY: Key = key!("ctrl-c", "exit");
 
+/// The key that quits.
+///
+/// The one an operator reaches for, and the reason no screen may bind `q` to
+/// anything else. `ctrl-c` still leaves from every state without exception; it
+/// is the signal, and this is the key.
+pub const QUIT_KEY: Key = key!("q", "quit");
+
 /// The key that switches palette.
 ///
 /// Live everywhere except while a text input holds focus, where a printable
@@ -58,8 +65,8 @@ pub const EXIT_KEY: Key = key!("ctrl-c", "exit");
 /// the state has captured.
 pub const THEME_KEY: Key = key!("t", "theme");
 
-/// The two keys live on every screen in every state.
-pub const UNIVERSAL_KEYS: [Key; 2] = [THEME_KEY, EXIT_KEY];
+/// The keys live on every screen in every state.
+pub const UNIVERSAL_KEYS: [Key; 3] = [QUIT_KEY, THEME_KEY, EXIT_KEY];
 
 /// The keys live while a text input holds focus.
 ///
@@ -93,10 +100,12 @@ pub const SCAFFOLD_INPUT_KEYS: [Key; 5] = [
 /// The key that abandons leads, because the footer drops entries from the end
 /// where the width runs out and this is the one key the operator may need at a
 /// terminal that cannot hold the rest of them.
-pub const REAUTHORIZATION_KEYS: [Key; 5] = [
+pub const REAUTHORIZATION_KEYS: [Key; 7] = [
     key!("esc", "abandon and exit"),
     key!("r", "issue a new code"),
-    key!("q", "show or hide the scan code"),
+    key!("c", "copy the code"),
+    key!("s", "show or hide the scan code"),
+    QUIT_KEY,
     THEME_KEY,
     EXIT_KEY,
 ];
@@ -185,7 +194,8 @@ impl Screen {
         match self {
             Self::SignIn => &[
                 key!("r", "issue a new code"),
-                key!("q", "show or hide the scan code"),
+                key!("c", "copy the code"),
+                key!("s", "show or hide the scan code"),
             ],
             Self::Organizations => &[key!("\u{2191}\u{2193}", "select"), key!("\u{21b5}", "open")],
             Self::Repositories => &[

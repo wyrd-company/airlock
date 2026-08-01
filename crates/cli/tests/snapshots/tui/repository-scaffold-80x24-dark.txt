@@ -22,7 +22,7 @@ next            navigate with ↵ and esc to read the frame on every screen, pre
                                                                                 
                                                                                 
                                                                                 
-↑↓ field · ←→ choice · space toggle capability · ↵ continue or confirm · 3 more…
+↑↓ field · ←→ choice · space toggle capability · ↵ continue or confirm · 4 more…
 first commit only · later file changes leave as pull requests                   
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb

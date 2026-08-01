@@ -17,7 +17,7 @@ polling       attempt 1, every 5s                                               
 code expires  in 15m 00s                                                               ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
 scan code     drawn beside the code. It encodes the address only, because the device   ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
               flow offers no address that carries the code.                            ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
-              q draws the scan code below the device code instead                      ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+              s draws the scan code below the device code instead                      ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
                                                                                        ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
 remedy        Approve in the browser. Press r for a new code if this one has gone                                       
               stale, or ctrl-c to leave without authorizing.                                                            
@@ -38,7 +38,7 @@ discarded     every observation this session made. Each row is observed again on
                                                                                                                         
                                                                                                                         
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-esc abandon and exit · r issue a new code · q show or hide the scan code · t theme · ctrl-c exit                        
+esc abandon and exit · r issue a new code · c copy the code · s show or hide the scan code · q quit · t theme · 1 more… 
 re-authorizing · findings · acme-industries/widget · row 3 · gating failures                                            
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
@@ -79,8 +79,8 @@ kkkkkkkkkkkkkkllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-dddellllllllllllllllkkkdellllllllllllllllkkkdellllllllllllllllllllllllllkkkdelllllkkkddddddelllleeeeeeeeeeeeeeeeeeeeeeee
-nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn
+dddellllllllllllllllkkkdellllllllllllllllkkkdelllllllllllllkkkdellllllllllllllllllllllllllkkkdellllkkkdelllllkkknnnnnnne
+oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo
 --- legend ---
 a fg=#CBD3DD bg=#14181D BOLD
 b fg=#CBD3DD bg=#14181D
@@ -95,4 +95,5 @@ j fg=#E8B84B bg=#0B0D10 BOLD | UNDERLINED
 k fg=#4C5661 bg=#0B0D10
 l fg=#79838F bg=#0B0D10
 m fg=#CBD3DD bg=#0B0D10 BOLD
-n fg=#79838F bg=#101419
+n fg=#4C5661 bg=#0B0D10 ITALIC
+o fg=#79838F bg=#101419

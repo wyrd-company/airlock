@@ -22,7 +22,7 @@ remediation_class
   code                redesign-release-trigger                                  
   change              Make release a `workflow_dispatch` on a pinned source SHA.
 — 0 lines above · 23 below · ↑↓ moves the window —                              
-esc back · a remediation transcript · o re-observe this rule · 3 more…          
+esc back · a remediation transcript · o re-observe this rule · 4 more…          
 undecided · complete: false                                                     
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb

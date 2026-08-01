@@ -22,7 +22,7 @@ storage       none. No credential of any kind is stored, anywhere, ever. Its
                                                                                 
 holding       findings · acme-industries/widget · row 3 · gating failures ·     
               groups 8 collapsed · detail closed                                
-esc abandon and exit · r issue a new code · 3 more…                             
+esc abandon and exit · r issue a new code · c copy the code · 4 more…           
 re-authorizing · findings · acme-industries/widget · row 3 · gating failures    
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
@@ -47,7 +47,7 @@ ffffffffffffffgggggggggggggggggggggggggddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 ffffffffffffffgggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggddddd
 ffffffffffffffggggggggggggggggggggggggggggggggggdddddddddddddddddddddddddddddddd
-cccdggggggggggggggggfffcdggggggggggggggggfffiiiiiiiddddddddddddddddddddddddddddd
+cccdggggggggggggggggfffcdggggggggggggggggfffcdgggggggggggggfffiiiiiiiddddddddddd
 jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj
 --- legend ---
 a fg=#CBD3DD bg=#14181D BOLD

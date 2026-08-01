@@ -174,8 +174,9 @@ because an empty result cannot distinguish between them.
 
 ## The copy action
 
-Two screens offer to copy a value: the finding detail copies the rule id, and
-the policy inspector copies the registry digest. This list is the whole
+Three screens offer to copy a value on `c`: sign-in copies the device code,
+the finding detail copies the rule id, and the policy inspector copies the
+registry digest. This list is the whole
 copyable set: a screen gains a copyable value only by naming it here, so every
 copy travels the one reviewed path rather than constructing its own request. A
 copyable value is an identifier the operator will paste outside the session —
@@ -195,11 +196,12 @@ something it can observe, and it does not claim observations it did not make.
 
 ## Screens
 
-Two keys are live on every screen in every state: `t` switches theme and
-`ctrl-c` exits. `ctrl-c` is live without exception. While a text input holds
-focus, printable keys are text: `t` inserts a `t`, the keymap shows the input's
-own keys rather than advertising `t theme`, and the toggle returns when focus
-leaves the input. Each screen's keymap below lists the keys it adds, and names
+Three keys are live on every screen in every state: `q` quits, `t` switches
+theme, and `ctrl-c` exits. `ctrl-c` is live without exception; `q` is the key
+the keymap advertises for leaving, and no screen binds it to anything else.
+While a text input holds focus, printable keys are text: `q` inserts a `q`, `t`
+inserts a `t`, the keymap shows the input's own keys rather than advertising
+either, and both return when focus leaves the input. Each screen's keymap below lists the keys it adds, and names
 any state in which one of those keys is not live and why.
 
 ### Sign-in
@@ -240,8 +242,8 @@ The screen has five states:
   backoff and attempt number are shown rather than hidden. Approval already
   given is picked up when polling resumes.
 
-**Keymap.** `r` issue a new code · `q` show or hide the scan code. Both are
-live only once a device code exists.
+**Keymap.** `r` issue a new code · `c` copy the code · `s` show or hide the
+scan code. All three are live only once a device code exists.
 
 **Status line.** `no credential on disk · tty required`.
 

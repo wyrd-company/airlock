@@ -38,7 +38,7 @@ public publisher signal, and places you at the step those observations imply. Cl
                                                                                                                         
                                                                                                                         
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-esc back · ↑↓ move · ↵ supply or confirm · tab next target · o re-observe now · t theme · ctrl-c exit                   
+esc back · ↑↓ move · ↵ supply or confirm · tab next target · o re-observe now · q quit · t theme · ctrl-c exit          
 step 1 of 5 · mint a token on crates.io scoped to publishing `sample-package` · re-observed on entry                    
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
@@ -79,7 +79,7 @@ eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-dddeggggfffddeggggfffdegggggggggggggggggfffdddegggggggggggfffdeggggggggggggggfffdegggggfffddddddeggggeeeeeeeeeeeeeeeeeee
+dddeggggfffddeggggfffdegggggggggggggggggfffdddegggggggggggfffdeggggggggggggggfffdeggggfffdegggggfffddddddeggggeeeeeeeeee
 jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj
 --- legend ---
 a fg=#CBD3DD bg=#14181D BOLD

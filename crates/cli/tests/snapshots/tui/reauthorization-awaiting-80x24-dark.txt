@@ -11,7 +11,7 @@ address       https://github.com/login/device
 code          eight characters, case-insensitive; no 0, O, 1, or I.             
 polling       attempt 1, every 5s                                               
 code expires  in 15m 00s                                                        
-scan code     withheld: needs 95 columns, this has 80. q draws it below.        
+scan code     withheld: needs 95 columns, this has 80. s draws it below.        
 remedy        Approve in the browser. r for a new code, ctrl-c to leave.        
 CREDENTIAL                                                                      
 source        GitHub App Airlock Admin · device flow                            
@@ -22,7 +22,7 @@ storage       none. No credential of any kind is stored, anywhere, ever. Its
               value is never displayed.                                         
                                                                                 
 holding       findings · acme-industries/widget · row 3 · gating failures       
-esc abandon and exit · r issue a new code · 3 more…                             
+esc abandon and exit · r issue a new code · c copy the code · 4 more…           
 re-authorizing · findings · acme-industries/widget · row 3 · gating failures    
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
@@ -47,7 +47,7 @@ gggggggggggggghhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhdddd
 gggggggggggggghhhhhhhhhhhhhhhhhhhhhhhhhddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 gggggggggggggghhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhddddddd
-cccdhhhhhhhhhhhhhhhhgggcdhhhhhhhhhhhhhhhhgggjjjjjjjddddddddddddddddddddddddddddd
+cccdhhhhhhhhhhhhhhhhgggcdhhhhhhhhhhhhhhhhgggcdhhhhhhhhhhhhhgggjjjjjjjddddddddddd
 kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk
 --- legend ---
 a fg=#CBD3DD bg=#14181D BOLD

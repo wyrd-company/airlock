@@ -15,7 +15,7 @@ code          eight characters, case-insensitive. The alphabet excludes 0, O, 1,
               that another can be mistaken for.                                                                         
 scan code     no scan code yet: it encodes the address, and the address arrives with the code.                          
                                                                                                                         
-remedy        Nothing to do yet. r and q are not live in this state, because there is not yet a code to reissue or to   
+remedy        Nothing to do yet. r and s are not live in this state, because there is not yet a code to reissue or to   
               encode.                                                                                                   
                                                                                                                         
 CREDENTIAL                                                                                                              
@@ -38,7 +38,7 @@ storage       none. No credential of any kind is stored: not in a file, not in t
                                                                                                                         
                                                                                                                         
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-r issue a new code · q show or hide the scan code · t theme · ctrl-c exit                                               
+r issue a new code · c copy the code · s show or hide the scan code · q quit · t theme · ctrl-c exit                    
 no credential on disk · tty required                                                                                    
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
@@ -79,7 +79,7 @@ eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-deggggggggggggggggfffdeggggggggggggggggggggggggggfffdegggggfffddddddeggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+deggggggggggggggggfffdegggggggggggggfffdeggggggggggggggggggggggggggfffdeggggfffdegggggfffddddddeggggeeeeeeeeeeeeeeeeeeee
 iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii
 --- legend ---
 a fg=#2B2822 bg=#EDE8DD BOLD

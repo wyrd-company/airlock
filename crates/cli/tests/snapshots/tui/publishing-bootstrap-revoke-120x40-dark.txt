@@ -38,7 +38,7 @@ value         never displayed, never logged, never written anywhere by airlock.
 why it exists solely to complete this bootstrap. The flow is not conformant until `CARGO_REGISTRY_TOKEN` no longer      
 — 0 lines above · 4 below · ↑↓ moves the window —                                                                       
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-esc back · ↑↓ move · ↵ supply or confirm · tab next target · o re-observe now · t theme · ctrl-c exit                   
+esc back · ↑↓ move · ↵ supply or confirm · tab next target · o re-observe now · q quit · t theme · ctrl-c exit          
 step 5 of 5 · revoke the token on crates.io and delete `CARGO_REGISTRY_TOKEN`, once the trusted publisher is configured…
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
@@ -79,7 +79,7 @@ ffffffffffffffggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggge
 ffffffffffffffggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggeeeeee
 fffffffffffffffffffffffffffffffffffffffffffffffffeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-dddeggggfffddeggggfffdegggggggggggggggggfffdddegggggggggggfffdeggggggggggggggfffdegggggfffddddddeggggeeeeeeeeeeeeeeeeeee
+dddeggggfffddeggggfffdegggggggggggggggggfffdddegggggggggggfffdeggggggggggggggfffdeggggfffdegggggfffddddddeggggeeeeeeeeee
 kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk
 --- legend ---
 a fg=#CBD3DD bg=#14181D BOLD

@@ -738,8 +738,11 @@ impl App {
     /// Apply a key.
     ///
     /// `ctrl-c` exits from every state without exception, and it is taken
-    /// first, before anything can capture it. `t` switches theme everywhere
-    /// else. Everything after that is the open state's own.
+    /// first, before anything can capture it. `q` leaves too, from every state
+    /// that is not typing text, and it is the key the keymap advertises: an
+    /// operator copying a device code should not have to reach past the key
+    /// that quits to do it. `t` switches theme everywhere else. Everything
+    /// after that is the open state's own.
     pub fn handle_key(&mut self, event: KeyEvent) -> Flow {
         // A terminal that reports key releases would otherwise act twice.
         if event.kind == KeyEventKind::Release {
@@ -775,6 +778,9 @@ impl App {
             if event.code == KeyCode::Esc {
                 self.screen = Screen::Repositories;
                 return Flow::Continue;
+            }
+            if event.code == KeyCode::Char('q') && !self.scaffold.captures_text() {
+                return Flow::Exit;
             }
             if event.code == KeyCode::Char('t') && !self.scaffold.captures_text() {
                 self.theme = self.theme.toggled();
@@ -820,6 +826,7 @@ impl App {
             return Flow::Continue;
         }
         match event.code {
+            KeyCode::Char('q') => return Flow::Exit,
             KeyCode::Char('t') => self.theme = self.theme.toggled(),
             KeyCode::Enter => return self.forward(),
             KeyCode::Up => self.move_selection(-1),
@@ -860,7 +867,8 @@ impl App {
                 self.screen = Screen::PublishingBootstrap;
                 self.observe_bootstrap();
             }
-            KeyCode::Char('q') if self.screen == Screen::SignIn => self.sign_in.cycle_scan(),
+            KeyCode::Char('s') if self.screen == Screen::SignIn => self.sign_in.cycle_scan(),
+            KeyCode::Char('c') if self.screen == Screen::SignIn => return self.copy_device_code(),
             // `r` is live only once a device code exists, because until then
             // there is nothing to reissue. Asking for a replacement is a
             // transition of this screen's state and nothing else: the session
@@ -876,6 +884,26 @@ impl App {
         Flow::Continue
     }
 
+    /// Offer the device code on screen to the terminal's clipboard.
+    ///
+    /// The code is eight characters the operator has to type into a browser,
+    /// which is exactly the kind of value the copy action exists for. It is
+    /// the value already printed on the screen in full — the device code
+    /// airlock polls with is not on any screen and cannot travel here.
+    fn copy_device_code(&mut self) -> Flow {
+        match self.sign_in.state().code() {
+            Some(code) => {
+                let value = code.user_code.clone();
+                self.note = Some(sign_in::copied());
+                Flow::Copy(value)
+            }
+            None => {
+                self.note = Some(sign_in::nothing_to_copy());
+                Flow::Continue
+            }
+        }
+    }
+
     /// Keys the re-authorization overlay takes.
     ///
     /// Sign-in's own, because the overlay is sign-in drawn over the screen the
@@ -884,9 +912,10 @@ impl App {
     /// authorization exists again.
     fn reauthorizing(&mut self, code: KeyCode) -> Flow {
         match code {
-            KeyCode::Esc => return Flow::Exit,
+            KeyCode::Esc | KeyCode::Char('q') => return Flow::Exit,
             KeyCode::Char('t') => self.theme = self.theme.toggled(),
-            KeyCode::Char('q') => self.sign_in.cycle_scan(),
+            KeyCode::Char('s') => self.sign_in.cycle_scan(),
+            KeyCode::Char('c') => return self.copy_device_code(),
             KeyCode::Char('r') if self.sign_in.state().has_code() => {
                 self.sign_in.state_mut().reissue(Reason::Asked);
                 return Flow::Reissue;
@@ -2146,6 +2175,56 @@ mod tests {
             let flow = app.handle_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
             assert_eq!(flow, Flow::Exit, "{screen:?}");
         }
+    }
+
+    #[test]
+    fn q_quits_from_every_screen() {
+        // The key an operator reaches for. `ctrl-c` sits next to the copy
+        // action, which is the one thing a sign-in screen exists to have
+        // pressed, so the key that leaves is the one that says so.
+        for screen in Screen::ALL {
+            let mut app = app().at(screen, Theme::Dark);
+            assert_eq!(
+                press(&mut app, KeyCode::Char('q')),
+                Flow::Exit,
+                "{screen:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn q_is_typed_rather_than_obeyed_while_an_input_holds_focus() {
+        let mut app = app().at(Screen::Repositories, Theme::Dark);
+        press(&mut app, KeyCode::Char('/'));
+        assert_eq!(press(&mut app, KeyCode::Char('q')), Flow::Continue);
+    }
+
+    #[test]
+    fn s_cycles_the_scan_code_and_c_copies_the_device_code() {
+        let mut app = app().at(Screen::SignIn, Theme::Dark);
+        assert_eq!(
+            press(&mut app, KeyCode::Char('c')),
+            Flow::Continue,
+            "there is no code to copy before one is issued"
+        );
+        assert!(app.status().contains("nothing to copy"), "{}", app.status());
+
+        app.sign_in
+            .state_mut()
+            .code_issued(&crate::admin::flow::Issued {
+                user_code: "WDJB-MJHT".to_owned(),
+                verification_uri: "https://github.com/login/device".to_owned(),
+                expires_in: std::time::Duration::from_secs(900),
+                interval: std::time::Duration::from_secs(5),
+            });
+        assert_eq!(
+            press(&mut app, KeyCode::Char('c')),
+            Flow::Copy("WDJB-MJHT".to_owned())
+        );
+        assert!(app.status().contains("clipboard"), "{}", app.status());
+
+        assert_eq!(press(&mut app, KeyCode::Char('s')), Flow::Continue);
+        assert_eq!(app.sign_in.scan_mode(), sign_in::ScanMode::Below);
     }
 
     #[test]

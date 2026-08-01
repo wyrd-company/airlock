@@ -38,7 +38,7 @@ storage       none. No credential of any kind is stored: not in a file, not in t
                                                                                                                         
                                                                                                                         
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-↑↓ select · ↵ open · t theme · ctrl-c exit                                                                              
+↑↓ select · ↵ open · q quit · t theme · ctrl-c exit                                                                     
 0 installations · the list is the intersection of install and access                                                    
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
@@ -79,7 +79,7 @@ ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-iifggggggeeeifggggeeeifgggggeeeiiiiiifggggffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+iifggggggeeeifggggeeeifggggeeeifgggggeeeiiiiiifggggfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj
 --- legend ---
 a fg=#CBD3DD bg=#14181D BOLD

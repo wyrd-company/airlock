@@ -12,7 +12,7 @@ address       https://github.com/login/device
 code          eight characters, case-insensitive; no 0, O, 1, or I.             
 polling       attempt 1 failed, retrying in 2s                                  
 code expires  in 13m 57s, still valid                                           
-scan code     withheld: needs 95 columns, this has 80. q draws it below.        
+scan code     withheld: needs 95 columns, this has 80. s draws it below.        
 remedy        Airlock retries in 2s. r starts over with a new code.             
 CREDENTIAL                                                                      
 source        GitHub App Airlock Admin · device flow                            
@@ -22,7 +22,7 @@ grant         read: metadata, actions · write: administration, contents,
 storage       none. No credential of any kind is stored, anywhere, ever. Its    
               value is never displayed.                                         
                                                                                 
-r issue a new code · q show or hide the scan code · t theme · ctrl-c exit       
+r issue a new code · c copy the code · s show or hide the scan code · 3 more…   
 no credential on disk · tty required                                            
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
@@ -47,8 +47,8 @@ gggggggggggggghhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhdddddd
 gggggggggggggghhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhdddd
 gggggggggggggghhhhhhhhhhhhhhhhhhhhhhhhhddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-cdhhhhhhhhhhhhhhhhgggcdhhhhhhhhhhhhhhhhhhhhhhhhhhgggcdhhhhhgggccccccdhhhhddddddd
-jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj
+cdhhhhhhhhhhhhhhhhgggcdhhhhhhhhhhhhhgggcdhhhhhhhhhhhhhhhhhhhhhhhhhhgggjjjjjjjddd
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk
 --- legend ---
 a fg=#CBD3DD bg=#14181D BOLD
 b fg=#CBD3DD bg=#14181D
@@ -59,4 +59,5 @@ f fg=#E8B84B bg=#0B0D10 BOLD | UNDERLINED
 g fg=#4C5661 bg=#0B0D10
 h fg=#79838F bg=#0B0D10
 i fg=#CBD3DD bg=#0B0D10 BOLD
-j fg=#79838F bg=#101419
+j fg=#4C5661 bg=#0B0D10 ITALIC
+k fg=#79838F bg=#101419

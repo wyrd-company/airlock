@@ -22,7 +22,7 @@ undo            unavailable; this change is not safely reversible
                                                                                 
                                                                                 
                                                                                 
-esc back · ↵ next in queue · u undo · o re-observe · t theme · ctrl-c exit      
+esc back · ↵ next in queue · u undo · o re-observe · q quit · t theme · 1 more… 
 observed pass · confirmed gaps closed                                           
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
@@ -47,8 +47,8 @@ dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-cccdggggeeecdgggggggggggggeeecdggggeeecdggggggggggeeecdgggggeeeccccccdggggdddddd
-hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh
+cccdggggeeecdgggggggggggggeeecdggggeeecdggggggggggeeecdggggeeecdgggggeeehhhhhhhd
+iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii
 --- legend ---
 a fg=#CBD3DD bg=#14181D BOLD
 b fg=#CBD3DD bg=#14181D
@@ -57,4 +57,5 @@ d fg=#CBD3DD bg=#0B0D10
 e fg=#4C5661 bg=#0B0D10
 f fg=#CBD3DD bg=#0B0D10 BOLD
 g fg=#79838F bg=#0B0D10
-h fg=#79838F bg=#101419
+h fg=#4C5661 bg=#0B0D10 ITALIC
+i fg=#79838F bg=#101419

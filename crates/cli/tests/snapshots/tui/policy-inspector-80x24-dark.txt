@@ -22,7 +22,7 @@ next          press esc to return to the queue, and observe a repository.
                                                                                 
                                                                                 
                                                                                 
-esc back · ↑↓ move · c copy digest · t theme · ctrl-c exit                      
+esc back · ↑↓ move · c copy digest · q quit · t theme · ctrl-c exit             
 no repository observed · this shell renders the frame only · tty required       
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
@@ -47,7 +47,7 @@ dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-gggdffffeeeggdffffeeegdfffffffffffeeegdfffffeeeggggggdffffdddddddddddddddddddddd
+gggdffffeeeggdffffeeegdfffffffffffeeegdffffeeegdfffffeeeggggggdffffddddddddddddd
 hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh
 --- legend ---
 a fg=#CBD3DD bg=#14181D BOLD

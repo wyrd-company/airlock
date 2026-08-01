@@ -22,7 +22,7 @@ reads as              the grant was insufficient. accepted_permissions lists
                       what would have sufficed, so widening the grant and       
                       re-observing can answer this. This is error and not fail: 
 — 0 lines above · 29 below · ↑↓ moves the window —                              
-esc back · a remediation transcript · o re-observe this rule · 3 more…          
+esc back · a remediation transcript · o re-observe this rule · 4 more…          
 undecided · complete: false                                                     
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb

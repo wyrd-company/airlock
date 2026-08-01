@@ -10,7 +10,7 @@ Asking GitHub for a device code.
 address       not issued yet                                                    
 code          eight characters, case-insensitive; no 0, O, 1, or I.             
 scan code     none yet: it encodes the address.                                 
-remedy        Nothing yet. r and q are not live until a code exists.            
+remedy        Nothing yet. r and s are not live until a code exists.            
 CREDENTIAL                                                                      
 source        GitHub App Airlock Admin · device flow                            
 grant         read: metadata, actions · write: administration, contents,        
@@ -22,7 +22,7 @@ storage       none. No credential of any kind is stored, anywhere, ever. Its
                                                                                 
                                                                                 
                                                                                 
-r issue a new code · q show or hide the scan code · t theme · ctrl-c exit       
+r issue a new code · c copy the code · s show or hide the scan code · 3 more…   
 no credential on disk · tty required                                            
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
@@ -47,8 +47,9 @@ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-abbbbbbbbbbbbbbbbbbbbabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbabbbbbbbbbaaaaaabbbbbbbbbbbb
+abbbbbbbbbbbbbbbbbbbbabbbbbbbbbbbbbbbbbabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbcccccccbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 --- legend ---
 a fg=reset bg=reset BOLD
 b fg=reset bg=reset
+c fg=reset bg=reset ITALIC

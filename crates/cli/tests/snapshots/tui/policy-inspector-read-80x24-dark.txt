@@ -22,7 +22,7 @@ standards       acme-industries/.github:standards.yml @
 suppressions    policy · 1 rule(s) · — policy-sourced, not registry             
                                                                                 
 — 0 lines above · 19 below · ↑↓ moves the window —                              
-esc back · ↑↓ move · c copy digest · t theme · ctrl-c exit                      
+esc back · ↑↓ move · c copy digest · q quit · t theme · ctrl-c exit             
 registry 0.4.0 · sha256:5c8813c3… · 8 rules · 6 sections                        
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
@@ -47,7 +47,7 @@ ggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeedddddddddddddddddddddddd
 ggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 ggggggggggggggggggggggggggggggggggggggggggggggggggdddddddddddddddddddddddddddddd
-cccdeeeegggccdeeeegggcdeeeeeeeeeeegggcdeeeeegggccccccdeeeedddddddddddddddddddddd
+cccdeeeegggccdeeeegggcdeeeeeeeeeeegggcdeeeegggcdeeeeegggccccccdeeeeddddddddddddd
 hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh
 --- legend ---
 a fg=#CBD3DD bg=#14181D BOLD

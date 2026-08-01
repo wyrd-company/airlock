@@ -38,7 +38,7 @@ showing       the whole working set · 9 of 9 shown · gate required · f select
     ██░     ○ │   │ REPO-META-02   skipped       identity       the condition REPO-META-02 states                       
 0 above · 0 below · working set 9 of 9 · ↑↓ moves through the rest                                                      
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-↑↓/j/k move · space collapse or expand · ↵ finding detail · f filter · a apply · A bulk apply · l flat list · 5 more…   
+↑↓/j/k move · space collapse or expand · ↵ finding detail · f filter · a apply · A bulk apply · l flat list · 6 more…   
 incomplete · complete false · 9 rules · registry 0.4.0 · gate required                                                  
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb

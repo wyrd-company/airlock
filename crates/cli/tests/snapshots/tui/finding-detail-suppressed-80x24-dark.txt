@@ -22,7 +22,7 @@ retained              the failure is authorized and the fix for it is not
                       closing the gap.                                          
 remediation_class                                                               
 — 0 lines above · 25 below · ↑↓ moves the window —                              
-esc back · a remediation transcript · o re-observe this rule · 3 more…          
+esc back · a remediation transcript · o re-observe this rule · 4 more…          
 decided · inert · does not gate · authorized by policy                          
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb

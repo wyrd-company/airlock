@@ -22,7 +22,7 @@ next          press o to observe now, or esc to return to the findings queue.
                                                                                 
                                                                                 
                                                                                 
-esc back · ↑↓ move · ↵ supply or confirm · tab next target · 3 more…            
+esc back · ↑↓ move · ↵ supply or confirm · tab next target · 4 more…            
 nothing observed yet · position is derived from observation, never remembered   
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb

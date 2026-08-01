@@ -22,7 +22,7 @@ storage       none. No credential of any kind is stored, anywhere, ever. Its
                                                                                 
                                                                                 
                                                                                 
-↑↓ select · ↵ open · t theme · ctrl-c exit                                      
+↑↓ select · ↵ open · q quit · t theme · ctrl-c exit                             
 2 installations · the list is the intersection of install and access            
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
@@ -47,7 +47,7 @@ ddddddddddddddgggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-ffeggggggdddfeggggdddfegggggdddffffffeggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+ffeggggggdddfeggggdddfeggggdddfegggggdddffffffeggggeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj
 --- legend ---
 a fg=#CBD3DD bg=#14181D BOLD
