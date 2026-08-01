@@ -38,7 +38,7 @@ next          press esc to return to the queue, and observe a repository.
                                                                                                                         
                                                                                                                         
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-esc back · ↑↓ move · y copy digest · t theme · ctrl-c exit                                                              
+esc back · ↑↓ move · c copy digest · t theme · ctrl-c exit                                                              
 no repository observed · this shell renders the frame only · tty required                                               
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb

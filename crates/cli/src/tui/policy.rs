@@ -408,7 +408,7 @@ pub fn status(inspector: &Inspector) -> String {
     )
 }
 
-/// What the status line says after `y`.
+/// What the status line says after `c`.
 #[must_use]
 pub fn copied() -> String {
     "the registry digest was offered to the terminal's clipboard \u{b7} a terminal \
@@ -416,7 +416,7 @@ pub fn copied() -> String {
         .to_owned()
 }
 
-/// What the status line says when `y` was pressed and there is no digest.
+/// What the status line says when `c` was pressed and there is no digest.
 #[must_use]
 pub fn nothing_to_copy() -> String {
     "no policy is on screen \u{b7} the effective policy is a property of a run, and \

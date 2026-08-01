@@ -218,7 +218,7 @@ impl Screen {
                 key!("esc", "back"),
                 key!("a", "remediation transcript"),
                 key!("o", "re-observe this rule"),
-                key!("y", "copy the rule id"),
+                key!("c", "copy the rule id"),
             ],
             Self::Remediation => &[
                 key!("esc", "back"),
@@ -229,7 +229,7 @@ impl Screen {
             Self::PolicyInspector => &[
                 key!("esc", "back"),
                 key!("\u{2191}\u{2193}", "move"),
-                key!("y", "copy digest"),
+                key!("c", "copy digest"),
             ],
             Self::PublishingBootstrap => &[
                 key!("esc", "back"),

@@ -735,7 +735,7 @@ pub fn reobserving(rule: &str) -> String {
     )
 }
 
-/// What the status line says after `y`.
+/// What the status line says after `c`.
 #[must_use]
 pub fn copied(rule: &str) -> String {
     format!(

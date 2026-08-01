@@ -1057,7 +1057,7 @@ impl App {
                 }
                 None => self.note = Some(detail::nothing_to_act_on()),
             },
-            KeyCode::Char('y') => {
+            KeyCode::Char('c') => {
                 return Some(match rule {
                     Some(rule) => {
                         self.note = Some(detail::copied(&rule));
@@ -1083,7 +1083,7 @@ impl App {
         match code {
             KeyCode::Up => self.inspection.by(-1),
             KeyCode::Down => self.inspection.by(1),
-            KeyCode::Char('y') => {
+            KeyCode::Char('c') => {
                 return Some(match self.inspector.as_deref() {
                     Some(inspector) => {
                         self.note = Some(policy::copied());
@@ -2424,7 +2424,7 @@ mod tests {
         press(&mut app, KeyCode::Down);
         press(&mut app, KeyCode::Enter);
         assert_eq!(
-            press(&mut app, KeyCode::Char('y')),
+            press(&mut app, KeyCode::Char('c')),
             Flow::Copy("REPO-GIT-01".to_owned())
         );
         assert!(app.status().contains("clipboard"), "{}", app.status());
@@ -2432,7 +2432,7 @@ mod tests {
 
     #[test]
     fn a_key_that_acts_on_a_finding_says_so_when_there_is_none() {
-        for code in [KeyCode::Char('o'), KeyCode::Char('y')] {
+        for code in [KeyCode::Char('o'), KeyCode::Char('c')] {
             let mut app = app().at(Screen::FindingDetail, Theme::Dark);
             press(&mut app, code);
             assert!(

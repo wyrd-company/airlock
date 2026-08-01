@@ -510,7 +510,7 @@ emptiness rule requires rather than being omitted.
 
 **Keymap.** `esc` back · `↑↓` scroll · `a` open the remediation transcript,
 where a remediation is on offer and its lane is `operator-setting` · `o`
-re-observe this rule · `y` copy the rule id.
+re-observe this rule · `c` copy the rule id.
 
 `o` records the request and says so. It never reports a result it has not
 observed: what a re-observation concluded is shown when the observation
@@ -654,7 +654,7 @@ is a number. Where the reading is longer than the terminal is tall, `↑↓` mov
 the window over it and the screen states how many lines lie above and how many
 below.
 
-**Keymap.** `esc` back · `↑↓` move · `y` copy digest.
+**Keymap.** `esc` back · `↑↓` move · `c` copy digest.
 
 **Status line.** The registry version, the abbreviated digest, the rule count,
 and the section count.

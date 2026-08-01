@@ -38,7 +38,7 @@ next          press esc to return to the queue, move onto a row, and press ↵.
                                                                                                                         
                                                                                                                         
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-esc back · a remediation transcript · o re-observe this rule · y copy the rule id · t theme · ctrl-c exit               
+esc back · a remediation transcript · o re-observe this rule · c copy the rule id · t theme · ctrl-c exit               
 no repository observed · this shell renders the frame only · tty required                                               
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb

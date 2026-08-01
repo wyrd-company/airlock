@@ -38,7 +38,7 @@ digest                sha256:5c8813c3bfc7bd06c869e72aeada56f1b256066e4349022b3a9
 schema                1                                                                                                 
 — 0 lines above · 7 below · ↑↓ moves the window —                                                                       
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-esc back · a remediation transcript · o re-observe this rule · y copy the rule id · t theme · ctrl-c exit               
+esc back · a remediation transcript · o re-observe this rule · c copy the rule id · t theme · ctrl-c exit               
 decided · inert · does not gate · authorized by policy                                                                  
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb

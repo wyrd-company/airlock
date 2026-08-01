@@ -38,7 +38,7 @@ RULES
   REPO-REL-04     ██░ required   mechanical    capability:base/release                                                  
                                                                                                                         
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-esc back · ↑↓ move · y copy digest · t theme · ctrl-c exit                                                              
+esc back · ↑↓ move · c copy digest · t theme · ctrl-c exit                                                              
 registry 0.4.0 · sha256:5c8813c3… · 8 rules · 6 sections                                                                
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
