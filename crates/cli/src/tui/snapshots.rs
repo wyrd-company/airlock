@@ -1105,14 +1105,14 @@ fn a_scan_code_reads_the_same_in_both_palettes_and_is_withheld_without_colour() 
     );
     assert!(dark.contains('\u{2580}') && light.contains('\u{2580}'));
 
-    // Without colour it cannot paint its own field, so it is withheld and the
-    // screen says which of the two facts is missing.
+    // Without colour it cannot paint its own field, so it is withheld. The
+    // address it encodes is on the screen regardless.
     let mono = characters(&awaiting_case(Theme::Dark, ColorMode::NoColor));
     assert!(
         !mono.contains('\u{2580}'),
         "a code that cannot be painted is not drawn"
     );
-    assert!(mono.contains("NO_COLOR"), "{mono}");
+    assert!(mono.contains("https://github.com/login/device"), "{mono}");
 }
 
 #[test]

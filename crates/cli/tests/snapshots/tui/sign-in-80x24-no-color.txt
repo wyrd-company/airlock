@@ -2,22 +2,22 @@ sign-in-80x24-no-color · 80x24 · theme dark · NO_COLOR
 --- text ---
 AIRLOCK 0.0.0  sign-in                    no credential stored · theme t · dark 
 REQUESTING A DEVICE CODE                                                        
-Asking GitHub for a device code.                                                
                                                                                 
 ┌───────────────────┐                                                           
 │                   │                                                           
 └───────────────────┘                                                           
+                                                                                
 address       not issued yet                                                    
-code          eight characters, case-insensitive; no 0, O, 1, or I.             
-scan code     none yet: it encodes the address.                                 
-remedy        Nothing yet. r and s are not live until a code exists.            
-CREDENTIAL                                                                      
-source        GitHub App Airlock Admin · device flow                            
-grant         read: metadata, actions · write: administration, contents,        
-              environments, secrets, variables, organization_administration,    
-              organization_secrets · admin: organization_custom_properties      
-storage       none. No credential of any kind is stored, anywhere, ever. Its    
-              value is never displayed.                                         
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
                                                                                 
                                                                                 
                                                                                 
@@ -36,7 +36,7 @@ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-aaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb

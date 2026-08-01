@@ -4018,10 +4018,7 @@ mod tests {
         assert!(body.contains("observed again"), "{body}");
         assert!(body.contains("detail closed"), "{body}");
         // And the flow itself is sign-in's, not a second rendering of it.
-        assert!(
-            body.contains("No credential of any kind is stored"),
-            "{body}"
-        );
+        assert!(body.contains("REQUESTING A DEVICE CODE"), "{body}");
         assert!(body.contains("lapsed"), "{body}");
     }
 

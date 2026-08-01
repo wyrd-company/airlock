@@ -8,19 +8,19 @@ still valid; approval already given is picked up when polling resumes.
 ┌─────────────────────┐                                                         
 │  W D J B - M J H T  │                                                         
 └─────────────────────┘                                                         
+                                                                                
 address       https://github.com/login/device                                   
-code          eight characters, case-insensitive; no 0, O, 1, or I.             
-polling       attempt 1 failed, retrying in 2s                                  
-code expires  in 13m 57s, still valid                                           
-scan code     withheld: needs 95 columns, this has 80. s draws it below.        
-remedy        Airlock retries in 2s. r starts over with a new code.             
-CREDENTIAL                                                                      
-source        GitHub App Airlock Admin · device flow                            
-grant         read: metadata, actions · write: administration, contents,        
-              environments, secrets, variables, organization_administration,    
-              organization_secrets · admin: organization_custom_properties      
-storage       none. No credential of any kind is stored, anywhere, ever. Its    
-              value is never displayed.                                         
+expires       in 13m 57s                                                        
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
                                                                                 
 r issue a new code · c copy the code · s show or hide the scan code · 3 more…   
 no credential on disk · tty required                                            
@@ -33,22 +33,22 @@ dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 eeeeeeeeeeeeeeeeeeeeeeeddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 efffffffffffffffffffffeddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 eeeeeeeeeeeeeeeeeeeeeeeddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-gggggggggggggghhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhddddddddddddddddddddddddddddddddddd
-gggggggggggggghhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhddddddddddddd
-gggggggggggggghhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhdddddddddddddddddddddddddddddddddd
-gggggggggggggghhhhhhhhhhhhhhhhhhhhhhhddddddddddddddddddddddddddddddddddddddddddd
-gggggggggggggghhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhdddddddd
-gggggggggggggghhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhddddddddddddd
-iiiiiiiiiidddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-gggggggggggggghhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhdddddddddddddddddddddddddddd
-gggggggggggggghhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhdddddddd
-gggggggggggggghhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhdddd
-gggggggggggggghhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhdddddd
-gggggggggggggghhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhdddd
-gggggggggggggghhhhhhhhhhhhhhhhhhhhhhhhhddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-cdhhhhhhhhhhhhhhhhgggcdhhhhhhhhhhhhhgggcdhhhhhhhhhhhhhhhhhhhhhhhhhhgggjjjjjjjddd
-kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk
+gggggggggggggghhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhddddddddddddddddddddddddddddddddddd
+gggggggggggggghhhhhhhhhhdddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+cdhhhhhhhhhhhhhhhhgggcdhhhhhhhhhhhhhgggcdhhhhhhhhhhhhhhhhhhhhhhhhhhgggiiiiiiiddd
+jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj
 --- legend ---
 a fg=#CBD3DD bg=#14181D BOLD
 b fg=#CBD3DD bg=#14181D
@@ -58,6 +58,5 @@ e fg=#39434F bg=#0B0D10
 f fg=#E8B84B bg=#0B0D10 BOLD | UNDERLINED
 g fg=#4C5661 bg=#0B0D10
 h fg=#79838F bg=#0B0D10
-i fg=#CBD3DD bg=#0B0D10 BOLD
-j fg=#4C5661 bg=#0B0D10 ITALIC
-k fg=#79838F bg=#101419
+i fg=#4C5661 bg=#0B0D10 ITALIC
+j fg=#79838F bg=#101419

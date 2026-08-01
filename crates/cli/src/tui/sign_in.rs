@@ -1,20 +1,21 @@
 //! The sign-in screen.
 //!
-//! It draws the five states of the device flow, the code frame that is drawn
-//! empty rather than absent so nothing moves when the code arrives, the scan
-//! code where there is room for all of it, and the standing statement that no
-//! credential of any kind is stored.
+//! Four things and nothing else: the scan code, the device code, the address
+//! to enter it at, and what is left of its validity. Everything an operator
+//! does here they do in a browser, so every word the screen does not need is a
+//! word between them and the code they came to read. What the keys do is the
+//! keymap's business, and what the session stores is the header's.
 //!
-//! The credential region shows the grant by permission list and by source. It
-//! never shows a value, and there is no value here to show: the screen is given
-//! the identity, which is a compile-time constant, and never the credential.
+//! The code frame is drawn empty rather than absent while the code is being
+//! requested, so nothing moves when the code arrives. The states that are not
+//! waiting for an approval — requesting, expired, denied, interrupted — say in
+//! one sentence what happened, because the heading alone cannot.
 
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 
-use crate::admin::identity::{self, WriteIdentity};
 use crate::admin::scan::{self, ScanCode};
-use crate::admin::sign_in::{humanize, Density, SignIn};
+use crate::admin::sign_in::{humanize, Density, Reason, SignIn};
 use crate::admin::{flow, text};
 
 use super::chrome::wrap;
@@ -72,95 +73,6 @@ impl ScanMode {
             Self::Hidden => Self::Auto,
         }
     }
-
-    /// What `s` will do, said on the screen rather than left to be discovered.
-    #[must_use]
-    pub const fn offer(self, density: Density) -> &'static str {
-        match (self, density) {
-            (Self::Auto, Density::Full) => "s draws the scan code below the device code instead",
-            (Self::Auto, Density::Tight) => "s draws it below",
-            (Self::Below, Density::Full) => "s hides the scan code",
-            (Self::Below, Density::Tight) => "s hides it",
-            (Self::Hidden, Density::Full) => "s shows the scan code again",
-            (Self::Hidden, Density::Tight) => "s shows it",
-        }
-    }
-}
-
-/// Why a scan code is not drawn.
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum Withheld {
-    /// There is no code yet, so there is no address to encode.
-    NoCode,
-    /// The operator hid it.
-    Hidden,
-    /// The terminal is too narrow for it to sit alongside: the columns it
-    /// needs beside a readable text column, and the columns there are.
-    TooNarrow {
-        /// What the whole layout would take.
-        needed: usize,
-        /// What the terminal has.
-        have: usize,
-    },
-    /// The terminal is too short for all of it: the rows it needs, and the rows
-    /// left to give it.
-    TooShort {
-        /// What the symbol takes.
-        needed: usize,
-        /// What is left.
-        have: usize,
-    },
-    /// Colour is off, and the code paints its own field in colour.
-    NoColor,
-    /// The address is not at the origin airlock asked, or would not encode.
-    Elsewhere,
-}
-
-impl Withheld {
-    fn statement(&self, density: Density) -> String {
-        let tight = density == Density::Tight;
-        match self {
-            Self::NoCode if tight => "none yet: it encodes the address.".to_owned(),
-            Self::NoCode => {
-                "no scan code yet: it encodes the address, and the address arrives with \
-                 the code."
-                    .to_owned()
-            }
-            Self::Hidden => "hidden. The address above is the whole of what it encodes.".to_owned(),
-            Self::TooNarrow { needed, have } if tight => {
-                format!("withheld: needs {needed} columns, this has {have}.")
-            }
-            Self::TooNarrow { needed, have } => format!(
-                "withheld: it needs {} columns beside a readable text column, which is \
-                 {needed} in all, and this terminal has {have}. A partly drawn scan code \
-                 is never rendered, because a code that cannot be scanned is worse than \
-                 an address you type.",
-                needed - TEXT_MINIMUM - SCAN_GUTTER
-            ),
-            Self::TooShort { needed, have } if tight => {
-                format!("withheld: it needs {needed} rows and has {have}.")
-            }
-            Self::TooShort { needed, have } => format!(
-                "withheld: it needs {needed} rows and this screen has {have} left to give \
-                 it. It is withheld rather than cut off, for the same reason."
-            ),
-            Self::NoColor if tight => {
-                "withheld: it paints its own field in colour, and NO_COLOR is in force.".to_owned()
-            }
-            Self::NoColor => {
-                "withheld: it paints its own light field and quiet zone so that it scans \
-                 on either palette, and NO_COLOR is in force. The address above is the \
-                 whole of what it encodes."
-                    .to_owned()
-            }
-            Self::Elsewhere => format!(
-                "withheld: the address above is not at {}, which is where airlock asked. \
-                 A scan code is followed without being read, so airlock will not point \
-                 one somewhere the response chose. Read the address before you act on it.",
-                flow::login_origin()
-            ),
-        }
-    }
 }
 
 /// How much room there is for words, from the terminal's own width.
@@ -183,7 +95,6 @@ const fn density(width: usize) -> Density {
 pub struct Screen {
     state: SignIn,
     scan: ScanMode,
-    identity: WriteIdentity,
 }
 
 impl Default for Screen {
@@ -191,7 +102,6 @@ impl Default for Screen {
         Self {
             state: SignIn::opening(),
             scan: ScanMode::default(),
-            identity: identity::bound(),
         }
     }
 }
@@ -238,10 +148,9 @@ impl Screen {
 
     /// The screen's body.
     ///
-    /// The whole of it, at both sizes. Nothing here is allowed to run off the
-    /// bottom and be withheld by the frame: the credential statement is the one
-    /// thing this screen exists to make, and a statement about storage that the
-    /// operator has to make the terminal bigger to read is not one.
+    /// The whole of it, at both sizes. The text column takes whatever width
+    /// the scan code is not using, so the address grows with the terminal
+    /// rather than being wrapped to the width of a symbol beside it.
     pub fn body(&self, styles: Styles, width: u16, height: u16) -> Vec<Line<'static>> {
         let width = width as usize;
         let density = density(width);
@@ -251,70 +160,47 @@ impl Screen {
         // one size would push a wider one off the edge — which is the clipping
         // the withholding rule exists to prevent.
         let text_width = match &placement {
-            Ok(Placement::Alongside(code)) => width.saturating_sub(code.columns() + SCAN_GUTTER),
+            Some(Placement::Alongside(code)) => width.saturating_sub(code.columns() + SCAN_GUTTER),
             _ => width,
         };
-        let mut lines = self.text(styles, text_width, density, &placement);
+        let mut lines = self.text(styles, text_width, density);
         match &placement {
-            Ok(Placement::Alongside(code)) => {
+            Some(Placement::Alongside(code)) => {
                 self.overlay(styles, &mut lines, code, text_width + SCAN_GUTTER);
             }
-            Ok(Placement::Below(code)) => {
+            Some(Placement::Below(code)) => {
                 lines.push(Line::default());
                 lines.extend(paint(code, styles));
             }
-            Err(_) => {}
+            None => {}
         }
         lines
     }
 
-    /// Where the scan code goes, or why it does not go anywhere.
+    /// Where the scan code goes, when it goes anywhere.
     ///
     /// The vertical test is what keeps a scan code from being drawn into rows
-    /// the frame will then cut off. Beside the code it needs its own rows; below
-    /// it, it needs them after everything the screen already says, and the
-    /// screen says how many it is short rather than drawing what fits.
-    fn placement(
-        &self,
-        styles: Styles,
-        width: usize,
-        height: usize,
-    ) -> Result<Placement, Withheld> {
-        if !self.state.has_code() {
-            return Err(Withheld::NoCode);
+    /// the frame will then cut off. Beside the code it needs its own rows;
+    /// below it, it needs them after everything the screen already says. A
+    /// partly drawn scan code is never rendered, because a code that cannot be
+    /// scanned is worse than an address you type — so where it does not fit
+    /// whole it is not drawn at all, and the address is on screen regardless.
+    fn placement(&self, styles: Styles, width: usize, height: usize) -> Option<Placement> {
+        if !self.state.has_code() || self.scan == ScanMode::Hidden || !styles.colored() {
+            return None;
         }
-        if self.scan == ScanMode::Hidden {
-            return Err(Withheld::Hidden);
-        }
-        if !styles.colored() {
-            return Err(Withheld::NoColor);
-        }
-        let Some(code) = self.encoded() else {
-            return Err(Withheld::Elsewhere);
-        };
+        let code = self.encoded()?;
         let (rows, columns) = (code.lines(), code.columns());
         match self.scan {
             ScanMode::Below => {
                 // Measured against the text as it will actually be drawn, at
                 // the full width, with one blank row between the two.
-                let text = self
-                    .text(styles, width, density(width), &Err(Withheld::Hidden))
-                    .len();
-                let have = height.saturating_sub(text + 1);
-                if have < rows {
-                    return Err(Withheld::TooShort { needed: rows, have });
-                }
-                Ok(Placement::Below(code))
+                let text = self.text(styles, width, density(width)).len();
+                (height.saturating_sub(text + 1) >= rows).then_some(Placement::Below(code))
             }
-            _ if height < rows => Err(Withheld::TooShort {
-                needed: rows,
-                have: height,
-            }),
-            _ if width >= TEXT_MINIMUM + SCAN_GUTTER + columns => Ok(Placement::Alongside(code)),
-            _ => Err(Withheld::TooNarrow {
-                needed: TEXT_MINIMUM + SCAN_GUTTER + columns,
-                have: width,
-            }),
+            _ if height < rows => None,
+            _ if width >= TEXT_MINIMUM + SCAN_GUTTER + columns => Some(Placement::Alongside(code)),
+            _ => None,
         }
     }
 
@@ -361,42 +247,30 @@ impl Screen {
         }
     }
 
-    fn text(
-        &self,
-        styles: Styles,
-        width: usize,
-        density: Density,
-        placement: &Result<Placement, Withheld>,
-    ) -> Vec<Line<'static>> {
+    /// The whole of the screen's text: the heading, the code, the address, and
+    /// what is left of the code's validity.
+    ///
+    /// The state waiting for an approval says nothing more than that, because
+    /// there is nothing more to say and the operator is reading a code. The
+    /// states that have something the heading cannot carry say it in one
+    /// sentence, which is the only place that fact appears.
+    fn text(&self, styles: Styles, width: usize, density: Density) -> Vec<Line<'static>> {
         let mut lines = vec![Line::from(Span::styled(
             self.state.heading(),
             styles.bold(Role::Accent),
         ))];
-        lines.extend(paragraph(
-            &self.state.statement(density),
-            styles,
-            Role::Text,
-            width,
-        ));
+        if self.explains_itself() {
+            lines.extend(paragraph(
+                &self.state.statement(density),
+                styles,
+                Role::Text,
+                width,
+            ));
+        }
         lines.push(Line::default());
         lines.extend(self.code_frame(styles));
-        if density == Density::Full {
-            lines.push(Line::default());
-        }
-        lines.extend(self.facts(styles, width, placement, density));
-        if density == Density::Full {
-            lines.push(Line::default());
-        }
-        lines.extend(panel::field(
-            styles,
-            "remedy",
-            &self.state.remedy(density),
-            width,
-        ));
-        if density == Density::Full {
-            lines.push(Line::default());
-        }
-        lines.extend(panel::credential(styles, self.identity, width, density));
+        lines.push(Line::default());
+        lines.extend(self.facts(styles, width));
         lines
     }
 
@@ -448,114 +322,50 @@ impl Screen {
         ]
     }
 
-    fn facts(
-        &self,
-        styles: Styles,
-        width: usize,
-        placement: &Result<Placement, Withheld>,
-        density: Density,
-    ) -> Vec<Line<'static>> {
-        let mut lines = Vec::new();
+    /// Whether this state has something to say that its heading cannot carry.
+    ///
+    /// Asking for a code says all of itself in its heading, and it holds the
+    /// rows the code frame will occupy so that nothing moves when the code
+    /// arrives. A lapsed authorization is the exception: what is held and what
+    /// was discarded is not something a heading can say.
+    fn explains_itself(&self) -> bool {
+        !matches!(
+            self.state,
+            SignIn::Awaiting { .. }
+                | SignIn::Requesting {
+                    reason: Reason::Opening | Reason::Asked
+                }
+        )
+    }
+
+    /// The address, and what is left of the code's validity.
+    ///
+    /// The address is always printed, whether or not a scan code was drawn
+    /// from it: a scan code is a convenience, and the address is the fact. The
+    /// validity is stated only where there is a code to have one.
+    fn facts(&self, styles: Styles, width: usize) -> Vec<Line<'static>> {
         let address = self
             .state
             .code()
             .map_or("not issued yet", |code| code.verification_uri.as_str())
             .to_owned();
-        lines.extend(panel::field(styles, "address", &address, width));
-        lines.extend(panel::field(
-            styles,
-            "code",
-            match density {
-                Density::Full => {
-                    "eight characters, case-insensitive. The alphabet excludes 0, O, 1, \
-                     and I, so there is no character here that another can be mistaken \
-                     for."
-                }
-                Density::Tight => "eight characters, case-insensitive; no 0, O, 1, or I.",
-            },
-            width,
-        ));
-        match &self.state {
-            SignIn::Awaiting {
-                poll,
-                interval,
-                remaining,
-                ..
-            } => {
-                lines.extend(panel::field(
-                    styles,
-                    "polling",
-                    &format!("attempt {poll}, every {}", humanize(*interval)),
-                    width,
-                ));
-                lines.extend(panel::field(
-                    styles,
-                    "code expires",
-                    &format!("in {}", humanize(*remaining)),
-                    width,
-                ));
-            }
+        let mut lines = panel::field(styles, "address", &address, width);
+        let remaining = match &self.state {
+            SignIn::Awaiting { remaining, .. } => Some(*remaining),
             SignIn::Interrupted {
-                poll,
-                backoff,
+                code: Some(_),
                 remaining,
-                code,
                 ..
-            } => {
-                lines.extend(panel::field(
-                    styles,
-                    "polling",
-                    &format!("attempt {poll} failed, retrying in {}", humanize(*backoff)),
-                    width,
-                ));
-                if code.is_some() {
-                    lines.extend(panel::field(
-                        styles,
-                        "code expires",
-                        &match density {
-                            Density::Full => {
-                                format!("in {}, and it is still valid", humanize(*remaining))
-                            }
-                            Density::Tight => format!("in {}, still valid", humanize(*remaining)),
-                        },
-                        width,
-                    ));
-                }
-            }
-            SignIn::Requesting { .. } | SignIn::Expired | SignIn::Denied => {}
-        }
-        let scan = match placement {
-            Ok(Placement::Alongside(_)) => "drawn beside the code. It encodes the address \
-                 only, because the device flow offers no address that carries the code."
-                .to_owned(),
-            Ok(Placement::Below(_)) => {
-                "drawn below the code. It encodes the address only.".to_owned()
-            }
-            Err(reason) => reason.statement(density),
+            } => Some(*remaining),
+            _ => None,
         };
-        // At the floor the offer rides on the same line rather than taking one
-        // of its own, because a row here is a row the credential statement
-        // needs.
-        match density {
-            Density::Full => {
-                lines.extend(panel::field(styles, "scan code", &scan, width));
-                if self.state.has_code() {
-                    lines.extend(panel::field(styles, "", self.scan.offer(density), width));
-                }
-            }
-            Density::Tight => {
-                let offer = if self.state.has_code() {
-                    format!(" {}.", self.scan.offer(density))
-                } else {
-                    String::new()
-                };
-                lines.extend(panel::field(
-                    styles,
-                    "scan code",
-                    &format!("{scan}{offer}"),
-                    width,
-                ));
-            }
+        if let Some(remaining) = remaining {
+            lines.extend(panel::field(
+                styles,
+                "expires",
+                &format!("in {}", humanize(remaining)),
+                width,
+            ));
         }
         lines
     }
@@ -695,12 +505,28 @@ mod tests {
     }
 
     #[test]
-    fn every_state_draws_and_names_itself_and_its_remedy() {
+    fn every_state_names_itself() {
         for screen in every_screen() {
             let text = flat(&screen, styles(), REFERENCE_WIDTH, 35);
             assert!(text.contains(screen.state().heading()), "{text}");
-            assert!(text.contains("remedy"), "{text}");
-            assert!(text.contains("CREDENTIAL"), "{text}");
+        }
+    }
+
+    #[test]
+    fn the_screen_waiting_for_an_approval_carries_the_code_the_address_and_no_more() {
+        // The four the specification keeps, and nothing that competes with
+        // them for the operator's attention while they read eight characters
+        // off the screen and type them into a browser.
+        let text = flat(&awaiting(), styles(), REFERENCE_WIDTH, 35);
+        assert!(text.contains("LOGIN TO AIRLOCK"), "{text}");
+        assert!(text.contains("W D J B - M J H T"), "{text}");
+        assert!(text.contains("https://github.com/login/device"), "{text}");
+        assert!(text.contains("expires in 15m 00s"), "{text}");
+        for absent in ["polling", "attempt", "remedy", "CREDENTIAL", "storage"] {
+            assert!(
+                !text.contains(absent),
+                "{absent} is still on the screen: {text}"
+            );
         }
     }
 
@@ -709,37 +535,15 @@ mod tests {
         for screen in every_screen() {
             let text = flat(&screen, styles(), REFERENCE_WIDTH, 35);
             assert!(!text.contains("never-shown"), "the device code leaked");
-            assert!(!text.contains(identity::bound().client_id), "{text}");
-            assert!(text.contains("value is never displayed"), "{text}");
-        }
-    }
-
-    #[test]
-    fn every_state_states_that_nothing_is_stored() {
-        for screen in every_screen() {
-            let text = flat(&screen, styles(), REFERENCE_WIDTH, 35);
             assert!(
-                text.contains("No credential of any kind is stored"),
+                !text.contains(crate::admin::identity::bound().client_id),
                 "{text}"
             );
         }
     }
 
     #[test]
-    fn the_grant_is_shown_by_permission_list_and_source() {
-        let text = flat(&awaiting(), styles(), REFERENCE_WIDTH, 35);
-        for permission in identity::bound().grant {
-            assert!(
-                text.contains(&format!("{} {}", permission.name, permission.level)),
-                "{} is missing",
-                permission.name
-            );
-        }
-        assert!(text.contains(&identity::bound().source()), "{text}");
-    }
-
-    #[test]
-    fn the_code_frame_is_drawn_empty_rather_than_absent_while_requesting() {
+    fn the_code_frame_neither_moves_nor_disappears_when_the_code_arrives() {
         let requesting = rendered(&Screen::default(), styles(), REFERENCE_WIDTH, 35);
         let awaiting = rendered(&awaiting(), styles(), REFERENCE_WIDTH, 35);
         let frame = |text: &str| {
@@ -758,56 +562,45 @@ mod tests {
     fn the_device_code_is_spaced_so_no_two_characters_run_together() {
         let text = flat(&awaiting(), styles(), REFERENCE_WIDTH, 35);
         assert!(text.contains("W D J B - M J H T"), "{text}");
-        assert!(
-            text.contains("excludes 0, O, 1, and I"),
-            "the alphabet is stated: {text}"
-        );
+    }
+
+    /// The rows of a rendering that carry scan-code cells.
+    fn scan_rows(drawn: &str) -> usize {
+        drawn
+            .lines()
+            .filter(|line| line.contains(scan::glyph()))
+            .count()
     }
 
     #[test]
     fn the_scan_code_sits_alongside_at_the_reference_and_is_withheld_at_the_floor() {
-        let wide = rendered(&awaiting(), styles(), REFERENCE_WIDTH, 35);
-        assert!(wide.contains("drawn beside the code"), "{wide}");
         assert_eq!(
-            wide.lines()
-                .filter(|line| line.contains(scan::glyph()))
-                .count(),
+            scan_rows(&rendered(&awaiting(), styles(), REFERENCE_WIDTH, 35)),
             17,
             "all of it, or none of it"
         );
-
-        let narrow = flat(&awaiting(), styles(), FLOOR_WIDTH, 21);
-        assert!(narrow.contains("withheld"), "{narrow}");
-        assert!(narrow.contains("needs 95 columns, this has 80"), "{narrow}");
+        // The floor has neither the columns for it beside a readable text
+        // column nor the rows for it below one. A partly drawn scan code is
+        // never rendered, and the address is on screen regardless.
+        let narrow = rendered(&awaiting(), styles(), FLOOR_WIDTH, 21);
+        assert_eq!(scan_rows(&narrow), 0);
         assert!(
-            !narrow.contains(scan::glyph()),
-            "a partly drawn scan code is never rendered"
+            narrow.contains("https://github.com/login/device"),
+            "{narrow}"
         );
     }
 
     #[test]
-    fn a_withheld_scan_code_offers_to_be_drawn_below_and_s_does_it() {
+    fn s_draws_the_scan_code_below_where_there_are_rows_for_it() {
         let mut screen = awaiting();
-        let narrow = flat(&screen, styles(), FLOOR_WIDTH, 21);
-        assert!(narrow.contains("s draws it below"), "{narrow}");
-
         screen.cycle_scan();
         assert_eq!(screen.scan_mode(), ScanMode::Below);
-        // At the floor there is no vertical room for it either, and the screen
-        // says which dimension is short rather than drawing part of it.
-        let below = flat(&screen, styles(), FLOOR_WIDTH, 21);
-        assert!(below.contains("needs 17 rows"), "{below}");
-        assert!(!below.contains(scan::glyph()));
+        // At the floor there is no vertical room for it either.
+        assert_eq!(scan_rows(&rendered(&screen, styles(), FLOOR_WIDTH, 21)), 0);
 
         // Given the rows, it is drawn, whole.
         let tall = rendered(&screen, styles(), FLOOR_WIDTH, 50);
-        assert!(tall.contains("drawn below the code"), "{tall}");
-        assert_eq!(
-            tall.lines()
-                .filter(|line| line.contains(scan::glyph()))
-                .count(),
-            17
-        );
+        assert_eq!(scan_rows(&tall), 17);
         assert!(
             tall.lines().count() <= 50,
             "the whole body still fits the rows it was given"
@@ -831,21 +624,25 @@ mod tests {
         }
         screen.cycle_scan();
         screen.cycle_scan();
-        let hidden = flat(&screen, styles(), REFERENCE_WIDTH, 35);
-        assert!(hidden.contains("hidden"), "{hidden}");
-        assert!(!hidden.contains(scan::glyph()));
+        assert_eq!(screen.scan_mode(), ScanMode::Hidden);
+        assert_eq!(
+            scan_rows(&rendered(&screen, styles(), REFERENCE_WIDTH, 35)),
+            0
+        );
     }
 
     #[test]
-    fn the_scan_code_is_withheld_without_colour_and_says_why() {
-        let text = flat(
+    fn the_scan_code_is_withheld_without_colour() {
+        // It paints its own light field and quiet zone so that it scans on
+        // either palette, which it cannot do with the palette turned off.
+        let drawn = rendered(
             &awaiting(),
             Styles::new(Theme::Dark, ColorMode::NoColor),
             REFERENCE_WIDTH,
             35,
         );
-        assert!(text.contains("NO_COLOR is in force"), "{text}");
-        assert!(!text.contains(scan::glyph()));
+        assert_eq!(scan_rows(&drawn), 0);
+        assert!(drawn.contains("https://github.com/login/device"), "{drawn}");
     }
 
     #[test]
@@ -874,10 +671,9 @@ mod tests {
 
     #[test]
     fn every_state_fits_the_floor_whole() {
-        // No screen requires more than the floor to be usable, and for this one
-        // "usable" includes the statement that nothing is stored. If any state
+        // No screen requires more than the floor to be usable. If any state
         // needs a row it has not got, the frame withholds the tail of it, and
-        // the tail is where that statement is.
+        // the tail is where the address is.
         for screen in every_screen() {
             let lines = screen.body(styles(), FLOOR_WIDTH, FLOOR_BODY);
             assert!(
@@ -887,17 +683,7 @@ mod tests {
                 lines.len()
             );
             let text = flat(&screen, styles(), FLOOR_WIDTH, FLOOR_BODY);
-            assert!(
-                text.contains("No credential of any kind is stored"),
-                "{text}"
-            );
-            for permission in identity::bound().grant {
-                assert!(
-                    text.contains(permission.name),
-                    "{} is missing",
-                    permission.name
-                );
-            }
+            assert!(text.contains("address"), "{text}");
         }
     }
 
@@ -928,10 +714,6 @@ mod tests {
         ] {
             let screen = screen_at(hostile);
             let text = flat(&screen, styles(), REFERENCE_WIDTH, 35);
-            assert!(
-                text.contains("is not at https://github.com, which is where airlock asked"),
-                "{hostile}: {text}"
-            );
             assert!(
                 !rendered(&screen, styles(), REFERENCE_WIDTH, 35).contains(scan::glyph()),
                 "{hostile}: a scanner was pointed somewhere the response chose"
@@ -1065,7 +847,11 @@ mod tests {
             ScanMode::Below,
             "nothing else on the screen is lost"
         );
-        let text = flat(&screen, styles(), REFERENCE_WIDTH, 35);
-        assert!(text.contains("asking GitHub for a new code"), "{text}");
+        assert_eq!(
+            screen.state(),
+            &SignIn::Requesting {
+                reason: Reason::Asked
+            }
+        );
     }
 }

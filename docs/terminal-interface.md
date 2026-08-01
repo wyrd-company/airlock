@@ -208,24 +208,36 @@ any state in which one of those keys is not live and why.
 
 **Purpose.** Obtain an authorization for this session through the device flow.
 
-**Content.** The program identity and version; a standing statement that no
-credential of any kind is stored and that an interactive terminal is required;
-the device code; the address to enter it at; and the scan code when width
-allows. The device code is eight characters, case-insensitive, drawn from an
-alphabet that excludes `0`, `O`, `1`, and `I`. The scan code encodes the
-address only — GitHub's device flow offers no address that carries the code,
-so the code is always typed by hand and is always present as legible text.
-The scan code paints its own white field and a four-module quiet zone rather
-than inheriting the terminal background, so it scans identically on both
-themes.
+**Content.** Four things: the scan code, the device code, the address to enter
+it at, and what is left of the code's validity. Everything an operator does
+here they do in a browser, so every word the screen does not need is a word
+between them and the code they came to read. What the keys do is the keymap's
+business, and what the session stores is the header's.
 
-The screen has five states:
+The device code is eight characters, case-insensitive, drawn from an alphabet
+that excludes `0`, `O`, `1`, and `I`. The scan code encodes the address only —
+GitHub's device flow offers no address that carries the code, so the code is
+always typed by hand and is always present as legible text. The scan code
+paints its own white field and a four-module quiet zone rather than inheriting
+the terminal background, so it scans identically on both themes. It is drawn
+whole or not at all, and the address it encodes is on the screen either way.
+
+The scan code holds one size and the text column takes whatever width the scan
+code is not using, so the address grows with the terminal rather than being
+wrapped to the width of the symbol beside it.
+
+The screen has five states. The one waiting for an approval says nothing
+beyond the four facts above; the other four say in one sentence what happened,
+because their headings cannot carry it.
 
 - **Requesting.** The code frame is drawn empty rather than absent, so nothing
-  shifts position when the code arrives. `r` and `q` are not live in this
-  state, because there is not yet a code to reissue or to encode.
-- **Awaiting approval.** The code, the address, the polling interval, the
-  attempt number, and the code's remaining validity are shown.
+  shifts position when the code arrives, and the state adds no words of its
+  own for the same reason. `r`, `c`, and `s` are not live in this state,
+  because there is not yet a code to reissue, copy, or encode. A code being
+  requested because the session's authorization lapsed is the exception: what
+  is held and what was discarded is not something a heading can say.
+- **Awaiting approval.** The code, the address, and the code's remaining
+  validity.
 - **Expired.** The code lapsed without approval. GitHub is asked once more as
   the validity runs out, so an approval given at the last moment is taken
   rather than thrown away. A new code is issued in place; the session is not
@@ -245,7 +257,8 @@ The screen has five states:
 **Keymap.** `r` issue a new code · `c` copy the code · `s` show or hide the
 scan code. All three are live only once a device code exists.
 
-**Status line.** `no credential on disk · tty required`.
+**Status line.** Empty, unless a key has just been pressed and has something
+to report.
 
 ### Organizations
 

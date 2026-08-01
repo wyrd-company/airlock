@@ -7,7 +7,8 @@
 //! renderable, and comparable, without a browser or a device code.
 //!
 //! The five states are the specification's: requesting a device code, awaiting
-//! approval, expired, denied, and polling interrupted. Each names its remedy.
+//! approval, expired, denied, and polling interrupted. Each names itself, and
+//! the four that are not waiting for an approval say what happened.
 
 use std::time::Duration;
 
@@ -278,7 +279,7 @@ impl SignIn {
     pub const fn heading(&self) -> &'static str {
         match self {
             Self::Requesting { .. } => "REQUESTING A DEVICE CODE",
-            Self::Awaiting { .. } => "AWAITING APPROVAL",
+            Self::Awaiting { .. } => "LOGIN TO AIRLOCK",
             Self::Expired => "THE CODE EXPIRED",
             Self::Denied => "AUTHORIZATION DENIED",
             Self::Interrupted { .. } => "POLLING INTERRUPTED",
@@ -322,25 +323,35 @@ impl SignIn {
                  approval and will continue on its own once you give it."
                     .to_owned()
             }
+            // What may be said here is bounded by what airlock asked. GitHub
+            // was polled once more as the validity ran out, so an approval
+            // given at the last moment was taken; one given after that is an
+            // approval of a code nothing is watching any more, and saying
+            // "nothing was granted" would be claiming an answer to a question
+            // airlock stopped asking.
             Self::Expired if tight => {
-                "The code lapsed unapproved. A new one is being issued in place; the \
-                 session is not restarted."
+                "The code lapsed unapproved. A new one is being issued in place; an \
+                 approval given to the old one now does not carry over."
                     .to_owned()
             }
             Self::Expired => {
                 "The code lapsed before it was approved. A new code is being issued in \
-                 place: the session is not restarted, and nothing else is lost."
+                 place: the session is not restarted, and nothing else is lost. Enter \
+                 the replacement even if you have just approved the code that lapsed, \
+                 because an approval given after this does not carry over."
                     .to_owned()
             }
             Self::Denied if tight => {
                 "GitHub reported access_denied: rejected in the browser, or the account \
-                 may not authorize this app. A new code is being issued in place."
+                 may not authorize this app. Nothing was granted and there is no \
+                 credential to revoke. A new code is being issued in place."
                     .to_owned()
             }
             Self::Denied => "GitHub reported access_denied for the code. Either the request was \
                  rejected in the browser, or the account is not permitted to authorize \
-                 this app. A new code is being issued in place: the session is not \
-                 restarted, and nothing else is lost."
+                 this app. If this was not you, nothing was granted and there is no \
+                 credential to revoke. A new code is being issued in place: the session \
+                 is not restarted, and nothing else is lost."
                 .to_owned(),
             Self::Interrupted { cause, code, .. } => {
                 // At the floor the cause is elided rather than allowed to push
@@ -372,75 +383,6 @@ impl SignIn {
                     ),
                 }
             }
-        }
-    }
-
-    /// What the operator can do about it.
-    #[must_use]
-    pub fn remedy(&self, density: Density) -> String {
-        let tight = density == Density::Tight;
-        match self {
-            Self::Requesting {
-                reason: Reason::Lapsed,
-            } if tight => {
-                "Approve the new code when it arrives. esc abandons and leaves.".to_owned()
-            }
-            Self::Requesting {
-                reason: Reason::Lapsed,
-            } => "Approve the new code when it arrives. Nothing is refreshed and nothing \
-                 was stored: this is a new approval, exactly like the first one. Press \
-                 esc to abandon it and leave."
-                .to_owned(),
-            Self::Requesting { .. } if tight => {
-                "Nothing yet. r and s are not live until a code exists.".to_owned()
-            }
-            Self::Requesting { .. } => {
-                "Nothing to do yet. r and s are not live in this state, because there is \
-                 not yet a code to reissue or to encode."
-                    .to_owned()
-            }
-            Self::Awaiting { .. } if tight => {
-                "Approve in the browser. r for a new code, ctrl-c to leave.".to_owned()
-            }
-            Self::Awaiting { .. } => {
-                "Approve in the browser. Press r for a new code if this one has gone \
-                 stale, or ctrl-c to leave without authorizing."
-                    .to_owned()
-            }
-            // What the screen may say here is bounded by what airlock asked.
-            // GitHub was polled once more as the validity ran out, so an
-            // approval given at the last moment was taken; one given after
-            // that is an approval of a code nothing is watching any more, and
-            // saying "nothing was granted" would be claiming an answer to a
-            // question airlock stopped asking.
-            Self::Expired if tight => {
-                "Enter the replacement when it arrives. An approval given to the lapsed \
-                 code after this does not carry over."
-                    .to_owned()
-            }
-            Self::Expired => "Enter the replacement code when it arrives, even if you have just \
-                 approved the one that lapsed: airlock asked GitHub once more as the \
-                 validity ran out, and an approval given after that does not carry over \
-                 to the new code."
-                .to_owned(),
-            Self::Denied if tight => {
-                "If this was not you, nothing was granted and there is nothing to \
-                 revoke. If it was, approve the replacement."
-                    .to_owned()
-            }
-            Self::Denied => "If this was not you, no action is required: nothing was granted, and \
-                 there is no credential to revoke. If it was, approve the replacement \
-                 code, or press ctrl-c to leave."
-                .to_owned(),
-            Self::Interrupted { backoff, .. } if tight => format!(
-                "Airlock retries in {}. r starts over with a new code.",
-                humanize(*backoff)
-            ),
-            Self::Interrupted { backoff, .. } => format!(
-                "Airlock retries on its own in {}. Check the network if it does not \
-                 recover; press r to start over with a new code, or ctrl-c to leave.",
-                humanize(*backoff)
-            ),
         }
     }
 }
@@ -485,7 +427,6 @@ mod tests {
         let state = SignIn::opening();
         assert!(matches!(state, SignIn::Requesting { .. }));
         assert!(!state.has_code(), "r and s are not live yet");
-        assert!(state.remedy(Density::Full).contains("not yet a code"));
     }
 
     #[test]
@@ -563,14 +504,14 @@ mod tests {
         assert_eq!(state, SignIn::Expired);
         assert!(state.statement(Density::Full).contains("not restarted"));
         for density in [Density::Full, Density::Tight] {
-            let remedy = state.remedy(density);
-            assert!(remedy.contains("does not carry over"), "{remedy}");
+            let statement = state.statement(density);
+            assert!(statement.contains("does not carry over"), "{statement}");
             // The claim the ceremony race makes false: an operator can approve
             // the lapsed code moments after airlock stopped watching it, and
             // airlock cannot see what that approval did.
             assert!(
-                !remedy.to_lowercase().contains("nothing was granted"),
-                "{remedy}"
+                !statement.to_lowercase().contains("nothing was granted"),
+                "{statement}"
             );
         }
     }
@@ -589,9 +530,6 @@ mod tests {
             let statement = state.statement(density);
             assert!(statement.contains("lapsed"), "{statement}");
             assert!(statement.contains("position is held"), "{statement}");
-            let remedy = state.remedy(density);
-            assert!(remedy.contains("esc"), "{remedy}");
-            assert!(remedy.len() > 20, "{remedy}");
         }
         assert!(
             state.statement(Density::Tight).len() <= state.statement(Density::Full).len(),
@@ -608,10 +546,13 @@ mod tests {
         let mut state = awaiting();
         state.denied();
         assert_eq!(state, SignIn::Denied);
-        assert!(state.statement(Density::Full).contains("access_denied"));
-        let remedy = state.remedy(Density::Full);
-        assert!(remedy.contains("nothing was granted"), "{remedy}");
-        assert!(remedy.contains("no credential to revoke"), "{remedy}");
+        for density in [Density::Full, Density::Tight] {
+            let statement = state.statement(density);
+            assert!(statement.contains("access_denied"), "{statement}");
+            let statement = statement.to_lowercase();
+            assert!(statement.contains("nothing was granted"), "{statement}");
+            assert!(statement.contains("no credential to revoke"), "{statement}");
+        }
     }
 
     #[test]
@@ -686,12 +627,11 @@ mod tests {
     }
 
     #[test]
-    fn every_state_names_a_remedy_and_a_heading_at_either_density() {
+    fn every_state_names_itself_and_says_what_happened_at_either_density() {
         for state in every_state() {
             assert!(!state.heading().is_empty(), "{state:?}");
             for density in [Density::Full, Density::Tight] {
-                assert!(!state.statement(density).is_empty(), "{state:?}");
-                assert!(state.remedy(density).len() > 20, "{state:?}");
+                assert!(state.statement(density).len() > 20, "{state:?}");
             }
             assert!(
                 state.statement(Density::Tight).len() <= state.statement(Density::Full).len(),
