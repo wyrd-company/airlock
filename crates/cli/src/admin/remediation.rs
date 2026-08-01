@@ -538,6 +538,13 @@ pub enum Response {
     Failed(String),
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum ScaffoldRecoveryState {
+    Absent,
+    Empty,
+    Branched,
+}
+
 /// A client with mutating methods, constructible only from a session grant.
 ///
 /// It is a different type from the read-only [`RestClient`]. The core GitHub
@@ -1637,6 +1644,51 @@ impl Session {
             })
             .await?;
         Ok((report, warnings))
+    }
+
+    async fn scaffold_recovery_state(
+        &self,
+        target: &Target,
+    ) -> anyhow::Result<ScaffoldRecoveryState> {
+        if self
+            .writer
+            .repository_absent(&target.owner, &target.repo)
+            .await?
+        {
+            return Ok(ScaffoldRecoveryState::Absent);
+        }
+        let repository = self
+            .reader()?
+            .repository(&target.owner, &target.repo)
+            .await?;
+        if repository.default_branch.is_empty() {
+            Ok(ScaffoldRecoveryState::Empty)
+        } else {
+            Ok(ScaffoldRecoveryState::Branched)
+        }
+    }
+
+    async fn recover_empty_scaffold(&self, target: &Target) -> anyhow::Result<Report> {
+        let (_, files) = self.scaffold_plan(&target.owner).await?;
+        anyhow::ensure!(
+            !files.is_empty(),
+            "the resolved owner policy requires no fixed deterministic file for the initial commit"
+        );
+        // The repository is still empty, so this branch-creating commit remains
+        // the sole direct file-write exception described by the interface contract.
+        self.writer
+            .create_initial_commit(&target.owner, &target.repo, &files)
+            .await?;
+        let repository = self
+            .reader()?
+            .repository(&target.owner, &target.repo)
+            .await?;
+        anyhow::ensure!(
+            repository.default_branch == "main",
+            "recovered initial-commit observation expected default branch `main` but observed `{}`",
+            repository.default_branch
+        );
+        self.observe(target).await
     }
 
     async fn prepare(&self, target: &Target, remediation: &str) -> anyhow::Result<PreparedInput> {
@@ -2786,16 +2838,35 @@ fn run(mut session: Session, requests: Receiver<Request>, responses: &Sender<Res
                 }
             }
             Request::RecoverScaffold(target) => {
-                match runtime.block_on(session.writer.repository_absent(&target.owner, &target.repo))
-                {
-                    Ok(true) => match runtime.block_on(session.scaffold_plan(&target.owner)) {
-                        Ok((plan, _)) => Response::ScaffoldPrepared(plan),
-                        Err(error) => Response::Failed(text::sanitize(
-                            &format!("the repository scaffold could not be recovered: {error:#}"),
-                            CAUSE_LIMIT,
-                        )),
-                    },
-                    Ok(false) => match runtime.block_on(session.observe(&target)) {
+                match runtime.block_on(session.scaffold_recovery_state(&target)) {
+                    Ok(ScaffoldRecoveryState::Absent) => {
+                        match runtime.block_on(session.scaffold_plan(&target.owner)) {
+                            Ok((plan, _)) => Response::ScaffoldPrepared(plan),
+                            Err(error) => Response::Failed(text::sanitize(
+                                &format!(
+                                    "the repository scaffold could not be recovered: {error:#}"
+                                ),
+                                CAUSE_LIMIT,
+                            )),
+                        }
+                    }
+                    Ok(ScaffoldRecoveryState::Empty) => {
+                        match runtime.block_on(session.recover_empty_scaffold(&target)) {
+                            Ok(report) => Response::Scaffolded {
+                                target,
+                                report: Box::new(report),
+                                warnings: vec![
+                                    "the grant lapsed after repository creation; re-observation established that the empty repository still needed its branch-creating commit"
+                                        .to_owned(),
+                                ],
+                            },
+                            Err(error) => Response::Failed(text::sanitize(
+                                &format!("the empty repository scaffold could not be recovered: {error:#}"),
+                                CAUSE_LIMIT,
+                            )),
+                        }
+                    }
+                    Ok(ScaffoldRecoveryState::Branched) => match runtime.block_on(session.observe(&target)) {
                         Ok(report) => Response::Scaffolded {
                             target,
                             report: Box::new(report),
@@ -3205,6 +3276,53 @@ mod tests {
             version: "0.0.0".to_owned(),
             undo_operations: HashMap::new(),
             next_undo: 1,
+        }
+    }
+
+    #[tokio::test]
+    async fn scaffold_recovery_distinguishes_absent_empty_and_branched_targets() {
+        let target = Target {
+            owner: "generic-owner".to_owned(),
+            repo: "sample-repository".to_owned(),
+        };
+
+        let absent = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/repos/generic-owner/sample-repository"))
+            .respond_with(ResponseTemplate::new(404))
+            .expect(1)
+            .mount(&absent)
+            .await;
+        assert_eq!(
+            session(&absent)
+                .await
+                .scaffold_recovery_state(&target)
+                .await
+                .expect("absent recovery observation"),
+            ScaffoldRecoveryState::Absent
+        );
+
+        for (default_branch, expected) in [
+            ("", ScaffoldRecoveryState::Empty),
+            ("main", ScaffoldRecoveryState::Branched),
+        ] {
+            let server = MockServer::start().await;
+            let mut body = repository(false);
+            body["default_branch"] = serde_json::Value::String(default_branch.to_owned());
+            Mock::given(method("GET"))
+                .and(path("/repos/generic-owner/sample-repository"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(body))
+                .expect(2)
+                .mount(&server)
+                .await;
+            assert_eq!(
+                session(&server)
+                    .await
+                    .scaffold_recovery_state(&target)
+                    .await
+                    .expect("existing recovery observation"),
+                expected
+            );
         }
     }
 

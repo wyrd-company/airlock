@@ -385,12 +385,13 @@ mod tests {
             state.key(KeyCode::Char(character));
         }
         state.key(KeyCode::Enter);
+        state.key(KeyCode::Left);
         state.key(KeyCode::Enter);
         state.key(KeyCode::Char(' '));
         state.key(KeyCode::Down);
         let request = state.key(KeyCode::Enter).expect("confirmed request");
         assert_eq!(request.name, "sample-repository");
-        assert_eq!(request.visibility, "private");
+        assert_eq!(request.visibility, "public");
         assert_eq!(request.capabilities, plan().capabilities);
     }
 
