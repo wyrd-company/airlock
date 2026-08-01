@@ -14,6 +14,16 @@ use super::screen::{
 };
 use super::theme::{Role, Styles};
 
+/// The visibilities the form offers.
+///
+/// `internal` is not among them. GitHub accepts it only for organizations on
+/// Enterprise Cloud or Enterprise Server; every other owner's create-repository
+/// call is rejected outright. Nothing airlock already observes says which tier
+/// an owner is on — the installation read carries permissions, not a plan — so
+/// there is no cheap way to offer it only where it works, and an option that
+/// fails on confirm for most owners is worse than one that is not offered.
+const VISIBILITIES: [&str; 2] = ["public", "private"];
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Field {
     Name,
@@ -183,7 +193,7 @@ impl State {
                 self.visibility = if code == KeyCode::Left {
                     self.visibility.saturating_sub(1)
                 } else {
-                    (self.visibility + 1).min(if self.owner_is_organization { 2 } else { 1 })
+                    (self.visibility + 1).min(VISIBILITIES.len() - 1)
                 };
             }
             KeyCode::Left if self.field == Field::Capabilities => {
@@ -210,7 +220,7 @@ impl State {
                     owner: self.owner.clone(),
                     owner_is_organization: self.owner_is_organization,
                     name: self.name.clone(),
-                    visibility: ["public", "private", "internal"][self.visibility].to_owned(),
+                    visibility: VISIBILITIES[self.visibility].to_owned(),
                     capabilities: self
                         .capabilities
                         .iter()
@@ -275,7 +285,7 @@ pub fn body(styles: Styles, width: usize, state: &State) -> Vec<Line<'static>> {
         styles,
         width,
         &format!("{} visibility", marker(Field::Visibility)),
-        ["public", "private", "internal"][state.visibility],
+        VISIBILITIES[state.visibility],
     );
     let declarations = if state.capabilities.is_empty() {
         "none offered by the policy".to_owned()
@@ -474,6 +484,22 @@ mod tests {
         {
             assert!(text.contains(fact), "{fact}");
         }
+    }
+
+    #[test]
+    fn the_visibility_cycle_stops_at_the_two_visibilities_every_owner_can_use() {
+        let mut state = State::default();
+        state.begin("generic-account".to_owned(), true);
+        state.prepared(plan());
+        state.name = "sample-repository".to_owned();
+        state.field = Field::Visibility;
+        for _ in 0..4 {
+            state.key(KeyCode::Right);
+        }
+        state.field = Field::Confirm;
+        let request = state.key(KeyCode::Enter).expect("confirmed request");
+        assert_eq!(request.visibility, "private");
+        assert!(!VISIBILITIES.contains(&"internal"));
     }
 
     #[test]
