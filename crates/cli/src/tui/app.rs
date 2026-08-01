@@ -42,7 +42,9 @@ use super::policy;
 use super::remediation;
 use super::repositories::{self, Filter};
 use super::scaffold;
-use super::screen::{Key, Screen, INPUT_KEYS, REAUTHORIZATION_KEYS, SECRET_INPUT_KEYS};
+use super::screen::{
+    Key, Screen, INPUT_KEYS, REAUTHORIZATION_KEYS, SCAFFOLD_INPUT_KEYS, SECRET_INPUT_KEYS,
+};
 use super::sign_in;
 use super::theme::{ColorMode, Role, Styles, Theme};
 
@@ -99,6 +101,9 @@ struct Position {
     detail: panel::Scroll,
     /// Where the operator was in the effective policy.
     inspection: panel::Scroll,
+    /// Repository coordinates and whether creation was in flight. The policy
+    /// plan and choices are readings and are deliberately not retained.
+    scaffold: Option<scaffold::Position>,
 }
 
 impl Position {
@@ -124,6 +129,9 @@ impl Position {
             findings: app.findings.clone(),
             detail: app.detail.clone(),
             inspection: app.inspection.clone(),
+            scaffold: (app.screen == Screen::Scaffold)
+                .then(|| app.scaffold.position())
+                .flatten(),
         }
     }
 
@@ -263,6 +271,7 @@ pub struct App {
     pending_undo: Option<remediation::UndoRequest>,
     scaffold: scaffold::State,
     pending_scaffold_plan: Option<String>,
+    pending_scaffold_recovery: Option<crate::admin::remediation::Target>,
     pending_scaffold: Option<crate::admin::remediation::ScaffoldRequest>,
     /// What is left of the session's grant, where one is held.
     ///
@@ -285,6 +294,8 @@ pub struct App {
     /// arrives, by name rather than by index: an index into a list that has
     /// been read again is not the row it was.
     held_selection: Option<(Option<String>, Option<String>)>,
+    /// A scaffold address waiting for the freshly read installation catalogue.
+    held_scaffold: Option<scaffold::Position>,
 }
 
 impl App {
@@ -321,12 +332,14 @@ impl App {
             pending_undo: None,
             scaffold: scaffold::State::default(),
             pending_scaffold_plan: None,
+            pending_scaffold_recovery: None,
             pending_scaffold: None,
             grant: None,
             reauthorization: None,
             reauthorization_requested: false,
             held_queue: None,
             held_selection: None,
+            held_scaffold: None,
         }
     }
 
@@ -347,6 +360,15 @@ impl App {
     #[must_use]
     pub fn with_remediation(mut self, remediation: remediation::State) -> Self {
         self.remediation = remediation;
+        self
+    }
+
+    #[cfg(test)]
+    #[cfg_attr(feature = "test-identity", allow(dead_code))]
+    #[must_use]
+    pub fn with_scaffold(mut self, plan: crate::admin::remediation::ScaffoldPlan) -> Self {
+        self.scaffold.begin(plan.owner.clone(), true);
+        self.scaffold.prepared(plan);
         self
     }
 
@@ -395,6 +417,10 @@ impl App {
 
     pub fn take_scaffold_plan_request(&mut self) -> Option<String> {
         self.pending_scaffold_plan.take()
+    }
+
+    pub fn take_scaffold_recovery_request(&mut self) -> Option<crate::admin::remediation::Target> {
+        self.pending_scaffold_recovery.take()
     }
 
     pub fn take_scaffold_request(&mut self) -> Option<crate::admin::remediation::ScaffoldRequest> {
@@ -1395,6 +1421,7 @@ impl App {
         // reading. What the operator supplied for step 2 is erased at the same
         // boundary by the terminal driver, which is where the value lives.
         self.bootstrap = bootstrap::State::default();
+        self.scaffold = scaffold::State::default();
         self.reobserve = None;
         self.note = None;
         // Requests made under the lapsed grant, which nothing may now carry
@@ -1407,6 +1434,7 @@ impl App {
         self.pending_preparation = None;
         self.pending_undo = None;
         self.pending_scaffold_plan = None;
+        self.pending_scaffold_recovery = None;
         self.pending_scaffold = None;
         self.requested = None;
         self.sign_in = sign_in::Screen::at(SignIn::Requesting {
@@ -1497,6 +1525,7 @@ impl App {
         self.screen = position.screen;
         self.filter = position.filter;
         self.held_selection = Some((position.installation, position.repository));
+        self.held_scaffold = position.scaffold;
         self.requested = position.target.clone();
         if let Some(target) = position.target {
             // The bootstrap is an address like any other: the operator stood on
@@ -1569,6 +1598,37 @@ impl App {
                 }
             }
             None => self.filter.close(),
+        }
+        if let Some(position) = self.held_scaffold.take() {
+            let installation = self
+                .selected_installation()
+                .filter(|installation| installation.account.eq_ignore_ascii_case(&position.owner));
+            if let Some(installation) = installation {
+                let owner = installation.account.clone();
+                let owner_is_organization = matches!(
+                    installation.kind,
+                    airlock_core::github::AccountKind::Organization
+                );
+                self.scaffold.resume(
+                    owner.clone(),
+                    owner_is_organization,
+                    position.name.clone(),
+                    position.creating,
+                );
+                if position.creating {
+                    self.pending_scaffold_recovery = Some(crate::admin::remediation::Target {
+                        owner,
+                        repo: position.name,
+                    });
+                } else {
+                    self.pending_scaffold_plan = Some(owner);
+                }
+            } else {
+                self.scaffold.begin(position.owner, false);
+                self.scaffold.failed(
+                    "the scaffold owner is no longer among the reachable installations".to_owned(),
+                );
+            }
         }
     }
 
@@ -1688,7 +1748,7 @@ impl App {
             return SECRET_INPUT_KEYS.to_vec();
         }
         if self.screen == Screen::Scaffold && self.scaffold.captures_text() {
-            return INPUT_KEYS.to_vec();
+            return SCAFFOLD_INPUT_KEYS.to_vec();
         }
         if self.screen == Screen::Remediation && self.remediation.captures_text() {
             return if self.remediation.accepts_secret() {
@@ -3565,7 +3625,91 @@ mod tests {
         assert!(app.take_undo_request().is_none());
         assert!(app.take_preparation_request().is_none());
         assert!(app.take_observation_request().is_none());
+        assert!(app.take_scaffold_plan_request().is_none());
+        assert!(app.take_scaffold_recovery_request().is_none());
+        assert!(app.take_scaffold_request().is_none());
         assert!(matches!(app.remediation, remediation::State::Empty));
+    }
+
+    fn scaffold_plan(capability: &str, file: &str) -> crate::admin::remediation::ScaffoldPlan {
+        crate::admin::remediation::ScaffoldPlan {
+            owner: "acme-industries".to_owned(),
+            capabilities: vec![crate::admin::remediation::ScaffoldCapability {
+                name: capability.to_owned(),
+                display_name: capability.to_owned(),
+                property: format!("declares-{capability}"),
+                value: "true".to_owned(),
+            }],
+            files: vec![file.to_owned()],
+        }
+    }
+
+    fn prepared_scaffold() -> App {
+        let mut app = working_session();
+        app.screen = Screen::Repositories;
+        press(&mut app, KeyCode::Char('n'));
+        assert_eq!(
+            app.take_scaffold_plan_request().as_deref(),
+            Some("acme-industries")
+        );
+        app.scaffold_prepared(scaffold_plan("old-capability", "OLD-FILE"));
+        app
+    }
+
+    #[test]
+    fn a_scaffold_reading_dies_at_the_lapse_boundary_and_is_asked_for_again() {
+        let mut app = prepared_scaffold();
+        assert!(frame_text(&app).contains("old-capability"));
+
+        app.lapse();
+        assert!(!frame_text(&app).contains("old-capability"));
+        app.authorization_granted(granted());
+        assert_eq!(app.screen(), Screen::Scaffold);
+        assert!(!frame_text(&app).contains("old-capability"));
+
+        app.catalogue_read(catalogue::Read::Ready(Box::new(catalogue())));
+        assert_eq!(
+            app.take_scaffold_plan_request().as_deref(),
+            Some("acme-industries")
+        );
+        app.scaffold_prepared(scaffold_plan("fresh-capability", "FRESH-FILE"));
+        let fresh = frame_text(&app);
+        assert!(fresh.contains("fresh-capability"));
+        assert!(fresh.contains("FRESH-FILE"));
+        assert!(!fresh.contains("old-capability"));
+        assert!(!fresh.contains("OLD-FILE"));
+    }
+
+    #[test]
+    fn a_lapse_during_creation_reobserves_the_target_instead_of_resuming_the_write() {
+        let mut app = prepared_scaffold();
+        for character in "sample-repository".chars() {
+            press(&mut app, KeyCode::Char(character));
+        }
+        press(&mut app, KeyCode::Enter);
+        press(&mut app, KeyCode::Enter);
+        press(&mut app, KeyCode::Down);
+        press(&mut app, KeyCode::Enter);
+        assert!(
+            app.take_scaffold_request().is_some(),
+            "creation was in flight"
+        );
+
+        app.lapse();
+        app.authorization_granted(granted());
+        app.catalogue_read(catalogue::Read::Ready(Box::new(catalogue())));
+
+        assert_eq!(
+            app.take_scaffold_recovery_request(),
+            Some(crate::admin::remediation::Target {
+                owner: "acme-industries".to_owned(),
+                repo: "sample-repository".to_owned(),
+            })
+        );
+        assert!(app.take_scaffold_request().is_none());
+        app.scaffold_prepared(scaffold_plan("fresh-capability", "FRESH-FILE"));
+        assert!(!app.status().contains("creating"));
+        assert!(frame_text(&app).contains("sample-repository"));
     }
 
     #[test]
@@ -3902,6 +4046,15 @@ mod tests {
             observed: crate::admin::remediation::ObservedStatus::Pass,
             undo: None,
         });
+        app.scaffold_prepared(scaffold_plan("stale-capability", "STALE-FILE"));
+        app.scaffold_complete(
+            crate::admin::remediation::Target {
+                owner: "acme-industries".to_owned(),
+                repo: "stale-repository".to_owned(),
+            },
+            &findings::fixture::aligned(),
+            vec!["stale warning".to_owned()],
+        );
         app.operation_failed("a failure from the session that ended".to_owned());
 
         assert!(app.reauthorizing_now(), "the overlay is still up");

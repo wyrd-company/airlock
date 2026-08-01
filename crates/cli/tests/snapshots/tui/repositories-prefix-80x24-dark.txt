@@ -22,7 +22,7 @@ repository re-observes it in full; nothing is acted on from memory.
                                                                                 
                                                                                 
                                                                                 
-↑↓ select · / filter · ↵ observe · esc back · n new repository · 2 more…        
+↑↓ select · / filter · n new repository · ↵ observe · esc back · 2 more…        
 3 of 400 shown, a prefix · prior verdicts are shown for orientation only        
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
@@ -47,7 +47,7 @@ eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-hheffffffdddheffffffdddhefffffffdddhhheffffdddheffffffffffffffdddiiiiiiieeeeeeee
+hheffffffdddheffffffdddheffffffffffffffdddhefffffffdddhhheffffdddiiiiiiieeeeeeee
 jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj
 --- legend ---
 a fg=#CBD3DD bg=#14181D BOLD

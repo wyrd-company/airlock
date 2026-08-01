@@ -348,6 +348,67 @@ fn check(case: &Case) {
     );
 }
 
+fn populated_scaffold_plan() -> crate::admin::remediation::ScaffoldPlan {
+    crate::admin::remediation::ScaffoldPlan {
+        owner: "generic-organization".to_owned(),
+        capabilities: ["package", "application", "publishing", "documentation"]
+            .into_iter()
+            .map(|name| crate::admin::remediation::ScaffoldCapability {
+                name: name.to_owned(),
+                display_name: format!("{name} repositories"),
+                property: format!("declares-{name}"),
+                value: "true".to_owned(),
+            })
+            .collect(),
+        files: [
+            "LICENSE",
+            ".gitattributes",
+            ".editorconfig",
+            ".github/workflows/ci.yml",
+            ".github/renovate.json",
+            ".github/workflows/audit.yml",
+            ".config/lefthook.yml",
+            ".github/workflows/pr-title.yml",
+        ]
+        .into_iter()
+        .map(str::to_owned)
+        .collect(),
+    }
+}
+
+fn check_populated_scaffold(width: u16, height: u16) {
+    let name = format!("repository-scaffold-populated-{}-dark", size_slug(width));
+    let case = Case {
+        name: Box::leak(name.into_boxed_str()),
+        screen: Screen::Scaffold,
+        theme: Theme::Dark,
+        color: ColorMode::Color,
+        width,
+        height,
+        flow: None,
+        selection: None,
+        run: None,
+    };
+    let backend = TestBackend::new(width, height);
+    let mut terminal = Terminal::new(backend).expect("a test terminal");
+    let app = App::new(VERSION, ColorMode::Color)
+        .at(Screen::Scaffold, Theme::Dark)
+        .with_scaffold(populated_scaffold_plan());
+    terminal
+        .draw(|frame| app.render(frame.area(), frame.buffer_mut()))
+        .expect("the frame draws");
+    let rendered = serialise(&case, terminal.backend().buffer());
+    let snapshot = path(case.name);
+    if std::env::var_os("UPDATE_SNAPSHOTS").is_some() {
+        std::fs::write(snapshot, rendered).expect("the snapshot is writable");
+    } else {
+        assert_eq!(
+            std::fs::read_to_string(snapshot).expect("the snapshot is recorded"),
+            rendered
+        );
+    }
+}
+
 #[cfg_attr(feature = "test-identity", allow(dead_code))]
 fn check_remediation(
     name: &'static str,
@@ -886,6 +947,12 @@ fn the_frame_renders_as_recorded() {
     for case in cases() {
         check(&case);
     }
+}
+
+#[test]
+fn a_populated_scaffold_renders_as_recorded_at_both_sizes() {
+    check_populated_scaffold(REFERENCE_WIDTH, REFERENCE_HEIGHT);
+    check_populated_scaffold(FLOOR_WIDTH, FLOOR_HEIGHT);
 }
 
 /// The re-authorization overlay, at both sizes and in two of its states.

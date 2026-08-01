@@ -74,6 +74,15 @@ pub const INPUT_KEYS: [Key; 5] = [
     EXIT_KEY,
 ];
 
+/// The repository-name field's keys while it holds focus.
+pub const SCAFFOLD_INPUT_KEYS: [Key; 5] = [
+    key!("↵", "continue"),
+    key!("↓", "next field"),
+    key!("backspace", "delete"),
+    key!("esc", "cancel"),
+    EXIT_KEY,
+];
+
 /// The keys live while the re-authorization overlay is up.
 ///
 /// Sign-in's own two, because the overlay is sign-in presented over the screen
@@ -182,9 +191,9 @@ impl Screen {
             Self::Repositories => &[
                 key!("\u{2191}\u{2193}", "select"),
                 key!("/", "filter"),
+                key!("n", "new repository"),
                 key!("\u{21b5}", "observe"),
                 key!("esc", "back"),
-                key!("n", "new repository"),
             ],
             Self::Scaffold => &[
                 key!("↑↓", "field"),

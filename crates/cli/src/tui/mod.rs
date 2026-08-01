@@ -308,6 +308,13 @@ fn drive(app: &mut App, session: &mut terminal::Session, authorizing: Authorizin
                 app.operation_failed(text::sanitize(&format!("{error:#}"), CAUSE_LIMIT));
             }
         }
+        if let (Some(worker), Some(target)) =
+            (working.as_ref(), app.take_scaffold_recovery_request())
+        {
+            if let Err(error) = worker.request(WorkerRequest::RecoverScaffold(target)) {
+                app.operation_failed(text::sanitize(&format!("{error:#}"), CAUSE_LIMIT));
+            }
+        }
         if let (Some(worker), Some(request)) = (working.as_ref(), app.take_scaffold_request()) {
             if let Err(error) = worker.request(WorkerRequest::Scaffold(request)) {
                 app.operation_failed(text::sanitize(&format!("{error:#}"), CAUSE_LIMIT));

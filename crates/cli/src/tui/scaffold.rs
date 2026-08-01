@@ -40,7 +40,7 @@ impl Default for State {
             owner: String::new(),
             owner_is_organization: true,
             name: String::new(),
-            visibility: 0,
+            visibility: 1,
             capabilities: Vec::new(),
             selected: Vec::new(),
             capability: 0,
@@ -69,7 +69,36 @@ impl State {
         self.capabilities = plan.capabilities;
         self.files = plan.files;
         self.loading = false;
+        self.creating = false;
         self.error = None;
+    }
+
+    pub fn resume(
+        &mut self,
+        owner: String,
+        owner_is_organization: bool,
+        name: String,
+        recovering_creation: bool,
+    ) {
+        *self = Self {
+            owner,
+            owner_is_organization,
+            name,
+            loading: true,
+            creating: false,
+            error: recovering_creation.then(|| {
+                "the grant lapsed during creation; re-observing whether it landed".to_owned()
+            }),
+            ..Self::default()
+        };
+    }
+
+    pub fn position(&self) -> Option<Position> {
+        self.started().then(|| Position {
+            owner: self.owner.clone(),
+            name: self.name.clone(),
+            creating: self.creating,
+        })
     }
 
     pub fn failed(&mut self, cause: String) {
@@ -186,6 +215,13 @@ impl State {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Position {
+    pub owner: String,
+    pub name: String,
+    pub creating: bool,
+}
+
 pub fn body(styles: Styles, width: usize, state: &State) -> Vec<Line<'static>> {
     let mut lines = vec![Line::from(Span::styled(
         "SCAFFOLD AS ALIGN",
@@ -203,17 +239,21 @@ pub fn body(styles: Styles, width: usize, state: &State) -> Vec<Line<'static>> {
         return lines;
     }
     let marker = |field| if state.field == field { "›" } else { " " };
-    lines.push(Line::from(format!("  owner        {}", state.owner)));
-    lines.push(Line::from(format!(
-        "{} name         {}",
-        marker(Field::Name),
-        state.name
-    )));
-    lines.push(Line::from(format!(
-        "{} visibility   {}",
-        marker(Field::Visibility),
-        ["public", "private", "internal"][state.visibility]
-    )));
+    data_row(&mut lines, styles, width, "  owner", &state.owner);
+    data_row(
+        &mut lines,
+        styles,
+        width,
+        &format!("{} name", marker(Field::Name)),
+        &state.name,
+    );
+    data_row(
+        &mut lines,
+        styles,
+        width,
+        &format!("{} visibility", marker(Field::Visibility)),
+        ["public", "private", "internal"][state.visibility],
+    );
     let declarations = if state.capabilities.is_empty() {
         "none offered by the policy".to_owned()
     } else {
@@ -235,32 +275,60 @@ pub fn body(styles: Styles, width: usize, state: &State) -> Vec<Line<'static>> {
             .collect::<Vec<_>>()
             .join(" · ")
     };
-    lines.push(Line::from(format!(
-        "{} capabilities {}",
-        marker(Field::Capabilities),
-        declarations
-    )));
-    lines.push(Line::from(format!(
-        "  first commit {}",
-        if state.files.is_empty() {
+    data_row(
+        &mut lines,
+        styles,
+        width,
+        &format!("{} capabilities", marker(Field::Capabilities)),
+        &declarations,
+    );
+    data_row(
+        &mut lines,
+        styles,
+        width,
+        "  first commit",
+        &if state.files.is_empty() {
             "no files".to_owned()
         } else {
             state.files.join(", ")
-        }
-    )));
+        },
+    );
     lines.push(Line::default());
-    lines.push(Line::from(format!(
-        "{} confirm      press enter to create and audit",
-        marker(Field::Confirm)
-    )));
+    data_row(
+        &mut lines,
+        styles,
+        width,
+        &format!("{} confirm", marker(Field::Confirm)),
+        "press enter to create and audit",
+    );
     if let Some(error) = &state.error {
         lines.push(Line::default());
-        lines.push(Line::from(Span::styled(
-            error.clone(),
-            styles.bold(Role::Accent),
-        )));
+        for part in wrap(error, width) {
+            lines.push(Line::from(Span::styled(part, styles.bold(Role::Accent))));
+        }
     }
     lines
+}
+
+fn data_row(
+    lines: &mut Vec<Line<'static>>,
+    styles: Styles,
+    width: usize,
+    label: &str,
+    value: &str,
+) {
+    for (index, part) in wrap(value, width.saturating_sub(16).max(1))
+        .into_iter()
+        .enumerate()
+    {
+        lines.push(Line::from(vec![
+            Span::styled(
+                format!("{:<16}", if index == 0 { label } else { "" }),
+                styles.of(Role::Faint),
+            ),
+            Span::styled(part, styles.of(Role::Text)),
+        ]));
+    }
 }
 
 #[cfg(test)]
@@ -280,6 +348,34 @@ mod tests {
         }
     }
 
+    fn real_scale_plan() -> ScaffoldPlan {
+        ScaffoldPlan {
+            owner: "generic-account".to_owned(),
+            capabilities: ["package", "application", "publishing", "documentation"]
+                .into_iter()
+                .map(|name| ScaffoldCapability {
+                    name: name.to_owned(),
+                    display_name: format!("{name} repositories"),
+                    property: format!("declares-{name}"),
+                    value: "true".to_owned(),
+                })
+                .collect(),
+            files: [
+                "LICENSE",
+                ".gitattributes",
+                ".editorconfig",
+                ".github/workflows/ci.yml",
+                ".github/renovate.json",
+                ".github/workflows/audit.yml",
+                ".config/lefthook.yml",
+                ".github/workflows/pr-title.yml",
+            ]
+            .into_iter()
+            .map(str::to_owned)
+            .collect(),
+        }
+    }
+
     #[test]
     fn confirmation_carries_the_chosen_visibility_and_capabilities() {
         let mut state = State::default();
@@ -289,7 +385,6 @@ mod tests {
             state.key(KeyCode::Char(character));
         }
         state.key(KeyCode::Enter);
-        state.key(KeyCode::Right);
         state.key(KeyCode::Enter);
         state.key(KeyCode::Char(' '));
         state.key(KeyCode::Down);
@@ -330,7 +425,8 @@ mod tests {
     fn prepared_scaffold_fits_the_floor_without_eliding_policy_facts() {
         let mut state = State::default();
         state.begin("generic-account".to_owned(), true);
-        state.prepared(plan());
+        let fixture = real_scale_plan();
+        state.prepared(fixture.clone());
         let lines = body(
             Styles::new(
                 super::super::theme::Theme::Dark,
@@ -345,7 +441,13 @@ mod tests {
             .flat_map(|line| line.spans.iter())
             .map(|span| span.content.as_ref())
             .collect::<String>();
-        for fact in ["generic-account", "package", "LICENSE"] {
+        for fact in fixture
+            .capabilities
+            .iter()
+            .map(|capability| capability.display_name.as_str())
+            .chain(fixture.files.iter().map(String::as_str))
+            .chain(["generic-account"])
+        {
             assert!(text.contains(fact), "{fact}");
         }
     }

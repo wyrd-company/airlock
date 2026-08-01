@@ -461,6 +461,9 @@ pub enum Request {
     ObserveBootstrap(Target),
     /// Resolve the owner's policy immediately before offering scaffold choices.
     PrepareScaffold { owner: String },
+    /// Re-observe a repository whose creation was in flight when the grant
+    /// lapsed, then either audit it or freshly resolve the scaffold plan.
+    RecoverScaffold(Target),
     /// Create an empty repository, its capability declarations, and its sole
     /// direct branch-creating commit, then run the ordinary audit.
     Scaffold(ScaffoldRequest),
@@ -1586,6 +1589,12 @@ impl Session {
         // Establish the branch before optional settings writes. A failure to
         // assign a custom property must not strand the repository in the one
         // state that has no ordinary remediation path.
+        let empty = reader.repository(&request.owner, &request.name).await?;
+        anyhow::ensure!(
+            empty.default_branch.is_empty(),
+            "repository-creation re-observation expected no default branch before the first commit but observed `{}`",
+            empty.default_branch
+        );
         self.writer
             .create_initial_commit(&request.owner, &request.name, &files)
             .await?;
@@ -1888,12 +1897,14 @@ impl Session {
                 ));
             }
             Some(false) => {
-                let changed = if let Some(action) = action {
-                    self.change(owner, repo, action, &before).await
-                } else {
-                    self.change_with_input(owner, repo, remediation, argument.unwrap_or_default())
-                        .await
-                };
+                let changed = self
+                    .change(
+                        owner,
+                        repo,
+                        action.expect("input-bearing remediations returned above"),
+                        &before,
+                    )
+                    .await;
                 let accepted = changed.is_ok();
                 transcript.steps.push(step(
                     started,
@@ -2770,6 +2781,36 @@ fn run(mut session: Session, requests: Receiver<Request>, responses: &Sender<Res
                     Ok((plan, _)) => Response::ScaffoldPrepared(plan),
                     Err(error) => Response::Failed(text::sanitize(
                         &format!("the repository scaffold could not be prepared: {error:#}"),
+                        CAUSE_LIMIT,
+                    )),
+                }
+            }
+            Request::RecoverScaffold(target) => {
+                match runtime.block_on(session.writer.repository_absent(&target.owner, &target.repo))
+                {
+                    Ok(true) => match runtime.block_on(session.scaffold_plan(&target.owner)) {
+                        Ok((plan, _)) => Response::ScaffoldPrepared(plan),
+                        Err(error) => Response::Failed(text::sanitize(
+                            &format!("the repository scaffold could not be recovered: {error:#}"),
+                            CAUSE_LIMIT,
+                        )),
+                    },
+                    Ok(false) => match runtime.block_on(session.observe(&target)) {
+                        Ok(report) => Response::Scaffolded {
+                            target,
+                            report: Box::new(report),
+                            warnings: vec![
+                                "the grant lapsed during creation; re-observation established that the repository exists"
+                                    .to_owned(),
+                            ],
+                        },
+                        Err(error) => Response::Failed(text::sanitize(
+                            &format!("the created repository could not be re-observed: {error:#}"),
+                            CAUSE_LIMIT,
+                        )),
+                    },
+                    Err(error) => Response::Failed(text::sanitize(
+                        &format!("repository-creation recovery could not observe the target: {error:#}"),
                         CAUSE_LIMIT,
                     )),
                 }

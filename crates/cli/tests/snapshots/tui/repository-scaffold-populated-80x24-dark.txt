@@ -1,0 +1,59 @@
+repository-scaffold-populated-80x24-dark · 80x24 · theme dark · colour
+--- text ---
+AIRLOCK 0.0.0  …es › repository scaffold  no credential stored · theme — · dark 
+SCAFFOLD AS ALIGN                                                               
+Create the empty repository and its one branch-creating commit from the resolved
+owner policy. This exception ends when `main` exists.                           
+                                                                                
+  owner         generic-organization                                            
+› name                                                                          
+  visibility    private                                                         
+  capabilities  [ ] package repositories · [ ] application repositories · [ ]   
+                publishing repositories · [ ] documentation repositories        
+  first commit  LICENSE, .gitattributes, .editorconfig,                         
+                .github/workflows/ci.yml, .github/renovate.json,                
+                .github/workflows/audit.yml, .config/lefthook.yml,              
+                .github/workflows/pr-title.yml                                  
+                                                                                
+  confirm       press enter to create and audit                                 
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+↵ continue · ↓ next field · backspace delete · esc cancel · ctrl-c exit         
+first commit only · later file changes leave as pull requests                   
+--- style keys ---
+aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+cccccccccccccccccddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+eeeeeeeeeeeeeeeedddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+eeeeeeeeeeeeeeeedddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+eeeeeeeeeeeeeeeedddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+eeeeeeeeeeeeeeeedddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+eeeeeeeeeeeeeeeedddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+eeeeeeeeeeeeeeeedddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+eeeeeeeeeeeeeeeedddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+eeeeeeeeeeeeeeeedddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+eeeeeeeeeeeeeeeedddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+eeeeeeeeeeeeeeeedddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+cdffffffffeeecdffffffffffeeecccccccccdffffffeeecccdffffffeeeccccccdffffddddddddd
+gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+--- legend ---
+a fg=#CBD3DD bg=#14181D BOLD
+b fg=#CBD3DD bg=#14181D
+c fg=#E8B84B bg=#0B0D10 BOLD
+d fg=#CBD3DD bg=#0B0D10
+e fg=#4C5661 bg=#0B0D10
+f fg=#79838F bg=#0B0D10
+g fg=#79838F bg=#101419
