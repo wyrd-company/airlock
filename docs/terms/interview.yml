@@ -6,8 +6,3 @@ description: >-
   repository configuration file is absent. The new repository's answers produce repository
   configuration in its first commit and settings applied from it. Interview replaces scaffolding
   and the hardcoded scaffold capability list.
-relationships:
-  related-to:
-    - standard
-    - declaration
-    - repository-config

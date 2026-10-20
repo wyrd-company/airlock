@@ -7,8 +7,3 @@ description: >-
   inputs with no declared gate. A run error is not an outcome, Gap, waiver or routing answer. It
   replaces circumstantial undecided, inconclusive, unimplemented and error as standard-result
   categories; unbuilt standards remain visible as unbuilt work.
-relationships:
-  related-to:
-    - audit
-    - outcome
-    - routed

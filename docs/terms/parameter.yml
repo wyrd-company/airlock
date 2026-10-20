@@ -5,7 +5,3 @@ description: >-
   and severity. An exception may set it where permitted. Defaults may substitute the repository
   owner but cannot compute predicates. Missing required configuration yields effective severity
   none and a visible not-configured entry.
-relationships:
-  related-to:
-    - standard
-    - exception

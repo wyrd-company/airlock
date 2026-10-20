@@ -6,8 +6,3 @@ description: >-
   reads uncommitted and untracked non-ignored files and identifies them as working-tree
   evidence, not committed bytes. Platform settings are observed separately and carry their own
   observation time. Audited revision replaces audited commit as the shared domain term.
-relationships:
-  related-to:
-    - audit
-    - evidence
-    - working-tree

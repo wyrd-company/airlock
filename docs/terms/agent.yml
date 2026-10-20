@@ -5,8 +5,3 @@ description: >-
   changes, commit file fixes and push them for review. An agent may assess a standard as
   advisory evidence; that assessment cannot replace its compiled outcome or change the exit
   code.
-relationships:
-  related-to:
-    - fix
-    - lane
-    - standard

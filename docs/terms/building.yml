@@ -1,9 +1,7 @@
 $schema: https://refinery.systems/ontology/term
 title: Building
 description: >-
-  The lifecycle rung evidenced by committed Change Intents after seeding ends, with no version
-  tag above 0.0.0. The maturity rules identify Change Intents in the Intentional intents
-  directory; they do not infer a release from an intent alone.
-relationships:
-  related-to:
-    - maturity
+  The lifecycle rung evidenced by committed Change Intents after seeding ends, with no
+  non-baseline release tag above 0.0.0. The maturity rules identify Change Intents in the
+  Intentional intents directory; they do not infer a release from an intent or a baseline tag
+  alone.

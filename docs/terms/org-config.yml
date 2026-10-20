@@ -6,8 +6,3 @@ description: >-
   vocabulary and organization names are parameters under their standards, not special top-level
   facts. Org config replaces organization policy as the name of this file; it cannot select
   standards or define predicates.
-relationships:
-  related-to:
-    - exception
-    - accepted-version
-    - repository-config

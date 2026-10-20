@@ -5,9 +5,3 @@ description: >-
   permitted organization and repository exceptions. Its identity and requirement remain
   compiled. Effective standard replaces effective rule and rule instance; it is not selected
   through a capability.
-relationships:
-  related-to:
-    - standard
-    - exception
-    - parameter
-    - severity

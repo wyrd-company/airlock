@@ -5,8 +5,3 @@ description: >-
   excluding gitignored files. The report identifies HEAD, dirtiness when known and the
   observation source. Working-tree evidence is not proof that those bytes were committed at the
   audited revision.
-relationships:
-  related-to:
-    - audit
-    - evidence
-    - audited-revision

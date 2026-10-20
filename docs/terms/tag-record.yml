@@ -5,6 +5,3 @@ description: >-
   Intentional docs/specifications/tag-record.yml and tag-record.schema.yml; Airlock consumes the
   term through docs/technical-designs/release-process-conformance.yml, tag-record-reading. This
   entry is a reference to that contract, not an Airlock definition.
-relationships:
-  related-to:
-    - release-process-conformance

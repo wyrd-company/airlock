@@ -6,8 +6,3 @@ description: >-
   not bind the gate until accepted. A repository may pilot a later version than its
   organization, never an earlier one. Accepted version replaces requires-registry; it is
   unrelated to a template's accepted revision.
-relationships:
-  related-to:
-    - standard
-    - org-config
-    - repository-config

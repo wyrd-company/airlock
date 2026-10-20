@@ -3,7 +3,3 @@ title: File change
 description: >-
   One path-level write, removal or other file operation made or proposed by a fix, with its
   result and reason. File change replaces path operation as the domain name for that operation.
-relationships:
-  related-to:
-    - fix
-    - fix-report

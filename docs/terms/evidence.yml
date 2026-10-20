@@ -5,8 +5,3 @@ description: >-
   and detail. It identifies its source, including working-tree evidence when used. Evidence
   supports a compiled outcome or explains routing or a run error; advisory agent evidence is
   identified separately and cannot change the outcome.
-relationships:
-  related-to:
-    - standard
-    - audit
-    - outcome

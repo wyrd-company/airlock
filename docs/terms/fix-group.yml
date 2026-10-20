@@ -4,7 +4,3 @@ description: >-
   A named family of related fixes used for display across standards. Each standard still has its
   own fix identity and lane. Fix group replaces action group; it does not select standards or
   confer permission.
-relationships:
-  related-to:
-    - fix
-    - standard

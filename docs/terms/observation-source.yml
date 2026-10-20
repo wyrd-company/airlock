@@ -5,8 +5,3 @@ description: >-
   declared routing requirement when unavailable. Reading ordinary file facts through the API
   does not make those facts API-only. Observation source replaces observation mode as a
   user-facing name for this distinction.
-relationships:
-  related-to:
-    - evidence
-    - working-tree
-    - audit

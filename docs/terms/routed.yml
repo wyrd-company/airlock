@@ -7,10 +7,3 @@ description: >-
   whole with reason needs-github-api to the credentialed API-tree audit or Action. A
   credentialed endpoint failure or missing input without a declared gate is a run error, never
   routing. Routed replaces admin-only and structural undecided as result labels.
-relationships:
-  related-to:
-    - standard
-    - outcome
-    - waiver
-    - run-error
-    - audit

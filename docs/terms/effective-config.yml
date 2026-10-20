@@ -6,9 +6,3 @@ description: >-
   provenance identifies the source commits or content digests. Effective config replaces
   resolved policy and policy bundle; it cannot invent a standard or select one through a
   capability.
-relationships:
-  related-to:
-    - org-config
-    - repository-config
-    - exception
-    - effective-standard

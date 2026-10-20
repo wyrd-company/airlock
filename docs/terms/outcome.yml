@@ -6,9 +6,3 @@ description: >-
   means no accepted blocking gaps, 1 means accepted blocking gaps remain, and 2 means Airlock
   could not do its job. Outcome replaces the nine-state status taxonomy; the report-wide and
   agent-work-list Outcome enums do not define additional standard outcomes.
-relationships:
-  related-to:
-    - standard
-    - met
-    - gap
-    - run-error

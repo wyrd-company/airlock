@@ -5,9 +5,3 @@ description: >-
   evidence, evaluated outcomes, waivers, routing and run errors. It reads committed trees
   through the GitHub API or permitted local working-tree evidence. An audit never applies a fix
   or dispatches verification.
-relationships:
-  related-to:
-    - standard
-    - report
-    - audited-revision
-    - run-error

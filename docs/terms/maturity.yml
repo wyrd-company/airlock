@@ -6,7 +6,3 @@ description: >-
   Standards may govern particular rungs. Maturity replaces the release-units-declared
   applicability shortcut; the presence or absence of a workflow or model does not let an
   in-scope repository evade its standards.
-relationships:
-  related-to:
-    - lifecycle-rung
-    - classification

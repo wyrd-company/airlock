@@ -6,9 +6,3 @@ description: >-
   and fails the Action when the standard is within the accepted version. Severity has no other
   meaning. These levels replace required and observation and the separate fails-at or Gate
   threshold. A run error still exits 2.
-relationships:
-  related-to:
-    - standard
-    - gap
-    - waiver
-    - accepted-version

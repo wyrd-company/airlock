@@ -6,9 +6,3 @@ description: >-
   version but may not lag behind it. The reserved .github repository identifies the organization
   file by location. Repository config replaces the separate settings and suppression-request
   files.
-relationships:
-  related-to:
-    - declaration
-    - exception
-    - accepted-version
-    - org-config

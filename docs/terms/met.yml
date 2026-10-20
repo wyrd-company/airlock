@@ -4,7 +4,3 @@ description: >-
   An evaluated standard whose compiled requirement the repository satisfies. Met is one of the
   two outcomes. A waiver, routed standard, missing declaration or run error does not establish
   Met. Met replaces pass as the name for a satisfied standard.
-relationships:
-  related-to:
-    - standard
-    - outcome

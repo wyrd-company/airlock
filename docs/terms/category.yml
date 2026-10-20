@@ -3,6 +3,3 @@ title: Category
 description: >-
   The kind of repository, declared as part of its organization-owned classification. Standards
   use category to determine the requirements that govern it, including the expected license.
-relationships:
-  related-to:
-    - classification

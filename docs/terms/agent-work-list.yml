@@ -5,11 +5,3 @@ description: >-
   missing declarations, waived and routed standards, and run errors visible. A clear agent lane
   does not establish that the repository meets all standards. Agent work list replaces the
   parallel agent plan vocabulary; the interactive counterpart is the work queue.
-relationships:
-  related-to:
-    - gap
-    - fix
-    - lane
-    - operator
-    - routed
-    - run-error

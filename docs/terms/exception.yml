@@ -6,11 +6,3 @@ description: >-
   according to the standard's compiled allow-override rule. A repository exception is a request,
   effective only when allowed. Exceptions replace checks configuration and suppressions; they do
   not select which standards govern a repository.
-relationships:
-  related-to:
-    - standard
-    - parameter
-    - severity
-    - org-config
-    - repository-config
-    - waiver

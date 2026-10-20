@@ -5,9 +5,3 @@ description: >-
   its organization's, a malformed standard parameter or a forbidden override. It leaves a
   diagnostic and exit code 2, not a Met or Gap outcome. Config error replaces policy error and
   policy observation as names for invalid or unauthorized configuration.
-relationships:
-  related-to:
-    - org-config
-    - repository-config
-    - exception
-    - run-error

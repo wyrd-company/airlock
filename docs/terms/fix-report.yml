@@ -4,8 +4,3 @@ description: >-
   The account of one local mechanical authoring pass, identifying file changes and their
   path-level results and file work handed to an agent. It is distinct from the read-only audit
   report and is not a stored instruction for later mutation. Fix report replaces author report.
-relationships:
-  related-to:
-    - fix
-    - working-tree
-    - agent-work-list

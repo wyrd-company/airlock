@@ -5,7 +5,3 @@ description: >-
   when minimum is configured, equal to or descended from that minimum. A content digest alone is
   never an accepted revision. References are resolved at audit time; a ref equal to minimum pins
   one commit.
-relationships:
-  related-to:
-    - expected-template
-    - template-repository

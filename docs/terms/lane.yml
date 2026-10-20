@@ -6,8 +6,3 @@ description: >-
   responsibility split describes verification; an agent's assessment remains advisory to the
   compiled outcome. Lane replaces deterministic-file, judgment-file and operator-setting as
   user-facing labels. It does not name a lifecycle rung or create extra outcomes.
-relationships:
-  related-to:
-    - fix
-    - agent
-    - operator

@@ -5,9 +5,3 @@ description: >-
   and the named destination when this run cannot meet it. It does not add an outcome.
   Verification requirement replaces disclosure gate and verification surface as domain labels;
   it is unrelated to the deleted severity-threshold Gate type.
-relationships:
-  related-to:
-    - standard
-    - routed
-    - interactive-session
-    - delegated-verification
