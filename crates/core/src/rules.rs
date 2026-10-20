@@ -684,7 +684,7 @@ impl RuleDefinition {
 ///
 /// SHA-256 over the sorted compiled requirement identities: id, statement,
 /// severity, earliest maturity rung, unbuilt reason, release-unit scope, and
-/// required topic categories.
+/// required topic categories, since release, and override permission.
 /// Observation sources and credential boundaries are not part of this digest.
 /// It travels in every audit result.
 #[must_use]

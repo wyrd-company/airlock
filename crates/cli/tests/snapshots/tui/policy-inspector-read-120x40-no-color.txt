@@ -5,9 +5,10 @@ AIRLOCK 0.0.0  …ions › repositories › findings › policy inspector  no cr
 EFFECTIVE POLICY  9 rules · 6 sections                                                                                  
                                                                                                                         
 RULES DIGEST                                                                                                            
-digest          sha256:816e03460158be3ed7bb6a94ec9beb53de9ccc19a6bb10cb3059d4ebae62b8f3                                 
-computed over   every rule the compiled rules declare: its id, its statement, its default severity, unbuilt boundary,   
-                release-unit scope, required topic categories, since release and override permission.                   
+digest          sha256:65f08de5f4c91360008b07b4c4612ff2c3f4d980b9e48efd4dcea0f55d331037                                 
+computed over   every rule the compiled rules declare: its id, its statement, its default severity, earliest maturity   
+                rung, unbuilt boundary, release-unit scope, required topic categories, since release and override       
+                permission.                                                                                             
 means           two runs quoting the same digest asked the same questions.                                              
 excludes        fix classification. Two binaries that agree on the digest agree on what every rule means, and may still 
                 differ on how they would close a gap.                                                                   
@@ -21,7 +22,7 @@ suppressions    policy · 1 rule(s) · — policy-sourced, not rules
 RUN PROVENANCE                                                                                                          
 airlock         0.0.0                                                                                                   
 rules           0.6.0                                                                                                   
-digest          sha256:816e03460158be3ed7bb6a94ec9beb53de9ccc19a6bb10cb3059d4ebae62b8f3                                 
+digest          sha256:65f08de5f4c91360008b07b4c4612ff2c3f4d980b9e48efd4dcea0f55d331037                                 
 schema          2                                                                                                       
 commit          aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa                                                                
 observed        2026-01-02T03:04:05Z                                                                                    
@@ -35,17 +36,17 @@ RULES
   REPO-LIC-01     ██░ advisory   compiled      capability:base/licensing                                                
   REPO-META-01    ███ blocking   compiled      capability:base/identity                                                 
   REPO-META-02    ██░ advisory   unbuilt gate  capability:base/identity                                                 
-  REPO-README-04  ██░ advisory   unbuilt gate  capability:base/readme                                                   
-  REPO-REL-04     ██░ advisory   unbuilt gate  capability:base/release                                                  
+— 0 lines above · 2 below · ↑↓ moves the window —                                                                       
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 esc back · ↑↓ move · y copy digest · t theme · ctrl-c exit                                                              
-rules 0.6.0 · sha256:816e0346… · 9 rules · 6 sections                                                                   
+rules 0.6.0 · sha256:65f08de5… · 9 rules · 6 sections                                                                   
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 aaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 aaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
@@ -68,7 +69,6 @@ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 aaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb

@@ -1680,7 +1680,26 @@ async fn declared_properties_do_not_select_rules_through_configuration() {
     assert_eq!(finding(&report, "REPO-REL-01")["status"], "gap");
     assert_eq!(assertion.get_output().status.code(), Some(1));
     assert_eq!(report["summary"]["run_errors"], 0);
-    assert_eq!(report["summary"]["out_of_scope"], 6);
+    assert_eq!(report["summary"]["out_of_scope"], 7);
+    let mut out_of_scope: Vec<_> = report["out_of_scope"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|finding| finding["rule"].as_str().unwrap())
+        .collect();
+    out_of_scope.sort_unstable();
+    assert_eq!(
+        out_of_scope,
+        [
+            "REPO-GIT-09",
+            "REPO-LIC-04",
+            "REPO-REL-02",
+            "REPO-REL-03",
+            "REPO-REL-08",
+            "REPO-TASK-04",
+            "REPO-TPL-01"
+        ]
+    );
     let scoped = finding(&report, "REPO-GIT-09");
     assert_eq!(scoped["status"], Value::Null);
     assert_eq!(scoped["routing"]["reason"], "out-of-scope");

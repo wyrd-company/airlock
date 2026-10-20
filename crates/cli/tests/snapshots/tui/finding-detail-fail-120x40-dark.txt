@@ -31,7 +31,7 @@ provenance            capability:base/git
 RUN PROVENANCE                                                                                                          
 airlock               0.0.0                                                                                             
 rules                 0.6.0                                                                                             
-digest                sha256:816e03460158be3ed7bb6a94ec9beb53de9ccc19a6bb10cb3059d4ebae62b8f3                           
+digest                sha256:65f08de5f4c91360008b07b4c4612ff2c3f4d980b9e48efd4dcea0f55d331037                           
 schema                2                                                                                                 
 commit                aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa                                                          
 observed              2026-01-02T03:04:05Z                                                                              

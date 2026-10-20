@@ -30,6 +30,7 @@ at every visibility and rung.
 
 The report lists prospective assessments at each higher rung: how many rules
 it adds, how many already pass, and each assessment. These assessments use the
-same captured inputs and do not change the current audit's exit code.
+same captured inputs and retain each rule's accepted-generation `new` marker.
+They do not change the current audit's exit code.
 The seeded diagnostic explains how to establish a baseline with
 `intentional tag --baseline`.

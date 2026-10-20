@@ -1,7 +1,7 @@
 # Conformance Checklist
 
 This reference is generated from Airlock rules **0.6.0**
-(`sha256:dc1a3e65756ace13c57a29a52541485edbdc2042fd2233237b8367a85ed286ce`).
+(`sha256:65f08de5f4c91360008b07b4c4612ff2c3f4d980b9e48efd4dcea0f55d331037`).
 The rules are authoritative for every rule id, statement, default
 severity, section, and declared gates in this document.
 
@@ -26,7 +26,7 @@ is not a meaningful finding.
 | `REPO-NAME-02` | A dotted name is used only where the repository is a deployable site and the name is its hostname | Advisory | Compiled check with an unbuilt gate | Repository name | seeded |
 | `REPO-NAME-03` | A repository in a product family carries the family prefix | Advisory | Compiled check with an unbuilt gate | Repository name | seeded |
 | `REPO-NAME-04` | The family prefix and the family topic agree | Advisory | Compiled check with an unbuilt gate | Name vs topics | seeded |
-| `REPO-META-01` | `.github/repo-settings.yml` declares a description | Blocking | Compiled check | File contents | seeded |
+| `REPO-META-01` | `.github/airlock.yml` declares a description | Blocking | Compiled check | File contents | seeded |
 | `REPO-META-02` | The description is one sentence, at most 160 characters, and survives truncation at ~80 | Advisory | Compiled check with an unbuilt gate | File contents | seeded |
 | `REPO-META-03` | The description expands any acronym on first use | Advisory | Compiled check with an unbuilt gate | Read it | seeded |
 | `REPO-META-04` | The description contains no self-deprecation | Advisory | Compiled check with an unbuilt gate | Read it | seeded |
@@ -37,7 +37,7 @@ is not a meaningful finding.
 | `REPO-META-09` | Any topic not in `topics.md` has been added to it | Advisory | Compiled check | Compare against `topics.md` | seeded |
 | `REPO-META-10` | No org-name topic is declared | Advisory | Compiled check | File contents | seeded |
 | `REPO-META-11` | The declared merge settings are squash and rebase enabled, merge commits disabled, head branches auto-deleted | Advisory | Compiled check | File contents | seeded |
-| `REPO-META-12` | `.github/repo-settings.yml` declares no `visibility` field | Blocking | Compiled check | File contents | seeded |
+| `REPO-META-12` | `.github/airlock.yml` declares no `visibility` field | Blocking | Compiled check | File contents | seeded |
 | `REPO-META-13` | Live GitHub metadata matches the declared file | Advisory | Compiled check | `gh repo view` vs file — drift means reconciliation is not running | seeded |
 
 ## Licensing
@@ -63,7 +63,7 @@ is not a meaningful finding.
 | `REPO-FILE-06` | `taskfile.yml` exists, lowercase | Advisory | Compiled check | File presence | seeded |
 | `REPO-FILE-07` | `.github/workflows/` contains at least a CI workflow triggered on pull request | Blocking | Compiled check | File presence | seeded |
 | `REPO-FILE-08` | `.github/renovate.json` exists and extends the org preset | Advisory | Compiled check | File contents | seeded |
-| `REPO-FILE-16` | `.github/repo-settings.yml` exists | Blocking | Compiled check | File presence | seeded |
+| `REPO-FILE-16` | `.github/airlock.yml` exists | Blocking | Compiled check | File presence | seeded |
 | `REPO-FILE-17` | `.github/workflows/audit.yml` exists and triggers on a schedule and on demand | Blocking | Compiled check | File contents | seeded |
 | `REPO-FILE-09` | `.config/lefthook.yml` exists | Advisory | Compiled check | File presence | seeded |
 | `REPO-FILE-10` | `.devcontainer/` exists | Advisory | Compiled check | File presence | seeded |
@@ -175,5 +175,5 @@ is not a meaningful finding.
 
 | Id | Assertion | Severity | Compiled check | Guidance | From maturity |
 | --- | --- | --- | --- | --- | --- |
-| `REPO-PROP-03` | `.github/repo-settings.yml` declares no custom property values | Blocking | Compiled check | File contents | seeded |
+| `REPO-PROP-03` | `.github/airlock.yml` declares no custom property values | Blocking | Compiled check | File contents | seeded |
 | `REPO-PROP-04` | No workflow writes organization custom properties | Blocking | Compiled check | Workflow contents | seeded |
