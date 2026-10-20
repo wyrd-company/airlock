@@ -225,7 +225,7 @@ Met and Gap results. Separate lists identify work without an outcome:
 - `unbuilt`: this evaluation reaches a declared part of the check that Airlock
   has not built. It names the reason and needs a release with that check built.
   Other branches of the same check still decide Met or Gap.
-- `out_of_scope`: a rule is below its earliest observed maturity rung, or a
+- `out_of_scope`: observed maturity is below the rule's earliest rung, or a
   compiled check reached its declared boundary with no release units declared.
   Both use reason `out-of-scope`. Evidence code `maturity_out_of_scope` identifies
   the rung boundary; `no_release_units_declared` identifies the release-unit

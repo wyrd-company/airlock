@@ -115,7 +115,7 @@ proposed-design:
     | waived | Effective severity none; no check ran | Waived, id and reason |
     | routed | Declared gate names another settling surface | Routed, reason and destination |
     | unbuilt | Reached a declared unbuilt check branch | Unbuilt and branch reason |
-    | out-of-scope | Below earliest maturity rung, or no release units at a declared boundary | Out-of-scope, reason and evidence code |
+    | out-of-scope | Below earliest rung, or no release units | Out-of-scope, reason and evidence code |
     | Run error | Run could not establish required evidence | Error banner and diagnostic |
 
     Only Met and Gap are evaluated outcomes. Waived comes from effective severity
