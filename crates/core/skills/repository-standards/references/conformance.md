@@ -1,7 +1,7 @@
 # Conformance Checklist
 
 This reference is generated from Airlock check registry **0.6.0**
-(`sha256:1e5a4e01a9c1d23998a925d5af57a2cc59bf520b882a13942d9f7cdaaa2cbd5e`).
+(`sha256:8b8de8523ae967f71b1e3e1c1d79aef9fec1782a328f77e8e89aac19159b1d4f`).
 The registry is authoritative for every rule id, statement, default
 severity, section, and declared gates in this document.
 
@@ -168,6 +168,7 @@ is not a meaningful finding.
 | `REPO-REL-06` | The release workflow asserts a successful push-event CI run for exactly that SHA | Blocking | Compiled check with an unbuilt gate | Workflow contents |
 | `REPO-REL-07` | No workflow publishes automatically on merge | Blocking | Compiled check | Workflow contents |
 | `REPO-REL-08` | Every release of a Release Unit whose release-record policy is required has a release record on its primary tag | Advisory | Compiled check | Read the committed Release Model and primary annotated tag records, then compare published GitHub Releases. Fix release-model-missing, release-model-not-a-file, release-model-unreadable, and release-model-schema-not-supported by running intentional model with a supported producer and committing .intentional/release-model.json (agent reasoning). Fix release-record-missing by publishing a GitHub Release on the missing primary tag (operator). Routed needs-github-api requires a credentialed API-tree audit or Action. Truncated listings and API failures require a complete rerun; they are run errors, not Gaps. |
+| `REPO-TPL-01` | The repository applies each template the organization expects, at an accepted revision and with only accepted parts | Blocking | Compiled check | Read the configured applied record as JSON at the audited revision. For record-missing, record-not-a-file, record-unreadable, record-schema-not-supported, application-missing, revision-not-accepted, revision-not-git or part-not-accepted, apply, update or baseline with Toha, select accepted parts, and commit the result. Organization exceptions alone configure templates and record-path; allow-override: false. |
 
 ## Classification
 

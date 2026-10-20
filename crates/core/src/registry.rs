@@ -562,6 +562,7 @@ pub const CHECKS: &[CheckDefinition] = &[
     release::repo_rel_06::STANDARD,
     release::repo_rel_07::STANDARD,
     release::repo_rel_08::STANDARD,
+    release::repo_tpl_01::RULE,
     classification::repo_prop_03::STANDARD,
     classification::repo_prop_04::STANDARD,
 ];
@@ -582,6 +583,12 @@ pub fn in_section(section: Section) -> Vec<&'static CheckDefinition> {
 }
 
 impl CheckDefinition {
+    /// Whether the repository may override the organization rule.
+    #[must_use]
+    pub fn allow_override(&self) -> bool {
+        self.id != "REPO-TPL-01"
+    }
+
     #[must_use]
     pub fn needs_release_units(&self) -> bool {
         self.release_units_gate
@@ -857,12 +864,12 @@ mod tests {
 
     #[test]
     fn all_standards_keep_their_identity_and_lifecycle() {
-        assert_eq!(CHECKS.len(), 110);
+        assert_eq!(CHECKS.len(), 111);
         assert!(CHECKS.iter().all(|standard| standard.lifecycle
-            == if standard.id == "REPO-REL-08" {
-                Lifecycle::Released
-            } else {
-                Lifecycle::Seeded
+            == match standard.id {
+                "REPO-REL-08" => Lifecycle::Released,
+                "REPO-TPL-01" => Lifecycle::Building,
+                _ => Lifecycle::Seeded,
             }));
     }
 

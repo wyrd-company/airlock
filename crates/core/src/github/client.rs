@@ -913,6 +913,36 @@ impl GitHub for RestClient {
         require_string(&endpoint, &value, "sha")
     }
 
+    async fn compare_status(
+        &self,
+        owner: &str,
+        repo: &str,
+        base: &str,
+        head: &str,
+    ) -> ApiResult<String> {
+        let endpoint = format!("GET /repos/{owner}/{repo}/compare/{base}...{head}?per_page=1");
+        let path = format!(
+            "/repos/{}/{}/compare/{}...{}?per_page=1",
+            encode_segment(owner),
+            encode_segment(repo),
+            encode_segment(base),
+            encode_segment(head)
+        );
+        let (value, _) = self.get_json(&endpoint, &path).await?;
+        let status = require_string(&endpoint, &value, "status")?;
+        if !matches!(
+            status.as_str(),
+            "identical" | "ahead" | "behind" | "diverged"
+        ) {
+            return Err(ApiError::local(
+                ErrorCause::Malformed,
+                endpoint,
+                "unknown comparison status",
+            ));
+        }
+        Ok(status)
+    }
+
     async fn tree(&self, owner: &str, repo: &str, commit: &str) -> ApiResult<Tree> {
         let endpoint = format!("GET /repos/{owner}/{repo}/git/trees/{commit}");
         let path = format!(

@@ -14,6 +14,7 @@
 mod audited_repository;
 mod document;
 mod release_records;
+mod template_identity;
 
 pub mod alignment;
 pub mod audit;

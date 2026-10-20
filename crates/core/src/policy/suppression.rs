@@ -83,6 +83,14 @@ pub(super) fn read_suppressions(
                      airlock knows"
                 ))
             })?;
+            if !registry::find(rule)
+                .expect("rule checked above")
+                .allow_override()
+            {
+                return Err(Error::Policy(format!(
+                    "{rule} forbids repository overrides"
+                )));
+            }
             authority.allow_repo_requests.insert(rule.to_owned());
         }
     }

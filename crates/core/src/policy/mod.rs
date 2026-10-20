@@ -33,6 +33,7 @@ mod fetch;
 mod references;
 mod source;
 mod suppression;
+mod template_exception;
 
 use compilation::*;
 use digest::*;
@@ -320,6 +321,7 @@ const KNOWN_TOP_LEVEL_KEYS: &[&str] = &[
     "checks",
     "suppressions",
     "reference-data",
+    "exceptions",
 ];
 
 const POLICY_SCHEMA_VERSION: i64 = 1;

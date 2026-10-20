@@ -76,6 +76,7 @@ macro_rules! action_groups {
 }
 
 action_groups! {
+    APPLY_ACCEPTED_TEMPLATE => "apply_accepted_template",
     ADD_CD_CONCURRENCY => "add_cd_concurrency",
     ADD_CHANGELOG => "add_changelog",
     ADD_CI_WORKFLOW => "add_ci_workflow",
@@ -319,6 +320,7 @@ mod tests {
             include_str!("checks/identity.rs"),
             include_str!("checks/licensing.rs"),
             include_str!("checks/release.rs"),
+            include_str!("checks/template_identity.rs"),
             include_str!("checks/automation/delivery.rs"),
             include_str!("checks/automation/hooks.rs"),
             include_str!("checks/automation/taskfile.rs"),

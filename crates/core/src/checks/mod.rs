@@ -27,6 +27,7 @@ mod licensing;
 mod readme;
 mod release;
 mod release_record;
+mod template_identity;
 
 use crate::findings::{Evidence, FindingError, Remediation, Status};
 use crate::github::{
@@ -413,6 +414,7 @@ impl Workflow {
 /// Everything one audit run gathered, ready for the checks to read.
 pub struct AuditContext<'a> {
     /// The repository at the audited commit.
+    pub template_revisions: Result<Vec<crate::template_identity::TemplateRevision>, ApiError>,
     pub snapshot: &'a RepoSnapshot,
     /// The policy the audit runs under.
     pub policy: &'a ResolvedPolicy,
@@ -581,7 +583,9 @@ pub fn evaluate(rule: &RuleInstance, context: &AuditContext) -> Verdict {
 
 fn run(rule: &RuleInstance, context: &AuditContext) -> Verdict {
     let id = rule.def.id;
-    identity::run(id, rule, context)
+    (id == "REPO-TPL-01")
+        .then(|| template_identity::run(rule, context))
+        .or_else(|| identity::run(id, rule, context))
         .or_else(|| licensing::run(id, rule, context))
         .or_else(|| files::run(id, rule, context))
         .or_else(|| readme::run(id, rule, context))
@@ -990,6 +994,7 @@ pub(crate) mod fixtures {
         workflows: Vec<Workflow>,
     ) -> AuditContext<'a> {
         AuditContext {
+            template_revisions: Ok(Vec::new()),
             snapshot,
             policy,
             limits: Limits::default(),

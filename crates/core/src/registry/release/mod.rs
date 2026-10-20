@@ -11,3 +11,5 @@ pub(crate) mod repo_rel_05;
 pub(crate) mod repo_rel_06;
 pub(crate) mod repo_rel_07;
 pub(crate) mod repo_rel_08;
+
+pub(crate) mod repo_tpl_01;

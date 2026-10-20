@@ -1019,3 +1019,112 @@ fn release_record_model_gap_fix_is_agent_reasoning_while_missing_record_is_opera
     );
     assert_eq!(class.lane.as_deref(), Some("operator-setting"));
 }
+
+#[test]
+fn template_identity_routes_locally_and_lists_empty_configuration_as_waived() {
+    let repo = committed_repository();
+    let mut policy = policy_with_one("REPO-TPL-01", airlock_core::registry::Severity::Blocking);
+    let empty = audit::run_local(&policy, &options(), repo.path()).unwrap();
+    assert_eq!(empty.exit_code(), 0);
+    assert_eq!(empty.waived.len(), 1);
+    assert_eq!(empty.effective_policy[0].severity, "none");
+    assert_eq!(
+        empty.waived[0]
+            .suppression
+            .as_ref()
+            .unwrap()
+            .policy_reason
+            .as_deref(),
+        Some("no templates configured")
+    );
+    policy.rules[0].params.insert(
+        "templates".into(),
+        serde_json::json!([{"source":"gh:example-org/catalog#bundle","ref":"main"}]),
+    );
+    let routed = audit::run_local(&policy, &options(), repo.path()).unwrap();
+    assert_eq!(routed.exit_code(), 0);
+    assert!(routed.findings.is_empty());
+    assert_eq!(
+        routed.routed[0].routing.as_ref().unwrap().reason,
+        "needs-github-api"
+    );
+}
+
+#[tokio::test]
+async fn template_identity_credentialed_working_tree_reads_the_configured_local_record() {
+    let repo = committed_repository();
+    std::fs::create_dir(repo.path().join("state")).unwrap();
+    std::fs::write(repo.path().join("state/applied.json"), "invalid JSON").unwrap();
+    let mut policy = policy_with_one("REPO-TPL-01", airlock_core::registry::Severity::Blocking);
+    policy.rules[0].params.insert(
+        "templates".into(),
+        serde_json::json!([{"source":"gh:example-org/catalog#bundle","ref":"main"}]),
+    );
+    policy.rules[0].params.insert(
+        "record-path".into(),
+        serde_json::json!("state/applied.json"),
+    );
+    let grant = airlock_core::auth::VerifiedGrant {
+        kind: airlock_core::auth::TokenKind::ClassicPat,
+        issuer: None,
+        login: None,
+        scopes: vec!["read:user".into()],
+        installations: Vec::new(),
+    };
+    let mut audit_options = options();
+    audit_options.working_tree = Some(repo.path().to_path_buf());
+    let report = audit::run(
+        &FakeGitHub::new(),
+        "owner",
+        "name",
+        &policy,
+        &audit_options,
+        Some(&grant),
+    )
+    .await
+    .unwrap();
+    assert_eq!(report.exit_code(), 1);
+    assert_eq!(report.findings[0].source.as_deref(), Some("working-tree"));
+    assert_eq!(
+        report.findings[0].evidence.as_ref().unwrap().code,
+        "record-unreadable"
+    );
+    assert_eq!(
+        report.findings[0]
+            .evidence
+            .as_ref()
+            .unwrap()
+            .path
+            .as_deref(),
+        Some("state/applied.json")
+    );
+}
+
+#[test]
+fn template_identity_repository_request_cannot_override_the_compiled_rule() {
+    let repo = committed_repository();
+    std::fs::write(
+        repo.path().join(".github/airlock.yml"),
+        "version: 1\nsuppress:\n  - rule: REPO-TPL-01\n    reason: Fixture request\n",
+    )
+    .unwrap();
+    git(repo.path(), &["add", ".github/airlock.yml"]);
+    git(repo.path(), &["commit", "-q", "-m", "fixture request"]);
+    let mut policy = policy_with_one("REPO-TPL-01", airlock_core::registry::Severity::Blocking);
+    policy.rules[0].params.insert(
+        "templates".into(),
+        serde_json::json!([{"source":"gh:example-org/catalog#bundle","ref":"main"}]),
+    );
+    // Exercise the runtime boundary even if a library caller bypasses policy compilation.
+    policy
+        .suppressions
+        .allow_repo_requests
+        .insert("REPO-TPL-01".into());
+    let report = audit::run_local(&policy, &options(), repo.path()).unwrap();
+    assert!(report.waived.is_empty());
+    assert_eq!(report.routed.len(), 1);
+    assert!(report
+        .policy_observations
+        .iter()
+        .any(|observation| observation.rule.as_deref() == Some("REPO-TPL-01")));
+}

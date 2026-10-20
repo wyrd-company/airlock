@@ -90,6 +90,9 @@ pub struct Evidence {
     pub detail: String,
     /// The policy-owned capability declaration this evidence concerns.
     pub capability: Option<CapabilityDeclaration>,
+    /// Per-parent template identities, when this is a template identity finding.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub template_identity: Option<crate::template_identity::TemplateEvidence>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -107,6 +110,7 @@ impl Evidence {
             path: None,
             detail: detail.into(),
             capability: None,
+            template_identity: None,
         }
     }
 
@@ -118,6 +122,7 @@ impl Evidence {
             path: Some(path.into()),
             detail: detail.into(),
             capability: None,
+            template_identity: None,
         }
     }
 
@@ -129,6 +134,7 @@ impl Evidence {
             detail: format!(
                 "the repository has no organization custom property `{property}`; declare `{property}` as `{value}` when this capability holds"
             ),
+            template_identity: None,
             capability: Some(CapabilityDeclaration {
                 property: property.to_owned(),
                 value: value.to_owned(),

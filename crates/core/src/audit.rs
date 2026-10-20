@@ -147,6 +147,12 @@ pub async fn run<G: GitHub>(
         .map(|path| (*path).to_owned())
         .collect();
     paths.extend(workflow_paths.paths.clone());
+    if let Some(rule) = policy
+        .rule("REPO-TPL-01")
+        .filter(|r| r.severity != Severity::None)
+    {
+        paths.push(crate::template_identity::config::record_path(rule).to_owned());
+    }
     snapshot.load_files(client, owner, repo, &paths).await;
 
     // Release-unit paths are only known once the config file has been read, so
@@ -172,8 +178,14 @@ pub async fn run<G: GitHub>(
             .any(|rule| rule.def.id == "REPO-REL-08" && rule.severity != Severity::None),
     )
     .await;
+    let template_revisions = if grant.is_some() {
+        crate::template_identity::gather(client, &snapshot, policy).await
+    } else {
+        Ok(Vec::new())
+    };
     let platform = PlatformData {
         release_records,
+        template_revisions,
         tags,
         history: client
             .history(owner, repo, &commit, options.limits.max_history_commits)
@@ -227,7 +239,7 @@ async fn run_mixed<G: GitHub>(
         bytes_read: 0,
         limits: options.limits,
     };
-    let workflow_paths = load_local_files(&mut snapshot, &facts, options.limits);
+    let workflow_paths = load_local_files(&mut snapshot, &facts, options.limits, policy);
     let workflows = parse_workflows(&snapshot, &workflow_paths.paths, options.limits);
 
     let tags = client.tags(owner, repo).await;
@@ -243,8 +255,14 @@ async fn run_mixed<G: GitHub>(
             .any(|rule| rule.def.id == "REPO-REL-08" && rule.severity != Severity::None),
     )
     .await;
+    let template_revisions = if grant.is_some() {
+        crate::template_identity::gather(client, &snapshot, policy).await
+    } else {
+        Ok(Vec::new())
+    };
     let platform = PlatformData {
         release_records,
+        template_revisions,
         tags,
         history: client
             .history(
@@ -341,11 +359,12 @@ pub fn run_local(
         bytes_read: 0,
         limits: options.limits,
     };
-    let workflow_paths = load_local_files(&mut snapshot, &facts, options.limits);
+    let workflow_paths = load_local_files(&mut snapshot, &facts, options.limits, policy);
     let workflows = parse_workflows(&snapshot, &workflow_paths.paths, options.limits);
 
     let platform = PlatformData {
         release_records: Ok(crate::release_records::ReleaseInputs::default()),
+        template_revisions: Ok(Vec::new()),
         tags: Err(not_observed_error("tags")),
         history: Err(not_observed_error("history")),
         rulesets: Err(not_observed_error("rulesets")),
@@ -411,6 +430,7 @@ fn load_local_files(
     snapshot: &mut RepoSnapshot,
     facts: &crate::worktree::WorkingTreeFacts,
     limits: Limits,
+    policy: &ResolvedPolicy,
 ) -> WorkflowPaths {
     let workflow_paths = workflow_paths(snapshot, limits.max_workflow_files);
     let mut paths: Vec<String> = AUDITED_PATHS
@@ -418,6 +438,12 @@ fn load_local_files(
         .map(|path| (*path).to_owned())
         .collect();
     paths.extend(workflow_paths.paths.clone());
+    if let Some(rule) = policy
+        .rule("REPO-TPL-01")
+        .filter(|r| r.severity != Severity::None)
+    {
+        paths.push(crate::template_identity::config::record_path(rule).to_owned());
+    }
     crate::worktree::load_files(
         facts,
         &paths,
@@ -454,6 +480,8 @@ fn not_observed_error(subject: &str) -> ApiError {
 /// gathered.
 struct PlatformData {
     release_records: std::result::Result<crate::release_records::ReleaseInputs, ApiError>,
+    template_revisions:
+        std::result::Result<Vec<crate::template_identity::TemplateRevision>, ApiError>,
     tags: std::result::Result<crate::github::Paged<crate::github::TagRef>, ApiError>,
     history: std::result::Result<crate::github::Paged<crate::github::CommitSummary>, ApiError>,
     rulesets: std::result::Result<crate::github::Paged<crate::github::Ruleset>, ApiError>,
@@ -477,6 +505,7 @@ fn complete_run(
     let branch = snapshot.repository.default_branch.clone();
     let commit = snapshot.commit.clone();
     let context = AuditContext {
+        template_revisions: platform.template_revisions,
         policy,
         limits: options.limits,
         workflows,
@@ -519,7 +548,10 @@ fn complete_run(
         });
 
         // Waivers are authorization and prevent the check from executing.
-        let gated = platform_unobserved && rule.def.needs_github_api();
+        let gated = (platform_unobserved
+            || (rule.def.id == "REPO-TPL-01"
+                && credential == CredentialCapability::Unauthenticated))
+            && rule.def.needs_github_api();
         let verdict = if waiver.is_some() {
             checks::Verdict::waived()
         } else if gated {
@@ -720,6 +752,16 @@ fn waiver_for(
     requests: &[crate::policy::SuppressionRequest],
     full_name: &str,
 ) -> Option<Suppression> {
+    if rule.def.id == "REPO-TPL-01"
+        && crate::template_identity::config::expected(rule).is_ok_and(|v| v.is_empty())
+    {
+        return Some(Suppression {
+            source: SuppressionSource::Policy,
+            requested_reason: None,
+            policy_reason: Some("no templates configured".to_owned()),
+            authorized_by: "REPO-TPL-01 required configuration".to_owned(),
+        });
+    }
     if let Some(direct) = policy.suppressions.direct_for(rule.def.id, full_name) {
         return Some(Suppression {
             source: SuppressionSource::Policy,
@@ -728,10 +770,11 @@ fn waiver_for(
             authorized_by: format!("policy `{}` suppressions.direct", policy.name),
         });
     }
-    if policy
-        .suppressions
-        .allow_repo_requests
-        .contains(rule.def.id)
+    if rule.def.allow_override()
+        && policy
+            .suppressions
+            .allow_repo_requests
+            .contains(rule.def.id)
     {
         if let Some(request) = requests.iter().find(|request| request.rule == rule.def.id) {
             return Some(Suppression {
@@ -783,10 +826,11 @@ fn unauthorized_requests(
     requests
         .iter()
         .filter(|request| {
-            !policy
+            (!policy
                 .suppressions
                 .allow_repo_requests
-                .contains(&request.rule)
+                .contains(&request.rule))
+                || crate::registry::find(&request.rule).is_some_and(|rule| !rule.allow_override())
         })
         .map(|request| {
             let status = findings

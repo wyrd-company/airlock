@@ -556,6 +556,21 @@ pub trait GitHub {
     /// Resolve a branch name, tag, or sha to a commit sha.
     async fn resolve_commit(&self, owner: &str, repo: &str, reference: &str) -> ApiResult<String>;
 
+    /// Compare two template commits, using only GitHub ancestry status.
+    async fn compare_status(
+        &self,
+        owner: &str,
+        repo: &str,
+        base: &str,
+        head: &str,
+    ) -> ApiResult<String> {
+        Err(ApiError::local(
+            ErrorCause::Transport,
+            format!("GET /repos/{owner}/{repo}/compare/{base}...{head}?per_page=1"),
+            "comparison is not implemented by this client",
+        ))
+    }
+
     /// Fetch the recursive tree at a commit.
     async fn tree(&self, owner: &str, repo: &str, commit: &str) -> ApiResult<Tree>;
 

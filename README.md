@@ -471,6 +471,37 @@ reference-data:
   topics: wyrd-company/.github:airlock/topics.yml
 ```
 
+Template identity uses an organization exception. Select `release` in the
+`registry` capability and list each required parent template:
+
+```yaml
+exceptions:
+  REPO-TPL-01:
+    reason: Governed repositories use this release process.
+    record-path: .toha.json
+    templates:
+      - source: gh:example-org/catalog#bundle
+        ref: main
+        minimum: release@2.0.0
+        parts: [alpha, beta]
+```
+
+Each parent is required at its `target` (default `.`) inside the configured
+record. The recorded Git commit must be reachable from `ref` and equal to or
+descend from `minimum` when specified. Selected parts must be listed; listed
+parts need not be selected. An empty template list is visibly not configured.
+Organization policy can lower the compiled blocking severity. Repository
+refinements and suppression requests cannot override this rule.
+
+The check validates the record as JSON against the embedded Toha applied-record
+schema. JSON evidence includes each expected parent, found identity, resolved
+refs, comparison statuses and Gap reasons. Apply, update or baseline with Toha,
+select accepted parts, and commit the result to close a Gap. Missing credentials
+route the whole rule; unreadable API inputs and exhausted budgets are run errors.
+`template_audit_reads_configured_record_at_captured_commit_and_compares_both_directions`
+and `template_audit_without_credential_routes_whole_rule_without_template_api_calls`
+exercise these contracts through the REST transport and report.
+
 Capabilities select sections until the two-file configuration replaces this
 policy format. `apply` selectors and the separate `gate` threshold are rejected.
 Severity alone determines whether an evaluated Gap fails the audit.

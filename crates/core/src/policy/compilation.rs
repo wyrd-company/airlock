@@ -39,6 +39,7 @@ pub(super) fn compile(
     let capabilities = read_capabilities(document)?;
     let mut rules = expand_capabilities(&capabilities);
     apply_check_refinements(document, &mut rules)?;
+    super::template_exception::apply(document, &mut rules)?;
 
     let suppressions = read_suppressions(document, &rules)?;
 
@@ -150,6 +151,9 @@ fn expand_capabilities(
     for (capability, sections) in capabilities {
         for section in sections {
             for def in registry::in_section(*section) {
+                if def.id == "REPO-TPL-01" && capability != "registry" {
+                    continue;
+                }
                 rules.entry(def.id).or_insert_with(|| RuleInstance {
                     def,
                     severity: def.severity,
@@ -177,6 +181,11 @@ fn apply_check_refinements(
     };
 
     for (id, refinement) in entries {
+        if id == "REPO-TPL-01" {
+            return Err(Error::Policy(
+                "REPO-TPL-01 is configured only through organization exceptions".into(),
+            ));
+        }
         let def = registry::find(id).ok_or_else(|| {
             Error::Policy(format!(
                 "`checks` names `{id}`, which is not a rule airlock knows"
@@ -250,7 +259,7 @@ fn apply_check_refinements(
     Ok(())
 }
 
-fn to_json(value: &Yaml) -> serde_json::Value {
+pub(super) fn to_json(value: &Yaml) -> serde_json::Value {
     match value {
         Yaml::Null => serde_json::Value::Null,
         Yaml::Bool(value) => serde_json::Value::Bool(*value),

@@ -112,5 +112,6 @@ This reference is generated from the compiled Airlock registry.
 | `REPO-REL-06` | Workflow contents |
 | `REPO-REL-07` | Workflow contents |
 | `REPO-REL-08` | Read the committed Release Model and primary annotated tag records, then compare published GitHub Releases. Fix release-model-missing, release-model-not-a-file, release-model-unreadable, and release-model-schema-not-supported by running intentional model with a supported producer and committing .intentional/release-model.json (agent reasoning). Fix release-record-missing by publishing a GitHub Release on the missing primary tag (operator). Routed needs-github-api requires a credentialed API-tree audit or Action. Truncated listings and API failures require a complete rerun; they are run errors, not Gaps. |
+| `REPO-TPL-01` | Read the configured applied record as JSON at the audited revision. For record-missing, record-not-a-file, record-unreadable, record-schema-not-supported, application-missing, revision-not-accepted, revision-not-git or part-not-accepted, apply, update or baseline with Toha, select accepted parts, and commit the result. Organization exceptions alone configure templates and record-path; allow-override: false. |
 | `REPO-PROP-03` | File contents |
 | `REPO-PROP-04` | Workflow contents |
