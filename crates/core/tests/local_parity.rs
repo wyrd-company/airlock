@@ -303,6 +303,11 @@ fn file_rule_outcomes(report: &Report) -> BTreeMap<String, (String, Option<Strin
 #[tokio::test]
 async fn a_clean_checkout_agrees_with_the_api_on_every_file_level_rule() {
     let repo = committed_repository();
+    // Both sources observe the same repository identity as well as file bytes.
+    git(
+        repo.path(),
+        &["remote", "add", "origin", "git@github.com:acme/widget.git"],
+    );
     let policy = full_policy();
 
     let api_report = audit::run(
