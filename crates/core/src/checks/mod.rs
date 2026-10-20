@@ -584,15 +584,7 @@ pub fn evaluate(rule: &EffectiveRule, context: &AuditContext) -> Verdict {
 /// Shared scope boundary for evaluation and API routing. Classification/config
 /// selection remains outside this function.
 pub fn applicability(rule: &EffectiveRule, context: &AuditContext) -> Result<(), Box<Verdict>> {
-    // File-only rules can reach this boundary only in a comparison branch.
-    if rule.def.needs_release_units() && rule.def.needs_github_api() {
-        context.release_units()?;
-    }
-    if rule.def.lifecycle != crate::rules::Lifecycle::Seeded {
-        let maturity = context
-            .maturity
-            .as_ref()
-            .map_err(|error| Box::new(error.verdict()))?;
+    if let Ok(maturity) = &context.maturity {
         if !rule.def.lifecycle.governs(maturity.rung) {
             return Err(Box::new(Verdict {
                 status: None,
@@ -615,6 +607,16 @@ pub fn applicability(rule: &EffectiveRule, context: &AuditContext) -> Result<(),
                 }),
             }));
         }
+    }
+    // File-only rules can reach this boundary only in a comparison branch.
+    if rule.def.needs_release_units() && rule.def.needs_github_api() {
+        context.release_units()?;
+    }
+    if rule.def.lifecycle != crate::rules::Lifecycle::Seeded {
+        context
+            .maturity
+            .as_ref()
+            .map_err(|error| Box::new(error.verdict()))?;
     }
     Ok(())
 }
@@ -1136,6 +1138,18 @@ mod tests {
         let verdict = applicability(&rule("REPO-TPL-01"), &context).unwrap_err();
         assert_eq!(verdict.routing.unwrap().reason, "out-of-scope");
         assert!(verdict.error.is_none());
+    }
+
+    #[test]
+    fn a_known_earlier_rung_does_not_read_later_rule_inputs() {
+        let fixture = CheckFixture::new(&[(".intentional/config.yml", "release-units: [sample]")]);
+        let mut context = fixture.context();
+        context.maturity.as_mut().unwrap().rung = crate::rules::Lifecycle::Seeded;
+        let verdict = evaluate(&rule("REPO-TPL-01"), &context);
+        assert!(verdict.error.is_none());
+        assert_eq!(verdict.routing.unwrap().reason, "out-of-scope");
+        context.maturity.as_mut().unwrap().rung = crate::rules::Lifecycle::Building;
+        assert!(evaluate(&rule("REPO-TPL-01"), &context).error.is_some());
     }
 
     #[test]
