@@ -58,6 +58,8 @@ impl WorkListResult {
 /// One outstanding gap with a declared fix.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct WorkItem {
+    /// Whether the rule is newer than the accepted generation.
+    pub new: bool,
     /// Whether the declared fix can be undone.
     pub reversible: Option<bool>,
     /// The contextual fix supplied by this observation.
@@ -84,6 +86,8 @@ pub struct WorkItem {
 /// One failure whose remaining move belongs to a person.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct OperatorDeferredItem {
+    /// Whether the rule is newer than the accepted generation.
+    pub new: bool,
     /// Whether the declared fix can be undone.
     pub reversible: Option<bool>,
     /// The contextual fix supplied by this observation.
@@ -112,6 +116,8 @@ pub struct OperatorDeferredItem {
 /// A run error or a declared gate, with no invented evaluated outcome.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct DeferredRule {
+    /// Whether the rule is newer than the accepted generation.
+    pub new: bool,
     /// The rule statement.
     pub statement: String,
     /// The full evidence, including the reached branch or boundary reason.
@@ -143,6 +149,8 @@ pub struct DeferredRule {
 /// One non-gating finding that remains relevant to a handoff.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct AttentionItem {
+    /// Whether the rule is newer than the accepted generation.
+    pub new: bool,
     /// The full exception authorization and reasons.
     pub suppression: Option<crate::findings::Suppression>,
     /// Any explanation for why the rule is not configured.
@@ -232,6 +240,7 @@ impl AgentWorkList {
             if finding.status.is_none() {
                 if finding.suppression.is_some() {
                     waived.push(AttentionItem {
+                        new: finding.new,
                         suppression: finding.suppression.clone(),
                         evidence: finding.evidence.clone(),
                         rule: finding.rule.clone(),
@@ -248,6 +257,7 @@ impl AgentWorkList {
                     });
                 } else {
                     let item = DeferredRule {
+                        new: finding.new,
                         statement: finding.statement.clone(),
                         evidence: finding.evidence.clone(),
                         error: finding.error.clone(),
@@ -299,6 +309,7 @@ impl AgentWorkList {
             let class = &finding.fix_class;
             if class.fix_kind.is_none() && class.none_reason.is_some() {
                 operator.push(OperatorDeferredItem {
+                    new: finding.new,
                     reversible: class.reversible,
                     fix_detail: finding.fix.as_ref().map(|fix| fix.detail.clone()),
                     evidence: finding.evidence.clone(),
@@ -318,6 +329,7 @@ impl AgentWorkList {
             else {
                 classification_unsettled = true;
                 run_errors.push(DeferredRule {
+                    new: finding.new,
                     statement: finding.statement.clone(),
                     evidence: finding.evidence.clone(),
                     error: finding.error.clone(),
@@ -336,6 +348,7 @@ impl AgentWorkList {
             let Some(lane_kind) = FixKind::parse(fix_kind) else {
                 classification_unsettled = true;
                 run_errors.push(DeferredRule {
+                    new: finding.new,
                     statement: finding.statement.clone(),
                     evidence: finding.evidence.clone(),
                     error: finding.error.clone(),
@@ -352,6 +365,7 @@ impl AgentWorkList {
                 continue;
             };
             let item = WorkItem {
+                new: finding.new,
                 reversible: class.reversible,
                 fix_detail: finding.fix.as_ref().map(|fix| fix.detail.clone()),
                 evidence: finding.evidence.clone(),
@@ -366,6 +380,7 @@ impl AgentWorkList {
             match lane_kind {
                 FixKind::Airlock | FixKind::Agent => agent.push(item),
                 FixKind::Operator => operator.push(OperatorDeferredItem {
+                    new: item.new,
                     reversible: item.reversible,
                     fix_detail: item.fix_detail,
                     evidence: item.evidence,
@@ -497,7 +512,18 @@ mod tests {
             reason: "out-of-scope".to_owned(),
             settling_surface: "declared boundary".to_owned(),
         });
-        let source = report(vec![
+        let mut failed = finding("REPO-REL-01", None, "advisory", None);
+        failed.error = Some(crate::findings::FindingError {
+            cause: "transport".to_owned(),
+            status: None,
+            endpoint: "GET /repos/{owner}/{repo}".to_owned(),
+            request_id: Some("sample-request".to_owned()),
+            message: Some("request could not complete".to_owned()),
+            accepted_permissions: None,
+            documentation_url: None,
+            message_hints_version: 1,
+        });
+        let mut entries = vec![
             agent,
             finding("REPO-NAME-01", Some(Status::Gap), "advisory", Some("api")),
             finding("REPO-GIT-08", Some(Status::Gap), "advisory", Some("api")),
@@ -506,8 +532,12 @@ mod tests {
             crate::findings::fixtures::routed(finding("REPO-GIT-04", None, "blocking", None)),
             crate::findings::fixtures::unbuilt(finding("REPO-DOCS-05", None, "blocking", None)),
             outside,
-            finding("REPO-REL-01", None, "advisory", None),
-        ]);
+            failed,
+        ];
+        for entry in &mut entries {
+            entry.new = true;
+        }
+        let source = report(entries);
         let list = AgentWorkList::from_report(&source);
         let value = serde_json::to_value(&list).unwrap();
         assert_eq!(value["schema_version"], 2);
@@ -529,6 +559,7 @@ mod tests {
         assert_eq!(rows.len(), source.entries().count());
         for entry in source.entries() {
             let row = rows.iter().find(|row| row["rule"] == entry.rule).unwrap();
+            assert_eq!(row["new"], entry.new);
             assert_eq!(row["statement"], entry.statement);
             assert_eq!(
                 row["evidence"],
@@ -550,6 +581,12 @@ mod tests {
         );
         assert_eq!(list.agent_work.items[0].reversible, Some(false));
         assert_eq!(list.operator_deferred.count, 2);
+        assert_eq!(list.routed.count, 1);
+        assert_eq!(list.unbuilt.count, 1);
+        assert_eq!(list.out_of_scope.count, 1);
+        assert_eq!(list.waived.count, 1);
+        assert_eq!(list.run_errors.count, 1);
+        assert_eq!(list.met.count, 1);
         assert_eq!(list.exit_code(), 2);
     }
 

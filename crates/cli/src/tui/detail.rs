@@ -829,6 +829,26 @@ mod tests {
     // -----------------------------------------------------------------
 
     #[test]
+    fn declared_gate_destination_is_complete_and_cannot_instruct_the_terminal() {
+        let mut entry = super::super::findings::fixture::finding(
+            "REPO-GIT-04",
+            airlock_core::rules::Severity::Blocking,
+            None,
+        );
+        let destination = format!("{}\u{1b}[2J", "a".repeat(900));
+        entry.routing = Some(airlock_core::findings::Routing {
+            reason: "needs-administration".to_owned(),
+            settling_surface: destination.clone(),
+        });
+        let projected = Detail::of(&entry, &[]);
+        let gate = projected.routing.unwrap();
+        assert_eq!(gate.reason, "needs-administration");
+        assert_eq!(gate.settling_surface, drawable(&destination));
+        assert!(!gate.settling_surface.contains('\u{1b}'));
+        assert!(gate.settling_surface.contains(&"a".repeat(900)));
+    }
+
+    #[test]
     fn a_failure_reads_as_nonconformant_and_still_complete() {
         let rendered = whole(&fixture::mixed(), "REPO-GIT-01", REFERENCE_WIDTH);
         assert!(rendered.contains("Blocking Gap"), "{rendered}");

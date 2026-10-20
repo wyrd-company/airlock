@@ -355,9 +355,7 @@ impl FilterSet {
     pub fn holds(self, row: &Row) -> bool {
         match self {
             Self::Everything => true,
-            Self::GatingFailures => {
-                row.status == Some(Status::Gap) && row.severity == Severity::Blocking
-            }
+            Self::GatingFailures => row.status == Some(Status::Gap) && row.gates(),
             Self::NotEvaluated => row.status.is_none(),
             Self::AllFailures => row.status == Some(Status::Gap),
             Self::Inert => row.status.is_none() && !row.gates(),
@@ -373,6 +371,8 @@ impl FilterSet {
 /// question.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Row {
+    /// Visible new rules are excluded from the accepted-generation gate.
+    pub new: bool,
     /// The rule id.
     pub rule: String,
     /// The rule statement, verbatim.
@@ -415,7 +415,9 @@ impl Row {
     #[must_use]
     pub fn gates(&self) -> bool {
         matches!(self.group, Group::RunErrors)
-            || (self.status == Some(Status::Gap) && self.severity == Severity::Blocking)
+            || (!self.new
+                && self.status == Some(Status::Gap)
+                && self.severity == Severity::Blocking)
     }
 }
 
@@ -644,6 +646,7 @@ fn row(
     let severity = Severity::parse(&finding.severity).unwrap_or(Severity::Advisory);
     let group = group_of(finding);
     Row {
+        new: finding.new,
         // Whole in the model and shortened only where a column requires it.
         // The row has one line and bounds these at the moment it draws them;
         // the finding detail has the whole screen and carries them whole, and
@@ -1533,7 +1536,7 @@ pub mod fixture {
                 continue;
             }
             effective_policy.push(EffectiveRuleRecord {
-                new: false,
+                new: finding.new,
                 rule: finding.rule.clone(),
                 severity: finding.severity.clone(),
                 params: BTreeMap::new(),
@@ -1821,12 +1824,26 @@ mod tests {
     use airlock_core::findings::{Evidence, FindingError, FixClass};
 
     #[test]
+    fn a_new_rule_run_error_still_gates_the_tui() {
+        let mut entry = finding("REPO-LIC-01", Severity::Advisory, None);
+        entry.new = true;
+        let queue = queue(vec![entry]);
+        assert!(!queue.verdict.complete);
+        assert!(queue.rows[0].gates());
+        assert_eq!(queue.rows[0].group, Group::RunErrors);
+        assert_eq!(queue.blockers.len(), 1);
+    }
+
+    #[test]
     fn queue_marks_new_rules_while_preserving_their_gap() {
         let mut item = finding("REPO-LIC-01", Severity::Blocking, Some(Status::Gap));
         item.new = true;
         let queue = queue(vec![item]);
+        assert!(queue.rules[0].new);
         assert_eq!(queue.rows[0].result_label, "new gap");
         assert_eq!(queue.rows[0].status, Some(Status::Gap));
+        assert!(!queue.rows[0].gates());
+        assert!(queue.shown(FilterSet::GatingFailures).is_empty());
     }
 
     fn styles() -> Styles {
@@ -2592,6 +2609,7 @@ mod tests {
     /// A row carrying a fact of a chosen length, and nothing else unusual.
     fn carrying(fact: &str) -> Row {
         Row {
+            new: false,
             rule: "REPO-DOCS-05".to_owned(),
             statement: "the condition REPO-DOCS-05 states".to_owned(),
             severity: Severity::Advisory,

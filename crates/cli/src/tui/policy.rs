@@ -63,6 +63,10 @@ const SPENT: usize = INDENT.len() + RULE_WIDTH + SEVERITY_WIDTH + EVALUATION_WID
 /// One rule of the effective policy, as this screen draws it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Rule {
+    /// Whether the introduction generation is still unaccepted.
+    pub new: bool,
+    /// Effective parameter names and values, safe to draw without truncation.
+    pub params: Vec<(String, String)>,
     /// The rule id.
     pub rule: String,
     /// The severity that applies after refinement, which is what the run used.
@@ -96,6 +100,17 @@ pub fn effective_rules(report: &Report) -> Vec<Rule> {
         .map(|entry| {
             let definition = rules::find(&entry.rule);
             Rule {
+                new: entry.new,
+                params: entry
+                    .params
+                    .iter()
+                    .map(|(name, value)| {
+                        (
+                            crate::admin::text::drawable(name),
+                            crate::admin::text::drawable(&value.to_string()),
+                        )
+                    })
+                    .collect(),
                 rule: sanitize(&entry.rule, VALUE_LIMIT),
                 severity: Severity::parse(&entry.severity).unwrap_or(Severity::Advisory),
                 evaluation: definition.map_or("not registered", |check| {
@@ -236,6 +251,25 @@ fn regions(styles: Styles, width: usize, inspector: &super::findings::Queue) -> 
     lines.extend(inspector.provenance.lines(styles, width, LABEL_WIDTH));
     lines.push(Line::default());
     lines.extend(table(styles, width, inspector));
+    for rule in &inspector.rules {
+        if rule.new || !rule.params.is_empty() {
+            lines.push(Line::from(Span::styled(
+                rule.rule.clone(),
+                styles.bold(Role::Accent),
+            )));
+            if rule.new {
+                lines.extend(value(
+                    styles,
+                    width,
+                    "generation",
+                    "new; excluded from the accepted-generation gate",
+                ));
+            }
+            for (name, parameter) in &rule.params {
+                lines.extend(value(styles, width, name, parameter));
+            }
+        }
+    }
     lines
 }
 
@@ -453,6 +487,27 @@ mod tests {
 
     fn drawn(report: &Report, width: u16) -> String {
         text(&regions(styles(), width as usize, &queue(report)))
+    }
+
+    #[test]
+    fn effective_configuration_retains_long_parameters_and_generation_without_terminal_controls() {
+        let mut source = fixture::mixed();
+        let entry = &mut source.effective_policy[0];
+        entry.new = true;
+        let parameter = format!("{}\u{1b}[2J", "a".repeat(900));
+        entry
+            .params
+            .insert("sample-value".to_owned(), serde_json::json!(parameter));
+        let id = entry.rule.clone();
+        let model = queue(&source);
+        let rule = model.rules.iter().find(|rule| rule.rule == id).unwrap();
+        assert!(rule.new);
+        assert_eq!(rule.params[0].0, "sample-value");
+        assert_eq!(rule.params[0].1, serde_json::json!(parameter).to_string());
+        let text = text(&regions(styles(), 120, &model));
+        assert!(text.contains("excluded from the accepted-generation gate"));
+        assert!(text.replace(' ', "").contains(&"a".repeat(900)));
+        assert!(!text.contains('\u{1b}'));
     }
 
     #[test]
