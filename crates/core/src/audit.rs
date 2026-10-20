@@ -177,12 +177,14 @@ pub async fn run<G: GitHub>(
     let branch = snapshot.repository.default_branch.clone();
     let commit = snapshot.commit.clone();
     let tags = client.tags(owner, repo).await;
+    let maturity_tags = crate::maturity::gather_tags(client, owner, repo, &tags).await;
     let release_records = crate::release_records::gather(
         client,
         owner,
         repo,
         &snapshot,
         &tags,
+        &maturity_tags,
         policy
             .rules
             .iter()
@@ -194,13 +196,15 @@ pub async fn run<G: GitHub>(
     } else {
         Ok(Vec::new())
     };
+    let history = client
+        .history(owner, repo, &commit, options.limits.max_history_commits)
+        .await;
     let platform = PlatformData {
+        maturity: crate::maturity::captured(&snapshot, &tags, &maturity_tags, &history),
         release_records,
         template_revisions,
         tags,
-        history: client
-            .history(owner, repo, &commit, options.limits.max_history_commits)
-            .await,
+        history,
         rulesets: client.rulesets(owner, repo).await,
         branch_rules: client.branch_rules(owner, repo, &branch).await,
     };
@@ -272,12 +276,14 @@ async fn run_mixed<G: GitHub>(
     let workflows = parse_workflows(&snapshot, &workflow_paths.paths, options.limits);
 
     let tags = client.tags(owner, repo).await;
+    let maturity_tags = crate::maturity::gather_tags(client, owner, repo, &tags).await;
     let release_records = crate::release_records::gather(
         client,
         owner,
         repo,
         &snapshot,
         &tags,
+        &maturity_tags,
         policy
             .rules
             .iter()
@@ -290,6 +296,11 @@ async fn run_mixed<G: GitHub>(
         Ok(Vec::new())
     };
     let platform = PlatformData {
+        maturity: crate::maturity::read_local_at(
+            root,
+            &facts.head_commit,
+            options.limits.max_history_commits,
+        ),
         release_records,
         template_revisions,
         tags,
@@ -392,6 +403,11 @@ pub fn run_local(
     let workflows = parse_workflows(&snapshot, &workflow_paths.paths, options.limits);
 
     let platform = PlatformData {
+        maturity: crate::maturity::read_local_at(
+            root,
+            &facts.head_commit,
+            options.limits.max_history_commits,
+        ),
         release_records: Ok(crate::release_records::ReleaseInputs::default()),
         template_revisions: Ok(Vec::new()),
         tags: Err(not_observed_error("tags")),
@@ -508,6 +524,7 @@ fn not_observed_error(subject: &str) -> ApiError {
 /// The platform-owned inputs of one run, however they were (or were not)
 /// gathered.
 struct PlatformData {
+    maturity: std::result::Result<crate::maturity::Observed, crate::maturity::ObservationError>,
     release_records: std::result::Result<crate::release_records::ReleaseInputs, ApiError>,
     template_revisions:
         std::result::Result<Vec<crate::template_identity::TemplateRevision>, ApiError>,
@@ -534,6 +551,7 @@ fn complete_run(
     let branch = snapshot.repository.default_branch.clone();
     let commit = snapshot.commit.clone();
     let context = AuditContext {
+        maturity: platform.maturity,
         template_revisions: platform.template_revisions,
         policy,
         limits: options.limits,
@@ -602,17 +620,10 @@ fn complete_run(
                 error: None,
                 routing: None,
             }
+        } else if let Err(boundary) = checks::applicability(rule, &context) {
+            *boundary
         } else if gated {
-            // Known file scope precedes the API-source gate. A missing API
-            // credential cannot turn an absent release-unit scope into API work.
-            if rule.def.needs_release_units() {
-                match context.release_units() {
-                    Ok(_) => checks::Verdict::needs_github_api(),
-                    Err(boundary) => *boundary,
-                }
-            } else {
-                checks::Verdict::needs_github_api()
-            }
+            checks::Verdict::needs_github_api()
         } else {
             checks::evaluate(rule, &context)
         };
@@ -652,7 +663,8 @@ fn complete_run(
     // finding, so it is recorded here instead — the attempt stays visible.
     observations.extend(unauthorized_requests(policy, &requests, &findings));
 
-    Ok(Report::assemble(
+    let maturity = crate::maturity::report(&context, &findings, !platform_unobserved);
+    let mut report = Report::assemble(
         AirlockIdentity::current(&options.version),
         AuditedRepository {
             full_name: snapshot.repository.full_name.clone(),
@@ -682,7 +694,9 @@ fn complete_run(
         effective_policy,
         observations,
         findings,
-    ))
+    );
+    report.maturity = Some(maturity);
+    Ok(report)
 }
 
 /// The workflow paths in the tree, and whether the budget cut them short.

@@ -1,5 +1,6 @@
 $schema: https://refinery.systems/ontology/term
 title: Stable
 description: >-
-  The lifecycle rung evidenced by a release tag at or above 1.0.0 whose tag record is not a
-  baseline. A baseline tag alone does not establish a release or this rung.
+  The lifecycle rung established by a non-baseline release tag after the repository's baseline,
+  at a release version at or above 1.0.0. A baseline tag alone establishes Building, whatever
+  its version. A 1.0.0 prerelease is below the Stable threshold.

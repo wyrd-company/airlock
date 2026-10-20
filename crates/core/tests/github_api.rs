@@ -1685,6 +1685,14 @@ async fn release_audit(
         ),
         ("/repos/owner/name/topics", json!({"names": []})),
         (
+            "/repos/owner/name/commits",
+            json!([
+                {"sha":"audited-commit","parents":[{"sha":"target-commit"}]},
+                {"sha":"target-commit","parents":[{"sha":"baseline-commit"}]},
+                {"sha":"baseline-commit","parents":[]}
+            ]),
+        ),
+        (
             "/repos/owner/name/git/trees/audited-commit",
             json!({"sha": "tree", "truncated": false, "tree": [{"path": ".intentional/release-model.json", "mode": "100644", "sha": "model-blob", "size": model.len()}]}),
         ),
@@ -1714,10 +1722,17 @@ async fn release_audit(
         .and(path("/repos/owner/name/git/tags/tag-object"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_json(json!({"message": record, "object": {"sha": "target-commit"}})),
+                .set_body_json(json!({"message": record, "tagger": {"name":"fixture","email":"fixture@example.invalid"}, "object": {"type":"commit", "sha": "target-commit"}})),
         )
         .mount(server)
         .await;
+    Mock::given(method("GET"))
+        .and(path("/repos/owner/name/git/tags/baseline-object"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "message": record.replace("version: 1.0.0", "version: 0.0.0").replace("baseline: false", "baseline: true"),
+            "tagger":{"name":"fixture","email":"fixture@example.invalid"},
+            "object":{"type":"commit","sha":"baseline-commit"}
+        }))).mount(server).await;
     let def = airlock_core::rules::find("REPO-REL-08").unwrap();
     let policy = airlock_core::policy::ResolvedPolicy {
         name: "fixture".into(),
@@ -1750,7 +1765,8 @@ async fn release_audit(
 
 fn release_tag_response() -> ResponseTemplate {
     ResponseTemplate::new(200).set_body_json(
-        json!([{"ref": "refs/tags/1.0.0", "object": {"sha": "tag-object", "type": "tag"}}]),
+        json!([{"ref": "refs/tags/1.0.0", "object": {"sha": "tag-object", "type": "tag"}},
+            {"ref":"refs/tags/0.0.0","object":{"sha":"baseline-object","type":"tag"}}]),
     )
 }
 
@@ -1864,8 +1880,7 @@ async fn units_with_no_release_record_policy_do_not_read_release_endpoints() {
     let requests = server.received_requests().await.unwrap();
     assert!(!requests
         .iter()
-        .any(|request| request.url.path().ends_with("/releases")
-            || request.url.path().contains("/git/tags/")));
+        .any(|request| request.url.path().ends_with("/releases")));
 }
 
 #[tokio::test]

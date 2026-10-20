@@ -61,6 +61,7 @@ pub(crate) async fn gather<G: GitHub>(
     repo: &str,
     snapshot: &RepoSnapshot,
     tags: &ApiResult<Paged<TagRef>>,
+    tag_objects: &ApiResult<BTreeMap<String, AnnotatedTag>>,
     enabled: bool,
 ) -> ApiResult<ReleaseInputs> {
     if !enabled {
@@ -99,7 +100,18 @@ pub(crate) async fn gather<G: GitHub>(
         if !objects.contains_key(&tag.sha) {
             objects.insert(
                 tag.sha.clone(),
-                client.annotated_tag(owner, repo, &tag.sha).await?,
+                tag_objects
+                    .as_ref()
+                    .map_err(Clone::clone)?
+                    .get(&tag.sha)
+                    .cloned()
+                    .ok_or_else(|| {
+                        ApiError::local(
+                            ErrorCause::Malformed,
+                            "annotated tags",
+                            "Matching annotated tag was not captured",
+                        )
+                    })?,
             );
         }
     }

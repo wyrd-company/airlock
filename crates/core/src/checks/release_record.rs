@@ -193,6 +193,8 @@ mod tests {
         inputs.tags.insert(
             "object".into(),
             AnnotatedTag {
+                has_tagger: true,
+                target_kind: "commit".into(),
                 message: message.into(),
                 commit: "b".repeat(40),
             },
@@ -505,6 +507,8 @@ mod tests {
         inputs.tags.insert(
             "object".into(),
             AnnotatedTag {
+                has_tagger: true,
+                target_kind: "commit".into(),
                 message: record("0.2.0"),
                 commit: "b".repeat(40),
             },

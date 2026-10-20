@@ -407,6 +407,8 @@ pub struct CommitSummary {
     pub sha: String,
     /// How many parents the commit has. Two or more means a merge.
     pub parents: usize,
+    /// Parent identities for ancestry-based maturity observation.
+    pub parent_shas: Vec<String>,
 }
 
 /// A tag reference.
@@ -423,6 +425,10 @@ pub struct TagRef {
 /// An annotated tag object, distinct from its ref.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AnnotatedTag {
+    /// Whether Git supplied a tagger identity.
+    pub has_tagger: bool,
+    /// Direct target type, before peeling.
+    pub target_kind: String,
     /// Protocol message.
     pub message: String,
     /// Tagged commit from the object's `object.sha`.

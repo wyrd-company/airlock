@@ -25,6 +25,7 @@ pub mod findings;
 pub mod fix;
 pub mod github;
 pub mod limits;
+pub mod maturity;
 pub mod plan;
 pub mod policy;
 pub mod render;

@@ -64,6 +64,22 @@ design-challenges:
     a release record. An absence must be established from a listing Airlock saw
     in full, never inferred from a truncated or unread one.
 proposed-design:
+  observed-maturity: >-
+    One pure observer consumes captured Git tag objects and the audited commit's
+    ancestry from either audit source. The observer reads Intentional tag records
+    through the vendored protocol reader. Ordinary SemVer names, the clock,
+    mutable working-tree files and the Airlock binary version do not establish
+    maturity. A first baseline tag at any version establishes Building without
+    requiring Change Intents or additional commits. A subsequent non-baseline
+    release-unit tag in the baseline's descendant history establishes Released,
+    or Stable at a version at or above 1.0.0. Workspace tags alone do not establish
+    either release rung. Incomplete evidence leaves maturity unobserved; checks
+    requiring the rung report a run error and independent checks continue.
+    Each rule declares its earliest rung. A rule below that rung is out-of-scope,
+    without a Met or Gap outcome. Prospective assessments at higher rungs use the
+    same captured inputs, report added rules and observed passes, and do not
+    affect the current audit's exit code. REPO-GIT-15 reports Seeded and explains
+    how to establish the baseline with intentional tag --baseline.
   high-level-overview: >-
     Two compiled rules read JSON documents validated against vendored
     schemas. `REPO-TPL-01` requires each expected parent at an accepted revision

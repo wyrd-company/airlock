@@ -76,6 +76,7 @@ macro_rules! fix_groups {
 }
 
 fix_groups! {
+    ESTABLISH_BASELINE => "establish_baseline",
     APPLY_ACCEPTED_TEMPLATE => "apply_accepted_template",
     ADD_CD_CONCURRENCY => "add_cd_concurrency",
     ADD_CHANGELOG => "add_changelog",

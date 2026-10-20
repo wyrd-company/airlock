@@ -20,8 +20,21 @@ pub(crate) fn run(id: &str, rule: &EffectiveRule, context: &AuditContext) -> Opt
         "REPO-GIT-09" => multi_unit_tag_shape(context),
         "REPO-GIT-10" => no_merge_commits(rule, context),
         "REPO-GIT-13" => app_identity_conventions(context),
+        "REPO-GIT-15" => baseline(context),
         _ => return None,
     })
+}
+
+fn baseline(context: &AuditContext) -> Verdict {
+    match &context.maturity {
+        Err(error) => error.verdict(),
+        Ok(observed) if observed.rung == crate::rules::Lifecycle::Seeded => Verdict::fail(
+            "repository_seeded",
+            "The repository is seeded. Establish an Intentional baseline tag with intentional tag --baseline to enter Building.",
+            Fix::new(FixGroup::ESTABLISH_BASELINE, "Use intentional tag --baseline, then publish the baseline tag."),
+        ),
+        Ok(observed) => Verdict::pass("baseline_observed", format!("Observed {} from baseline tag(s): {}", observed.rung.code(), observed.baseline_tags.join(", "))),
+    }
 }
 
 fn default_branch(context: &AuditContext) -> Verdict {
@@ -807,10 +820,12 @@ mod tests {
             CommitSummary {
                 sha: "a".to_owned(),
                 parents: 1,
+                parent_shas: Vec::new(),
             },
             CommitSummary {
                 sha: "b".to_owned(),
                 parents: 2,
+                parent_shas: Vec::new(),
             },
         ]));
         assert_eq!(
@@ -827,6 +842,7 @@ mod tests {
             items: vec![CommitSummary {
                 sha: "a".to_owned(),
                 parents: 1,
+                parent_shas: Vec::new(),
             }],
             truncated: true,
         });
@@ -861,6 +877,7 @@ mod tests {
         context.history = Ok(Paged::complete(vec![CommitSummary {
             sha: "a".to_owned(),
             parents: 1,
+            parent_shas: Vec::new(),
         }]));
         assert_eq!(
             evaluate(&rule("REPO-GIT-10"), &context).status,

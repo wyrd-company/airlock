@@ -58,6 +58,22 @@ pub fn report_text(report: &Report) -> String {
         report.summary.out_of_scope,
         report.summary.run_errors
     );
+    if let Some(maturity) = &report.maturity {
+        if let Some(observed) = &maturity.observed {
+            let _ = writeln!(out, "maturity: {}", observed.rung.code());
+            for transition in &maturity.transitions {
+                let _ = writeln!(
+                    out,
+                    "  {} adds {} rules; {} already pass",
+                    transition.rung.code(),
+                    transition.adds,
+                    transition.already_met
+                );
+            }
+        } else if let Some(error) = &maturity.error {
+            let _ = writeln!(out, "maturity: unobserved — {error}");
+        }
+    }
     out.push('\n');
 
     for finding in report.entries() {
@@ -578,6 +594,7 @@ fn check_json(check: &RuleDefinition) -> serde_json::Value {
         "statement": check.statement,
         "severity": check.severity.code(),
         "section": check.section.code(),
+        "lifecycle": check.lifecycle.code(),
         "fix_class": FixClass::for_rule(check.id),
         "evaluation": if check.unbuilt_reason().is_some() { "unbuilt gate" } else { "compiled" },
         "unbuilt_reason": check.unbuilt_reason(),

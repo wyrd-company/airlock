@@ -100,6 +100,27 @@ impl Fixture {
                 .mount(&self.server)
                 .await;
         }
+        let baseline = format!("intentional release record\n\ncontract: contract-1\ngenerator: intentional 0.2.0\nplan-digest: sha256:{}\ntag-id: release-unit/sample/primary\nversion: 0.0.0\nbaseline: true\n", "a".repeat(64));
+        for (route, body) in [
+            (
+                "/repos/owner/name/git/matching-refs/tags/",
+                json!([{"ref":"refs/tags/0.0.0","object":{"type":"tag","sha":"baseline-object"}}]),
+            ),
+            (
+                "/repos/owner/name/git/tags/baseline-object",
+                json!({"message":baseline,"tagger":{"name":"fixture","email":"fixture@example.invalid"},"object":{"type":"commit","sha":"captured-commit"}}),
+            ),
+            (
+                "/repos/owner/name/commits",
+                json!([{"sha":"captured-commit","parents":[]}]),
+            ),
+        ] {
+            Mock::given(method("GET"))
+                .and(path(route))
+                .respond_with(ResponseTemplate::new(200).set_body_json(body))
+                .mount(&self.server)
+                .await;
+        }
         for (reference, sha, status) in [
             ("accepted/branch", "b".repeat(40), self.ref_status),
             ("start", "c".repeat(40), self.minimum_status),

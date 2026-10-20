@@ -60,6 +60,7 @@ This reference is generated from the compiled Airlock rules.
 | `REPO-GIT-03` | `gh api repos/{o}/{r}/rules/branches/main` |
 | `REPO-GIT-13` | Workflow source |
 | `REPO-GIT-14` | Workflow source |
+| `REPO-GIT-15` | Captured Intentional tag records and Git ancestry |
 | `REPO-GIT-04` | `gh repo view --json mergeCommitAllowed` |
 | `REPO-GIT-05` | `gh repo view --json squashMergeAllowed` |
 | `REPO-GIT-06` | `gh repo view --json deleteBranchOnMerge` |

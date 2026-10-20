@@ -26,6 +26,7 @@ struct Rule {
     unbuilt: bool,
     method: String,
     guidance: String,
+    maturity: String,
 }
 
 fn section_for_heading(heading: &str) -> Option<Section> {
@@ -60,7 +61,7 @@ fn parse_checklist() -> BTreeMap<String, Rule> {
         }
 
         let cells = split_table_row(line);
-        if cells.len() < 5 {
+        if cells.len() < 6 {
             continue;
         }
         let Some(id) = cells[0]
@@ -87,6 +88,7 @@ fn parse_checklist() -> BTreeMap<String, Rule> {
                 unbuilt,
                 method: cells[3].to_owned(),
                 guidance: cells[4].to_owned(),
+                maturity: cells[5].to_owned(),
             },
         );
     }
@@ -154,6 +156,12 @@ fn every_registered_rule_matches_the_checklist() {
         assert_eq!(
             check.section, rule.section,
             "{} section drifted from the checklist",
+            check.id
+        );
+        assert_eq!(
+            check.lifecycle.code(),
+            rule.maturity,
+            "{} maturity drifted",
             check.id
         );
         assert_eq!(

@@ -561,6 +561,9 @@ pub struct WorkingTreeObservation {
 /// The whole audit result.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Report {
+    /// Observed maturity and prospective rule assessments at higher rungs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub maturity: Option<crate::maturity::MaturityReport>,
     /// The version of this document shape.
     pub schema_version: u32,
     /// The binary that produced it.
@@ -671,6 +674,7 @@ impl Report {
 
         Self {
             schema_version: SCHEMA_VERSION,
+            maturity: None,
             airlock,
             repository,
             observation,

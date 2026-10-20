@@ -85,6 +85,11 @@ fn git(root: &Path, args: &[&str]) {
 }
 
 /// Materialise the fixtures as a committed git repository.
+fn baseline_repository(root: &Path) {
+    let message = format!("intentional release record\n\ncontract: contract-1\ngenerator: intentional 0.2.0\nplan-digest: sha256:{}\ntag-id: release-unit/sample/primary\nversion: 0.0.0\nbaseline: true\n", "a".repeat(64));
+    git(root, &["tag", "-a", "sample@0.0.0", "-m", &message]);
+}
+
 fn committed_repository() -> tempfile::TempDir {
     let dir = tempfile::tempdir().expect("a temp dir");
     let root = dir.path();
@@ -388,7 +393,11 @@ async fn an_unobserved_platform_rule_is_routed_and_never_met() {
             gated += 1;
             assert_eq!(
                 finding.routing.as_ref().map(|r| r.reason.as_str()),
-                Some("needs-github-api"),
+                Some(if def.lifecycle == rules::Lifecycle::Seeded {
+                    "needs-github-api"
+                } else {
+                    "out-of-scope"
+                }),
                 "{}",
                 finding.rule
             );
@@ -651,6 +660,11 @@ fn the_api_gate_routes_a_whole_file_tree_rule() {
         assert!(report.findings.is_empty());
         assert!(report.unbuilt.is_empty());
         assert!(report.run_errors.is_empty());
+        if id == "REPO-REL-08" {
+            assert_eq!(report.out_of_scope.len(), 1);
+            assert!(report.routed.is_empty());
+            continue;
+        }
         assert_eq!(report.routed.len(), 1);
         let route = report.routed[0].routing.as_ref().unwrap();
         assert_eq!(route.reason, "needs-github-api");
@@ -770,35 +784,40 @@ async fn no_release_units_are_listed_out_of_scope_without_run_errors() {
             "REPO-LIC-04",
             "REPO-REL-02",
             "REPO-REL-03",
+            "REPO-REL-08",
             "REPO-TASK-04"
         ]
     );
     assert_eq!(report.exit_code(), 1);
     assert!(report.complete && report.run_errors.is_empty());
-    assert_eq!(report.summary.out_of_scope, 5);
+    assert_eq!(report.summary.out_of_scope, 6);
     for entry in &report.out_of_scope {
         assert!(entry.status.is_none() && entry.error.is_none());
         assert_eq!(entry.status_code(), "out-of-scope");
         assert_eq!(entry.routing.as_ref().unwrap().reason, "out-of-scope");
         assert_eq!(
             entry.evidence.as_ref().unwrap().code,
-            "no_release_units_declared"
+            if entry.rule == "REPO-REL-08" {
+                "maturity_out_of_scope"
+            } else {
+                "no_release_units_declared"
+            }
         );
     }
     let list = airlock_core::worklist::AgentWorkList::from_report(&report);
-    assert_eq!(list.out_of_scope.count, 5);
+    assert_eq!(list.out_of_scope.count, 6);
     assert!(list.out_of_scope.items.iter().all(|entry| !entry.gating));
     let json = serde_json::to_value(&list).unwrap();
-    assert_eq!(json["out_of_scope"]["count"], 5);
+    assert_eq!(json["out_of_scope"]["count"], 6);
     let text = airlock_core::render::agent_work_list_text(&list);
     assert!(
-        text.contains("out-of-scope (exit code unchanged) (5)"),
+        text.contains("out-of-scope (exit code unchanged) (6)"),
         "{text}"
     );
     let text = airlock_core::render::report_text(&report);
-    assert!(text.contains("out-of-scope: 5"), "{text}");
+    assert!(text.contains("out-of-scope: 6"), "{text}");
     let text = airlock_core::render::plan_text(&report);
-    assert!(text.contains("out-of-scope (5)"), "{text}");
+    assert!(text.contains("out-of-scope (6)"), "{text}");
     assert!(!text.contains("Every rule was evaluated"));
 }
 
@@ -1058,6 +1077,7 @@ fn release_record_model_gap_fix_is_agent_reasoning_while_missing_record_is_opera
 #[test]
 fn template_identity_routes_locally_and_lists_empty_configuration_as_waived() {
     let repo = committed_repository();
+    baseline_repository(repo.path());
     let mut policy = policy_with_one("REPO-TPL-01", airlock_core::rules::Severity::Blocking);
     let empty = audit::run_local(&policy, &options(), repo.path()).unwrap();
     assert_eq!(empty.exit_code(), 0);
@@ -1088,6 +1108,7 @@ fn template_identity_routes_locally_and_lists_empty_configuration_as_waived() {
 #[tokio::test]
 async fn template_identity_credentialed_working_tree_reads_the_configured_local_record() {
     let repo = committed_repository();
+    baseline_repository(repo.path());
     std::fs::create_dir(repo.path().join("state")).unwrap();
     std::fs::write(repo.path().join("state/applied.json"), "invalid JSON").unwrap();
     let mut policy = policy_with_one("REPO-TPL-01", airlock_core::rules::Severity::Blocking);
@@ -1152,6 +1173,7 @@ async fn template_identity_credentialed_working_tree_reads_the_configured_local_
 #[test]
 fn template_identity_repository_request_cannot_override_the_compiled_rule() {
     let repo = committed_repository();
+    baseline_repository(repo.path());
     std::fs::write(
         repo.path().join(".github/airlock.yml"),
         "version: 0.6.0\nexceptions:\n  REPO-TPL-01:\n    reason: Fixture request\n    severity: none\n",

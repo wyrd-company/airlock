@@ -625,6 +625,10 @@ fn decode_commit(endpoint: &str, item: &Value) -> ApiResult<CommitSummary> {
     Ok(CommitSummary {
         sha,
         parents: parents.len(),
+        parent_shas: parents
+            .iter()
+            .map(|parent| require_string(endpoint, parent, "sha"))
+            .collect::<ApiResult<Vec<_>>>()?,
     })
 }
 
@@ -1041,6 +1045,12 @@ impl GitHub for RestClient {
             .get("object")
             .ok_or_else(|| malformed(&endpoint, "tag has no target object"))?;
         Ok(super::AnnotatedTag {
+            has_tagger: value.get("tagger").is_some_and(Value::is_object),
+            target_kind: object
+                .get("type")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned(),
             message: require_string(&endpoint, &value, "message")?,
             commit: require_string(&endpoint, object, "sha")?,
         })

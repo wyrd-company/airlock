@@ -36,6 +36,9 @@ Before acting, establish that this skill applies. If the repository is a fork,
 follow upstream conventions. If it will remain private or is being archived,
 use the procedure for that case instead.
 
+Read [observed maturity](references/maturity.md) when interpreting which rungs
+a rule governs or what crossing a rung adds.
+
 ## Choose a mode
 
 - **Scaffold:** create or prepare a repository, consulting the generated

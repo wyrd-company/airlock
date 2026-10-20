@@ -17,6 +17,7 @@ const EMISSION_MARKER: &str = "airlock:repository-standards\n";
 
 const FILES: &[(&str, &str)] = &[
     ("SKILL.md", include_str!("../skills/repository-standards/SKILL.md")),
+    ("references/maturity.md", include_str!("../skills/repository-standards/references/maturity.md")),
     ("references/topics.md", include_str!("../skills/repository-standards/references/topics.md")),
     ("references/platform/README.md", include_str!("../skills/repository-standards/references/platform/README.md")),
     ("references/platform/custom-properties.md", include_str!("../skills/repository-standards/references/platform/custom-properties.md")),
@@ -208,14 +209,14 @@ pub fn conformance() -> io::Result<String> {
     for section in Section::ALL {
         let _ = write!(
             output,
-            "\n## {}\n\n| Id | Assertion | Severity | Compiled check | Guidance |\n\
-             | --- | --- | --- | --- | --- |\n",
+            "\n## {}\n\n| Id | Assertion | Severity | Compiled check | Guidance | From maturity |\n\
+             | --- | --- | --- | --- | --- | --- |\n",
             section_title(*section)
         );
         for check in rules::in_section(*section) {
             let _ = writeln!(
                 output,
-                "| `{}` | {} | {} | {} | {} |",
+                "| `{}` | {} | {} | {} | {} | {} |",
                 check.id,
                 escape_table(check.statement),
                 severity_title(check.severity.code()),
@@ -224,7 +225,8 @@ pub fn conformance() -> io::Result<String> {
                 } else {
                     "Compiled check"
                 },
-                escape_table(check.guidance)
+                escape_table(check.guidance),
+                check.lifecycle.code()
             );
         }
     }

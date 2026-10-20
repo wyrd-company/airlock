@@ -398,7 +398,10 @@ impl Workflow {
 }
 
 /// Everything one audit run gathered, ready for the checks to read.
+#[derive(Clone)]
 pub struct AuditContext<'a> {
+    /// Observed from committed Git evidence; never from mutable local files.
+    pub maturity: Result<crate::maturity::Observed, crate::maturity::ObservationError>,
     /// Captured template revisions and ancestry comparisons.
     pub template_revisions: Result<Vec<crate::template_identity::TemplateRevision>, ApiError>,
     /// The repository at the audited commit.
@@ -554,6 +557,9 @@ fn snapshot_yaml<'a>(snapshot: &'a RepoSnapshot, path: &str, limits: Limits) -> 
 /// an undeclared boundary is a run error.
 #[must_use]
 pub fn evaluate(rule: &EffectiveRule, context: &AuditContext) -> Verdict {
+    if let Err(verdict) = applicability(rule, context) {
+        return *verdict;
+    }
     let mut verdict = run(rule, context);
     if let Some(route) = &verdict.routing {
         let declared = match route.reason.as_str() {
@@ -573,6 +579,44 @@ pub fn evaluate(rule: &EffectiveRule, context: &AuditContext) -> Verdict {
         }
     }
     verdict
+}
+
+/// Shared scope boundary for evaluation and API routing. Classification/config
+/// selection remains outside this function.
+pub fn applicability(rule: &EffectiveRule, context: &AuditContext) -> Result<(), Box<Verdict>> {
+    // File-only rules can reach this boundary only in a comparison branch.
+    if rule.def.needs_release_units() && rule.def.needs_github_api() {
+        context.release_units()?;
+    }
+    if rule.def.lifecycle != crate::rules::Lifecycle::Seeded {
+        let maturity = context
+            .maturity
+            .as_ref()
+            .map_err(|error| Box::new(error.verdict()))?;
+        if !rule.def.lifecycle.governs(maturity.rung) {
+            return Err(Box::new(Verdict {
+                status: None,
+                evidence: Some(Evidence::new(
+                    "maturity_out_of_scope",
+                    format!(
+                        "Observed {}; this rule applies from {}",
+                        maturity.rung.code(),
+                        rule.def.lifecycle.code(),
+                    ),
+                )),
+                fix: None,
+                error: None,
+                routing: Some(crate::findings::Routing {
+                    reason: "out-of-scope".to_owned(),
+                    settling_surface: format!(
+                        "An audit at the {} rung or above",
+                        rule.def.lifecycle.code()
+                    ),
+                }),
+            }));
+        }
+    }
+    Ok(())
 }
 
 fn run(rule: &EffectiveRule, context: &AuditContext) -> Verdict {
@@ -989,6 +1033,11 @@ pub(crate) mod fixtures {
         workflows: Vec<Workflow>,
     ) -> AuditContext<'a> {
         AuditContext {
+            maturity: Ok(crate::maturity::Observed {
+                rung: crate::rules::Lifecycle::Released,
+                baseline_tags: vec!["baseline".into()],
+                release_tags: vec!["release".into()],
+            }),
             template_revisions: Ok(Vec::new()),
             snapshot,
             policy,
@@ -1011,6 +1060,83 @@ pub(crate) mod fixtures {
 mod tests {
     use super::fixtures::*;
     use super::*;
+
+    #[test]
+    fn seeded_rules_report_later_rungs_as_out_of_scope_without_outcomes() {
+        let fixture = CheckFixture::new(&[(
+            ".intentional/config.yml",
+            "release-units: {sample: {path: .}}",
+        )]);
+        let mut context = fixture.context();
+        context.maturity.as_mut().unwrap().rung = crate::rules::Lifecycle::Seeded;
+        for id in ["REPO-TPL-01", "REPO-REL-08"] {
+            let verdict = evaluate(&rule(id), &context);
+            assert!(verdict.status.is_none(), "{id}");
+            assert!(verdict.error.is_none(), "{id}");
+            assert_eq!(verdict.routing.unwrap().reason, "out-of-scope", "{id}");
+        }
+        let seeded = evaluate(&rule("REPO-GIT-15"), &context);
+        assert_eq!(seeded.status, Some(Status::Gap));
+        assert!(seeded
+            .fix
+            .unwrap()
+            .detail
+            .contains("intentional tag --baseline"));
+    }
+
+    #[test]
+    fn building_applies_template_identity_but_not_release_records() {
+        let fixture = CheckFixture::new(&[(
+            ".intentional/config.yml",
+            "release-units: {sample: {path: .}}",
+        )]);
+        let mut context = fixture.context();
+        context.maturity.as_mut().unwrap().rung = crate::rules::Lifecycle::Building;
+        assert!(applicability(&rule("REPO-TPL-01"), &context).is_ok());
+        assert_eq!(
+            applicability(&rule("REPO-REL-08"), &context)
+                .unwrap_err()
+                .routing
+                .unwrap()
+                .reason,
+            "out-of-scope"
+        );
+        assert_eq!(
+            evaluate(&rule("REPO-GIT-15"), &context).status,
+            Some(Status::Met)
+        );
+    }
+
+    #[test]
+    fn unobserved_maturity_does_not_guess_or_block_independent_seeded_checks() {
+        let fixture = CheckFixture::new(&[(
+            ".intentional/config.yml",
+            "release-units: {sample: {path: .}}",
+        )]);
+        let mut context = fixture.context();
+        context.maturity = Err("history was truncated".into());
+        assert_eq!(
+            evaluate(&rule("REPO-REL-08"), &context)
+                .error
+                .unwrap()
+                .cause,
+            "maturity_unobserved"
+        );
+        assert_eq!(
+            evaluate(&rule("REPO-GIT-01"), &context).status,
+            Some(Status::Met)
+        );
+    }
+
+    #[test]
+    fn release_unit_scope_is_one_case_of_the_shared_applicability_boundary() {
+        let fixture = CheckFixture::new(&[]);
+        let mut context = fixture.context();
+        context.maturity = Err("not observed".into());
+        let verdict = applicability(&rule("REPO-TPL-01"), &context).unwrap_err();
+        assert_eq!(verdict.routing.unwrap().reason, "out-of-scope");
+        assert!(verdict.error.is_none());
+    }
 
     #[test]
     fn a_withheld_field_is_structural_only_where_the_rules_declares_a_gate() {

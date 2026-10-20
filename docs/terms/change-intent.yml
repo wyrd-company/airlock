@@ -2,5 +2,5 @@ $schema: https://refinery.systems/ontology/term
 title: Change Intent
 description: >-
   A term owned by Intentional. Its definition is supplied by Intentional docs/usage.md, Declare an
-  intent. Airlock uses committed Change Intents as evidence in its building maturity rung. This
+  intent. Airlock reads Intentional tag records to observe maturity. This
   entry is a reference to that contract, not an Airlock definition.

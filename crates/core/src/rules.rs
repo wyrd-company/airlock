@@ -387,17 +387,37 @@ pub const MERGE_SETTINGS_DISCLOSURE: DisclosureGate = DisclosureGate {
 /// Every declared disclosure gate.
 pub const DISCLOSURE_GATES: &[&DisclosureGate] = &[&MERGE_SETTINGS_DISCLOSURE];
 
-/// A rule's earliest lifecycle rung. This metadata does not select checks.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+/// A rule's earliest applicable maturity rung, independent of visibility.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum Lifecycle {
-    /// Before the end-of-seeding tag.
+    /// Before the first Intentional baseline tag.
     Seeded,
-    /// Development has started.
+    /// An Intentional baseline exists.
     Building,
     /// At least one release exists.
     Released,
-    /// A stable release exists.
+    /// A non-baseline release at or above 1.0.0 exists.
     Stable,
+}
+
+impl Lifecycle {
+    pub const ALL: &'static [Self] = &[Self::Seeded, Self::Building, Self::Released, Self::Stable];
+
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::Seeded => "seeded",
+            Self::Building => "building",
+            Self::Released => "released",
+            Self::Stable => "stable",
+        }
+    }
+
+    #[must_use]
+    pub fn governs(self, observed: Self) -> bool {
+        observed >= self
+    }
 }
 
 /// One configurable parameter and its compiled default.
@@ -514,6 +534,7 @@ pub const RULES: &[RuleDefinition] = &[
     git::repo_git_03::RULE,
     git::repo_git_13::RULE,
     git::repo_git_14::RULE,
+    git::repo_git_15::RULE,
     git::repo_git_04::RULE,
     git::repo_git_05::RULE,
     git::repo_git_06::RULE,
@@ -662,7 +683,8 @@ impl RuleDefinition {
 /// The rules content digest.
 ///
 /// SHA-256 over the sorted compiled requirement identities: id, statement,
-/// severity, unbuilt reason, release-unit scope, and required topic categories.
+/// severity, earliest maturity rung, unbuilt reason, release-unit scope, and
+/// required topic categories.
 /// Observation sources and credential boundaries are not part of this digest.
 /// It travels in every audit result.
 #[must_use]
@@ -685,10 +707,11 @@ fn requirement_identity(check: &RuleDefinition) -> String {
             format!("topics:{}", categories.join(","))
         });
     format!(
-        "{}\u{1f}{}\u{1f}{}\u{1f}{}\u{1f}{}\u{1f}{}",
+        "{}\u{1f}{}\u{1f}{}\u{1f}{}\u{1f}{}\u{1f}{}\u{1f}{}",
         check.id,
         check.statement,
         check.severity.code(),
+        check.lifecycle.code(),
         check.unbuilt_reason().unwrap_or_default(),
         check.release_units_gate,
         topics
@@ -713,6 +736,22 @@ mod tests {
         assert_ne!(catalogue_only, before);
         rule.required_topic_categories = None;
         assert_ne!(requirement_identity(&rule), catalogue_only);
+    }
+
+    #[test]
+    fn requirement_identity_includes_maturity_and_ordered_rungs() {
+        let mut rule = *find("REPO-TPL-01").unwrap();
+        let before = requirement_identity(&rule);
+        rule.lifecycle = Lifecycle::Released;
+        assert_ne!(requirement_identity(&rule), before);
+        for (required_index, required) in Lifecycle::ALL.iter().enumerate() {
+            for (observed_index, observed) in Lifecycle::ALL.iter().enumerate() {
+                assert_eq!(
+                    required.governs(*observed),
+                    observed_index >= required_index
+                );
+            }
+        }
     }
 
     #[test]
@@ -868,7 +907,7 @@ mod tests {
 
     #[test]
     fn all_rules_keep_their_identity_and_lifecycle() {
-        assert_eq!(RULES.len(), 111);
+        assert_eq!(RULES.len(), 112);
         assert!(RULES.iter().all(|rule| rule.lifecycle
             == match rule.id {
                 "REPO-REL-08" => Lifecycle::Released,
