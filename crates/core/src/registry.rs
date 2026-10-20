@@ -635,10 +635,10 @@ impl CheckDefinition {
 
 /// The registry content digest.
 ///
-/// SHA-256 over the sorted `(id, statement, severity, evaluation,
-/// evaluation reason, applicability)` tuples, so
-/// two binaries that agree on the digest agree on what every rule means. It
-/// travels in every audit result.
+/// SHA-256 over the sorted `(id, statement, severity, unbuilt reason)` tuples.
+/// Two binaries that agree on the digest agree on those compiled requirements.
+/// Observation sources and credential boundaries are not part of this digest.
+/// It travels in every audit result.
 #[must_use]
 pub fn digest() -> String {
     let mut tuples: Vec<String> = CHECKS
