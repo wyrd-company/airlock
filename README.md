@@ -91,7 +91,7 @@ and `ctrl-c` exits. `NO_COLOR` is honoured, and every distinction the interface
 draws survives it. The terminal is restored on every exit path, including a
 panic and a signal.
 
-See [`docs/terminal-interface.md`](docs/terminal-interface.md) for what each
+See [terminal interface design](docs/technical-designs/terminal-interface.yml) for what each
 screen shows and why.
 
 ## GitHub Action

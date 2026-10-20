@@ -1,0 +1,523 @@
+$schema: https://refinery.systems/ontology/technical-design
+relationships:
+  related-to:
+    - release-process-conformance
+terms:
+  - rule
+  - check
+  - gap
+  - fix
+  - outcome
+  - severity
+  - waiver
+  - routed
+  - unbuilt
+  - out-of-scope
+  - work-queue
+  - interview
+  - interactive-session
+  - lane
+  - observation-source
+objective: >-
+  Give an operator a terminal work queue of repository gaps, evidence and fixes,
+  with five screens and a declaration interview generated from the rules.
+proposed-design:
+  high-level-overview: |-
+    ## Destinations
+
+    | Screen | Purpose | Opens |
+    | --- | --- | --- |
+    | Sign in | Authorize this interactive session | Repositories |
+    | Repositories | Select a repository within an installation group | Gaps |
+    | Gaps | Work through gaps and inspect the full report | Gap detail, Fix |
+    | Gap detail | Read one rule and its evidence in full | Fix |
+    | Fix | Confirm an operator action and observe its result | Gaps, Gap detail |
+
+    The interview is a flow launched from Repositories or from a repository
+    whose configuration file is absent. Help, confirmations and reauthorization
+    are modal overlays, with focus returned to the invoking screen on dismissal.
+    The effective-config view is a filter within Gaps.
+
+    The audit observes and never applies fixes. The interactive session applies
+    operator fixes through the GitHub API. Airlock and agent file work is
+    delivered for review through pull requests. The interactive session may
+    author the branch-creating first commit of a repository it creates; it
+    never modifies an existing repository's files. The binary uses no subprocess.
+    A non-interactive terminal exits without rendering and names `airlock audit`
+    as the unattended entry point.
+
+  presentation-and-help: |-
+    ## Frame
+
+    - Reference layout: 120 columns by 40 rows. Usable floor: 80 by 24.
+    - Header: screen title, selected installation/repository, session grant
+      source and remaining validity when GitHub supplies it. An unspecified
+      expiry is labelled as unspecified.
+    - Footer: currently available keys, focus, and current-state counts.
+    - Body: observed facts, current action state, inline errors and empty states.
+    - Dark, light and `NO_COLOR` presentations carry the same information.
+      Text labels and distinct glyphs carry meaning without color.
+    - Long readings wrap and scroll with counts above and below the viewport.
+      Width-dependent renderings that cannot fit are withheld with a notice;
+      identifiers remain available in full in detail. No reading loses facts
+      to a height limit.
+
+    ## Help rule
+
+    Anything true regardless of what is on screen belongs behind `h`.
+    Anything true only of the current state stays on screen. Each screen's
+    help content below is the popup's complete subject matter. The popup also
+    includes the shared help text and that screen's keymap.
+
+    Shared help text:
+
+    - "Airlock compares a repository with rules. A compiled check decides Met
+      or Gap. A fix closes a gap. An agent assessment is advisory evidence."
+    - "Airlock file work is mechanical; agent file work needs reasoning;
+      operator work needs a person in this interactive session."
+    - "The audit never writes. File changes arrive as pull requests for review.
+      The interactive session applies settings and may author the first commit
+      of a repository it creates. It never edits existing repository files."
+    - "Press t to change theme. Press ctrl-c to exit. While a text input has
+      focus, printable keys enter text. Escape leaves the input or modal."
+    - "Long readings scroll. Color is optional; labels and glyphs carry meaning."
+
+    ## Modal keys
+
+    | Context | Keys | Behavior |
+    | --- | --- | --- |
+    | Screen | h | Open that screen's help |
+    | Help | Up/Down, PageUp/PageDown | Scroll help |
+    | Help | h, Escape | Close and restore focus and scroll position |
+    | Text input | Printable keys, paste | Enter text, including h and t |
+    | Text input | Escape | Cancel the input before screen shortcuts resume |
+    | Any state | ctrl-c | Exit and restore the terminal |
+    | Non-input state | t | Switch theme |
+
+    The underlying screen receives no action keys while a modal is open.
+    Empty-state explanations are content, including what would populate a
+    region, why it is empty and what can be done next; they remain inline.
+    A filtered empty queue names the active filters and offers to clear them.
+    Help does not hide current-state errors, withheld-content notices or facts
+    needed to confirm an action.
+
+  outcomes-and-report: |-
+    ## Report projection
+
+    The core report owns results. The interface projects its evaluated findings,
+    waived, routed, unbuilt, out-of-scope and run-error lists without deciding
+    outcomes itself. The UI labels the evaluated findings as outcomes.
+
+    | Reading | Meaning | Display |
+    | --- | --- | --- |
+    | Met | Compiled check established the rule | Check glyph and Met |
+    | Gap | Compiled check established the rule is unmet | Cross glyph and Gap |
+    | waived | Effective severity none; no check ran | Waived, id and reason |
+    | routed | Declared gate names another settling surface | Routed, reason and destination |
+    | unbuilt | Reached a declared unbuilt check branch | Unbuilt and branch reason |
+    | out-of-scope | Reached a declared release-unit boundary | Out-of-scope and reason |
+    | Run error | Run could not establish required evidence | Error banner and diagnostic |
+
+    Only Met and Gap are evaluated outcomes. Waived comes from effective severity
+    `none`, never from the check. The waiver names the exception reason or says
+    "not configured" when required configuration is absent. Routed, unbuilt
+    and out-of-scope do not assert Met or Gap and do not change the exit code.
+    A credentialed endpoint failure or missing input without a declared gate
+    is a run error. Advisory agent evidence cannot settle a compiled outcome.
+
+    ## Severity and summary
+
+    | Severity | Reading |
+    | --- | --- |
+    | none | Waived; not evaluated |
+    | advisory | Evaluated; gap reported |
+    | blocking | Evaluated; accepted blocking gaps affect the Action exit |
+
+    Severity is printed as a name and a distinct bar. A row within the accepted
+    version that is a blocking Gap has a solid left rail. No other row has that
+    rail. Newly introduced rules beyond the accepted version remain visible and
+    are labelled new, with their exclusion from the exit decision stated.
+
+    The summary displays `complete` and `conformant` separately from the rule
+    counts. A run error makes the run incomplete and exits 2. Accepted blocking
+    gaps exit 1 when the run completes; otherwise the exit is 0. A clear evaluated
+    queue does not imply that waived or declared-gate rules were evaluated.
+    Counts cover the whole report and remain visible under every filter.
+
+  sign-in: |-
+    ## Elements
+
+    - Program identity and version.
+    - Device authorization address and device code as text.
+    - Optional scan code encoding the address only, on its own light field with
+      a four-module quiet zone. The device code remains legible beside or below it.
+    - Current request state, polling interval, attempt number and validity.
+      Grant source and permissions appear after approval; the credential never does.
+
+    ## States and inline content
+
+    | State | Inline facts and actions |
+    | --- | --- |
+    | Requesting | Empty code frame and request progress; no reissue or scan action |
+    | Awaiting approval | Code, address, validity and polling progress |
+    | Expired | Expired-code notice and replacement-code request progress |
+    | Denied | GitHub denial, no grant obtained, and new-code action |
+    | Polling interrupted | Transport cause, valid code, remaining validity and retry progress |
+
+    At expiry the flow makes its final poll and issues a replacement code in
+    place. An approval for an expired code does not authorize the replacement;
+    that fact stays inline when a replacement is issued. Polling follows GitHub's
+    device-flow interval and responses. No local session deadline is introduced.
+    A scan code that does not fit is withheld whole; the notice offers placement
+    below the text code and states the width needed for side-by-side placement.
+
+    ## Keymap
+
+    | Key | Action |
+    | --- | --- |
+    | r | Request a new device code once a code exists |
+    | q | Toggle scan code once a code exists |
+    | h | Sign-in help |
+
+    ## Help popup
+
+    - "Approve this session using the displayed address and device code. The scan
+      code contains the address only; enter the device code in the browser."
+    - "The GitHub App device flow requests the interactive grant. Authorization
+      is requested on each launch and held only in memory until exit."
+    - "Airlock reads no ambient credential, gh credential store or git helper.
+      The credential value is never displayed or written to disk."
+    - "The interactive grant can change settings. It belongs to this session;
+      airlock audit accepts only a credential it can establish is read-only."
+
+  repositories: |-
+    ## Elements
+
+    - Installation headings with owner name, organization/account kind, reachable
+      repository count and observed selection scope.
+    - One repository table across those groups, with the active name filter.
+    - Selected grant source and permissions in the header.
+    - Loading/error state per installation; incomplete discovery is marked.
+
+    | Table column | Content |
+    | --- | --- |
+    | Repository | Full name, grouped by reachable installation |
+    | Visibility | Observed visibility |
+    | Last audit | Time, or never audited |
+    | Prior result | Observed summary, or no prior result |
+    | Default branch | Observed branch, or no branch yet |
+
+    Opening a row observes it afresh before Gaps is actionable. A failed
+    observation shows its error rather than a prior result as current evidence.
+    Selection and the name filter survive navigation back from Gaps.
+
+    ## Empty and missing entries
+
+    - An empty installation list says that the app may be absent, the account
+      may lack membership or role access, or installation selection may exclude
+      repositories the account can see. It gives the corresponding next actions:
+      install the app, ask an owner for access, or change installation selection.
+    - Missing-installation guidance is available inline even with a nonempty
+      list. The list cannot distinguish those causes for an absent owner.
+    - An empty installation group states its observed selection scope and that no
+      reachable repositories were returned. A filter match count of zero offers
+      to clear the filter. A failed listing is not an empty result.
+
+    ## Keymap
+
+    | Key | Action |
+    | --- | --- |
+    | Up/Down, j/k | Select a repository |
+    | / | Focus the name filter; Escape ends text capture |
+    | Enter | Observe selected repository and open Gaps |
+    | n | Start a new-repository interview, with owner selection |
+    | h | Repositories help |
+
+    ## Help popup
+
+    - "Installations group the repositories available to this account. The list
+      is the intersection of app installation and account access."
+    - "Prior audits are orientation only. Opening a repository observes it again."
+    - "Filter by repository name. A filter changes this list, not GitHub access."
+    - "Create a repository through the interview. Its questions come from rules
+      that require declarations; the owner is selected from reachable installations."
+
+  gaps: |-
+    ## Elements
+
+    - Repository, audited revision, observation source and settings-observed time.
+    - Run summary, total rule count and separate Met, Gap, waived, routed,
+      unbuilt, out-of-scope and run-error counts, fixed above the scrolling queue.
+    - Inline run-error banner naming affected rules and diagnostics; partial
+      results remain readable with an explicit incomplete label.
+    - Gap rows grouped by fix lane: operator, Airlock file work, agent file work;
+      gaps with no declared fix remain visible in their own group with a reason.
+    - Active filters and shown/total count. Gap is the default result filter.
+
+    | Row column | Content |
+    | --- | --- |
+    | Result | Label and glyph; solid rail only for accepted blocking Gap |
+    | Rule | Rule id and statement |
+    | Severity | Effective name and bar; new-rule marker when applicable |
+    | Work | Fix lane or declared reason no fix is offered |
+    | Current fact | PR delivery state, routing destination or boundary reason |
+
+    Airlock and agent file rows show pull-request delivery as open, none or
+    unknown. Unknown remains unknown. The API/default-branch result stays open
+    until the change merges and a fresh observation establishes Met. Local
+    working-tree evidence is labelled separately and does not close that result.
+
+    ## Filters and lookup
+
+    | Filter | Reading |
+    | --- | --- |
+    | Result | Toggle Gap, Met, waived, routed, unbuilt, out-of-scope, run errors |
+    | Work | Operator, Airlock, agent, or no declared fix |
+    | Effective config | Every governed rule by id, severity, parameters and source |
+    | Rule lookup | Every report entry ordered by rule id |
+
+    Filters compose without changing global counts or effective configuration.
+    Effective config includes waived and declared-gate entries and shows source
+    references, blob identities, accepted version and compiled registry digest.
+    Rule lookup provides an unfiltered address for every report entry.
+    Both are views of Gaps, and opening an entry uses Gap detail.
+
+    A zero-Gap result states that no evaluated gaps remain and names the Met,
+    waived and declared-gate counts. A filter with no matches names the active
+    filters and how to clear them. A lane with no entries states what work would
+    populate it. These statements remain inline.
+
+    ## Keymap
+
+    | Key | Action |
+    | --- | --- |
+    | Up/Down, j/k | Move through rows and group headings |
+    | Space | Collapse or expand focused group |
+    | Enter | Open Gap detail for any result entry |
+    | f | Open result and work filters |
+    | m, w | Toggle Met or waived alongside the current result selection |
+    | p | Toggle effective-config view |
+    | l | Toggle unfiltered rule lookup |
+    | a | Open Fix for focused actionable operator gap |
+    | A | Open confirmation for same-kind input-free operator fixes |
+    | o | Request fresh observation; show progress until result arrives |
+    | Escape | Return to Repositories |
+    | h | Gaps help |
+
+    An unavailable action names its current reason inline, including file work,
+    no declared fix, missing inputs, or no compatible bulk items.
+
+    ## Help popup
+
+    - "This is the work queue. Gaps are shown by default. Toggle Met and waived
+      to inspect evaluated success and visible debt without changing the audit."
+    - "Met and Gap come from compiled checks. Waived means effective severity
+      none. Routed names a settling surface; unbuilt names a missing compiled
+      branch; out-of-scope names a declared boundary. None is evidence of Met."
+    - "The solid rail marks an accepted blocking gap. Severity affects the
+      Action exit; it does not hide other gaps. Run errors are reported separately."
+    - "Operator fixes are confirmed here. Airlock and agent file work arrives
+      as a pull request. Unknown delivery is not evidence that no pull request exists."
+    - "Filters change the reading only. Effective config shows the rules and
+      sources; rule lookup lists every report entry by id. Counts cover the full run."
+
+  gap-detail: |-
+    ## Elements
+
+    | Region | Content |
+    | --- | --- |
+    | Identity | Rule id, full statement, result, effective severity |
+    | Evidence | Code, path, detail, observation source and revision |
+    | Fix | Declared fix, contextual action, lane and reversibility |
+    | Effective config | Parameters, defaults, exception reason and authorizing source |
+    | Scope | Classification, observed maturity, accepted version and applicability |
+    | Provenance | Airlock identity, registry version/digest, source references/blob ids |
+    | Run effect | Current effect on complete, conformant and exit decision |
+
+    All facts are printed whole and scroll. An absent fact is explicitly absent
+    with a reason. A waived entry shows the exception source/reason or missing
+    required configuration, with no invented check evidence. A routed entry
+    states its declared gate and settling surface. An unbuilt entry names the
+    reached branch; an out-of-scope entry names its boundary.
+
+    Run errors show the producer's cause, status, endpoint, request id,
+    accepted permissions and documentation URL when supplied. Permission and
+    plan-limitation causes remain distinct: the latter does not imply a larger
+    grant would help. No absent evidence is converted to Gap or Met.
+    Agent assessments remain labelled advisory beside the compiled result.
+
+    ## Keymap
+
+    | Key | Action |
+    | --- | --- |
+    | Up/Down, PageUp/PageDown | Scroll the whole reading |
+    | a | Open Fix when an operator fix is offered |
+    | o | Request re-observation; keep request and observed result distinct |
+    | y | Request terminal clipboard copy of the full rule id |
+    | Escape | Return to the same Gaps row and filters |
+    | h | Gap detail help |
+
+    ## Help popup
+
+    - "Read the rule, its evidence and its effective configuration together.
+      A declaration or boundary is not an evaluated result."
+    - "A fix is offered only where the compiled rule declares one. File work
+      is delivered by pull request; operator work opens a confirmation."
+    - "Re-observation reports a result only after the observation returns."
+    - "Copy requests use the terminal clipboard facility. Airlock cannot observe
+      whether the terminal copied the value; the full id remains readable here."
+
+  fix: |-
+    ## Elements and action states
+
+    - Selected rule ids, target owner/repository/object and current observed values.
+    - Proposed values, fix action and reversibility, shown before confirmation.
+    - Input validation and confirmation state; no write precedes confirmation.
+    - Transcript: each step's request state, result and elapsed time.
+    - Re-observation of each affected rule; updated result and remaining queue.
+
+    | State | Inline content and next action |
+    | --- | --- |
+    | Input | Observed choices or text target, validation result, continue/cancel |
+    | Confirm | Full named changes and reversibility, confirm/cancel |
+    | Applying | Named request in progress; no duplicate submission |
+    | Observing | Accepted request and observation progress, without claiming Met |
+    | Complete | Fresh Met or Gap, evidence and remaining work |
+    | Failed | Request or observation diagnostic; retry from fresh observation |
+
+    An accepted write that leaves the rule unmet is Gap. An observation failure
+    is a run error. Partial bulk success retains each action's own result. Exit
+    or cancellation does not claim to reverse a write already accepted by GitHub.
+    A verification dispatch records its run identity and observed state;
+    dispatch acceptance is not verification success. Lifecycle-dependent
+    publishing gaps enter this same queue from their observed maturity and
+    evidence; any external operator step or routed destination is named inline.
+
+    ## Inputs
+
+    - Observed choice: rulesets and transfer destinations come from freshly
+      observed lists. An empty list names what would populate it and the next
+      action. Creating a ruleset shows the full configuration-derived body;
+      this input never authors a ruleset from typed text.
+    - Text target: a rename uses a focused input with the derived candidate when
+      available. Validate against GitHub's name constraints and the rule being
+      fixed before offering confirmation.
+    - Secret value: the shared entry surface accepts text and paste without
+      rendering characters, replacement glyphs or length. Its input-present
+      indicator is fixed and value-independent. Empty submission is refused.
+      Confirmation names only the secret and target. The value is consumed from
+      a zeroizing buffer into the pending write; cancellation and exit discard it.
+      No value enters rows, confirmation data, transcript, logs or errors.
+      Re-observation can establish presence, never that the value works.
+
+    ## Confirmation and bulk
+
+    - Reversible settings confirm once, naming every change.
+    - A transfer also requires the repository name typed in full. Its destination
+      comes from reachable installations. Reversal requires a destination admin;
+      transfer is never bulked.
+    - Bulk includes same-object settings fixes with no input. Default-branch refs
+      and organization rulesets confirm alone. Every rule keeps its own transcript
+      and re-observation. One consent does not combine observations.
+    - Undo is offered only for a declared reversible action, confirms its target
+      and re-observes afterwards. A cancelled confirmation returns without a write.
+
+    ## Keymap
+
+    | Key | Action |
+    | --- | --- |
+    | Enter | Advance input, confirm explicit choice, or select next queued fix |
+    | Escape | Cancel before write or return after current action |
+    | u | Confirm undo when reversible and applicable |
+    | o | Re-observe the affected rules |
+    | h | Fix help outside focused text entry |
+
+    ## Help popup
+
+    - "Confirm the named change before Airlock applies it. A successful request
+      does not establish Met; Airlock observes the rule again."
+    - "A reversible setting confirms once. Transfer requires the full repository
+      name and cannot be included in bulk."
+    - "Bulk confirms compatible input-free settings together. Each rule still has
+      its own transcript and observed result."
+    - "Secret entry never displays the value or its length. Confirmation names the
+      secret only. Presence after writing does not prove the credential works."
+    - "File gaps are closed through pull requests. The first commit of a repository
+      created in this session is the interactive file-write boundary."
+
+  interview-flow: |-
+    ## Entry and generated questions
+
+    | Entry | Questions | Completion |
+    | --- | --- | --- |
+    | New repository from Repositories | All required declarations | Create and observe repository |
+    | Existing repository, config file absent | Undeclared required values only | Return to its work queue |
+
+    The flow is presented over its invoking screen, with question progress,
+    current answers and validation. The rules supply the question text, allowed
+    values, defaults and dependency order for declarations. Classification
+    includes audience, family and category. Maturity is observed, never asked.
+    The existing-repository entry is offered only when its configuration file is
+    absent; a present invalid file reports a configuration error.
+
+    ## Steps and boundaries
+
+    1. Select owner from reachable installations for a new repository; enter name
+       and visibility. Existing-repository identity is fixed to the selected row.
+    2. Answer generated questions. Revisit answers before confirmation; dependent
+       questions and validation update when an answer changes.
+    3. Review the complete declaration set, derived settings and, for a new
+       repository, the initial file set including `.github/airlock.yml`.
+    4. Confirm creation, initial commit and settings as named operations for a new
+       repository. Apply declared operator settings with the Fix confirmation
+       rules. Existing repository file answers are handed to Airlock/agent file
+       work for a pull request; no existing file is written by this session.
+    5. Observe the repository and return to Gaps with the remaining work.
+
+    Creation failure, first-commit failure and settings failure each name the
+    completed operations and remaining work. A repository created before a failure
+    remains selectable; the flow does not silently delete it or claim rollback.
+    Cancellation before confirmation performs no writes. Cancellation after
+    creation preserves the observed partial result for inspection.
+
+    ## Keymap and help popup
+
+    - Enter: accept a valid answer or explicit confirmation.
+    - Escape: cancel the current input or return to the invoking screen.
+    - Back: revisit a prior question using an explicit control outside text input.
+    - h: open flow help outside focused text entry, preserving answers and position.
+
+    Flow help text:
+
+    - "Questions come from rules that require declarations. New repositories
+      answer all required questions; existing ones supply only undeclared values."
+    - "Maturity is observed from repository evidence. It is not a declaration."
+    - "Review answers and named operations before confirmation. A new repository
+      receives its configuration in its first commit. Existing file changes go
+      through pull-request review."
+
+  session-lifecycle-and-copy: |-
+    ## Reauthorization
+
+    - When the grant expires or an observation rejects it, discard the credential
+      and all observations. Reauthorize over the current screen using Sign in.
+    - Preserve position only: installation/repository addresses, selection,
+      filters, collapsed groups and open detail. Display what position is held.
+    - Discard pending secret input, confirmations and action transcripts. Do not
+      resume an in-flight write or bulk queue automatically.
+    - After approval, rediscover reachable installations and re-observe every
+      visible result before enabling actions. Missing access or a missing target
+      gets an inline explanation and a reachable navigation destination.
+    - Escape during reauthorization exits. Every exit path, including signal or
+      panic, restores terminal state and discards the grant.
+
+    ## Copy and untrusted text
+
+    - Copyable values are the rule id in Gap detail and the full registry digest
+      in the effective-config view of Gaps (`y` in that view).
+    - Use the terminal's clipboard request without a subprocess. Print the value
+      in full and report "copy requested", never an unobserved clipboard result.
+    - Credentials and secret values are structurally absent from copy actions.
+      Sanitize server-authored text before terminal rendering; it cannot emit
+      terminal controls. Identifiers, evidence codes and API error causes retain
+      their producer identity rather than acquiring UI-specific meanings.
