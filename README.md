@@ -2,13 +2,21 @@
 
 [![CI](https://github.com/wyrd-company/airlock/actions/workflows/ci.yml/badge.svg)](https://github.com/wyrd-company/airlock/actions/workflows/ci.yml)
 
-Audits a GitHub repository against a declared release-readiness policy and
-reports what would block a release.
+Audits a GitHub repository against compiled rules and reports gaps that would
+block a release.
 
-A policy names the checks that apply and how severely each one counts. Airlock
-resolves that policy, runs the checks against the repository through the GitHub
-API, and prints a findings document. Its GitHub client never writes: every
-credential is verified read-only before first use. The local `align-files`
+A rule states a requirement; a check is the compiled procedure that evaluates
+it. A gap is an evaluated rule the repository does not meet. Configuration
+sets parameters and severity through reasoned exceptions; it never selects
+rules. A waiver is an exception with severity `none`, listed with its reason
+without running the check. A fix closes a gap, and its fix kind identifies
+Airlock, an agent, or an operator as the author. See the [glossary](docs/terms/).
+
+The audit runs checks through the GitHub API and prints a report. Its client
+never writes, and every audit credential is verified read-only before first
+use. The interactive session applies settings fixes and may author the initial
+commit of a repository it is creating; it never modifies an existing
+repository's files. The local `align-files`
 command may author deterministic files in an explicit working tree, but never
 stages, commits, pushes, or opens a pull request.
 
@@ -40,10 +48,10 @@ it aside and emit a fresh tree. With no target, the command writes
 The generated `references/conformance.md` quotes the compiled rules version
 and digest. Its rule statements, severities, sections, and evaluation modes
 come from those rules; the remaining guidance and reference material is
-hand-written in Airlock. This includes the rule-by-rule inspection guidance in
-`references/check-guidance.md`, which is joined into the generated checklist
-without owning its evaluation modes. Command output also reminds operators to
-cite a rule id and its statement together, never the id alone.
+hand-written in Airlock. The rule-by-rule inspection guidance in
+`references/check-guidance.md` is generated from the per-rule modules too.
+Command output also reminds operators to cite a rule id and its statement
+together, never the id alone.
 
 The minimum supported Rust version is 1.88.
 

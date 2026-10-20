@@ -1,3 +1,5 @@
+# relationships:
+#   references: repository-config
 version: 0.6.0
 # Declared repository metadata. Applied to GitHub by an operator through
 # Airlock's terminal interface, never by `airlock align-files`.
@@ -9,8 +11,8 @@ version: 0.6.0
 # unrecoverable act and stays a manual decision.
 
 description: >-
-  Audits a GitHub repository against a declared release-readiness policy and
-  reports what would block a release.
+  Audits a GitHub repository against compiled rules and reports gaps that would
+  block a release.
 
 # Topic vocabulary is configured under each organization rule exception.
 topics:
