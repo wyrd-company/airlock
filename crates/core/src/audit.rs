@@ -36,6 +36,7 @@ const AUDITED_PATHS: &[&str] = &[
     ".gitattributes",
     ".gitignore",
     ".intentional/config.yml",
+    ".intentional/release-model.json",
     "AGENTS.md",
     "CHANGELOG.md",
     "CLAUDE.md",
@@ -158,8 +159,22 @@ pub async fn run<G: GitHub>(
     let workflows = parse_workflows(&snapshot, &workflow_paths.paths, options.limits);
     let branch = snapshot.repository.default_branch.clone();
     let commit = snapshot.commit.clone();
+    let tags = client.tags(owner, repo).await;
+    let release_records = crate::release_records::gather(
+        client,
+        owner,
+        repo,
+        &snapshot,
+        &tags,
+        policy
+            .rules
+            .iter()
+            .any(|rule| rule.def.id == "REPO-REL-08" && rule.severity != Severity::None),
+    )
+    .await;
     let platform = PlatformData {
-        tags: client.tags(owner, repo).await,
+        release_records,
+        tags,
         history: client
             .history(owner, repo, &commit, options.limits.max_history_commits)
             .await,
@@ -215,8 +230,22 @@ async fn run_mixed<G: GitHub>(
     let workflow_paths = load_local_files(&mut snapshot, &facts, options.limits);
     let workflows = parse_workflows(&snapshot, &workflow_paths.paths, options.limits);
 
+    let tags = client.tags(owner, repo).await;
+    let release_records = crate::release_records::gather(
+        client,
+        owner,
+        repo,
+        &snapshot,
+        &tags,
+        policy
+            .rules
+            .iter()
+            .any(|rule| rule.def.id == "REPO-REL-08" && rule.severity != Severity::None),
+    )
+    .await;
     let platform = PlatformData {
-        tags: client.tags(owner, repo).await,
+        release_records,
+        tags,
         history: client
             .history(
                 owner,
@@ -316,6 +345,7 @@ pub fn run_local(
     let workflows = parse_workflows(&snapshot, &workflow_paths.paths, options.limits);
 
     let platform = PlatformData {
+        release_records: Ok(crate::release_records::ReleaseInputs::default()),
         tags: Err(not_observed_error("tags")),
         history: Err(not_observed_error("history")),
         rulesets: Err(not_observed_error("rulesets")),
@@ -423,6 +453,7 @@ fn not_observed_error(subject: &str) -> ApiError {
 /// The platform-owned inputs of one run, however they were (or were not)
 /// gathered.
 struct PlatformData {
+    release_records: std::result::Result<crate::release_records::ReleaseInputs, ApiError>,
     tags: std::result::Result<crate::github::Paged<crate::github::TagRef>, ApiError>,
     history: std::result::Result<crate::github::Paged<crate::github::CommitSummary>, ApiError>,
     rulesets: std::result::Result<crate::github::Paged<crate::github::Ruleset>, ApiError>,
@@ -450,6 +481,7 @@ fn complete_run(
         limits: options.limits,
         workflows,
         workflows_truncated,
+        release_records: platform.release_records,
         tags: platform.tags,
         history: platform.history,
         rulesets: platform.rulesets,
@@ -513,6 +545,8 @@ fn complete_run(
             None
         };
 
+        let remediation_class =
+            RemediationClass::for_observation(rule.def.id, verdict.evidence.as_ref());
         let finding = Finding {
             rule: rule.def.id.to_owned(),
             statement: rule.def.statement.to_owned(),
@@ -524,7 +558,7 @@ fn complete_run(
             status: verdict.status,
             evidence: verdict.evidence,
             remediation: verdict.remediation,
-            remediation_class: RemediationClass::for_rule(rule.def.id),
+            remediation_class,
             suppression: waiver,
             source,
             error: verdict.error,

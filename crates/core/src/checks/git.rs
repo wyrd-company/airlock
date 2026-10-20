@@ -722,10 +722,12 @@ mod tests {
         let mut context = fixture.context();
         context.tags = Ok(Paged::complete(vec![
             TagRef {
+                object_type: "commit".to_owned(),
                 name: "1.0.0".to_owned(),
                 sha: "a".to_owned(),
             },
             TagRef {
+                object_type: "commit".to_owned(),
                 name: "v2.0.0".to_owned(),
                 sha: "b".to_owned(),
             },
@@ -737,11 +739,13 @@ mod tests {
 
         context.tags = Ok(Paged::complete(vec![
             TagRef {
+                object_type: "commit".to_owned(),
                 name: "1.0.0".to_owned(),
                 sha: "a".to_owned(),
             },
             // A tag that merely starts with the letter v is not a prefix.
             TagRef {
+                object_type: "commit".to_owned(),
                 name: "very-old".to_owned(),
                 sha: "b".to_owned(),
             },
@@ -760,6 +764,7 @@ mod tests {
         )]);
         let mut context = fixture.context();
         context.tags = Ok(Paged::complete(vec![TagRef {
+            object_type: "commit".to_owned(),
             name: "1.0.0".to_owned(),
             sha: "a".to_owned(),
         }]));
@@ -777,6 +782,7 @@ mod tests {
         )]);
         let mut context = fixture.context();
         context.tags = Ok(Paged::complete(vec![TagRef {
+            object_type: "commit".to_owned(),
             name: "1.0.0".to_owned(),
             sha: "a".to_owned(),
         }]));
@@ -786,6 +792,7 @@ mod tests {
         );
 
         context.tags = Ok(Paged::complete(vec![TagRef {
+            object_type: "commit".to_owned(),
             name: "one@1.0.0".to_owned(),
             sha: "a".to_owned(),
         }]));
@@ -900,6 +907,7 @@ mod tests {
         let mut context = fixture.context();
         context.tags = Ok(Paged {
             items: vec![TagRef {
+                object_type: "commit".to_owned(),
                 name: "1.0.0".to_owned(),
                 sha: "a".to_owned(),
             }],
@@ -917,6 +925,7 @@ mod tests {
         let mut context = fixture.context();
         context.tags = Ok(Paged {
             items: vec![TagRef {
+                object_type: "commit".to_owned(),
                 name: "v1.0.0".to_owned(),
                 sha: "a".to_owned(),
             }],
@@ -937,6 +946,7 @@ mod tests {
         let mut context = fixture.context();
         context.tags = Ok(Paged {
             items: vec![TagRef {
+                object_type: "commit".to_owned(),
                 name: "one@1.0.0".to_owned(),
                 sha: "a".to_owned(),
             }],

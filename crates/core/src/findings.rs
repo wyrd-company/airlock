@@ -163,11 +163,10 @@ impl Remediation {
 /// The rule's declared remediation classification, from the remediation
 /// model.
 ///
-/// This is registry-level data joined onto every finding: what closing the
-/// rule's gap takes, regardless of what this audit observed. Exactly one of
-/// `lane` and `none_reason` is set. The contextual [`Remediation`] on a
-/// failing finding says what to do here; this says what kind of work that is
-/// and who can do it.
+/// Registry defaults are joined onto every finding. A compiled Gap reason
+/// can refine the default when the rule has fixes requiring different actors.
+/// Exactly one of `lane` and `none_reason` is set. The contextual
+/// [`Remediation`] says what to do here; this says who can do it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct RemediationClass {
     /// The lane the remediation travels in, when there is one.
@@ -183,6 +182,29 @@ pub struct RemediationClass {
 }
 
 impl RemediationClass {
+    /// Classify a release-record observation without changing rule-level defaults.
+    #[must_use]
+    pub fn for_observation(rule: &str, evidence: Option<&Evidence>) -> Self {
+        let mut class = Self::for_rule(rule);
+        if rule == "REPO-REL-08"
+            && evidence.is_some_and(|e| {
+                matches!(
+                    e.code.as_str(),
+                    "release-model-missing"
+                        | "release-model-not-a-file"
+                        | "release-model-unreadable"
+                        | "release-model-schema-not-supported"
+                )
+            })
+        {
+            class.lane = Some(crate::remediation::Lane::JudgmentFile.code().to_owned());
+            class.code = Some("regenerate-release-model".to_owned());
+            class.change =
+                Some("Run intentional model and commit the supported Release Model.".to_owned());
+        }
+        class
+    }
+
     /// The declared classification for a rule.
     ///
     /// A rule the registry does not know yields the shape with all five

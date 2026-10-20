@@ -26,6 +26,7 @@ mod identity;
 mod licensing;
 mod readme;
 mod release;
+mod release_record;
 
 use crate::findings::{Evidence, FindingError, Remediation, Status};
 use crate::github::{
@@ -424,6 +425,8 @@ pub struct AuditContext<'a> {
     /// Organization-owned custom property values assigned to this repository.
     /// The repository's tags, and whether the listing was complete.
     pub tags: Result<Paged<TagRef>, ApiError>,
+    /// Captured release records and matching annotated tag objects.
+    pub release_records: Result<crate::release_records::ReleaseInputs, ApiError>,
     /// Default-branch history, and whether the walk stopped at a budget.
     pub history: Result<Paged<CommitSummary>, ApiError>,
     /// Rulesets covering the repository, including inherited ones.
@@ -585,6 +588,7 @@ fn run(rule: &RuleInstance, context: &AuditContext) -> Verdict {
         .or_else(|| git::run(id, rule, context))
         .or_else(|| automation::run(id, rule, context))
         .or_else(|| release::run(id, rule, context))
+        .or_else(|| (id == "REPO-REL-08").then(|| release_record::run(context)))
         .or_else(|| classification::run(id, rule, context))
         .unwrap_or_else(|| {
             if let Some(reason) = rule.def.unbuilt_reason() {
@@ -991,6 +995,7 @@ pub(crate) mod fixtures {
             limits: Limits::default(),
             workflows,
             workflows_truncated: false,
+            release_records: Ok(crate::release_records::ReleaseInputs::default()),
             tags: Ok(Paged::complete(Vec::new())),
             history: Ok(Paged::complete(Vec::new())),
             rulesets: Ok(Paged::complete(Vec::new())),

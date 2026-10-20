@@ -189,10 +189,11 @@ fn remove_path(path: &Path) -> io::Result<()> {
 pub fn conformance() -> io::Result<String> {
     let mut output = format!(
         "# Conformance Checklist\n\n\
-         This reference is generated from Airlock check registry **{}** \
-         (`{}`). The registry is authoritative for every rule id, statement, \
-         default severity, section, and declared gates in this document.\n\n\
-         **Always cite a rule by id and statement together.** A rule id alone \
+         This reference is generated from Airlock check registry **{}**\n\
+         (`{}`).\n\
+         The registry is authoritative for every rule id, statement, default\n\
+         severity, section, and declared gates in this document.\n\n\
+         **Always cite a rule by id and statement together.** A rule id alone\n\
          is not a meaningful finding.\n\n\
          ## Severity\n\n\
          | Level | Meaning |\n\
@@ -309,11 +310,14 @@ mod tests {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("skills/repository-standards");
         let mut on_disk = BTreeSet::new();
         collect_files(&root, &root, &mut on_disk);
-        let embedded = FILES
+        let emitted = FILES
             .iter()
             .map(|(path, _)| PathBuf::from(path))
+            // These checked-in projections are generated during emission.
+            // The conformance integration test compares their exact bytes.
+            .chain(["references/conformance.md", "references/check-guidance.md"].map(PathBuf::from))
             .collect::<BTreeSet<_>>();
-        assert_eq!(embedded, on_disk);
+        assert_eq!(emitted, on_disk);
     }
 
     /// Tripwire for quoted rule identity, not paraphrase detection.

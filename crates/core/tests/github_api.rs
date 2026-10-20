@@ -855,9 +855,9 @@ async fn a_tag_listing_stopped_at_the_page_budget_says_so() {
     mount_two_pages(
         &server,
         "/repos/owner/name/git/matching-refs/tags/",
-        json!([{ "ref": "refs/tags/1.0.0", "object": { "sha": "a" } }]),
+        json!([{ "ref": "refs/tags/1.0.0", "object": { "sha": "a", "type": "tag" } }]),
         // The `v`-prefixed tag lives on the page a one-page budget never sees.
-        json!([{ "ref": "refs/tags/v2.0.0", "object": { "sha": "b" } }]),
+        json!([{ "ref": "refs/tags/v2.0.0", "object": { "sha": "b", "type": "commit" } }]),
     )
     .await;
 
@@ -1168,7 +1168,7 @@ async fn a_malformed_tag_fails_the_listing() {
         .and(path("/repos/owner/name/git/matching-refs/tags/"))
         .respond_with(
             quota_headers(ResponseTemplate::new(200)).set_body_json(json!([
-                { "ref": "refs/tags/1.0.0", "object": { "sha": "a" } },
+                { "ref": "refs/tags/1.0.0", "object": { "sha": "a", "type": "tag" } },
                 { "ref": "refs/tags/v2.0.0" }
             ])),
         )
@@ -1611,4 +1611,285 @@ async fn a_client_that_refuses_redirects_never_carries_its_credential_to_another
             .is_empty(),
         "the client followed a redirect off the host it was pointed at"
     );
+}
+
+#[tokio::test]
+async fn release_record_pages_preserve_drafts_and_prereleases_and_budget() {
+    let server = MockServer::start().await;
+    mount_two_pages(&server, "/repos/owner/name/releases",
+        json!([{"id": 1, "tag_name": "1.0.0", "draft": true, "html_url": "https://example.test/1"}]),
+        json!([{"id": 2, "tag_name": "2.0.0-rc.1", "draft": false, "prerelease": true, "html_url": "https://example.test/2"}])).await;
+    let bounded = client_with_page_budget(&server, 1)
+        .releases("owner", "name")
+        .await
+        .unwrap();
+    assert!(bounded.truncated);
+    let all = client(&server).releases("owner", "name").await.unwrap();
+    assert!(!all.truncated);
+    assert_eq!(all.items.len(), 2);
+    assert!(all.items[0].draft);
+    assert!(!all.items[1].draft);
+    assert_eq!(all.items[1].tag_name, "2.0.0-rc.1");
+}
+
+#[tokio::test]
+async fn annotated_tag_reads_message_and_target_object_sha() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET")).and(path("/repos/owner/name/git/tags/tag-object"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"sha": "tag-object", "message": "protocol message", "object": {"type": "commit", "sha": "target-commit"}})))
+        .mount(&server).await;
+    let tag = client(&server)
+        .annotated_tag("owner", "name", "tag-object")
+        .await
+        .unwrap();
+    assert_eq!(tag.commit, "target-commit");
+    assert_eq!(tag.message, "protocol message");
+}
+
+#[tokio::test]
+async fn tag_ref_object_type_is_preserved() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/repos/owner/name/git/matching-refs/tags/"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            {"ref": "refs/tags/1.0.0", "object": {"sha": "tag", "type": "tag"}},
+            {"ref": "refs/tags/0.1.0", "object": {"sha": "commit", "type": "commit"}}
+        ])))
+        .mount(&server)
+        .await;
+    let tags = client(&server).tags("owner", "name").await.unwrap();
+    assert_eq!(tags.items[0].object_type, "tag");
+    assert_eq!(tags.items[1].object_type, "commit");
+}
+
+async fn release_audit(
+    server: &MockServer,
+    tags: ResponseTemplate,
+    releases: ResponseTemplate,
+    max_pages: usize,
+    release_record_policy: &str,
+) -> airlock_core::findings::Report {
+    let model = json!({"$schema": "https://intentional.foo/schemas/release-model/1",
+        "paths": {"config": ".intentional/config.yml", "intents": ".intentional/intents", "model": ".intentional/release-model.json"},
+        "release_units": {"sample": {"path": ".", "changelog": "CHANGELOG.md", "disposition": "managed", "release_record": release_record_policy,
+            "depends_on": [], "ecosystems": [], "projections": [], "sources": [], "tags": {"primary": {"role": "primary", "template": "{version}", "tag_after": []}}}},
+        "workspace_tags": {}, "release_groups": {"fixed": [], "linked": []}}).to_string();
+    for (route, body) in [
+        (
+            "/repos/owner/name",
+            json!({"id": 1, "name": "name", "full_name": "owner/name", "default_branch": "main"}),
+        ),
+        (
+            "/repos/owner/name/commits/main",
+            json!({"sha": "audited-commit"}),
+        ),
+        ("/repos/owner/name/topics", json!({"names": []})),
+        (
+            "/repos/owner/name/git/trees/audited-commit",
+            json!({"sha": "tree", "truncated": false, "tree": [{"path": ".intentional/release-model.json", "mode": "100644", "sha": "model-blob", "size": model.len()}]}),
+        ),
+        (
+            "/repos/owner/name/git/blobs/model-blob",
+            json!({"encoding": "utf-8", "content": model}),
+        ),
+    ] {
+        Mock::given(method("GET"))
+            .and(path(route))
+            .respond_with(ResponseTemplate::new(200).set_body_json(body))
+            .mount(server)
+            .await;
+    }
+    Mock::given(method("GET"))
+        .and(path("/repos/owner/name/git/matching-refs/tags/"))
+        .respond_with(tags)
+        .mount(server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/repos/owner/name/releases"))
+        .respond_with(releases)
+        .mount(server)
+        .await;
+    let record = format!("intentional release record\n\ncontract: contract-1\ngenerator: intentional 0.2.0\nplan-digest: sha256:{}\ntag-id: release-unit/sample/primary\nversion: 1.0.0\nbaseline: false\n", "a".repeat(64));
+    Mock::given(method("GET"))
+        .and(path("/repos/owner/name/git/tags/tag-object"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({"message": record, "object": {"sha": "target-commit"}})),
+        )
+        .mount(server)
+        .await;
+    let def = airlock_core::registry::find("REPO-REL-08").unwrap();
+    let policy = airlock_core::policy::ResolvedPolicy {
+        name: "fixture".into(),
+        source: "fixture".into(),
+        commit: None,
+        bundle_digest: "sha256:fixture".into(),
+        sources: vec![],
+        rules: vec![airlock_core::policy::RuleInstance {
+            def,
+            severity: def.severity,
+            params: Default::default(),
+            provenance: "fixture".into(),
+        }],
+        suppressions: Default::default(),
+        reference_data: Default::default(),
+        capabilities: vec![],
+    };
+    airlock_core::audit::run(
+        &client_with_page_budget(server, max_pages),
+        "owner",
+        "name",
+        &policy,
+        &airlock_core::audit::AuditOptions::default(),
+        None,
+    )
+    .await
+    .unwrap()
+}
+
+fn release_tag_response() -> ResponseTemplate {
+    ResponseTemplate::new(200).set_body_json(
+        json!([{"ref": "refs/tags/1.0.0", "object": {"sha": "tag-object", "type": "tag"}}]),
+    )
+}
+
+#[tokio::test]
+async fn release_audit_reports_missing_and_published_records_at_audited_revision() {
+    for published in [false, true] {
+        let server = MockServer::start().await;
+        let releases = if published {
+            json!([{"id": 42, "tag_name": "1.0.0", "draft": false, "prerelease": true, "html_url": "https://example.test/42"}])
+        } else {
+            json!([])
+        };
+        let report = release_audit(
+            &server,
+            release_tag_response(),
+            ResponseTemplate::new(200).set_body_json(releases),
+            3,
+            "required",
+        )
+        .await;
+        assert_eq!(report.exit_code(), 0); // advisory gaps do not fail a run
+        assert_eq!(report.findings.len(), 1);
+        assert_eq!(
+            report.findings[0].status,
+            Some(if published {
+                airlock_core::findings::Status::Met
+            } else {
+                airlock_core::findings::Status::Gap
+            })
+        );
+        assert_eq!(report.repository.audited_commit, "audited-commit");
+        assert!(report.findings[0]
+            .evidence
+            .as_ref()
+            .unwrap()
+            .detail
+            .contains("target-commit"));
+    }
+}
+
+#[tokio::test]
+async fn release_audit_truncated_listings_and_api_failure_exit_two() {
+    for kind in [
+        "tag-budget",
+        "release-budget",
+        "tag-api",
+        "release-api",
+        "malformed-release",
+        "tag-truncated-json",
+    ] {
+        let server = MockServer::start().await;
+        let next = format!(
+            "<{}/repos/owner/name/releases?page=2>; rel=\"next\"",
+            server.uri()
+        );
+        let mut tags = release_tag_response();
+        let mut releases = ResponseTemplate::new(200).set_body_json(json!([]));
+        let endpoint = if kind.starts_with("tag") {
+            "/git/matching-refs/tags/"
+        } else {
+            "/releases"
+        };
+        match kind {
+            "tag-budget" => tags = tags.insert_header("link", next.as_str()),
+            "release-budget" => releases = releases.insert_header("link", next.as_str()),
+            "tag-api" => tags = ResponseTemplate::new(503),
+            "release-api" => releases = ResponseTemplate::new(503),
+            "malformed-release" => releases = ResponseTemplate::new(200).set_body_string("["),
+            "tag-truncated-json" => tags = ResponseTemplate::new(200).set_body_string("["),
+            _ => unreachable!(),
+        }
+        let report = release_audit(&server, tags, releases, 1, "required").await;
+        assert_eq!(report.exit_code(), 2, "{kind}");
+        assert!(report.findings.is_empty(), "{kind}: neither Met nor Gap");
+        assert_eq!(report.run_errors.len(), 1, "{kind}");
+        assert!(
+            report.run_errors[0]
+                .error
+                .as_ref()
+                .unwrap()
+                .endpoint
+                .ends_with(endpoint),
+            "{kind}"
+        );
+        assert_ne!(
+            report.run_errors[0]
+                .evidence
+                .as_ref()
+                .map(|e| e.code.as_str()),
+            Some("release-record-missing")
+        );
+    }
+}
+
+#[tokio::test]
+async fn units_with_no_release_record_policy_do_not_read_release_endpoints() {
+    let server = MockServer::start().await;
+    let report = release_audit(
+        &server,
+        release_tag_response(),
+        ResponseTemplate::new(503),
+        1,
+        "none",
+    )
+    .await;
+    assert_eq!(report.exit_code(), 0);
+    assert_eq!(
+        report.findings[0].status,
+        Some(airlock_core::findings::Status::Met)
+    );
+    let requests = server.received_requests().await.unwrap();
+    assert!(!requests
+        .iter()
+        .any(|request| request.url.path().ends_with("/releases")
+            || request.url.path().contains("/git/tags/")));
+}
+
+#[tokio::test]
+async fn release_listing_malformed_members_are_run_errors() {
+    for release in [
+        json!({"id": 42, "tag_name": "1.0.0", "html_url": "https://example.test/42"}),
+        json!({"id":42, "tag_name":"1.0.0", "draft":"false", "html_url":"https://example.test/42"}),
+        json!({"id":42,"tag_name":"1.0.0","draft":false}),
+    ] {
+        let server = MockServer::start().await;
+        let report = release_audit(
+            &server,
+            release_tag_response(),
+            ResponseTemplate::new(200).set_body_json(json!([release])),
+            1,
+            "required",
+        )
+        .await;
+        assert_eq!(report.exit_code(), 2);
+        assert!(report.findings.is_empty());
+        assert!(report.run_errors[0]
+            .error
+            .as_ref()
+            .unwrap()
+            .endpoint
+            .ends_with("/releases"));
+    }
 }

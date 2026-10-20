@@ -12,6 +12,8 @@
 //! stability promise for third-party consumers.
 
 mod audited_repository;
+mod document;
+mod release_records;
 
 pub mod alignment;
 pub mod audit;

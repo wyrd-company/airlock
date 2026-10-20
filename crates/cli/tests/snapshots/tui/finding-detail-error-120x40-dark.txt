@@ -35,7 +35,7 @@ provenance            capability:base/git
                                                                                                                         
 RUN PROVENANCE                                                                                                          
 airlock               0.0.0                                                                                             
-registry              0.5.0                                                                                             
+registry              0.6.0                                                                                             
 — 0 lines above · 7 below · ↑↓ moves the window —                                                                       
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 esc back · a remediation transcript · o re-observe this rule · y copy the rule id · t theme · ctrl-c exit               

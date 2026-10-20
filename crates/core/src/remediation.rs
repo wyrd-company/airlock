@@ -4,8 +4,9 @@
 //! remediation with a stable code, the change it would make, whether that
 //! change is reversible, and the lane it travels in — or an explicit
 //! statement that airlock offers no remediation, with the reason. The lane is
-//! declared in each standard module and read everywhere; no consumer infers it
-//! from context.
+//! declared in each standard module. Release-record model Gaps refine that
+//! default by their compiled reason during report assembly; consumers read the
+//! resulting classification without inferring a lane themselves.
 //!
 //! Classifying is not doing. Nothing in this module writes anything; it
 //! describes what a remediation *would* change so that the findings output,

@@ -23,7 +23,7 @@ showing       the whole working set · 2 of 2 · gate blocking · f
                                                                                 
                                                                                 
 ↑↓/j/k move · space collapse or expand · ↵ finding detail · f filter · 8 more…  
-conformant · complete true · 2 rules · registry 0.5.0 · gate blocking           
+conformant · complete true · 2 rules · registry 0.6.0 · gate blocking           
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 cccccccccddddddddddddeeeddddddddddddddffffffffffffffffffffffffffffffffffffffffff

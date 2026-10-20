@@ -33,7 +33,7 @@ use sha2::{Digest, Sha256};
 /// It moves when the set of rules, their statements, their default severities,
 /// or declared check boundaries change. Policies constrain it with
 /// `requires-registry`.
-pub const REGISTRY_VERSION: &str = "0.5.0";
+pub const REGISTRY_VERSION: &str = "0.6.0";
 
 /// How severely a failure counts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -561,6 +561,7 @@ pub const CHECKS: &[CheckDefinition] = &[
     release::repo_rel_05::STANDARD,
     release::repo_rel_06::STANDARD,
     release::repo_rel_07::STANDARD,
+    release::repo_rel_08::STANDARD,
     classification::repo_prop_03::STANDARD,
     classification::repo_prop_04::STANDARD,
 ];
@@ -737,6 +738,7 @@ mod tests {
                 "REPO-GIT-08",
                 "REPO-GIT-09",
                 "REPO-GIT-10",
+                "REPO-REL-08",
             ]
         );
     }
@@ -855,10 +857,13 @@ mod tests {
 
     #[test]
     fn all_standards_keep_their_identity_and_lifecycle() {
-        assert_eq!(CHECKS.len(), 109);
-        assert!(CHECKS
-            .iter()
-            .all(|standard| standard.lifecycle == Lifecycle::Seeded));
+        assert_eq!(CHECKS.len(), 110);
+        assert!(CHECKS.iter().all(|standard| standard.lifecycle
+            == if standard.id == "REPO-REL-08" {
+                Lifecycle::Released
+            } else {
+                Lifecycle::Seeded
+            }));
     }
 
     #[test]

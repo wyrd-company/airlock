@@ -196,3 +196,18 @@ fn report_terms_include_every_declared_non_outcome_category() {
         }
     }
 }
+
+#[test]
+fn committed_generated_references_match_the_registry() {
+    assert_eq!(
+        include_str!("../skills/repository-standards/references/conformance.md"),
+        airlock_core::skill::conformance().unwrap()
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("skill");
+    airlock_core::skill::emit(&target, false).unwrap();
+    assert_eq!(
+        include_str!("../skills/repository-standards/references/check-guidance.md"),
+        std::fs::read_to_string(target.join("references/check-guidance.md")).unwrap()
+    );
+}

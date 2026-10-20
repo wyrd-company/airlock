@@ -633,7 +633,7 @@ fn a_waived_standard_does_not_run_its_check() {
 #[test]
 fn the_api_gate_routes_a_whole_file_tree_standard() {
     let repo = committed_repository();
-    for id in ["REPO-CD-03", "REPO-REL-07"] {
+    for id in ["REPO-CD-03", "REPO-REL-07", "REPO-REL-08"] {
         let policy = policy_with_one(id, airlock_core::registry::Severity::Blocking);
         assert!(policy.rules[0].def.needs_github_api(), "{id}");
         let report = audit::run_local(&policy, &options(), repo.path()).unwrap();
@@ -951,4 +951,27 @@ fn configured_topics_evaluate_and_malformed_configuration_is_a_run_error() {
     assert_eq!(partial.waived.len(), 1);
     assert_eq!(partial.waived[0].rule, "REPO-META-07");
     assert_eq!(partial.findings[0].rule, "REPO-META-09");
+}
+
+#[test]
+fn release_record_model_gap_fix_is_agent_reasoning_while_missing_record_is_operator() {
+    use airlock_core::findings::{Evidence, RemediationClass};
+    for reason in [
+        "release-model-missing",
+        "release-model-not-a-file",
+        "release-model-unreadable",
+        "release-model-schema-not-supported",
+    ] {
+        let class = RemediationClass::for_observation(
+            "REPO-REL-08",
+            Some(&Evidence::new(reason, "fixture")),
+        );
+        assert_eq!(class.lane.as_deref(), Some("judgment-file"), "{reason}");
+        assert_eq!(class.code.as_deref(), Some("regenerate-release-model"));
+    }
+    let class = RemediationClass::for_observation(
+        "REPO-REL-08",
+        Some(&Evidence::new("release-record-missing", "fixture")),
+    );
+    assert_eq!(class.lane.as_deref(), Some("operator-setting"));
 }

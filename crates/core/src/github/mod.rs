@@ -412,10 +412,34 @@ pub struct CommitSummary {
 /// A tag reference.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TagRef {
+    /// Git ref object type, distinguishing annotated tags from lightweight tags.
+    pub object_type: String,
     /// The tag name, with `refs/tags/` stripped.
     pub name: String,
     /// The object the tag points at.
     pub sha: String,
+}
+
+/// An annotated tag object, distinct from its ref.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AnnotatedTag {
+    /// Protocol message.
+    pub message: String,
+    /// Tagged commit from the object's `object.sha`.
+    pub commit: String,
+}
+
+/// One GitHub Release.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReleaseRecord {
+    /// Numeric release identity.
+    pub id: u64,
+    /// Tag carrying the release.
+    pub tag_name: String,
+    /// Whether the record is unpublished.
+    pub draft: bool,
+    /// Human-readable release address.
+    pub url: String,
 }
 
 /// A repository ruleset, including ones inherited from the organization.
@@ -540,6 +564,24 @@ pub trait GitHub {
 
     /// List tags, bounded by the client's page budget.
     async fn tags(&self, owner: &str, repo: &str) -> ApiResult<Paged<TagRef>>;
+
+    /// Read an annotated tag object.
+    async fn annotated_tag(&self, owner: &str, repo: &str, sha: &str) -> ApiResult<AnnotatedTag> {
+        Err(ApiError::local(
+            ErrorCause::Malformed,
+            format!("GET /repos/{owner}/{repo}/git/tags/{sha}"),
+            "annotated tag observation is unavailable",
+        ))
+    }
+
+    /// List every release, including drafts and prereleases.
+    async fn releases(&self, owner: &str, repo: &str) -> ApiResult<Paged<ReleaseRecord>> {
+        Err(ApiError::local(
+            ErrorCause::Malformed,
+            format!("GET /repos/{owner}/{repo}/releases"),
+            "release observation is unavailable",
+        ))
+    }
 
     /// Walk history from a commit, bounded by the page and commit budgets.
     async fn history(
