@@ -45,7 +45,7 @@ pub fn scaffold_files(policy: &crate::policy::ResolvedPolicy, owner: &str) -> Ve
         else {
             continue;
         };
-        let renovate_preset = rule.param_str_for_owner("renovate-preset", owner);
+        let renovate_preset = rule.param_str_for_owner("renovate-preset", Some(owner));
         match deterministic_author(definition.code, renovate_preset.as_deref(), None)
             .unwrap_or_else(|| {
                 panic!(
@@ -155,7 +155,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
 ";
-const RENOVATE: &str = "{\n  \"extends\": [\"github>wyrd-company/.github\"]\n}\n";
 const LEFTHOOK: &str = "\
 pre-commit:
   commands:
@@ -406,6 +405,14 @@ fn plan_operations(
 ) -> Vec<PlannedOperation> {
     let mut operations = Vec::new();
     let mut claimed = BTreeSet::new();
+    // A local display name may be a placeholder. Resolve only an API identity
+    // or the origin actually observed in this working tree.
+    let full_name = if report.repository.id.is_some() {
+        Some(report.repository.full_name.as_str())
+    } else {
+        facts.remote_full_name.as_deref()
+    };
+    let owner = full_name.and_then(|name| name.split_once('/').map(|(owner, _)| owner));
     for finding in report.findings.iter().filter(|finding| {
         finding.status == Status::Fail
             && finding.remediation_class.lane.as_deref() == Some(Lane::DeterministicFile.code())
@@ -414,7 +421,19 @@ fn plan_operations(
         let Some(code) = finding.remediation_class.code.as_deref() else {
             continue;
         };
-        for operation in author_for(code, finding, facts).into_operations() {
+        let preset = report
+            .effective_policy
+            .iter()
+            .find(|rule| rule.rule == finding.rule)
+            .and_then(|rule| {
+                crate::policy::resolve_string_parameter(
+                    crate::registry::find(&rule.rule)?,
+                    &rule.params,
+                    "renovate-preset",
+                    owner,
+                )
+            });
+        for operation in author_for(code, finding, facts, preset.as_deref()).into_operations() {
             if claimed.insert(operation.path.clone()) {
                 operations.push(operation);
             } else {
@@ -436,7 +455,12 @@ fn plan_operations(
     operations
 }
 
-fn author_for(code: &str, finding: &Finding, facts: &WorkingTreeFacts) -> AuthorResult {
+fn author_for(
+    code: &str,
+    finding: &Finding,
+    facts: &WorkingTreeFacts,
+    renovate_preset: Option<&str>,
+) -> AuthorResult {
     let operation = |path: &str, kind| PlannedOperation {
         path: path.to_owned(),
         kind,
@@ -457,23 +481,15 @@ fn author_for(code: &str, finding: &Finding, facts: &WorkingTreeFacts) -> Author
         | "add-renovate-config"
         | "add-audit-workflow"
         | "add-lefthook-config"
-        | "add-title-check") => deterministic_author(
-            code,
-            finding
-                .remediation
-                .as_ref()
-                .and_then(|remediation| remediation.detail.split('`').nth(1))
-                .or((code == "add-renovate-config").then_some("github>wyrd-company/.github")),
-            Some(&facts.root),
-        )
-        .and_then(|author| match author {
-            DeterministicAuthor::File(path, contents) => {
-                Some(operation(&path, OperationKind::Write(contents)))
-            }
-            DeterministicAuthor::OrdinaryLane => None,
-        })
-        .into_iter()
-        .collect(),
+        | "add-title-check") => deterministic_author(code, renovate_preset, Some(&facts.root))
+            .and_then(|author| match author {
+                DeterministicAuthor::File(path, contents) => {
+                    Some(operation(&path, OperationKind::Write(contents)))
+                }
+                DeterministicAuthor::OrdinaryLane => None,
+            })
+            .into_iter()
+            .collect(),
         "add-claude-symlink" => {
             if facts.root.join("AGENTS.md").is_file() {
                 vec![operation(
@@ -624,9 +640,10 @@ fn renovate_contents(root: Option<&Path>, expected: &str) -> String {
         .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
         .unwrap_or_else(|| serde_json::json!({}));
     value["extends"] = serde_json::json!([expected]);
-    serde_json::to_string_pretty(&value)
-        .map(|value| format!("{value}\n"))
-        .unwrap_or_else(|_| RENOVATE.to_owned())
+    format!(
+        "{}\n",
+        serde_json::to_string_pretty(&value).expect("JSON values serialize to JSON")
+    )
 }
 
 fn yaml_transform_operation(
@@ -1394,7 +1411,7 @@ mod tests {
 
     #[test]
     fn scaffolded_bytes_are_the_bytes_the_deterministic_author_would_write() {
-        let preset = "github>wyrd-company/.github";
+        let preset = "github>example-org/.github";
         let policy = crate::policy::ResolvedPolicy {
             name: "fixture".to_owned(),
             source: "fixture".to_owned(),
@@ -1417,8 +1434,13 @@ mod tests {
         let directory = repository();
         let facts = worktree::read_facts(directory.path()).unwrap();
         let authored = report("REPO-FILE-08");
-        let operations =
-            author_for("add-renovate-config", &authored.findings[0], &facts).into_operations();
+        let operations = author_for(
+            "add-renovate-config",
+            &authored.findings[0],
+            &facts,
+            Some(preset),
+        )
+        .into_operations();
         let OperationKind::Write(expected) = &operations[0].kind else {
             panic!("renovate author did not produce a write")
         };
@@ -1467,6 +1489,64 @@ mod tests {
             preset(&policy),
             serde_json::json!(["github>{owner}/custom"])
         );
+    }
+
+    #[test]
+    fn renovate_alignment_uses_the_observed_api_owner() {
+        for remote_owner in [None, Some("another-org")] {
+            let directory = repository();
+            if let Some(owner) = remote_owner {
+                git(
+                    directory.path(),
+                    &[
+                        "remote",
+                        "add",
+                        "origin",
+                        &format!("git@github.com:{owner}/sample.git"),
+                    ],
+                );
+            }
+            let mut observed = report("REPO-FILE-08");
+            observed.repository.id = Some(42);
+            observed.repository.full_name = "example-org/sample".to_owned();
+            observed
+                .effective_policy
+                .push(crate::findings::EffectiveRule {
+                    rule: "REPO-FILE-08".to_owned(),
+                    severity: "required".to_owned(),
+                    params: BTreeMap::new(),
+                    provenance: "fixture".to_owned(),
+                });
+            let result = author(directory.path(), &observed).unwrap();
+            assert_eq!(result.operations.len(), 1);
+            assert_eq!(result.operations[0].outcome, "written");
+            let contents: serde_json::Value = serde_json::from_slice(
+                &fs::read(directory.path().join(".github/renovate.json")).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(
+                contents["extends"],
+                serde_json::json!(["github>example-org/.github"])
+            );
+        }
+    }
+
+    #[test]
+    fn renovate_alignment_without_an_observed_owner_ignores_the_display_name() {
+        let directory = repository();
+        let mut observed = report("REPO-FILE-08");
+        observed
+            .effective_policy
+            .push(crate::findings::EffectiveRule {
+                rule: "REPO-FILE-08".to_owned(),
+                severity: "required".to_owned(),
+                params: BTreeMap::new(),
+                provenance: "fixture".to_owned(),
+            });
+        let result = author(directory.path(), &observed).unwrap();
+        assert_eq!(result.operations.len(), 1);
+        assert_eq!(result.operations[0].outcome, "skipped");
+        assert!(!directory.path().join(".github/renovate.json").exists());
     }
 
     fn git(root: &Path, args: &[&str]) {
@@ -1565,10 +1645,14 @@ mod tests {
             let finding = report(definition.rule);
             let directory = repository();
             let facts = worktree::read_facts(directory.path()).unwrap();
-            assert!(author_for(definition.code, &finding.findings[0], &facts)
-                .into_operations()
-                .iter()
-                .all(|operation| !AUTHORIZATION_BEARING_PATHS.contains(&operation.path.as_str())));
+            assert!(
+                author_for(definition.code, &finding.findings[0], &facts, None)
+                    .into_operations()
+                    .iter()
+                    .all(
+                        |operation| !AUTHORIZATION_BEARING_PATHS.contains(&operation.path.as_str())
+                    )
+            );
         }
     }
 

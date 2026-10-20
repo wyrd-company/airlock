@@ -132,6 +132,13 @@ fn ci_workflow(context: &AuditContext) -> Verdict {
 }
 
 fn renovate(rule: &RuleInstance, context: &AuditContext) -> Verdict {
+    let owner = context.snapshot.repository.owner.as_str();
+    let Some(expected) = rule.param_str_for_owner("renovate-preset", Some(owner)) else {
+        return Verdict::manual(
+            "renovate_preset_unspecified",
+            "the repository owner was not observed, so the organisation's Renovate preset is a judgment call",
+        );
+    };
     let Some(text) = context.text(".github/renovate.json") else {
         return presence(context, ".github/renovate.json", ".github/renovate.json");
     };
@@ -160,13 +167,14 @@ fn renovate(rule: &RuleInstance, context: &AuditContext) -> Verdict {
         );
     }
 
-    match rule.param_str_for_owner("renovate-preset", &context.snapshot.repository.owner) {
-        Some(expected) if extends.iter().any(|preset| preset == &expected) => Verdict::pass_at(
+    if extends.iter().any(|preset| preset == &expected) {
+        Verdict::pass_at(
             "renovate_extends_org_preset",
             ".github/renovate.json",
             format!(".github/renovate.json extends `{expected}`"),
-        ),
-        Some(expected) => Verdict::fail_at(
+        )
+    } else {
+        Verdict::fail_at(
             "renovate_preset_mismatch",
             ".github/renovate.json",
             format!(
@@ -177,8 +185,7 @@ fn renovate(rule: &RuleInstance, context: &AuditContext) -> Verdict {
                 ActionGroup::EXTEND_ORG_PRESET,
                 format!("Extend `{expected}` in .github/renovate.json."),
             ),
-        ),
-        None => unreachable!("registered string default"),
+        )
     }
 }
 

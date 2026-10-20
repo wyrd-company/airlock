@@ -155,13 +155,10 @@ impl RuleInstance {
     }
 
     /// A string parameter with literal owner substitution in the default only.
+    /// An owner-dependent default does not resolve without an observed owner.
     #[must_use]
-    pub fn param_str_for_owner(&self, name: &str, owner: &str) -> Option<String> {
-        if let Some(value) = self.params.get(name).and_then(serde_json::Value::as_str) {
-            return Some(value.to_owned());
-        }
-        self.param_str(name)
-            .map(|value| value.replace("{owner}", owner))
+    pub fn param_str_for_owner(&self, name: &str, owner: Option<&str>) -> Option<String> {
+        resolve_string_parameter(self.def, &self.params, name, owner)
     }
 
     /// A list parameter, falling back to its compiled default.
@@ -206,6 +203,27 @@ impl RuleInstance {
             values.push(entry.to_owned());
         }
         Ok(Some(values))
+    }
+}
+
+/// Resolve the same string parameter for evaluation and file authoring.
+pub(crate) fn resolve_string_parameter(
+    definition: &CheckDefinition,
+    params: &BTreeMap<String, serde_json::Value>,
+    name: &str,
+    owner: Option<&str>,
+) -> Option<String> {
+    if let Some(value) = params.get(name).and_then(serde_json::Value::as_str) {
+        return Some(value.to_owned());
+    }
+    let registry::ParameterDefault::String(value) = definition.parameter_default(name)? else {
+        return None;
+    };
+    if value.contains("{owner}") {
+        let owner = owner.filter(|owner| !owner.is_empty())?;
+        Some(value.replace("{owner}", owner))
+    } else {
+        Some(value.to_owned())
     }
 }
 
@@ -464,8 +482,14 @@ capabilities:
             Some("[0-9]*.[0-9]*.[0-9]*")
         );
         assert_eq!(
+            rule("REPO-CD-02")
+                .param_str_for_owner("tag-pattern", None)
+                .as_deref(),
+            Some("[0-9]*.[0-9]*.[0-9]*")
+        );
+        assert_eq!(
             rule("REPO-FILE-08")
-                .param_str_for_owner("renovate-preset", "example-org")
+                .param_str_for_owner("renovate-preset", Some("example-org"))
                 .as_deref(),
             Some("github>example-org/.github")
         );
@@ -498,8 +522,10 @@ capabilities:
             .into_iter()
             .find(|rule| rule.def.id == "REPO-FILE-08")
             .unwrap();
+        assert_eq!(rule.param_str_for_owner("renovate-preset", None), None);
+        assert_eq!(rule.param_str_for_owner("renovate-preset", Some("")), None);
         assert_eq!(
-            rule.param_str_for_owner("renovate-preset", "{repo}-$org")
+            rule.param_str_for_owner("renovate-preset", Some("{repo}-$org"))
                 .as_deref(),
             Some("github>{repo}-$org/.github")
         );
@@ -508,8 +534,12 @@ capabilities:
             serde_json::json!("github>{owner}/{repo}"),
         );
         assert_eq!(
-            rule.param_str_for_owner("renovate-preset", "example-org")
+            rule.param_str_for_owner("renovate-preset", Some("example-org"))
                 .as_deref(),
+            Some("github>{owner}/{repo}")
+        );
+        assert_eq!(
+            rule.param_str_for_owner("renovate-preset", None).as_deref(),
             Some("github>{owner}/{repo}")
         );
     }

@@ -508,6 +508,151 @@ fn agent_work_reports_an_uncommitted_working_tree_as_its_source() {
     assert_eq!(list["agent_lane"]["items"][0]["source"], "working-tree");
 }
 
+fn renovate_repository(owner: Option<&str>, contents: Option<&str>) -> TempDir {
+    let repository = TempDir::new().unwrap();
+    git(repository.path(), &["init", "-q", "-b", "main"]);
+    if let Some(owner) = owner {
+        git(
+            repository.path(),
+            &[
+                "remote",
+                "add",
+                "origin",
+                &format!("git@github.com:{owner}/sample.git"),
+            ],
+        );
+    }
+    std::fs::write(repository.path().join("seed"), "seed\n").unwrap();
+    if let Some(contents) = contents {
+        std::fs::create_dir_all(repository.path().join(".github")).unwrap();
+        std::fs::write(repository.path().join(".github/renovate.json"), contents).unwrap();
+    }
+    git(repository.path(), &["add", "."]);
+    git(repository.path(), &["commit", "-q", "-m", "fixture"]);
+    repository
+}
+
+fn renovate_policy(preset: Option<&str>) -> String {
+    let mut policy = format!("{FILES_POLICY}checks:\n");
+    for standard in airlock_core::registry::in_section(airlock_core::registry::Section::Files) {
+        if standard.id != "REPO-FILE-08" {
+            policy.push_str(&format!("  {}: {{enabled: false}}\n", standard.id));
+        }
+    }
+    if let Some(preset) = preset {
+        policy.push_str(&format!(
+            "  REPO-FILE-08:\n    params:\n      renovate-preset: '{}'\n",
+            preset
+        ));
+    }
+    policy
+}
+
+fn local_file_json(command: &str, repository: &TempDir, policy: &str, exit: i32) -> Value {
+    let assertion = offline()
+        .args([
+            command,
+            "--working-tree",
+            &repository.path().display().to_string(),
+            "--policy",
+            policy,
+            "--format",
+            "json",
+        ])
+        .assert()
+        .code(exit);
+    json_output(&assertion.get_output().stdout)
+}
+
+#[test]
+fn renovate_without_an_observed_owner_is_manual_and_alignment_writes_nothing() {
+    for contents in [
+        Some("{\"extends\":[\"github>example-org/.github\"]}\n"),
+        None,
+    ] {
+        let repository = renovate_repository(None, contents);
+        let policies = TempDir::new().unwrap();
+        let policy = policy_path(&policies, &renovate_policy(None));
+        let report = local_file_json("audit", &repository, &policy, 0);
+        let result = finding(&report, "REPO-FILE-08");
+        assert_eq!(result["status"], "manual");
+        assert_eq!(result["evidence"]["code"], "renovate_preset_unspecified");
+        assert_eq!(result["remediation"], Value::Null);
+        let aligned = local_file_json("align-files", &repository, &policy, 0);
+        assert!(aligned["operations"]["operations"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            std::fs::read_to_string(repository.path().join(".github/renovate.json"))
+                .ok()
+                .as_deref(),
+            contents
+        );
+        let status = std::process::Command::new("git")
+            .current_dir(repository.path())
+            .args(["status", "--porcelain"])
+            .output()
+            .unwrap();
+        assert!(status.status.success());
+        assert!(status.stdout.is_empty());
+    }
+}
+
+#[test]
+fn renovate_alignment_and_audit_share_compiled_defaults_and_explicit_parameters() {
+    let cases = [
+        (
+            Some("example-org"),
+            None,
+            None,
+            "github>example-org/.github",
+        ),
+        (
+            Some("example-org"),
+            Some("{\"extends\":[\"github>another-org/.github\"],\"enabled\":true}"),
+            None,
+            "github>example-org/.github",
+        ),
+        (Some("unknown"), None, None, "github>unknown/.github"),
+        (
+            None,
+            None,
+            Some("github>{owner}/custom"),
+            "github>{owner}/custom",
+        ),
+        (
+            Some("example-org"),
+            None,
+            Some("github>another-org/custom"),
+            "github>another-org/custom",
+        ),
+    ];
+    for (owner, contents, preset, expected) in cases {
+        let repository = renovate_repository(owner, contents);
+        let policies = TempDir::new().unwrap();
+        let policy = policy_path(&policies, &renovate_policy(preset));
+        let before = local_file_json("audit", &repository, &policy, 1);
+        assert_eq!(finding(&before, "REPO-FILE-08")["status"], "fail");
+        let aligned = local_file_json("align-files", &repository, &policy, 0);
+        assert_eq!(
+            aligned["operations"]["operations"][0]["path"],
+            ".github/renovate.json"
+        );
+        assert_eq!(aligned["operations"]["operations"][0]["outcome"], "written");
+        let written: Value = serde_json::from_slice(
+            &std::fs::read(repository.path().join(".github/renovate.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(written["extends"], serde_json::json!([expected]));
+        if contents.is_some() {
+            assert_eq!(written["enabled"], true);
+        }
+        let after = local_file_json("audit", &repository, &policy, 0);
+        assert_eq!(finding(&after, "REPO-FILE-08")["status"], "pass");
+    }
+}
+
 #[test]
 fn align_files_writes_then_reobserves_and_is_idempotent() {
     let repository = TempDir::new().unwrap();

@@ -269,7 +269,13 @@ pub fn run_local(
         .remote_full_name
         .clone()
         .unwrap_or_else(|| "unknown/unknown".to_owned());
-    let (owner, name) = full_name.split_once('/').unwrap_or(("unknown", "unknown"));
+    // Parameter defaults require observed identity; the display fallback above
+    // does not supply an owner or repository name.
+    let (owner, name) = facts
+        .remote_full_name
+        .as_deref()
+        .and_then(|name| name.split_once('/'))
+        .unwrap_or(("", ""));
     let default_branch_observed = facts.observed_default_branch.is_some();
     let branch = facts
         .observed_default_branch
