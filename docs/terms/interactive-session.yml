@@ -1,0 +1,13 @@
+$schema: https://refinery.systems/ontology/term
+title: Interactive session
+description: >-
+  Airlock's terminal session through which an operator inspects repositories, supplies
+  declarations and performs permitted settings work. It can author the initial commit of a
+  repository it creates; it does not modify an existing repository's files. The read-only audit
+  remains separate. Interactive session names the operator surface referenced by routed
+  standards.
+relationships:
+  related-to:
+    - operator
+    - audit
+    - interview

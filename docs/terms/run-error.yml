@@ -1,0 +1,14 @@
+$schema: https://refinery.systems/ontology/term
+title: Run error
+description: >-
+  A failure that prevents Airlock from completing its job, reported with cause and endpoint or
+  other relevant source and exit code 2. Examples include API failures in credentialed runs,
+  incomplete listings, exhausted read budgets, unresolved configured template refs and missing
+  inputs with no declared gate. A run error is not an outcome, Gap, waiver or routing answer. It
+  replaces circumstantial undecided, inconclusive, unimplemented and error as standard-result
+  categories; unbuilt standards remain visible as unbuilt work.
+relationships:
+  related-to:
+    - audit
+    - outcome
+    - routed

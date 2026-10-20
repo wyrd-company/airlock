@@ -1,0 +1,14 @@
+$schema: https://refinery.systems/ontology/term
+title: Fix
+description: >-
+  A change that closes a gap. A fix can be mechanical file work authored locally by Airlock,
+  repository-specific file work authored by an agent using Airlock's guidance, or work performed
+  by an operator through the interactive session. An agent can commit and push file changes for
+  review. The audit itself never applies fixes. Fix replaces remediation, remedy and proposed
+  change as names for the corrective change.
+relationships:
+  related-to:
+    - gap
+    - lane
+    - agent
+    - operator

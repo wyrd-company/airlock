@@ -1,0 +1,12 @@
+$schema: https://refinery.systems/ontology/term
+title: Agent
+description: >-
+  The coding assistant that uses Airlock's embedded guidance to reason about repository-specific
+  changes, commit file fixes and push them for review. An agent may assess a standard as
+  advisory evidence; that assessment cannot replace its compiled outcome or change the exit
+  code.
+relationships:
+  related-to:
+    - fix
+    - lane
+    - standard

@@ -1,0 +1,7 @@
+$schema: https://refinery.systems/ontology/term
+title: Stable
+description: >-
+  The lifecycle rung evidenced by a version tag at or above 1.0.0.
+relationships:
+  related-to:
+    - maturity

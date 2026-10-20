@@ -1,0 +1,9 @@
+$schema: https://refinery.systems/ontology/term
+title: Release record
+description: >-
+  A term owned by the release process program. Its definition is supplied by release-model;
+  Airlock consumes the term through docs/technical-designs/release-process-conformance.yml,
+  release-record-check. This entry is a reference to that contract, not an Airlock definition.
+relationships:
+  related-to:
+    - release-process-conformance

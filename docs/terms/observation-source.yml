@@ -1,0 +1,12 @@
+$schema: https://refinery.systems/ontology/term
+title: Observation source
+description: >-
+  Where audit evidence was read: the GitHub API or a local working tree. API-only facts need a
+  declared routing requirement when unavailable. Reading ordinary file facts through the API
+  does not make those facts API-only. Observation source replaces observation mode as a
+  user-facing name for this distinction.
+relationships:
+  related-to:
+    - evidence
+    - working-tree
+    - audit

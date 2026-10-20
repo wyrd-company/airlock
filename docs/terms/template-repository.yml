@@ -1,0 +1,10 @@
+$schema: https://refinery.systems/ontology/term
+title: Template repository
+description: >-
+  The GitHub repository named by a Toha source in gh:<owner>/<repository> form, with an optional
+  template path. The configured ref and minimum resolve in that repository, not in the audited
+  repository.
+relationships:
+  related-to:
+    - expected-template
+    - accepted-revision

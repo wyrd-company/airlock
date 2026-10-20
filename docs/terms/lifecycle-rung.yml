@@ -1,0 +1,12 @@
+$schema: https://refinery.systems/ontology/term
+title: Lifecycle rung
+description: >-
+  One of the ordered stages of observed maturity: seeded, building, released and stable. A
+  standard may govern a rung and every rung above it. Lifecycle rung is not a fix lane.
+relationships:
+  related-to:
+    - maturity
+    - seeded
+    - building
+    - released
+    - stable

@@ -1,0 +1,12 @@
+$schema: https://refinery.systems/ontology/term
+title: Maturity
+description: >-
+  The repository's observed position on the lifecycle ladder: seeded, building, released or
+  stable. Maturity is inferred from repository evidence, never declared as classification.
+  Standards may govern particular rungs. Maturity replaces the release-units-declared
+  applicability shortcut; the presence or absence of a workflow or model does not let an
+  in-scope repository evade its standards.
+relationships:
+  related-to:
+    - lifecycle-rung
+    - classification

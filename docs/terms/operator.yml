@@ -1,0 +1,10 @@
+$schema: https://refinery.systems/ontology/term
+title: Operator
+description: >-
+  The person who uses the interactive session to verify or apply work that requires elevated
+  privileges. Operator work stays visible when an agent's file work is complete.
+relationships:
+  related-to:
+    - fix
+    - lane
+    - interactive-session

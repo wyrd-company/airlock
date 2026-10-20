@@ -1,0 +1,13 @@
+$schema: https://refinery.systems/ontology/term
+title: Accepted version
+description: >-
+  The Airlock generation a configuration has accepted. A standard's compiled since release
+  identifies when it was introduced. A newer standard is evaluated and reported as new but does
+  not bind the gate until accepted. A repository may pilot a later version than its
+  organization, never an earlier one. Accepted version replaces requires-registry; it is
+  unrelated to a template's accepted revision.
+relationships:
+  related-to:
+    - standard
+    - org-config
+    - repository-config

@@ -1,0 +1,14 @@
+$schema: https://refinery.systems/ontology/term
+title: Effective config
+description: >-
+  The resolved, identified configuration used for an audit, combining compiled defaults with
+  organization configuration and permitted repository declarations and exceptions. Its
+  provenance identifies the source commits or content digests. Effective config replaces
+  resolved policy and policy bundle; it cannot invent a standard or select one through a
+  capability.
+relationships:
+  related-to:
+    - org-config
+    - repository-config
+    - exception
+    - effective-standard

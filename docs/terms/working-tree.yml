@@ -1,0 +1,12 @@
+$schema: https://refinery.systems/ontology/term
+title: Working tree
+description: >-
+  The local repository files as observed, including uncommitted and untracked content but
+  excluding gitignored files. The report identifies HEAD, dirtiness when known and the
+  observation source. Working-tree evidence is not proof that those bytes were committed at the
+  audited revision.
+relationships:
+  related-to:
+    - audit
+    - evidence
+    - audited-revision

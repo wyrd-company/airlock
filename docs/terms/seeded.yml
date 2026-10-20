@@ -1,0 +1,8 @@
+$schema: https://refinery.systems/ontology/term
+title: Seeded
+description: >-
+  The lifecycle rung before the repository's end-of-seeding 0.0.0 tag. Every repository has an
+  end-of-seeding tag, including repositories that do not publish versioned output.
+relationships:
+  related-to:
+    - maturity

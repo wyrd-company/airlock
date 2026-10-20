@@ -1,0 +1,10 @@
+$schema: https://refinery.systems/ontology/term
+title: Released
+description: >-
+  The lifecycle rung evidenced by a version tag above 0.0.0 and below 1.0.0. Stable is the
+  higher rung for versions at or above 1.0.0. A standard governing released and above governs
+  both rungs.
+relationships:
+  related-to:
+    - maturity
+    - stable

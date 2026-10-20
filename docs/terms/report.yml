@@ -1,0 +1,14 @@
+$schema: https://refinery.systems/ontology/term
+title: Report
+description: >-
+  The account of one audit, identifying Airlock, the repository and audited revision, effective
+  configuration, evidence, evaluated Met and Gap outcomes, waived and routed standards, and any
+  run errors. Report replaces findings document as the name for the audit document. It must not
+  imply that a routed or waived standard was met.
+relationships:
+  related-to:
+    - audit
+    - outcome
+    - waiver
+    - routed
+    - evidence

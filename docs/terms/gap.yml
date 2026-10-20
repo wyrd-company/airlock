@@ -1,0 +1,13 @@
+$schema: https://refinery.systems/ontology/term
+title: Gap
+description: >-
+  An evaluated standard that the repository does not meet. Gap is one of the two outcomes and
+  carries the standard's effective severity and evidence. An unanswered question, routed
+  standard, waiver or run error is not a Gap. Gap replaces fail, failure and nonconformant as
+  names for an unmet standard.
+relationships:
+  related-to:
+    - standard
+    - outcome
+    - evidence
+    - fix

@@ -1,0 +1,14 @@
+$schema: https://refinery.systems/ontology/term
+title: Severity
+description: >-
+  How an unmet standard affects the audit: none prevents evaluation and lists the waiver or
+  missing configuration; advisory evaluates and reports gaps; blocking evaluates, reports gaps
+  and fails the Action when the standard is within the accepted version. Severity has no other
+  meaning. These levels replace required and observation and the separate fails-at or Gate
+  threshold. A run error still exits 2.
+relationships:
+  related-to:
+    - standard
+    - gap
+    - waiver
+    - accepted-version

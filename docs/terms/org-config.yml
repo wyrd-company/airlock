@@ -1,0 +1,13 @@
+$schema: https://refinery.systems/ontology/term
+title: Org config
+description: >-
+  The organization's .github/airlock.yml in its reserved .github repository. It records the
+  accepted Airlock version and reasoned per-standard exceptions, including parameters. Topic
+  vocabulary and organization names are parameters under their standards, not special top-level
+  facts. Org config replaces organization policy as the name of this file; it cannot select
+  standards or define predicates.
+relationships:
+  related-to:
+    - exception
+    - accepted-version
+    - repository-config

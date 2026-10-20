@@ -1,0 +1,9 @@
+$schema: https://refinery.systems/ontology/term
+title: Audience
+description: >-
+  The people a repository is intended to serve, declared as part of its organization-owned
+  classification. Standards use audience to compare the repository with the organization
+  placement and other requirements that govern it.
+relationships:
+  related-to:
+    - classification

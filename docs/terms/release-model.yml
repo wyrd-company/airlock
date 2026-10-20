@@ -1,0 +1,10 @@
+$schema: https://refinery.systems/ontology/term
+title: Release Model
+description: >-
+  A term owned by the release process program and Intentional. Its definition is supplied by
+  Intentional release-model and its document schema; Airlock consumes the term through
+  docs/technical-designs/release-process-conformance.yml, release-record-check. This entry is a
+  reference to that contract, not an Airlock definition.
+relationships:
+  related-to:
+    - release-process-conformance
