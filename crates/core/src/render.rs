@@ -1,3 +1,9 @@
+// ---
+// relationships:
+//   implements: terminal-interface
+//   references: release-process-conformance
+// ---
+
 //! Human-readable renderings of the machine documents.
 //!
 //! The JSON is the contract. Everything here is a view of exactly the same
@@ -7,7 +13,6 @@ use std::fmt::Write as _;
 
 use crate::findings::{FixClass, Report, Status};
 use crate::fix::{self, FixAvailability};
-use crate::plan::{self, Plan};
 use crate::rules::{self, RuleDefinition};
 use crate::worklist::AgentWorkList;
 
@@ -124,6 +129,25 @@ pub fn report_text(report: &Report) -> String {
             );
         }
         if finding.status == Some(Status::Gap) {
+            let class = &finding.fix_class;
+            if let (Some(code), Some(change), Some(kind)) =
+                (&class.code, &class.change, &class.fix_kind)
+            {
+                let _ = writeln!(out, "              fix {code} [{kind}] — {change}");
+                if let Some(reversible) = class.reversible {
+                    let _ = writeln!(
+                        out,
+                        "              {}",
+                        if reversible {
+                            "reversible"
+                        } else {
+                            "not reversible — there is no undo for this one"
+                        }
+                    );
+                }
+            } else if let Some(reason) = &class.none_reason {
+                let _ = writeln!(out, "              no fix — {reason}");
+            }
             if let Some(fix) = &finding.fix {
                 let _ = writeln!(out, "              → {}", fix.detail);
             }
@@ -172,6 +196,7 @@ pub fn report_text(report: &Report) -> String {
         }
     }
 
+    let _ = writeln!(out, "Fixes are a display. Airlock re-observes each rule before it acts; it never applies a remembered observation.");
     out
 }
 
@@ -231,11 +256,10 @@ pub fn agent_work_list_text(list: &AgentWorkList) -> String {
         );
     }
 
-    render_unsettled_group(&mut out, "needs a decision", &list.needs_decision);
-    render_unsettled_group(&mut out, "run errors", &list.run_errors);
-    render_unsettled_group(&mut out, "routed (exit code unchanged)", &list.routed);
-    render_unsettled_group(&mut out, "unbuilt (exit code unchanged)", &list.unbuilt);
-    render_unsettled_group(
+    render_deferred_group(&mut out, "run errors", &list.run_errors);
+    render_deferred_group(&mut out, "routed (exit code unchanged)", &list.routed);
+    render_deferred_group(&mut out, "unbuilt (exit code unchanged)", &list.unbuilt);
+    render_deferred_group(
         &mut out,
         "out-of-scope (exit code unchanged)",
         &list.out_of_scope,
@@ -243,13 +267,15 @@ pub fn agent_work_list_text(list: &AgentWorkList) -> String {
     render_attention_group(&mut out, "waived (not evaluated)", &list.waived);
 
     let gating_unsettled = list
-        .needs_decision
+        .run_errors
         .items
         .iter()
-        .chain(&list.run_errors.items)
         .filter(|item| item.gating)
         .count();
-    let _ = writeln!(out, "\nunsettled gating questions: {gating_unsettled}");
+    let _ = writeln!(
+        out,
+        "\nrun errors blocking completeness: {gating_unsettled}"
+    );
     let _ = writeln!(
         out,
         "routed: {}, unbuilt: {}, out-of-scope: {}, waived: {}",
@@ -263,10 +289,10 @@ pub fn agent_work_list_text(list: &AgentWorkList) -> String {
     out
 }
 
-fn render_unsettled_group(
+fn render_deferred_group(
     out: &mut String,
     heading: &str,
-    group: &crate::worklist::WorkGroup<crate::worklist::UnsettledItem>,
+    group: &crate::worklist::WorkGroup<crate::worklist::DeferredRule>,
 ) {
     let _ = writeln!(out, "\n{heading} ({})", group.count);
     for item in &group.items {
@@ -351,166 +377,6 @@ fn render_work_group(
             item.source.as_deref().unwrap_or("not observed")
         );
     }
-}
-
-/// Render, for a terminal, the changes a report implies.
-///
-/// The rendering says what it is: a display, computed from the observation
-/// above it and true only of that observation. Nothing reads it back. Aligning
-/// re-observes each rule as it reaches it, so a plan cannot go stale between
-/// being printed and being acted on — there is nothing to go stale.
-#[must_use]
-pub fn plan_text(report: &Report) -> String {
-    let plan = Plan::derive(report);
-    let mut out = String::new();
-
-    let _ = writeln!(
-        out,
-        "{} at {}",
-        report.repository.full_name,
-        short(&report.repository.audited_commit)
-    );
-    let _ = writeln!(
-        out,
-        "policy {} from {} (bundle {})",
-        report.policy.name,
-        report.policy.source,
-        short_digest(&report.policy.bundle_digest)
-    );
-    let _ = writeln!(
-        out,
-        "rules {} ({})",
-        report.airlock.rules_version,
-        short_digest(&report.airlock.rules_digest)
-    );
-    out.push('\n');
-    let _ = writeln!(
-        out,
-        "This is what airlock would change, as observed just now. It is a \
-         display,\nnot a work order: aligning re-observes each rule before it \
-         acts, and never\napplies a plan computed earlier."
-    );
-
-    if plan.is_empty() {
-        out.push('\n');
-        let _ = writeln!(out, "No change is proposed for the evaluated rules.");
-    }
-
-    for fix_kind in plan::DISPLAY_ORDER {
-        let changes: Vec<_> = plan.of_kind(*fix_kind).collect();
-        if changes.is_empty() {
-            continue;
-        }
-        out.push('\n');
-        let _ = writeln!(
-            out,
-            "{} ({}) — {}",
-            fix_kind.code(),
-            changes.len(),
-            plan::kind_gloss(*fix_kind)
-        );
-        for change in changes {
-            let _ = writeln!(
-                out,
-                "  {:<16} {:<13} {}",
-                change.rule, change.severity, change.code
-            );
-            let _ = writeln!(out, "      {}", change.change);
-            if let Some(detail) = change.detail {
-                let _ = writeln!(out, "      observed: {detail}");
-            }
-            let _ = writeln!(
-                out,
-                "      {}",
-                if change.reversible {
-                    "reversible"
-                } else {
-                    "not reversible — there is no undo for this one"
-                }
-            );
-        }
-    }
-
-    if !plan.unclosable.is_empty() {
-        out.push('\n');
-        let _ = writeln!(
-            out,
-            "no fix ({}) — airlock offers none; the only move left is a \
-             person's",
-            plan.unclosable.len()
-        );
-        for gap in &plan.unclosable {
-            let _ = writeln!(
-                out,
-                "  {:<16} {:<13} {}",
-                gap.rule,
-                gap.severity,
-                gap.status.map_or("run-error", Status::code)
-            );
-            let _ = writeln!(out, "      {}", gap.reason);
-        }
-    }
-
-    let _ = writeln!(out, "\nwaived ({})", plan.waived.len());
-    for finding in &plan.waived {
-        let reason = finding
-            .suppression
-            .as_ref()
-            .and_then(|w| w.policy_reason.as_ref().or(w.requested_reason.as_ref()))
-            .map_or("not configured", String::as_str);
-        let _ = writeln!(out, "  {} — {}", finding.rule, reason);
-    }
-    for heading in ["routed", "unbuilt", "out-of-scope"] {
-        let rules: Vec<_> = plan
-            .routed
-            .iter()
-            .filter(|r| match r.reason {
-                "unbuilt" | "out-of-scope" => r.reason == heading,
-                _ => heading == "routed",
-            })
-            .collect();
-        let _ = writeln!(
-            out,
-            "\n{heading} ({}) — no Met or Gap outcome; exit code unchanged",
-            rules.len()
-        );
-        for rule in rules {
-            let _ = writeln!(
-                out,
-                "  {} [{}] {} — {}",
-                rule.rule, rule.severity, rule.reason, rule.settling_surface
-            );
-            if let Some(detail) = rule.detail {
-                let _ = writeln!(out, "      {detail}");
-            }
-            if let Some(surface) = rule.verified_by {
-                let _ = writeln!(out, "      {}: {}", surface.code(), surface.guidance());
-            }
-        }
-    }
-    let _ = writeln!(out, "\nrun errors ({})", plan.run_errors.len());
-    for error in &plan.run_errors {
-        let _ = writeln!(
-            out,
-            "  run-error: {} [{}] — makes the run incomplete",
-            error.rule, error.severity
-        );
-    }
-    if plan.is_incomplete() {
-        let _ = writeln!(
-            out,
-            "The run is incomplete; no audit result can be certified."
-        );
-    } else if plan.routed.is_empty() && plan.waived.is_empty() {
-        let _ = writeln!(
-            out,
-            "Every rule was evaluated; this names each observed gap."
-        );
-    } else {
-        let _ = writeln!(out, "No run errors. The waived, routed, unbuilt, and out-of-scope rules above have no Met or Gap outcome.");
-    }
-
-    out
 }
 
 /// Render the rules for a terminal.
@@ -751,6 +617,33 @@ mod tests {
     }
 
     #[test]
+    fn audit_displays_declared_fix_only_for_an_observed_gap() {
+        let mut source = report();
+        let text = report_text(&source);
+        assert!(text.contains("fix add-license-file [airlock]"));
+        assert!(text.contains("not reversible"));
+        assert!(text.contains("re-observes each rule before it acts"));
+        for status in [Some(Status::Met), None] {
+            source.findings[0].status = status;
+            assert!(!report_text(&source).contains("fix add-license-file"));
+        }
+    }
+
+    #[test]
+    fn audit_keeps_the_no_fix_reason_and_contextual_detail() {
+        let mut source = report();
+        source.findings[0].fix_class = FixClass::for_rule("REPO-GIT-08");
+        source.findings[0].fix = Some(crate::findings::Fix::new(
+            crate::FixGroup::CORRECT_MERGE_SETTINGS,
+            "contextual instruction",
+        ));
+        let text = report_text(&source);
+        assert!(text.contains("no fix —"));
+        assert!(text.contains("history surgery"));
+        assert!(text.contains("contextual instruction"));
+    }
+
+    #[test]
     fn the_text_report_shows_the_rule_its_statement_and_the_remedy() {
         let text = report_text(&report());
         assert!(text.contains("REPO-LIC-01 | A `LICENSE` file exists"));
@@ -789,67 +682,7 @@ mod tests {
     }
 
     #[test]
-    fn the_plan_names_the_change_its_code_and_its_reversibility() {
-        let text = plan_text(&report());
-        assert!(text.contains("add-license-file"));
-        assert!(text.contains("Add a `LICENSE` file"));
-        assert!(text.contains("not reversible"));
-        assert!(text.contains("airlock (1)"));
-    }
-
-    #[test]
-    fn the_plan_says_it_is_a_display_and_not_a_stored_work_order() {
-        let text = plan_text(&report());
-        assert!(text.contains("display"));
-        assert!(text.contains("re-observes each rule before it"));
-        assert!(text.contains("never\napplies a plan computed earlier"));
-    }
-
-    #[test]
-    fn the_plan_reports_the_completeness_of_the_observation_it_came_from() {
-        let text = plan_text(&report());
-        assert!(text.contains("Every rule was evaluated"));
-    }
-
-    #[test]
-    fn a_plan_holding_an_admin_only_rule_never_claims_everything_was_decided() {
-        let mut source = report();
-        source.findings[0].rule = "REPO-GIT-04".to_owned();
-        source.findings[0] = crate::findings::fixtures::routed(source.findings[0].clone());
-        let admin_only = crate::findings::Report::assemble(
-            source.airlock.clone(),
-            source.repository.clone(),
-            source.observation.clone(),
-            source.policy.clone(),
-            Vec::new(),
-            Vec::new(),
-            source.findings.clone(),
-        );
-
-        let text = plan_text(&admin_only);
-        assert!(
-            !text.contains("Every rule was evaluated"),
-            "one rule is undecided, and the plan has just said so: {text}"
-        );
-        assert!(text.contains("No run errors"), "{text}");
-        assert!(
-            text.contains("no Met or Gap outcome"),
-            "the plan states the limit of what it names: {text}"
-        );
-    }
-
-    #[test]
-    fn the_plan_names_an_advisory_run_error_as_incomplete() {
-        let mut error = report();
-        error.findings[0].status = None;
-        error.findings[0].severity = "advisory".to_owned();
-        let text = plan_text(&error);
-        assert!(text.contains("REPO-LIC-01"));
-        assert!(text.contains("makes the run incomplete"));
-    }
-
-    #[test]
-    fn the_report_and_plan_both_name_a_rule_that_requires_admin_access() {
+    fn the_report_names_a_rule_that_requires_admin_access() {
         // A rule the rules declare gated, so the guidance the surfaces
         // print has a declaration to come from.
         let mut source = report();
@@ -879,19 +712,6 @@ mod tests {
         assert!(
             text.contains(surface.guidance()),
             "the report takes its guidance from the declaration: {text}"
-        );
-
-        let plan = plan_text(&admin_only);
-        assert!(plan.contains("routed (1)"), "{plan}");
-        assert!(plan.contains("REPO-GIT-04"), "{plan}");
-        assert!(plan.contains(surface.code()), "{plan}");
-        assert!(
-            plan.contains(surface.guidance()),
-            "the plan says where the answer lives, in the declaration's words: {plan}"
-        );
-        assert!(
-            !plan.contains("undecided: REPO-GIT-04"),
-            "it is not filed with the questions a retry here could answer: {plan}"
         );
     }
 
@@ -925,18 +745,6 @@ mod tests {
             !text.to_ascii_lowercase().contains("interactive")
                 && !text.to_ascii_lowercase().contains("admin mode"),
             "the report must not invent destination prose: {text}"
-        );
-        let plan = plan_text(&undeclared);
-        assert!(plan.contains("run-error"), "{plan}");
-        assert!(plan.contains("REPO-LIC-01"), "{plan}");
-        assert!(
-            !plan.contains(rules::VerificationSurface::InteractiveSession.code()),
-            "{plan}"
-        );
-        assert!(
-            !plan.to_ascii_lowercase().contains("interactive")
-                && !plan.to_ascii_lowercase().contains("admin mode"),
-            "the plan must not invent destination prose: {plan}"
         );
     }
 
@@ -974,26 +782,6 @@ mod tests {
             .find(|check| check["id"] == "REPO-LIC-01")
             .expect("REPO-LIC-01 is registered");
         assert!(lic01["disclosure_gate"].is_null());
-    }
-
-    #[test]
-    fn the_plan_says_when_an_undecided_rule_stops_the_run() {
-        let mut gated = report();
-        gated.findings[0].status = None;
-        let text = plan_text(&gated);
-
-        assert!(text.contains("run-error: REPO-LIC-01"), "{text}");
-        assert!(text.contains("makes the run incomplete"), "{text}");
-        assert!(text.contains("no audit result can be certified"), "{text}");
-    }
-
-    #[test]
-    fn a_plan_with_nothing_to_propose_says_so_rather_than_rendering_empty() {
-        let mut clean = report();
-        clean.findings[0].status = Some(Status::Met);
-        let text = plan_text(&clean);
-        assert!(text.contains("No change is proposed"));
-        assert!(!text.contains("add-license-file"));
     }
 
     #[test]

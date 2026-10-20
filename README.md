@@ -167,10 +167,11 @@ airlock agent-work wyrd-company/airlock --working-tree .
 ```
 
 Its `agent_work` contains Gaps classified as `airlock` or `agent`.
-`operator_deferred` lists operator work. `needs_decision` and
-`run_errors` name missing inputs and failed observations. `waived`, `routed`,
+`operator_deferred` lists operator work. `run_errors` names missing inputs and
+failed observations. `waived`, `routed`,
 `unbuilt`, and `out_of_scope` list rules not evaluated here. These lists
-carry counts, identities, reasons, and settling surfaces. The `observation`
+carry counts, identities, evidence, reasons, and settling surfaces. `met` keeps
+evaluated Met outcomes as handoff context. The `observation`
 block records whether files came from the API tree or the local working tree.
 
 This check establishes whether the agent work list is clear. It is not an audit
@@ -188,7 +189,7 @@ To see what it would change about a particular repository rather than in
 general:
 
 ```sh
-airlock plan wyrd-company/airlock
+airlock audit owner/example --format text
 ```
 
 To author only the Airlock fix kind in a checkout:
@@ -298,36 +299,20 @@ every rule means and how it is evaluated — the compiled rule contract. Fix is
 airlock's answer to a gap, and a better
 answer must not invalidate policy compatibility.
 
-## Planning what would change
+## Reading fixes
 
-`airlock plan` observes a repository and prints the change each open gap calls
-for, grouped by fix kind: what an operator can apply directly, what airlock can
-author, and what needs an author's judgment. Each entry names the rule, its
-fix code, what the change would be, and whether it can be undone.
+`airlock audit` shows each observed gap's fix code, fix kind, change,
+reversibility and contextual detail. It names rules with no fix and their reasons.
+Waived, routed, unbuilt, out-of-scope and run-error entries remain visible.
 
 ```sh
-airlock plan wyrd-company/airlock
+airlock audit owner/example --format text
 ```
 
-It reads the repository through the same verified read-only path the audit
-uses. There is no write anywhere behind it, and no flag that adds one.
-
-A plan is a display, and the output says so. Nothing consumes it: it has no
-JSON form, it is never stored, and it is never handed to anything that applies
-changes. Aligning re-observes each rule immediately before acting on it and
-decides from what it then sees — a plan printed a minute ago describes a
-repository that may since have changed, and acting on it would be acting on a
-remembered observation. Machine consumers read the audit's findings document,
-which carries the same `fix_class` this is derived from.
-
-An authorized failure keeps its fix on offer and is marked as standing
-debt: a suppression permitted the failure, it did not close the gap. A rule
-airlock could not decide proposes nothing and is named separately, because
-there is no observed gap to propose a change for.
-
-`airlock plan` exits 0 whenever it could observe and render at all. It is not a
-second gate; `airlock audit` is the surface whose exit code carries the
-verdict.
+Fixes are derived without credentials from the fresh audit report. They are
+for display. The JSON work list is the machine surface; there is no JSON plan
+or stored plan to apply. Airlock re-observes each rule immediately before acting
+and decides from that observation.
 
 ## Closing settings gaps
 

@@ -4,7 +4,7 @@ AIRLOCK 0.0.0  sign-in › organizations › repositories › findings   no cred
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 RUN INCOMPLETE  complete is false, and no verdict below it can be certified                                             
   ? REPO-GIT-09    run-error     permission on GET /repos/{owner}/{repo}/rulesets                                       
-  ? REPO-REL-04    run-error     capability_undeclared: the repository has no organization custom property `release`; d…
+  ? REPO-REL-04    run-error     required_input_missing: a required input is missing                                    
                                                                                                                         
 VERDICT  ? incomplete   ALIGNED 2 of 9                                                                                  
   complete    false  2 run errors prevented completion                                                                  
@@ -22,7 +22,7 @@ showing       lookup · every finding ordered by rule id · all 9 shown, never n
     ███  ✓    │   │ REPO-META-01   met           identity       the condition REPO-META-01 states                       
     ██░  ✓    │   │ REPO-META-02   met           identity       the condition REPO-META-02 states                       
     ██░       │   │ REPO-README-04 unbuilt       readme         unbuilt — A release with the compiled check implemented 
-  ▌ ██░       │   │ REPO-REL-04    run-error     release        the condition REPO-REL-04 states                        
+  ▌ ██░       │   │ REPO-REL-04    run-error     release        run error: blocks completeness at every severity · the …
 0 above · 0 below · working set 9 of 9 · ↑↓ moves through the rest                                                      
                                                                                                                         
                                                                                                                         
@@ -45,7 +45,7 @@ aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 ddddddddddddddddeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 fffffffffffffffffffffffffffffffffggggggggggggggggggggggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-fffffffffffffffffffffffffffffffffggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+fffffffffffffffffffffffffffffffffgggggggggggggggggggggggggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 hhhhhhhhhddddddddddddiiijjjjjjjjjjjjjjeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeegggggggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
@@ -63,7 +63,7 @@ kkleeeeellleeemeeemeeeeeeeeeeeeeeeelllllllllllllliiiiiiiiiiiiiiigggggggggggggggg
 kkleeeeennneeemeeemeeeeeeeeeeeeeeeennnnnnnnnnnnnniiiiiiiiiiiiiiigggggggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeee
 kkleeeeennneeemeeemeeeeeeeeeeeeeeeennnnnnnnnnnnnniiiiiiiiiiiiiiigggggggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeee
 kkleeeeeeeeeeemeeemeeeeeeeeeeeeeeeeffffffffffffffiiiiiiiiiiiiiiiggggggggggggggggggggggggggggggggggggggggggggggggggggggge
-kkleeeeeeeeeeemeeemeeeeeeeeeeeeeeeeffffffffffffffiiiiiiiiiiiiiiiggggggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeee
+kkleeeeeeeeeeemeeemeeeeeeeeeeeeeeeeffffffffffffffiiiiiiiiiiiiiiigggggggggggggggggggggggggggggggggggggggggggggggggggggggg
 ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee

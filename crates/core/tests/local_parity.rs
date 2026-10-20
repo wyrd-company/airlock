@@ -1,3 +1,9 @@
+// ---
+// relationships:
+//   implements: terminal-interface
+//   references: release-process-conformance
+// ---
+
 //! Parity between the two observation sources.
 //!
 //! For a clean checkout at the audited commit, local and API evaluation must
@@ -816,8 +822,6 @@ async fn no_release_units_are_listed_out_of_scope_without_run_errors() {
     );
     let text = airlock_core::render::report_text(&report);
     assert!(text.contains("out-of-scope: 6"), "{text}");
-    let text = airlock_core::render::plan_text(&report);
-    assert!(text.contains("out-of-scope (6)"), "{text}");
     assert!(!text.contains("Every rule was evaluated"));
 }
 

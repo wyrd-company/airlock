@@ -1,4 +1,4 @@
-finding-capability-decision-80x24-dark · 80x24 · theme dark · colour
+finding-missing-input-80x24-dark · 80x24 · theme dark · colour
 --- text ---
 AIRLOCK 0.0.0  …indings › finding detail  no credential stored · theme t · dark 
 ▌ REPO-REL-04        │   │  run-error  ██░ advisory                             
@@ -7,21 +7,21 @@ Run error: complete is false, at every severity. The audit exits 2.
 the condition REPO-REL-04 states                                                
                                                                                 
 EVIDENCE                                                                        
-evidence.code         capability_undeclared                                     
+evidence.code         required_input_missing                                    
 evidence.path         null                                                      
-evidence.detail       the repository has no organization custom property        
-                      `release`; declare `release` as `true` when this          
-                      capability holds                                          
-evidence.capability   declared below                                            
-  property            release                                                   
-  value               true                                                      
+evidence.detail       a required input is missing                               
+evidence.capability   null                                                      
                                                                                 
 FIX                                                                             
 fix_class                                                                       
   code                redesign-release-trigger                                  
   change              Make release a `workflow_dispatch` on a pinned source SHA.
   fix kind            agent                                                     
-— 0 lines above · 21 below · ↑↓ moves the window —                              
+  reversible          yes                                                       
+                                                                                
+WHY THIS RULE APPLIES                                                           
+severity              advisory                                                  
+— 0 lines above · 17 below · ↑↓ moves the window —                              
 esc back · a fix transcript · o re-observe this rule · 3 more…                  
 not evaluated · run error; complete: false                                      
 --- style keys ---
@@ -32,13 +32,9 @@ dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 iiiiiiiidddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-jjjjjjjjjjjjjjjjjjjjjjhhhhhhhhhhhhhhhhhhhhhddddddddddddddddddddddddddddddddddddd
+jjjjjjjjjjjjjjjjjjjjjjhhhhhhhhhhhhhhhhhhhhhhdddddddddddddddddddddddddddddddddddd
 jjjjjjjjjjjjjjjjjjjjjjhhhhdddddddddddddddddddddddddddddddddddddddddddddddddddddd
-jjjjjjjjjjjjjjjjjjjjjjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhdddddddd
-jjjjjjjjjjjjjjjjjjjjjjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhdddddddddd
-jjjjjjjjjjjjjjjjjjjjjjhhhhhhhhhhhhhhhhdddddddddddddddddddddddddddddddddddddddddd
-jjjjjjjjjjjjjjjjjjjjjjhhhhhhhhhhhhhhdddddddddddddddddddddddddddddddddddddddddddd
-jjjjjjjjjjjjjjjjjjjjjjhhhhhhhddddddddddddddddddddddddddddddddddddddddddddddddddd
+jjjjjjjjjjjjjjjjjjjjjjhhhhhhhhhhhhhhhhhhhhhhhhhhhddddddddddddddddddddddddddddddd
 jjjjjjjjjjjjjjjjjjjjjjhhhhdddddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 iiiddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
@@ -46,6 +42,10 @@ jjjjjjjjjddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 jjjjjjjjjjjjjjjjjjjjjjhhhhhhhhhhhhhhhhhhhhhhhhdddddddddddddddddddddddddddddddddd
 jjjjjjjjjjjjjjjjjjjjjjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh
 jjjjjjjjjjjjjjjjjjjjjjhhhhhddddddddddddddddddddddddddddddddddddddddddddddddddddd
+jjjjjjjjjjjjjjjjjjjjjjhhhddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+iiiiiiiiiiiiiiiiiiiiiddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+jjjjjjjjjjjjjjjjjjjjjjhhhhhhhhdddddddddddddddddddddddddddddddddddddddddddddddddd
 jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjdddddddddddddddddddddddddddddd
 eeedhhhhjjjedhhhhhhhhhhhhhhjjjedhhhhhhhhhhhhhhhhhhhhjjjkkkkkkkdddddddddddddddddd
 llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll

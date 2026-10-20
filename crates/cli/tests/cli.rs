@@ -1,3 +1,9 @@
+// ---
+// relationships:
+//   implements: terminal-interface
+//   references: release-process-conformance
+// ---
+
 //! End-to-end runs of the `airlock` binary.
 //!
 //! Every run here talks to a fixture GitHub. The binary is pointed at it by
@@ -373,25 +379,25 @@ async fn a_blocking_failure_exits_one() {
 }
 
 // ---------------------------------------------------------------------------
-// Plan
+// Human audit fixes
 // ---------------------------------------------------------------------------
 
-/// Run `airlock plan` against a fixture repository and return what it printed.
-async fn plan_text(repo: FakeRepo, policy: &str) -> String {
+/// Run `airlock audit` against a fixture repository and return what it printed.
+async fn audit_text(repo: FakeRepo, policy: &str) -> String {
     let server = support::start(&[repo]).await;
     let config = TempDir::new().unwrap();
     let policies = TempDir::new().unwrap();
     let assertion = airlock(&server, &config)
         .args([
-            "plan",
+            "audit",
+            "--format",
+            "text",
             "wyrd-company/example",
             "--policy",
             &policy_path(&policies, policy),
         ])
         .assert()
-        // A plan is a display, never a gate: the repository below is
-        // nonconformant and `airlock audit` exits 1 on it.
-        .code(0);
+        .code(predicates::iter::in_iter([0, 1]));
     String::from_utf8(assertion.get_output().stdout.clone()).expect("stdout is utf-8")
 }
 
@@ -403,8 +409,8 @@ fn nonconformant_repo() -> FakeRepo {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn plan_prints_the_change_each_open_gap_calls_for() {
-    let text = plan_text(nonconformant_repo(), LICENSING_POLICY).await;
+async fn audit_prints_the_change_each_open_gap_calls_for() {
+    let text = audit_text(nonconformant_repo(), LICENSING_POLICY).await;
 
     assert!(text.contains("REPO-LIC-01"), "{text}");
     assert!(
@@ -419,26 +425,26 @@ async fn plan_prints_the_change_each_open_gap_calls_for() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn plan_says_its_output_is_a_display_and_not_a_stored_work_order() {
-    let text = plan_text(nonconformant_repo(), LICENSING_POLICY).await;
+async fn audit_says_its_output_is_a_display_and_not_a_stored_work_order() {
+    let text = audit_text(nonconformant_repo(), LICENSING_POLICY).await;
     assert!(text.contains("display"), "{text}");
     assert!(text.contains("re-observes each rule"), "{text}");
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn plan_proposes_nothing_for_a_repository_with_no_open_gap() {
+async fn audit_proposes_nothing_for_a_repository_with_no_open_gap() {
     let repo = FakeRepo::new("wyrd-company", "example")
         .with_file("LICENSE", "Apache License 2.0")
         .with_file(
             "Cargo.toml",
             "[package]\nname = \"example\"\nlicense = \"Apache-2.0\"\n",
         );
-    let text = plan_text(repo, LICENSING_POLICY).await;
-    assert!(text.contains("No change is proposed"), "{text}");
+    let text = audit_text(repo, LICENSING_POLICY).await;
+    assert!(!text.contains("fix add-license-file"), "{text}");
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn plan_refuses_a_credential_it_cannot_prove_read_only() {
+async fn audit_refuses_a_credential_it_cannot_prove_read_only() {
     let server = support::start(&[FakeRepo::new("wyrd-company", "example")]).await;
     let config = TempDir::new().unwrap();
     let policies = TempDir::new().unwrap();
@@ -449,7 +455,7 @@ async fn plan_refuses_a_credential_it_cannot_prove_read_only() {
     airlock(&server, &config)
         .env("AIRLOCK_TOKEN", "github_pat_11ABCDEFG")
         .args([
-            "plan",
+            "audit",
             "wyrd-company/example",
             "--policy",
             &policy_path(&policies, LICENSING_POLICY),
@@ -460,14 +466,17 @@ async fn plan_refuses_a_credential_it_cannot_prove_read_only() {
 }
 
 #[test]
-fn plan_offers_no_output_format_because_nothing_consumes_a_plan() {
-    // A JSON plan would invite a pipeline to read it back, and a plan read
-    // back is a remembered observation. Machine consumers read the audit.
+fn retired_plan_command_is_not_a_machine_or_human_surface() {
     offline()
         .args(["plan", "--help"])
         .assert()
+        .code(2)
+        .stderr(contains("unrecognized subcommand"));
+    offline()
+        .arg("--help")
+        .assert()
         .success()
-        .stdout(contains("--format").not());
+        .stdout(contains("  plan").not());
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1447,10 +1456,10 @@ async fn agent_work_names_admin_only_gaps_as_their_own_group_without_gating_on_t
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn plan_names_what_requires_admin_access_to_verify() {
-    let text = plan_text(scheduled_audit_repo(), GIT_POLICY).await;
+async fn audit_names_what_requires_admin_access_to_verify() {
+    let text = audit_text(scheduled_audit_repo(), GIT_POLICY).await;
 
-    assert!(text.contains("routed (3)"), "{text}");
+    assert!(text.contains("routed: 3"), "{text}");
     for rule in ["REPO-GIT-04", "REPO-GIT-05", "REPO-GIT-06"] {
         assert!(text.contains(rule), "{rule} must be named: {text}");
     }
@@ -1466,7 +1475,7 @@ async fn plan_names_what_requires_admin_access_to_verify() {
     // say that nothing the read-only surface could ask went unanswered, and it
     // may not say that everything was decided.
     assert!(
-        text.contains("No run errors"),
+        text.contains("run errors: 0"),
         "no circumstantial question was left open: {text}"
     );
     assert!(

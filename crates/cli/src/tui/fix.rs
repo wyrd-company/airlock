@@ -11,8 +11,6 @@ use crate::admin::fix::{ObservedStatus, Transcript};
 pub enum Input {
     /// No input: the compiled fix names the complete change.
     None,
-    /// Policy-owned input displayed for confirmation but not editable.
-    Fixed { argument: String, display: String },
     /// A repository-name target authored in a focused text field.
     Text {
         draft: String,
@@ -119,7 +117,6 @@ impl Item {
     pub fn argument(&self) -> Option<String> {
         match &self.input {
             Input::None => None,
-            Input::Fixed { argument, .. } => Some(argument.clone()),
             Input::Text { draft, .. } => Some(draft.clone()),
             Input::Choice {
                 values, selected, ..
@@ -195,7 +192,7 @@ impl State {
         if request
             .items
             .iter()
-            .any(|item| !matches!(item.input, Input::None | Input::Fixed { .. }))
+            .any(|item| !matches!(item.input, Input::None))
         {
             Self::Input { request }
         } else {
@@ -360,7 +357,7 @@ impl State {
         };
         let fix = item.fix.clone();
         let valid = match &mut item.input {
-            Input::None | Input::Fixed { .. } => true,
+            Input::None => true,
             Input::Text {
                 draft,
                 required_prefix,
@@ -693,7 +690,7 @@ pub fn body(styles: Styles, width: usize, state: &State) -> Vec<Line<'static>> {
                 }
                 lines.push(Line::from(format!("type name       {typed_name}")));
             }
-            Input::None | Input::Fixed { .. } => {}
+            Input::None => {}
         },
         State::SecretEntry { request, input } => {
             let target = request.items[0]
@@ -768,7 +765,6 @@ pub fn body(styles: Styles, width: usize, state: &State) -> Vec<Line<'static>> {
 fn confirmed_input(item: &Item, repository: &str, width: usize) -> Vec<String> {
     match &item.input {
         Input::None => Vec::new(),
-        Input::Fixed { display, .. } => vec![format!("selected        {display}")],
         Input::Text { draft, .. } => vec![format!("selected        {draft}")],
         Input::Choice {
             values, selected, ..
@@ -981,40 +977,6 @@ mod tests {
         );
         assert!(state.take_confirmation().is_some());
         assert!(state.take_confirmation().is_none());
-    }
-
-    #[test]
-    fn a_capability_confirmation_names_property_value_and_organization() {
-        let state = State::confirm(
-            "generic-owner".to_owned(),
-            "sample-repository".to_owned(),
-            vec![Item {
-                rule: "REPO-REL-04".to_owned(),
-                fix: "declare-capability-property".to_owned(),
-                change: "set the capability declaration".to_owned(),
-                reversible: false,
-                input: Input::Fixed {
-                    argument: "release\ntrue".to_owned(),
-                    display: "release = true · organization generic-owner".to_owned(),
-                },
-            }],
-        );
-        assert!(matches!(state, State::Confirm { .. }));
-        let rendered = body(
-            Styles::new(
-                super::super::theme::Theme::Dark,
-                super::super::theme::ColorMode::Color,
-            ),
-            80,
-            &state,
-        )
-        .into_iter()
-        .map(|line| line.to_string())
-        .collect::<Vec<_>>()
-        .join("\n");
-        assert!(rendered.contains("release = true"));
-        assert!(rendered.contains("organization generic-owner"));
-        assert!(rendered.contains("sample-repository"));
     }
 
     #[test]

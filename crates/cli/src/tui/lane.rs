@@ -1,3 +1,9 @@
+// ---
+// relationships:
+//   implements: terminal-interface
+//   references: release-process-conformance
+// ---
+
 //! The status-lane primitive, implemented once and reused everywhere.
 //!
 //! An evaluated finding carries Met or Gap. The outcome sits in one
@@ -5,8 +11,8 @@
 //! shows a status: position carries the meaning, and hue only confirms it.
 //!
 //! The three lanes read as three shape families — the gating lane uses stroke
-//! marks, the inert lane closed outlines, and the undecided lane enclosed
-//! forms. The undecided lane is ruled off on both sides on every row that shows
+//! marks, the inert lane closed outlines, and the not evaluated lane enclosed
+//! forms. The not evaluated lane is ruled off on both sides on every row that shows
 //! it, so nothing standing in it can be mistaken for a pass in any theme or
 //! with colour removed.
 //!
@@ -24,7 +30,7 @@ use super::theme::{Role, Styles};
 /// The width of one lane cell, glyph centred.
 const CELL: usize = 3;
 
-/// The rule drawn down both sides of the undecided lane.
+/// The rule drawn down both sides of the not evaluated lane.
 const RAIL: &str = "\u{2502}";
 
 /// The rail a row carries when it actually gates the run.
@@ -43,12 +49,12 @@ pub enum Lane {
     Inert,
     /// Makes the run incomplete at a gating severity, unless the fact requires
     /// admin access to verify.
-    Undecided,
+    NotEvaluated,
 }
 
 impl Lane {
     /// Every lane, left to right, in the order they are printed.
-    pub const ALL: [Lane; 3] = [Lane::Gating, Lane::Inert, Lane::Undecided];
+    pub const ALL: [Lane; 3] = [Lane::Gating, Lane::Inert, Lane::NotEvaluated];
 
     /// The heading the status summary groups its counts under.
     #[must_use]
@@ -56,7 +62,7 @@ impl Lane {
         match self {
             Self::Gating => "DECIDED \u{b7} GATING",
             Self::Inert => "DECIDED \u{b7} INERT",
-            Self::Undecided => "UNDECIDED",
+            Self::NotEvaluated => "NOT EVALUATED",
         }
     }
 
@@ -67,7 +73,7 @@ impl Lane {
         match self {
             Self::Gating => "counts toward the verdict",
             Self::Inert => "never gates",
-            Self::Undecided => {
+            Self::NotEvaluated => {
                 "no outcome: read the waived, routed, unbuilt, out-of-scope, or run-error label"
             }
         }
@@ -79,7 +85,7 @@ impl Lane {
 pub const fn lane_of(status: Option<Status>) -> Lane {
     match status {
         Some(_) => Lane::Gating,
-        None => Lane::Undecided,
+        None => Lane::NotEvaluated,
     }
 }
 #[must_use]
@@ -101,7 +107,7 @@ pub const fn gloss_of(status: Option<Status>) -> &'static str {
 
 /// The three lanes as spans, coloured only where colour is being emitted.
 ///
-/// The rails are drawn whatever the status, so the undecided lane is a physical
+/// The rails are drawn whatever the status, so the not evaluated lane is a physical
 /// fence rather than a decoration that appears only when something stands in
 /// it.
 #[must_use]
@@ -109,7 +115,7 @@ pub fn lanes_spans(status: Option<Status>, styles: Styles) -> Vec<Span<'static>>
     let mut spans = Vec::with_capacity(7);
     let rail = Span::styled(RAIL, styles.of(Role::Border));
     for lane in Lane::ALL {
-        if lane == Lane::Undecided {
+        if lane == Lane::NotEvaluated {
             spans.push(rail.clone());
         }
         match status.filter(|s| lane_of(Some(*s)) == lane) {
@@ -119,7 +125,7 @@ pub fn lanes_spans(status: Option<Status>, styles: Styles) -> Vec<Span<'static>>
             )),
             None => spans.push(Span::raw(" ".repeat(CELL))),
         }
-        if lane == Lane::Undecided {
+        if lane == Lane::NotEvaluated {
             spans.push(rail.clone());
         }
     }
@@ -218,16 +224,16 @@ mod tests {
                 .position(|(index, _)| text[index..].starts_with(glyph))
                 .expect("the glyph is drawn");
             let lane = lane_of(Some(*status));
-            // Gating and inert lanes precede the opening rail; the undecided
+            // Gating and inert lanes precede the opening rail; the not evaluated
             // lane follows it.
             let index = Lane::ALL.iter().position(|l| *l == lane).expect("a lane");
-            let expected = index * CELL + 1 + usize::from(lane == Lane::Undecided);
+            let expected = index * CELL + 1 + usize::from(lane == Lane::NotEvaluated);
             assert_eq!(column, expected, "{status:?} stands in {lane:?}");
         }
     }
 
     #[test]
-    fn the_undecided_lane_is_fenced_on_every_row_including_empty_ones() {
+    fn the_not_evaluated_lane_is_fenced_on_every_row_including_empty_ones() {
         let empty = lanes_text(None);
         assert_eq!(empty.matches(RAIL).count(), 2);
         for status in Status::ALL {

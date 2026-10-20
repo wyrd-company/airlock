@@ -1,3 +1,9 @@
+// ---
+// relationships:
+//   implements: terminal-interface
+//   references: release-process-conformance
+// ---
+
 //! The finding detail: everything airlock knows about one rule.
 //!
 //! This is the screen that answers "why does this say what it says". The queue
@@ -16,7 +22,7 @@
 //!   read is indistinguishable from a rule that was never run, and the
 //!   fix is retained because authorizing a failure does not delete the
 //!   fix for it;
-//! * an **error** is undecided, and what it reports is why airlock did not
+//! * an **error** is not evaluated, and what it reports is why airlock did not
 //!   look. It is never rendered as a failure, at any severity, for any cause.
 //!
 //! Everything drawn here was made safe where the run became a read model, and
@@ -173,8 +179,10 @@ impl Fix {
 /// server-supplied string could reach a cell.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Detail {
+    /// Full declared gate reason and destination, sanitized without truncation.
+    pub routing: Option<airlock_core::findings::Routing>,
     /// How the rule is evaluated, which is a property of the rule and not of
-    /// the run: a manual rule reports its judgment mode every time.
+    /// the run: compiled rules declare their check boundaries.
     pub evaluation: Option<&'static str>,
     /// Why a non-mechanical evaluation is the honest boundary, where the
     /// rules declare a reason.
@@ -198,6 +206,13 @@ impl Detail {
     pub fn of(finding: &Finding, effective_policy: &[EffectiveRuleRecord]) -> Self {
         let definition = rules::find(&finding.rule);
         Self {
+            routing: finding
+                .routing
+                .as_ref()
+                .map(|route| airlock_core::findings::Routing {
+                    reason: drawable(&route.reason),
+                    settling_surface: drawable(&route.settling_surface),
+                }),
             evaluation: definition.map(|_| "compiled"),
             evaluation_reason: definition.and_then(rules::RuleDefinition::unbuilt_reason),
             policy_provenance: effective_policy
@@ -302,6 +317,17 @@ fn regions(
     }
     lines.push(Line::default());
     lines.extend(evidence_region(styles, width, row));
+    if let Some(route) = &detail.routing {
+        lines.push(Line::default());
+        lines.push(heading(styles, "DECLARED GATE"));
+        lines.extend(value(styles, width, "reason", &route.reason));
+        lines.extend(value(
+            styles,
+            width,
+            "settling surface",
+            &route.settling_surface,
+        ));
+    }
     if detail.error.is_some() {
         lines.push(Line::default());
         lines.extend(error_region(styles, width, detail.error.as_ref()));
@@ -484,7 +510,7 @@ fn suppression_region(
 fn fix_region(styles: Styles, width: usize, row: &super::findings::Row) -> Vec<Line<'static>> {
     let fix = &row.detail.fix;
     let mut lines = vec![heading(styles, "FIX")];
-    if row.group == super::findings::Group::Authorized && fix.offered() {
+    if row.group == super::findings::Group::Waived && fix.offered() {
         lines.extend(value(
             styles,
             width,
@@ -586,7 +612,7 @@ fn effect_region(styles: Styles, width: usize, row: &super::findings::Row) -> Ve
 ///
 /// Composed from status, severity, and the gate together, because neither
 /// severity nor status alone is consequence: a fail at a severity the gate does
-/// not enforce stops nothing, and an undecided result there leaves the run
+/// not enforce stops nothing, and an not evaluated result there leaves the run
 /// complete.
 #[must_use]
 fn effect(row: &super::findings::Row) -> String {
@@ -596,7 +622,7 @@ fn effect(row: &super::findings::Row) -> String {
             "Blocking Gap: Exit 1 when no run error is present.".to_owned()
         }
         Some(Status::Gap) => "Advisory Gap: the exit code is unchanged.".to_owned(),
-        None if row.group == super::findings::Group::Unanswered => {
+        None if row.group == super::findings::Group::RunErrors => {
             "Run error: Airlock could not complete its job. Exit 2.".to_owned()
         }
         None => format!(
@@ -613,9 +639,9 @@ pub fn status(row: &super::findings::Row) -> String {
     let lane = match lane::lane_of(row.status) {
         Lane::Gating => "decided \u{b7} gating",
         Lane::Inert => "decided \u{b7} inert",
-        Lane::Undecided => "not evaluated",
+        Lane::NotEvaluated => "not evaluated",
     };
-    // Undecided is asked first, because what an unanswered question does to a
+    // NotEvaluated is asked first, because what an unanswered question does to a
     // run is decided before what a decided one does: it sets complete, and
     // incompleteness outranks nonconformance.
     let effect = if row.status.is_none() && row.gates() {

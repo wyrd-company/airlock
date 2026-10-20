@@ -876,7 +876,7 @@ fn queues() -> Vec<Case> {
         ),
         (
             "findings-expanded",
-            Run::of(fixture::mixed()).driven(14, " "),
+            Run::of(fixture::mixed()).driven(15, " "),
         ),
         (
             "findings-filtered",
@@ -884,8 +884,8 @@ fn queues() -> Vec<Case> {
         ),
         ("findings-lookup", Run::of(fixture::mixed()).driven(0, "l")),
         (
-            "finding-capability-decision",
-            Run::of(fixture::mixed()).driven(5, "\n"),
+            "finding-missing-input",
+            Run::of(fixture::mixed()).driven(9, "\n"),
         ),
     ] {
         for (width, height) in [
@@ -1309,25 +1309,6 @@ fn fix_input_and_result_frames_match_recordings() {
                 },
                 input: super::fix::SecretInputState::Empty,
             },
-        ),
-        (
-            "fix-capability-confirm-120x40-dark",
-            State::confirm(
-                "generic-owner".to_owned(),
-                "sample-repository".to_owned(),
-                vec![Item {
-                    rule: "REPO-REL-04".to_owned(),
-                    fix: "declare-capability-property".to_owned(),
-                    change:
-                        "set organization custom property `release` to `true` for this repository"
-                            .to_owned(),
-                    reversible: false,
-                    input: Input::Fixed {
-                        argument: "release\ntrue".to_owned(),
-                        display: "release = true · organization generic-owner".to_owned(),
-                    },
-                }],
-            ),
         ),
     ];
     for (name, state) in frames {

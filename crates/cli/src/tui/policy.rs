@@ -1,3 +1,9 @@
+// ---
+// relationships:
+//   implements: terminal-interface
+//   references: release-process-conformance
+// ---
+
 //! The policy inspector: the effective policy, and where each rule came from.
 //!
 //! The findings screen answers what the run concluded. This answers what the
@@ -8,10 +14,8 @@
 //! says where the rules came from, including the material the policy supplied
 //! rather than the rules.
 //!
-//! Evaluation is a property of the rule and not of the run. A manual rule
-//! reports its judgment mode every time it is listed and never becomes
-//! mechanical, so the column is read from the compiled rules rather than
-//! from anything this run observed.
+//! Evaluation is a property of the compiled rule. The column names its
+//! declared unbuilt boundary where one exists.
 //!
 //! The digest, the sources, the provenance, and the table are one reading and
 //! scroll as one. None of them is a decoration of the others.
@@ -25,7 +29,7 @@ use crate::admin::text::sanitize;
 
 use super::chrome::fit;
 use super::lane;
-use super::panel::{self, field_at, heading, Provenance, Scroll};
+use super::panel::{self, field_at, heading, Scroll};
 use super::theme::{Role, Styles};
 
 /// The column every labelled value on this screen starts in.
@@ -84,63 +88,36 @@ pub struct Source {
     pub blob: String,
 }
 
-/// The whole screen's read model, built once from one run.
-///
-/// The second of the interface's two sanitizing boundaries, and it holds to the
-/// same rule as the first: a [`Report`] carries strings a server supplied, and
-/// nothing built here does. No `Report` is retained anywhere the renderer can
-/// reach.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Inspector {
-    /// Every rule the run asked about, in rule-id order.
-    pub rules: Vec<Rule>,
-    /// How many distinct sections those rules fall into.
-    pub sections: usize,
-    /// Where the rules and the policy material came from.
-    pub sources: Vec<Source>,
-    /// What produced the reading, and what it was of.
-    pub provenance: Provenance,
+/// Build the effective rules at the queue's single sanitizing boundary.
+pub fn effective_rules(report: &Report) -> Vec<Rule> {
+    let mut rules: Vec<Rule> = report
+        .effective_policy
+        .iter()
+        .map(|entry| {
+            let definition = rules::find(&entry.rule);
+            Rule {
+                rule: sanitize(&entry.rule, VALUE_LIMIT),
+                severity: Severity::parse(&entry.severity).unwrap_or(Severity::Advisory),
+                evaluation: definition.map_or("not registered", |check| {
+                    if check.unbuilt_reason().is_some() {
+                        "unbuilt gate"
+                    } else {
+                        "compiled"
+                    }
+                }),
+                section: definition.map_or_else(
+                    || "not registered".to_owned(),
+                    |check| check.section.code().to_owned(),
+                ),
+                provenance: sanitize(&entry.provenance, VALUE_LIMIT),
+            }
+        })
+        .collect();
+    rules.sort_by(|left, right| left.rule.cmp(&right.rule));
+    rules
 }
 
-impl Inspector {
-    /// Build the screen's read model from one run.
-    #[must_use]
-    pub fn of(report: &Report) -> Self {
-        let mut rules: Vec<Rule> = report
-            .effective_policy
-            .iter()
-            .map(|entry| {
-                let definition = rules::find(&entry.rule);
-                Rule {
-                    rule: sanitize(&entry.rule, VALUE_LIMIT),
-                    severity: Severity::parse(&entry.severity).unwrap_or(Severity::Advisory),
-                    evaluation: definition.map_or("not registered", |check| {
-                        if check.unbuilt_reason().is_some() {
-                            "unbuilt gate"
-                        } else {
-                            "compiled"
-                        }
-                    }),
-                    section: definition.map_or_else(
-                        || "not registered".to_owned(),
-                        |check| check.section.code().to_owned(),
-                    ),
-                    provenance: sanitize(&entry.provenance, VALUE_LIMIT),
-                }
-            })
-            .collect();
-        rules.sort_by(|left, right| left.rule.cmp(&right.rule));
-        let mut sections: Vec<&str> = rules.iter().map(|rule| rule.section.as_str()).collect();
-        sections.sort_unstable();
-        sections.dedup();
-        Self {
-            sections: sections.len(),
-            sources: sources(report, &rules),
-            provenance: Provenance::of(report),
-            rules,
-        }
-    }
-
+impl super::findings::Queue {
     /// The digest as the status line quotes it.
     #[must_use]
     pub fn abbreviated_digest(&self) -> String {
@@ -164,7 +141,7 @@ impl Inspector {
 /// Policy-sourced material is marked as such rather than being listed beside a
 /// blob identity it does not have. A suppression has no bytes in the rules
 /// to point at, and printing a digest next to one would say it did.
-fn sources(report: &Report, _rules: &[Rule]) -> Vec<Source> {
+pub fn sources(report: &Report) -> Vec<Source> {
     let mut sources = vec![Source {
         name: sanitize(&report.policy.name, VALUE_LIMIT),
         reference: reference(&report.policy.source, report.policy.commit.as_deref()),
@@ -228,7 +205,7 @@ pub fn body(
     styles: Styles,
     width: u16,
     height: u16,
-    inspector: &Inspector,
+    inspector: &super::findings::Queue,
     state: &Scroll,
 ) -> Vec<Line<'static>> {
     let width = width as usize;
@@ -236,7 +213,7 @@ pub fn body(
 }
 
 /// Every region, in order.
-fn regions(styles: Styles, width: usize, inspector: &Inspector) -> Vec<Line<'static>> {
+fn regions(styles: Styles, width: usize, inspector: &super::findings::Queue) -> Vec<Line<'static>> {
     let mut lines = vec![
         Line::from(vec![
             Span::styled("EFFECTIVE POLICY", styles.bold(Role::Accent)),
@@ -263,7 +240,11 @@ fn regions(styles: Styles, width: usize, inspector: &Inspector) -> Vec<Line<'sta
 }
 
 /// The digest, and what it proves.
-fn digest_region(styles: Styles, width: usize, inspector: &Inspector) -> Vec<Line<'static>> {
+fn digest_region(
+    styles: Styles,
+    width: usize,
+    inspector: &super::findings::Queue,
+) -> Vec<Line<'static>> {
     let mut lines = vec![heading(styles, "RULES DIGEST")];
     // In full. An abbreviated digest cannot be compared against another run's,
     // and comparing them is the only thing a digest is for.
@@ -298,7 +279,11 @@ fn digest_region(styles: Styles, width: usize, inspector: &Inspector) -> Vec<Lin
 }
 
 /// Where the rules came from.
-fn sources_region(styles: Styles, width: usize, inspector: &Inspector) -> Vec<Line<'static>> {
+fn sources_region(
+    styles: Styles,
+    width: usize,
+    inspector: &super::findings::Queue,
+) -> Vec<Line<'static>> {
     let mut lines = vec![heading(styles, "SOURCES")];
     if inspector.sources.is_empty() {
         lines.extend(empty(
@@ -323,7 +308,7 @@ fn sources_region(styles: Styles, width: usize, inspector: &Inspector) -> Vec<Li
 }
 
 /// Every rule the run asked about.
-fn table(styles: Styles, width: usize, inspector: &Inspector) -> Vec<Line<'static>> {
+fn table(styles: Styles, width: usize, inspector: &super::findings::Queue) -> Vec<Line<'static>> {
     let mut lines = vec![heading(styles, "RULES")];
     if inspector.rules.is_empty() {
         lines.extend(empty(
@@ -376,7 +361,7 @@ fn table(styles: Styles, width: usize, inspector: &Inspector) -> Vec<Line<'stati
 /// The status line: the rules version, the abbreviated digest, the rule
 /// count, and the section count.
 #[must_use]
-pub fn status(inspector: &Inspector) -> String {
+pub fn status(inspector: &super::findings::Queue) -> String {
     format!(
         "rules {} \u{b7} {} \u{b7} {} rules \u{b7} {} sections",
         inspector.provenance.rules_version,
@@ -439,10 +424,15 @@ mod tests {
     use super::*;
     use crate::tui::chrome::{FLOOR_WIDTH, REFERENCE_WIDTH};
     use crate::tui::findings::fixture;
+    use crate::tui::panel::Provenance;
     use crate::tui::theme::{ColorMode, Theme};
 
     fn styles() -> Styles {
         Styles::new(Theme::Dark, ColorMode::Color)
+    }
+
+    fn queue(report: &Report) -> crate::tui::findings::Queue {
+        crate::tui::findings::Queue::of(report, &crate::tui::findings::Deliveries::default())
     }
 
     fn text(lines: &[Line<'static>]) -> String {
@@ -462,13 +452,13 @@ mod tests {
     }
 
     fn drawn(report: &Report, width: u16) -> String {
-        text(&regions(styles(), width as usize, &Inspector::of(report)))
+        text(&regions(styles(), width as usize, &queue(report)))
     }
 
     #[test]
     fn every_rule_the_run_asked_about_is_listed_with_its_severity_and_evaluation() {
         let report = fixture::mixed();
-        let inspector = Inspector::of(&report);
+        let inspector = queue(&report);
         assert!(!inspector.rules.is_empty());
         let rendered = drawn(&report, REFERENCE_WIDTH);
         for rule in &inspector.rules {
@@ -491,17 +481,17 @@ mod tests {
             Some(airlock_core::findings::Status::Gap),
         )]);
         assert_eq!(
-            Inspector::of(&manual).rules[0].evaluation,
-            Inspector::of(&failed).rules[0].evaluation
+            queue(&manual).rules[0].evaluation,
+            queue(&failed).rules[0].evaluation
         );
-        assert_eq!(Inspector::of(&failed).rules[0].evaluation, "unbuilt gate");
+        assert_eq!(queue(&failed).rules[0].evaluation, "unbuilt gate");
     }
 
     #[test]
     fn the_digest_is_printed_in_full_with_what_it_proves() {
         let report = fixture::mixed();
         let rendered = drawn(&report, REFERENCE_WIDTH);
-        let digest = Inspector::of(&report).provenance.rules_digest;
+        let digest = queue(&report).provenance.rules_digest;
         // Compared without the spaces the wrapping put in: the digest is one
         // token, and a width that broke it did not shorten it.
         assert!(
@@ -520,11 +510,11 @@ mod tests {
         let mut report = fixture::mixed();
         report.airlock.rules_digest = format!("sha256:{}", "a".repeat(64));
         assert_eq!(
-            Inspector::of(&report).abbreviated_digest(),
+            queue(&report).abbreviated_digest(),
             "sha256:aaaaaaaa\u{2026}"
         );
         report.airlock.rules_digest = "sha256:abcd".to_owned();
-        assert_eq!(Inspector::of(&report).abbreviated_digest(), "sha256:abcd");
+        assert_eq!(queue(&report).abbreviated_digest(), "sha256:abcd");
     }
 
     /// A string carrying everything a terminal reads as an instruction.
@@ -570,7 +560,7 @@ mod tests {
         // what it shows whole. A bound applied where it is built would break
         // that promise for both screens at once, so it is asserted from both.
         let report = fixture::hostile();
-        let inspector = Inspector::of(&report);
+        let inspector = queue(&report);
         for width in [REFERENCE_WIDTH, FLOOR_WIDTH] {
             let block = text(
                 &inspector
@@ -598,7 +588,7 @@ mod tests {
         // is not the defect the block avoids: it is marked as an abbreviation,
         // and the whole digest is above it on the screen.
         let report = fixture::hostile();
-        let inspector = Inspector::of(&report);
+        let inspector = queue(&report);
         assert!(status(&inspector).contains('\u{2026}'));
         assert!(inspector.abbreviated_digest().ends_with('\u{2026}'));
         assert!(
@@ -612,7 +602,7 @@ mod tests {
     #[test]
     fn policy_sourced_material_is_marked_as_such_rather_than_given_a_blob() {
         let report = fixture::mixed();
-        let inspector = Inspector::of(&report);
+        let inspector = queue(&report);
         let suppression = inspector
             .sources
             .iter()
@@ -644,7 +634,7 @@ mod tests {
     #[test]
     fn the_status_line_carries_the_four_facts_the_specification_names() {
         let report = fixture::mixed();
-        let inspector = Inspector::of(&report);
+        let inspector = queue(&report);
         let line = status(&inspector);
         assert!(line.contains(&inspector.provenance.rules_version), "{line}");
         assert!(line.contains(&inspector.abbreviated_digest()), "{line}");
@@ -661,7 +651,7 @@ mod tests {
     #[test]
     fn no_line_overflows_at_either_size() {
         let report = fixture::mixed();
-        let inspector = Inspector::of(&report);
+        let inspector = queue(&report);
         for width in [REFERENCE_WIDTH, FLOOR_WIDTH] {
             for line in regions(styles(), width as usize, &inspector) {
                 let rendered: String = line

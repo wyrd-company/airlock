@@ -9,15 +9,15 @@ groups        1:0 · 2:0 · 3:0 · 4:1 · 5:0 · 6:0 · 7:0 · 8:0 · 9:2
 showing       the whole working set · 3 of 3 · gate blocking · f                
 ▸  - 1 AIRLOCK CLOSES THIS  0  no failing rule closes by a setting              
    - 2 CLOSES BY PULL REQUEST — AGENT WORK  0  no failing rule closes by a file…
-  ┃- 3 NEEDS A DECISION  0  the repository declared everything airlock asked    
-  ┃- 4 UNBUILT CHECKS AND AGENT WORK  1  unbuilt checks and gaps that need agen…
+  ┃- 3 OPERATOR DEFERRED  0  no gap is deferred without a declared fix          
+  ┃- 4 UNBUILT  1  rules whose reached check branch is not built                
     ██░       │   │ REPO-REL-04    unbuilt       the condition REPO-REL-04 stat…
                     unbuilt — A release with the compiled check implemented     
-  ┃- 5 AIRLOCK COULD NOT ANSWER  0  every rule this run asked was answered      
-  ┃- 6 ROUTED  0  no rule was withheld by a disclosure gate; this session's cre…
+  ┃- 5 RUN ERRORS  0  every rule this run asked was answered                    
+  ┃- 6 ROUTED  0  no rule was routed to another settling surface                
    - 7 WAIVED  0  the policy authorized no failure                              
    - 8 OUT OF SCOPE  0  no rule is outside its declared scope                   
-   + 9 ALIGNED  2  rules whose compiled checks decided Met                      
+   + 9 MET  2  rules whose compiled checks decided Met                          
 0 above · 0 below · working set 3 of 3 · ↑↓ moves through the rest              
                                                                                 
                                                                                 
@@ -34,15 +34,15 @@ eeeeeeeeeeeeeegggggggggggggggggggggggggggggggggggggggggggggggggggfffffffffffffff
 eeeeeeeeeeeeeeggggggggggggggggggggggggggggggggggggggggggggggggggffffffffffffffff
 cccccccccccccccccccccccccchhhhheeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeffffffffffffff
 cccccccccccccccccccccccccccccccccccccccccchhhhheeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-iiiiiiiiiiiiiiiiiiiiiiihhhhheeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeffff
-iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihhhhheeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+iiiiiiiiiiiiiiiiiiiiiiiihhhhheeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeffffffffff
+iiiiiiiiiiiiiihhhhheeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeffffffffffffffff
 iijfffffffffffkfffkffffffffffffffffllllllllllllllggggggggggggggggggggggggggggggg
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeefffff
-iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiihhhhheeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeffffff
-iiiiiiiiiiiiihhhhheeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+iiiiiiiiiiiiiiiiihhhhheeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeffffffffffffffffffff
+iiiiiiiiiiiiihhhhheeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeffffffffffffffff
 ccccccccccccchhhhheeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeffffffffffffffffffffffffffffff
 ccccccccccccccccccchhhhheeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeefffffffffffffffffff
-cccccccccccccchhhhheeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeffffffffffffffffffffff
+cccccccccchhhhheeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeffffffffffffffffffffffffff
 mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmffffffffffffff
 ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff

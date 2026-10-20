@@ -13,14 +13,14 @@ showing       the whole working set · 4 of 4 · gate blocking · f
   ▌ ███  ✗    │   │ REPO-GIT-01    gap           the condition REPO-GIT-01 stat…
                     git                                                         
    - 2 CLOSES BY PULL REQUEST — AGENT WORK  0  no failing rule closes by a file…
-  ┃- 3 NEEDS A DECISION  0  the repository declared everything airlock asked    
-  ┃- 4 UNBUILT CHECKS AND AGENT WORK  1  unbuilt checks and gaps that need agen…
+  ┃- 3 OPERATOR DEFERRED  0  no gap is deferred without a declared fix          
+  ┃- 4 UNBUILT  1  rules whose reached check branch is not built                
     ███       │   │ REPO-CI-02     unbuilt       the condition REPO-CI-02 states
                     unbuilt — A release with the compiled check implemented     
-  ┃- 5 AIRLOCK COULD NOT ANSWER  1  the undecided lane; the remedy often sits o…
+  ┃- 5 RUN ERRORS  1  required evidence could not be established; the run is in…
   ▌ ███       │   │ REPO-GIT-09    run-error     the condition REPO-GIT-09 stat…
                     git · run error: blocks completeness at every severity      
-  ┃- 6 ROUTED  0  no rule was withheld by a disclosure gate; this session's cre…
+  ┃- 6 ROUTED  0  no rule was routed to another settling surface                
 0 above · 3 below · working set 4 of 4 · ↑↓ moves through the rest              
 ↑↓/j/k move · space collapse or expand · ↵ finding detail · f filter · 8 more…  
 incomplete · complete false · 4 rules · rules 0.6.0 · gate blocking             
@@ -38,14 +38,14 @@ ggggggggggggggggggggggggggjjjjjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh
 kkldddddllldddmdddmddddddddddddddddllllllllllllllfffffffffffffffffffffffffffffff
 hhhhhhhhhhhhhhhhhhhhhhhddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 ggggggggggggggggggggggggggggggggggggggggggjjjjjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh
-kkkkkkkkkkkkkkkkkkkkkkkjjjjjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhdddd
-kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkjjjjjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh
+kkkkkkkkkkkkkkkkkkkkkkkkjjjjjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhdddddddddd
+kkkkkkkkkkkkkkjjjjjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhdddddddddddddddd
 kkldddddddddddmdddmddddddddddddddddeeeeeeeeeeeeeefffffffffffffffffffffffffffffff
 hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhddddd
-kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkjjjjjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh
+kkkkkkkkkkkkkkkkkjjjjjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh
 kkldddddddddddmdddmddddddddddddddddeeeeeeeeeeeeeefffffffffffffffffffffffffffffff
 hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhdddddd
-kkkkkkkkkkkkkjjjjjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh
+kkkkkkkkkkkkkjjjjjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhdddddddddddddddd
 nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnndddddddddddddd
 kkkkkkdffffhhhkkkkkdffffffffffffffffffhhhkdffffffffffffffhhhkdffffffhhhnnnnnnndd
 oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo

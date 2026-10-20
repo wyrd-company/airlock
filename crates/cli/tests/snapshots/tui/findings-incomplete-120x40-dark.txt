@@ -9,21 +9,21 @@ VERDICT  ? incomplete   ALIGNED 1 of 4
   complete    false  1 run errors prevented completion                                                                  
   conformant  false  1 blocking Gaps                                                                                    
 met 1 · gap 1 · waived 0 · routed 0 · unbuilt 1 · out-of-scope 0 · errors 1                                             
-groups        1 settings 1 · 2 agent 0 · 3 decision 0 · 4 judgment 1 · 5 unanswered 1 · 6 routed 0 · 7 authorized 0 · 8 
-              out-of-scope 0 · 9 aligned 1                                                                              
+groups        1 settings 1 · 2 agent 0 · 3 operator 0 · 4 unbuilt 1 · 5 run-errors 1 · 6 routed 0 · 7 waived 0 · 8      
+              out-of-scope 0 · 9 met 1                                                                                  
 showing       the whole working set · 4 of 4 shown · gate blocking · f selects one of five sets                         
 ▸  - 1 AIRLOCK CLOSES THIS  1  settings-level changes applied from here; confirm rather than study                      
   ▌ ███  ✗    │   │ REPO-GIT-01    gap           git            the condition REPO-GIT-01 states                        
    - 2 CLOSES BY PULL REQUEST — AGENT WORK  0  no failing rule closes by a file change                                  
-  ┃- 3 NEEDS A DECISION  0  the repository declared everything airlock asked                                            
-  ┃- 4 UNBUILT CHECKS AND AGENT WORK  1  unbuilt checks and gaps that need agent reasoning                              
+  ┃- 3 OPERATOR DEFERRED  0  no gap is deferred without a declared fix                                                  
+  ┃- 4 UNBUILT  1  rules whose reached check branch is not built                                                        
     ███       │   │ REPO-CI-02     unbuilt       automation     unbuilt — A release with the compiled check implemented 
-  ┃- 5 AIRLOCK COULD NOT ANSWER  1  the undecided lane; the remedy often sits outside the repository                    
+  ┃- 5 RUN ERRORS  1  required evidence could not be established; the run is incomplete                                 
   ▌ ███       │   │ REPO-GIT-09    run-error     git            run error: blocks completeness at every severity · the …
-  ┃- 6 ROUTED  0  no rule was withheld by a disclosure gate; this session's credential is write-capable, so gated facts…
+  ┃- 6 ROUTED  0  no rule was routed to another settling surface                                                        
    - 7 WAIVED  0  the policy authorized no failure                                                                      
    - 8 OUT OF SCOPE  0  no rule is outside its declared scope                                                           
-   + 9 ALIGNED  1  rules whose compiled checks decided Met                                                              
+   + 9 MET  1  rules whose compiled checks decided Met                                                                  
 0 above · 0 below · working set 4 of 4 · ↑↓ moves through the rest                                                      
                                                                                                                         
                                                                                                                         
@@ -50,21 +50,21 @@ hhhhhhhhhddddddddddddiiijjjjjjjjjjjjjjeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeegggggggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeegggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-iiiiiiiiiiiiiiggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggge
-iiiiiiiiiiiiiiggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+iiiiiiiiiiiiiiggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggeeeeee
+iiiiiiiiiiiiiiggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 iiiiiiiiiiiiiigggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeee
 hhhhhhhhhhhhhhhhhhhhhhhhhhkkkkkiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiieeeeeeeeeeeeeeeeeeeeee
 llmeeeeemmmeeeneeeneeeeeeeeeeeeeeeemmmmmmmmmmmmmmiiiiiiiiiiiiiiiggggggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeee
 hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhkkkkkiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiieeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-lllllllllllllllllllllllkkkkkiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiieeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-llllllllllllllllllllllllllllllllllllkkkkkiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiieeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+llllllllllllllllllllllllkkkkkiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiieeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+llllllllllllllkkkkkiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiieeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 llmeeeeeeeeeeeneeeneeeeeeeeeeeeeeeeffffffffffffffiiiiiiiiiiiiiiiggggggggggggggggggggggggggggggggggggggggggggggggggggggge
-lllllllllllllllllllllllllllllllkkkkkiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiieeeeeeeeeeeeeeeeeeee
+lllllllllllllllllkkkkkiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiieeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 llmeeeeeeeeeeeneeeneeeeeeeeeeeeeeeeffffffffffffffiiiiiiiiiiiiiiigggggggggggggggggggggggggggggggggggggggggggggggggggggggg
-lllllllllllllkkkkkiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii
+lllllllllllllkkkkkiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiieeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 hhhhhhhhhhhhhkkkkkiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiieeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 hhhhhhhhhhhhhhhhhhhkkkkkiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiieeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-hhhhhhhhhhhhhhkkkkkiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiieeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+hhhhhhhhhhkkkkkiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiieeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee

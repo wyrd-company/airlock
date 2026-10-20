@@ -1,3 +1,9 @@
+// ---
+// relationships:
+//   implements: terminal-interface
+//   references: release-process-conformance
+// ---
+
 //! The application state and everything it draws.
 //!
 //! Nothing here touches a terminal. The state is a plain value, the drawing
@@ -237,13 +243,6 @@ pub struct App {
     findings: findings::State,
     /// Where the operator is in a finding's reading.
     detail: panel::Scroll,
-    /// The effective policy the run ran under.
-    ///
-    /// A second read model built from the same run at the same instant, held to
-    /// the same rule as the first: the audit document is never retained
-    /// anywhere this type draws from, so no server-supplied string has a path
-    /// to a cell.
-    inspector: Option<Box<policy::Inspector>>,
     /// Where the operator is in the effective policy.
     inspection: panel::Scroll,
     /// The rule `o` last asked to be re-observed.
@@ -319,7 +318,6 @@ impl App {
             queue: None,
             findings: findings::State::default(),
             detail: panel::Scroll::default(),
-            inspector: None,
             inspection: panel::Scroll::default(),
             reobserve: None,
             note: None,
@@ -644,7 +642,6 @@ impl App {
             return;
         }
         self.queue = Some(Box::new(findings::Queue::of(report, deliveries)));
-        self.inspector = Some(Box::new(policy::Inspector::of(report)));
         match self.held_queue.take() {
             // The position an expiry held, now that there is a queue for it to
             // be a position in. Clamped to the run that has just arrived: the
@@ -968,8 +965,7 @@ impl App {
     fn working(&mut self, code: KeyCode) -> Option<Flow> {
         if matches!(code, KeyCode::Char('a' | 'A')) {
             let row_is_settings = self.focused_row().is_some_and(|row| {
-                (row.group == findings::Group::Settings && row.status == Some(Status::Gap))
-                    || (row.group == findings::Group::Decision && row.status.is_none())
+                row.group == findings::Group::Settings && row.status == Some(Status::Gap)
             });
             if row_is_settings {
                 if code == KeyCode::Char('A') {
@@ -1070,7 +1066,7 @@ impl App {
             KeyCode::Up => self.inspection.by(-1),
             KeyCode::Down => self.inspection.by(1),
             KeyCode::Char('y') => {
-                return Some(match self.inspector.as_deref() {
+                return Some(match self.queue.as_deref() {
                     Some(inspector) => {
                         self.note = Some(policy::copied());
                         Flow::Copy(inspector.provenance.rules_digest.clone())
@@ -1098,12 +1094,9 @@ impl App {
             self.note = Some(findings::inert_apply());
             return;
         };
-        let actionable = (row.group == findings::Group::Settings
+        let actionable = row.group == findings::Group::Settings
             && row.status == Some(Status::Gap)
-            && row.detail.fix.code.is_some())
-            || (row.group == findings::Group::Decision
-                && row.status.is_none()
-                && row.fix.as_deref() == Some("declare-capability-property"));
+            && row.detail.fix.code.is_some();
         if !actionable {
             self.note = Some(findings::inert_apply());
             return;
@@ -1124,33 +1117,7 @@ impl App {
             self.note = Some("this rule declares no settings fix".to_owned());
             return;
         };
-        let input = if code == "declare-capability-property" {
-            let Some((property, value)) = row.capability else {
-                self.note = Some("the capability declaration was not observed".to_owned());
-                return;
-            };
-            let organization = self.catalogue.installations().iter().any(|installation| {
-                installation.account.eq_ignore_ascii_case(&target.owner)
-                    && installation.kind == airlock_core::github::AccountKind::Organization
-            });
-            if !organization {
-                self.note = Some(
-                    "capability declarations require an organization-owned repository".to_owned(),
-                );
-                return;
-            }
-            fix::Input::Fixed {
-                argument: format!("{property}\n{value}"),
-                display: format!(
-                    "{} = {} · organization {}",
-                    crate::admin::text::drawable(&property),
-                    crate::admin::text::drawable(&value),
-                    target.owner
-                ),
-            }
-        } else {
-            self.fix_input(&code, &target)
-        };
+        let input = self.fix_input(&code, &target);
         if matches!(
             code.as_str(),
             "attach-org-rulesets"
@@ -1399,7 +1366,6 @@ impl App {
         self.catalogue = catalogue::State::Unauthorized;
         self.observations = Observations::default();
         self.queue = None;
-        self.inspector = None;
         self.fix = fix::State::Empty;
         // A placement is a reading of a repository, so it goes with every other
         // reading. What the operator supplied for step 2 is erased at the same
@@ -1770,7 +1736,7 @@ impl App {
                 || chrome::status_text(Screen::FindingDetail),
                 detail::status,
             ),
-            Screen::PolicyInspector => self.inspector.as_deref().map_or_else(
+            Screen::PolicyInspector => self.queue.as_deref().map_or_else(
                 || chrome::status_text(Screen::PolicyInspector),
                 policy::status,
             ),
@@ -1822,7 +1788,7 @@ impl App {
             return detail::nothing_selected(styles, width as usize);
         }
         if self.screen == Screen::PolicyInspector {
-            return self.inspector.as_deref().map_or_else(
+            return self.queue.as_deref().map_or_else(
                 || policy::nothing_observed(styles, width as usize),
                 |inspector| policy::body(styles, width, height, inspector, &self.inspection),
             );
@@ -2223,54 +2189,6 @@ mod tests {
         press(&mut app, KeyCode::Char('a'));
         assert_eq!(app.screen(), Screen::Fix);
         assert_eq!(selected_fix_rule(&app), "REPO-GIT-01");
-    }
-
-    #[test]
-    fn a_capability_decision_is_not_offered_for_a_user_account() {
-        use airlock_core::github::{AccountKind, RepositorySelection};
-        let mut app = observed().with_catalogue(catalogue::Catalogue::of(vec![installation(
-            "acme-industries",
-            AccountKind::UserAccount,
-            RepositorySelection::All,
-            &["widget"],
-        )]));
-        focus(&mut app, findings::Group::Decision);
-        press(&mut app, KeyCode::Char('a'));
-
-        assert_eq!(app.screen(), Screen::Findings);
-        assert!(
-            app.status()
-                .contains("require an organization-owned repository"),
-            "{}",
-            app.status()
-        );
-    }
-
-    #[test]
-    fn a_capability_write_uses_raw_policy_data_not_its_drawable_copy() {
-        let mut finding = findings::fixture::capability_undeclared();
-        let capability = finding
-            .evidence
-            .as_mut()
-            .and_then(|evidence| evidence.capability.as_mut())
-            .expect("the fixture carries a declaration");
-        capability.value = "tr\u{1b}ue".to_owned();
-        let report = findings::fixture::report(vec![finding]);
-        let mut app = app().with_catalogue(catalogue());
-        app.observed_run(&report, &findings::Deliveries::default());
-        app.screen = Screen::Findings;
-        focus(&mut app, findings::Group::Decision);
-        press(&mut app, KeyCode::Char('a'));
-
-        let request = match &app.fix {
-            fix::State::Confirm { request } => request,
-            state => panic!("expected confirmation, got {state:?}"),
-        };
-        let fix::Input::Fixed { argument, display } = &request.items[0].input else {
-            panic!("capability decisions carry fixed input")
-        };
-        assert_eq!(argument, "release\ntr\u{1b}ue");
-        assert!(!display.contains('\u{1b}'));
     }
 
     #[test]
@@ -3533,7 +3451,7 @@ mod tests {
 
             // The state that carried what was seen.
             assert!(app.queue.is_none(), "{screen:?}");
-            assert!(app.inspector.is_none(), "{screen:?}");
+            assert!(app.queue.is_none(), "{screen:?}");
             assert_eq!(app.catalogue, catalogue::State::Unauthorized, "{screen:?}");
             assert_eq!(app.observations, Observations::default(), "{screen:?}");
             assert!(matches!(app.fix, fix::State::Empty), "{screen:?}");
@@ -4012,7 +3930,7 @@ mod tests {
 
         assert!(app.reauthorizing_now(), "the overlay is still up");
         assert!(app.queue.is_none(), "a stale run was drawn");
-        assert!(app.inspector.is_none(), "a stale policy was drawn");
+        assert!(app.queue.is_none(), "a stale policy was drawn");
         assert_eq!(app.catalogue, catalogue::State::Unauthorized);
         assert_eq!(app.observations, Observations::default());
         assert!(matches!(app.fix, fix::State::Empty));

@@ -5,6 +5,10 @@ rules, policy resolution, findings model, and GitHub client; `airlock-cli` is
 a thin front end that parses arguments and renders. Logic belongs in core —
 if a command handler grows a decision, that decision is in the wrong crate.
 
+The audit human output includes each gap's fix and reason. The JSON agent work
+list is the machine projection; there is no separate plan command or stored
+plan. Airlock re-observes before acting.
+
 Run `task check` before pushing; it is what CI runs. Everything else is in
 `taskfile.yml`.
 

@@ -4,32 +4,32 @@ AIRLOCK 0.0.0  sign-in › organizations › repositories › findings   no cred
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 RUN INCOMPLETE  complete is false, and no verdict below it can be certified                                             
   ? REPO-GIT-09    run-error     permission on GET /repos/{owner}/{repo}/rulesets                                       
-  ? REPO-REL-04    run-error     capability_undeclared: the repository has no organization custom property `release`; d…
+  ? REPO-REL-04    run-error     required_input_missing: a required input is missing                                    
                                                                                                                         
 VERDICT  ? incomplete   ALIGNED 2 of 9                                                                                  
   complete    false  2 run errors prevented completion                                                                  
   conformant  false  1 blocking Gaps                                                                                    
   unanswered  1      routed: no Met or Gap outcome; see the settling surface                                            
 met 2 · gap 2 · waived 1 · routed 1 · unbuilt 1 · out-of-scope 0 · errors 2                                             
-groups        1 settings 1 · 2 agent 1 · 3 decision 1 · 4 judgment 1 · 5 unanswered 1 · 6 routed 1 · 7 authorized 1 · 8 
-              out-of-scope 0 · 9 aligned 2                                                                              
+groups        1 settings 1 · 2 agent 1 · 3 operator 0 · 4 unbuilt 1 · 5 run-errors 2 · 6 routed 1 · 7 waived 1 · 8      
+              out-of-scope 0 · 9 met 2                                                                                  
 showing       the whole working set · 9 of 9 shown · gate blocking · f selects one of five sets                         
 ▸  - 1 AIRLOCK CLOSES THIS  1  settings-level changes applied from here; confirm rather than study                      
   ▌ ███  ✗    │   │ REPO-GIT-01    gap           git            the condition REPO-GIT-01 states                        
    - 2 CLOSES BY PULL REQUEST — AGENT WORK  1  file-level gaps an agent closes and a pull request delivers; shown only  
     ██░  ✗    │   │ REPO-LIC-01    gap           licensing      pull request open · the condition REPO-LIC-01 states    
-  ┃- 3 NEEDS A DECISION  1  the repository has not declared what it is, so airlock cannot know what to apply            
-  ▌ ██░       │   │ REPO-REL-04    run-error     release        the condition REPO-REL-04 states                        
-  ┃- 4 UNBUILT CHECKS AND AGENT WORK  1  unbuilt checks and gaps that need agent reasoning                              
+  ┃- 3 OPERATOR DEFERRED  0  no gap is deferred without a declared fix                                                  
+  ┃- 4 UNBUILT  1  rules whose reached check branch is not built                                                        
     ██░       │   │ REPO-README-04 unbuilt       readme         unbuilt — A release with the compiled check implemented 
-  ┃- 5 AIRLOCK COULD NOT ANSWER  1  the undecided lane; the remedy often sits outside the repository                    
+  ┃- 5 RUN ERRORS  2  required evidence could not be established; the run is incomplete                                 
   ▌ ███       │   │ REPO-GIT-09    run-error     git            run error: blocks completeness at every severity · the …
+  ▌ ██░       │   │ REPO-REL-04    run-error     release        run error: blocks completeness at every severity · the …
   ┃- 6 ROUTED  1  rules routed to the settling surface their declared gate names                                        
     ██░       │   │ REPO-GIT-04    routed        git            grant contents:write · verified by interactive-session  
    - 7 WAIVED  1  rules not evaluated at severity none; their reasons remain visible                                    
     ░░░       │   │ REPO-CI-02     waived        automation   still on offer: Set workflow-level `permissions:` to `{}`.
    - 8 OUT OF SCOPE  0  no rule is outside its declared scope                                                           
-   + 9 ALIGNED  2  rules whose compiled checks decided Met                                                              
+   + 9 MET  2  rules whose compiled checks decided Met                                                                  
 0 above · 0 below · working set 9 of 9 · ↑↓ moves through the rest                                                      
                                                                                                                         
                                                                                                                         
@@ -59,18 +59,18 @@ aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 aabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 aabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-aaaaaaaaaaaaaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+aaaaaaaaaaaaaaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+aaaaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 aabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+aaaaaaaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 aabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 aabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 aaaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 aabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 aaaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 aabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 aaaaaaaaaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-aaaaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+aaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb

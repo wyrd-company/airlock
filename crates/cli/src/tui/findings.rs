@@ -1,3 +1,9 @@
+// ---
+// relationships:
+//   implements: terminal-interface
+//   references: release-process-conformance
+// ---
+
 //! The findings screen: the whole rule as a work queue.
 //!
 //! Every rule the policy enables produces exactly one finding, and every
@@ -10,7 +16,7 @@
 //! Grouping layers on top of the three-lane status model and does not replace
 //! it. Every row still shows its status glyph in its lane, its severity bar, and
 //! a solid left rail when it actually gates, so nothing standing in the
-//! undecided lane can be read as a pass and no group heading decides what a row
+//! not evaluated lane can be read as a pass and no group heading decides what a row
 //! does to the run.
 //!
 //! The screen is read-only. Settings-level actions are offered on group one and
@@ -97,20 +103,20 @@ pub enum Group {
     Settings,
     /// File-level gaps, delivered as a pull request by an agent. Display only.
     AgentWork,
-    /// The repository has not declared what it is.
-    Decision,
-    /// Rules a person must attest to.
-    Judgment,
-    /// The undecided lane.
-    Unanswered,
+    /// Gaps with no declared fix, deferred to the operator.
+    OperatorDeferred,
+    /// Rules whose reached check branch is not built.
+    Unbuilt,
+    /// Required evidence could not be established.
+    RunErrors,
     /// Facts the rules declare behind a disclosure gate.
-    AdminOnly,
+    Routed,
     /// Suppressed failures: standing debt.
-    Authorized,
+    Waived,
     /// Rules outside their declared scope.
     OutOfScope,
     /// Evaluated Met outcomes.
-    Aligned,
+    Met,
 }
 
 impl Group {
@@ -118,13 +124,13 @@ impl Group {
     pub const ALL: [Group; 9] = [
         Group::Settings,
         Group::AgentWork,
-        Group::Decision,
-        Group::Judgment,
-        Group::Unanswered,
-        Group::AdminOnly,
-        Group::Authorized,
+        Group::OperatorDeferred,
+        Group::Unbuilt,
+        Group::RunErrors,
+        Group::Routed,
+        Group::Waived,
         Group::OutOfScope,
-        Group::Aligned,
+        Group::Met,
     ];
 
     /// The group's position in the queue, counting from one.
@@ -133,13 +139,13 @@ impl Group {
         match self {
             Self::Settings => 1,
             Self::AgentWork => 2,
-            Self::Decision => 3,
-            Self::Judgment => 4,
-            Self::Unanswered => 5,
-            Self::AdminOnly => 6,
-            Self::Authorized => 7,
+            Self::OperatorDeferred => 3,
+            Self::Unbuilt => 4,
+            Self::RunErrors => 5,
+            Self::Routed => 6,
+            Self::Waived => 7,
             Self::OutOfScope => 8,
-            Self::Aligned => 9,
+            Self::Met => 9,
         }
     }
 
@@ -149,13 +155,13 @@ impl Group {
         match self {
             Self::Settings => "AIRLOCK CLOSES THIS",
             Self::AgentWork => "CLOSES BY PULL REQUEST \u{2014} AGENT WORK",
-            Self::Decision => "NEEDS A DECISION",
-            Self::Judgment => "UNBUILT CHECKS AND AGENT WORK",
-            Self::Unanswered => "AIRLOCK COULD NOT ANSWER",
-            Self::AdminOnly => "ROUTED",
-            Self::Authorized => "WAIVED",
+            Self::OperatorDeferred => "OPERATOR DEFERRED",
+            Self::Unbuilt => "UNBUILT",
+            Self::RunErrors => "RUN ERRORS",
+            Self::Routed => "ROUTED",
+            Self::Waived => "WAIVED",
             Self::OutOfScope => "OUT OF SCOPE",
-            Self::Aligned => "ALIGNED",
+            Self::Met => "MET",
         }
     }
 
@@ -167,20 +173,17 @@ impl Group {
             Self::AgentWork => {
                 "file-level gaps an agent closes and a pull request delivers; shown only"
             }
-            Self::Decision => {
-                "the repository has not declared what it is, so airlock cannot know \
-                 what to apply"
+            Self::OperatorDeferred => {
+                "gaps with no declared fix; the operator decides how to close them"
             }
-            Self::Judgment => "unbuilt checks and gaps that need agent reasoning",
-            Self::Unanswered => "the undecided lane; the remedy often sits outside the repository",
-            Self::AdminOnly => "rules routed to the settling surface their declared gate names",
-            Self::Authorized => {
-                "rules not evaluated at severity none; their reasons remain visible"
-            }
+            Self::Unbuilt => "rules whose reached check branch is not built",
+            Self::RunErrors => "required evidence could not be established; the run is incomplete",
+            Self::Routed => "rules routed to the settling surface their declared gate names",
+            Self::Waived => "rules not evaluated at severity none; their reasons remain visible",
             Self::OutOfScope => {
                 "outside release-unit scope or below earliest maturity; no Met or Gap outcome"
             }
-            Self::Aligned => "rules whose compiled checks decided Met",
+            Self::Met => "rules whose compiled checks decided Met",
         }
     }
 
@@ -190,13 +193,13 @@ impl Group {
         match self {
             Self::Settings => "settings",
             Self::AgentWork => "agent",
-            Self::Decision => "decision",
-            Self::Judgment => "judgment",
-            Self::Unanswered => "unanswered",
-            Self::AdminOnly => "routed",
-            Self::Authorized => "authorized",
+            Self::OperatorDeferred => "operator",
+            Self::Unbuilt => "unbuilt",
+            Self::RunErrors => "run-errors",
+            Self::Routed => "routed",
+            Self::Waived => "waived",
             Self::OutOfScope => "out-of-scope",
-            Self::Aligned => "aligned",
+            Self::Met => "met",
         }
     }
 
@@ -209,7 +212,7 @@ impl Group {
     pub const fn needs_the_operator(self) -> bool {
         matches!(
             self,
-            Self::Decision | Self::Judgment | Self::Unanswered | Self::AdminOnly
+            Self::OperatorDeferred | Self::Unbuilt | Self::RunErrors | Self::Routed
         )
     }
 
@@ -219,7 +222,7 @@ impl Group {
     /// starts collapsed, because it is the one group that needs no action.
     #[must_use]
     pub const fn starts_collapsed(self) -> bool {
-        matches!(self, Self::Aligned)
+        matches!(self, Self::Met)
     }
 
     /// What an empty group states, which is never "nothing here" by itself.
@@ -228,16 +231,13 @@ impl Group {
         match self {
             Self::Settings => "no failing rule closes by a setting",
             Self::AgentWork => "no failing rule closes by a file change",
-            Self::Decision => "the repository declared everything airlock asked",
-            Self::Judgment => "no check has an unbuilt requirement",
-            Self::Unanswered => "every rule this run asked was answered",
-            Self::AdminOnly => {
-                "no rule was withheld by a disclosure gate; this session's \
-                 credential is write-capable, so gated facts resolve under it"
-            }
-            Self::Authorized => "the policy authorized no failure",
+            Self::OperatorDeferred => "no gap is deferred without a declared fix",
+            Self::Unbuilt => "no check has an unbuilt requirement",
+            Self::RunErrors => "every rule this run asked was answered",
+            Self::Routed => "no rule was routed to another settling surface",
+            Self::Waived => "the policy authorized no failure",
             Self::OutOfScope => "no rule is outside its declared scope",
-            Self::Aligned => "no compiled check decided Met",
+            Self::Met => "no compiled check decided Met",
         }
     }
 }
@@ -310,8 +310,8 @@ pub enum FilterSet {
     Everything,
     /// Failures at a severity the effective gate enforces.
     GatingFailures,
-    /// Everything in the undecided lane.
-    Undecided,
+    /// Everything in the not evaluated lane.
+    NotEvaluated,
     /// Every failure, whatever its severity.
     AllFailures,
     /// Everything in the inert lane.
@@ -323,7 +323,7 @@ impl FilterSet {
     pub const ALL: [FilterSet; 5] = [
         FilterSet::Everything,
         FilterSet::GatingFailures,
-        FilterSet::Undecided,
+        FilterSet::NotEvaluated,
         FilterSet::AllFailures,
         FilterSet::Inert,
     ];
@@ -334,7 +334,7 @@ impl FilterSet {
         match self {
             Self::Everything => "the whole working set",
             Self::GatingFailures => "gating failures",
-            Self::Undecided => "undecided",
+            Self::NotEvaluated => "not evaluated",
             Self::AllFailures => "all failures",
             Self::Inert => "inert",
         }
@@ -358,7 +358,7 @@ impl FilterSet {
             Self::GatingFailures => {
                 row.status == Some(Status::Gap) && row.severity == Severity::Blocking
             }
-            Self::Undecided => row.status.is_none(),
+            Self::NotEvaluated => row.status.is_none(),
             Self::AllFailures => row.status == Some(Status::Gap),
             Self::Inert => row.status.is_none() && !row.gates(),
         }
@@ -404,20 +404,17 @@ pub struct Row {
     pub change: Option<String>,
     /// Whether a later operation can reverse it.
     pub reversible: Option<bool>,
-    /// The raw policy-owned custom-property declaration offered by a decision
-    /// row. Drawing sanitizes a copy; the request body retains the exact value.
-    pub capability: Option<(String, String)>,
 }
 
 impl Row {
     /// Whether this row actually gates the run.
     ///
     /// Severity times status, never status alone: a failure at a severity the
-    /// gate does not enforce stops nothing, and neither does an undecided
+    /// gate does not enforce stops nothing, and neither does a non-evaluated
     /// result there. Only rows that gate carry the solid left rail.
     #[must_use]
     pub fn gates(&self) -> bool {
-        matches!(self.group, Group::Unanswered | Group::Decision)
+        matches!(self.group, Group::RunErrors)
             || (self.status == Some(Status::Gap) && self.severity == Severity::Blocking)
     }
 }
@@ -427,7 +424,7 @@ impl Row {
 pub struct Blocker {
     /// The rule id.
     pub rule: String,
-    /// The undecided status it ended in.
+    /// The not evaluated status it ended in.
     pub status: Option<Status>,
     /// What stopped it.
     pub why: String,
@@ -452,6 +449,12 @@ pub struct Verdict {
 /// which server text could reach a cell.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Queue {
+    /// Effective rules and their configuration provenance, in rule order.
+    pub rules: Vec<super::policy::Rule>,
+    /// Distinct sections represented by the effective rules.
+    pub sections: usize,
+    /// Configuration and exception sources from this same audit.
+    pub sources: Vec<super::policy::Source>,
     /// The repository the run is about.
     pub repository: String,
     /// The verdict and its two facts.
@@ -495,7 +498,16 @@ impl Queue {
                 why: why(finding),
             })
             .collect();
+        let rules = super::policy::effective_rules(report);
+        let sections = rules
+            .iter()
+            .map(|rule| &rule.section)
+            .collect::<std::collections::BTreeSet<_>>()
+            .len();
         Self {
+            sections,
+            sources: super::policy::sources(report),
+            rules,
             repository: drawable(&report.repository.full_name),
             verdict: Verdict {
                 outcome: report.outcome,
@@ -543,34 +555,27 @@ impl Queue {
 ///
 /// First match wins, and the tests are ordered so that a finding can never be
 /// read as more settled than it is: suppressed before anything that could make
-/// it look inert, admin-only before the rest of the undecided lane, and the
-/// undecided lane before every decided status.
+/// it look inert, admin-only before the rest of the not evaluated lane, and the
+/// not evaluated lane before every decided status.
 #[must_use]
 fn group_of(finding: &Finding) -> Group {
     if finding.suppression.is_some() {
-        return Group::Authorized;
+        return Group::Waived;
     }
     if let Some(route) = &finding.routing {
         return match route.reason.as_str() {
-            "unbuilt" => Group::Judgment,
+            "unbuilt" => Group::Unbuilt,
             "out-of-scope" => Group::OutOfScope,
-            _ => Group::AdminOnly,
+            _ => Group::Routed,
         };
     }
-    if finding
-        .evidence
-        .as_ref()
-        .is_some_and(|e| e.code == "capability_undeclared")
-    {
-        return Group::Decision;
-    }
     match finding.status {
-        None => Group::Unanswered,
-        Some(Status::Met) => Group::Aligned,
+        None => Group::RunErrors,
+        Some(Status::Met) => Group::Met,
         Some(Status::Gap) => match finding.fix_class.fix_kind.as_deref() {
             Some("operator") => Group::Settings,
             Some("airlock" | "agent") => Group::AgentWork,
-            _ => Group::Judgment,
+            _ => Group::OperatorDeferred,
         },
     }
 }
@@ -600,7 +605,7 @@ fn note_of(finding: &Finding, group: Group, _severity: Severity) -> Option<Strin
     match group {
         // The grant the fact requires and the surface the gate names, both read
         // from the rules declaration rather than composed here.
-        Group::AdminOnly => rules::find(&finding.rule)
+        Group::Routed => rules::find(&finding.rule)
             .and_then(rules::RuleDefinition::disclosure_gate)
             .map(|declared| {
                 format!(
@@ -611,10 +616,10 @@ fn note_of(finding: &Finding, group: Group, _severity: Severity) -> Option<Strin
             }),
         // A row in this group that does not block says so on the row: it is
         // still an unanswered question, and it is not a pass.
-        Group::Unanswered => Some("run error: blocks completeness at every severity".to_owned()),
+        Group::RunErrors => Some("run error: blocks completeness at every severity".to_owned()),
         // The only remaining move is a person's, so the declared reason is what
         // says why airlock is not the one making it.
-        Group::Judgment if finding.status == Some(Status::Gap) => {
+        Group::OperatorDeferred if finding.status == Some(Status::Gap) => {
             Some(finding.fix_class.none_reason.as_ref().map_or_else(
                 || "airlock declares no fix classification for this rule".to_owned(),
                 |reason| format!("no fix: {}", sanitize(reason, REASON_LIMIT)),
@@ -622,7 +627,7 @@ fn note_of(finding: &Finding, group: Group, _severity: Severity) -> Option<Strin
         }
         // Standing debt keeps its fix: authorizing a failure does not
         // delete the fix for it.
-        Group::Authorized => finding
+        Group::Waived => finding
             .fix_class
             .change
             .as_ref()
@@ -638,10 +643,6 @@ fn row(
 ) -> Row {
     let severity = Severity::parse(&finding.severity).unwrap_or(Severity::Advisory);
     let group = group_of(finding);
-    let declaration = finding
-        .evidence
-        .as_ref()
-        .and_then(|evidence| evidence.capability.as_ref());
     Row {
         // Whole in the model and shortened only where a column requires it.
         // The row has one line and bounds these at the moment it draws them;
@@ -664,28 +665,13 @@ fn row(
         delivery: deliveries.get(&finding.rule),
         note: note_of(finding, group, severity),
         detail: Detail::of(finding, effective_policy),
-        fix: declaration.map_or_else(
-            || finding.fix_class.code.as_ref().map(|value| drawable(value)),
-            |_| Some("declare-capability-property".to_owned()),
-        ),
-        change: declaration.map_or_else(
-            || {
-                finding
-                    .fix_class
-                    .change
-                    .as_ref()
-                    .map(|value| sanitize(value, REASON_LIMIT))
-            },
-            |declaration| {
-                Some(format!(
-                    "set organization custom property `{}` to `{}` for this repository",
-                    drawable(&declaration.property),
-                    drawable(&declaration.value)
-                ))
-            },
-        ),
-        reversible: declaration.map_or(finding.fix_class.reversible, |_| Some(false)),
-        capability: declaration.map(|value| (value.property.clone(), value.value.clone())),
+        fix: finding.fix_class.code.as_ref().map(|value| drawable(value)),
+        change: finding
+            .fix_class
+            .change
+            .as_ref()
+            .map(|value| drawable(value)),
+        reversible: finding.fix_class.reversible,
     }
 }
 
@@ -1089,7 +1075,7 @@ fn verdict(styles: Styles, width: usize, queue: &Queue) -> Vec<Line<'static>> {
         AuditResult::Nonconformant => Some(Status::Gap),
         AuditResult::Incomplete => None,
     };
-    let aligned = queue.count(Group::Aligned);
+    let aligned = queue.count(Group::Met);
     let total = queue.rows.len();
     let mut lines = vec![Line::from(vec![
         Span::styled("VERDICT  ", styles.bold(Role::Text)),
@@ -1624,9 +1610,12 @@ pub mod fixture {
 
     /// A rule the repository has not declared enough about to evaluate.
     #[must_use]
-    pub fn capability_undeclared() -> Finding {
+    pub fn missing_input() -> Finding {
         let mut finding = finding("REPO-REL-04", Severity::Advisory, None);
-        finding.evidence = Some(Evidence::capability_undeclared("release", "true"));
+        finding.evidence = Some(Evidence::new(
+            "required_input_missing",
+            "a required input is missing",
+        ));
         finding
     }
 
@@ -1667,7 +1656,7 @@ pub mod fixture {
         report(vec![
             settings_failure(),
             file_failure(),
-            capability_undeclared(),
+            missing_input(),
             crate::tui::findings::fixture::unbuilt(finding(
                 "REPO-README-04",
                 Severity::Advisory,
@@ -1824,7 +1813,7 @@ pub mod fixture {
 #[cfg(test)]
 mod tests {
     use super::fixture::{
-        capability_undeclared, file_failure, finding, report, settings_failure, suppressed,
+        file_failure, finding, missing_input, report, settings_failure, suppressed,
     };
     use super::*;
     use crate::tui::chrome::{FLOOR_HEIGHT, FLOOR_WIDTH, REFERENCE_HEIGHT, REFERENCE_WIDTH};
@@ -1868,29 +1857,63 @@ mod tests {
     // -----------------------------------------------------------------
 
     #[test]
+    fn one_read_model_retains_all_results_configuration_and_gate_reasons() {
+        let source = fixture::mixed();
+        let queue = Queue::of(&source, &Deliveries::default());
+        assert_eq!(queue.rows.len(), source.entries().count());
+        assert_eq!(queue.rules.len(), source.effective_policy.len());
+        assert!(!queue.sources.is_empty());
+        assert_eq!(queue.provenance, Provenance::of(&source));
+        for entry in source.entries() {
+            let row = queue
+                .rows
+                .iter()
+                .find(|row| row.rule == entry.rule)
+                .unwrap();
+            assert_eq!(row.status, entry.status);
+            assert_eq!(row.result_label, entry.status_code());
+            if let Some(route) = &entry.routing {
+                let projected = row.detail.routing.as_ref().expect("declared gate retained");
+                assert_eq!(projected.reason, drawable(&route.reason));
+                assert_eq!(
+                    projected.settling_surface,
+                    drawable(&route.settling_surface)
+                );
+                assert!(!row.gates());
+            }
+            if let Some(evidence) = &entry.evidence {
+                assert_eq!(
+                    row.detail.evidence.as_ref().unwrap().detail,
+                    drawable(&evidence.detail)
+                );
+            }
+        }
+    }
+
+    #[test]
     fn a_finding_takes_the_first_group_it_matches() {
         for (finding, expected) in [
-            (suppressed(), Group::Authorized),
+            (suppressed(), Group::Waived),
             (
                 crate::tui::findings::fixture::routed(finding(
                     "REPO-GIT-04",
                     Severity::Advisory,
                     None,
                 )),
-                Group::AdminOnly,
+                Group::Routed,
             ),
-            (capability_undeclared(), Group::Decision),
+            (missing_input(), Group::RunErrors),
             (
                 crate::tui::findings::fixture::unbuilt(finding(
                     "REPO-CI-02",
                     Severity::Blocking,
                     None,
                 )),
-                Group::Judgment,
+                Group::Unbuilt,
             ),
             (
                 finding("REPO-CI-02", Severity::Blocking, None),
-                Group::Unanswered,
+                Group::RunErrors,
             ),
             (
                 crate::tui::findings::fixture::unbuilt(finding(
@@ -1898,15 +1921,15 @@ mod tests {
                     Severity::Advisory,
                     None,
                 )),
-                Group::Judgment,
+                Group::Unbuilt,
             ),
             (
                 finding("REPO-LIC-01", Severity::Blocking, Some(Status::Met)),
-                Group::Aligned,
+                Group::Met,
             ),
             (
                 finding("REPO-REL-04", Severity::Blocking, Some(Status::Met)),
-                Group::Aligned,
+                Group::Met,
             ),
             (settings_failure(), Group::Settings),
             (file_failure(), Group::AgentWork),
@@ -1916,15 +1939,15 @@ mod tests {
     }
 
     #[test]
-    fn an_inconclusive_finding_is_a_decision_only_when_the_evidence_says_so() {
-        assert_eq!(group_of(&capability_undeclared()), Group::Decision);
-        let mut other = capability_undeclared();
+    fn missing_inputs_remain_run_errors_without_a_declared_gate() {
+        assert_eq!(group_of(&missing_input()), Group::RunErrors);
+        let mut other = missing_input();
         other.evidence = Some(Evidence::new("tree_truncated", "the tree was truncated"));
-        assert_eq!(group_of(&other), Group::Unanswered);
+        assert_eq!(group_of(&other), Group::RunErrors);
     }
 
     #[test]
-    fn a_failure_with_no_declared_fix_stands_with_the_judgments_and_says_why() {
+    fn a_gap_with_no_declared_fix_is_deferred_to_the_operator_with_its_reason() {
         let mut finding = finding("REPO-XX-99", Severity::Blocking, Some(Status::Gap));
         finding.fix_class = FixClass {
             fix_kind: None,
@@ -1933,7 +1956,7 @@ mod tests {
             reversible: None,
             none_reason: Some("the choice is the maintainer's".to_owned()),
         };
-        assert_eq!(group_of(&finding), Group::Judgment);
+        assert_eq!(group_of(&finding), Group::OperatorDeferred);
         let queue = queue(vec![finding]);
         let note = queue.rows[0]
             .note
@@ -1982,10 +2005,10 @@ mod tests {
             .iter()
             .find(|row| row.status.is_none())
             .expect("the suppressed row");
-        assert_eq!(suppressed.group, Group::Authorized);
-        assert_ne!(suppressed.group, Group::Aligned);
-        assert_eq!(queue.count(Group::Aligned), 1);
-        assert_eq!(queue.count(Group::Authorized), 1);
+        assert_eq!(suppressed.group, Group::Waived);
+        assert_ne!(suppressed.group, Group::Met);
+        assert_eq!(queue.count(Group::Met), 1);
+        assert_eq!(queue.count(Group::Waived), 1);
     }
 
     #[test]
@@ -2060,7 +2083,7 @@ mod tests {
             &Deliveries::default(),
         );
         let row = &queue.rows[0];
-        assert_eq!(row.group, Group::Unanswered);
+        assert_eq!(row.group, Group::RunErrors);
         assert!(row.gates());
         let note = row.note.clone().expect("the row says it does not block");
         assert!(note.contains("blocks completeness"), "{note}");
@@ -2173,11 +2196,7 @@ mod tests {
     fn only_the_aligned_group_opens_collapsed() {
         let state = State::default();
         for group in Group::ALL {
-            assert_eq!(
-                state.is_collapsed(group),
-                group == Group::Aligned,
-                "{group:?}"
-            );
+            assert_eq!(state.is_collapsed(group), group == Group::Met, "{group:?}");
         }
     }
 
@@ -2313,7 +2332,7 @@ mod tests {
         assert_eq!(seen.len(), 5);
         assert_eq!(queue.shown(FilterSet::AllFailures).len(), 2);
         assert_eq!(queue.shown(FilterSet::GatingFailures).len(), 1);
-        assert_eq!(queue.shown(FilterSet::Undecided).len(), 5);
+        assert_eq!(queue.shown(FilterSet::NotEvaluated).len(), 5);
         assert_eq!(queue.shown(FilterSet::Inert).len(), 3);
     }
 
@@ -2471,11 +2490,11 @@ mod tests {
     }
 
     #[test]
-    fn no_suppressed_or_undecided_row_can_be_read_as_a_pass_without_colour() {
+    fn no_suppressed_or_not_evaluated_row_can_be_read_as_a_pass_without_colour() {
         let queue = mixed();
         let mut state = State::default();
         // Every group expanded, so every row is drawable.
-        state.toggle(Group::Aligned, 0);
+        state.toggle(Group::Met, 0);
         let mut seen = Vec::new();
         for index in 0..entries(&queue, &state).len() {
             state.selected = index;
@@ -2546,7 +2565,7 @@ mod tests {
         let row = queue
             .rows
             .iter()
-            .find(|row| row.group == Group::Judgment)
+            .find(|row| row.group == Group::OperatorDeferred)
             .expect("the failure with no declared fix");
         let reason = row.note.clone().expect("the declared reason");
 
@@ -2579,7 +2598,7 @@ mod tests {
             status: Some(Status::Gap),
             result_label: "gap".to_owned(),
             section: "docs".to_owned(),
-            group: Group::Judgment,
+            group: Group::Unbuilt,
             delivery: Delivery::Unknown,
             note: Some(fact.to_owned()),
             detail: Detail::of(
@@ -2589,7 +2608,6 @@ mod tests {
             fix: None,
             change: None,
             reversible: None,
-            capability: None,
         }
     }
 
@@ -2716,9 +2734,9 @@ mod tests {
         });
         let queue = queue(vec![entry]);
         assert_eq!(queue.count(Group::OutOfScope), 1);
-        assert_eq!(queue.count(Group::AdminOnly), 0);
-        assert_eq!(queue.count(Group::Aligned), 0);
-        assert_eq!(queue.count(Group::Judgment), 0);
+        assert_eq!(queue.count(Group::Routed), 0);
+        assert_eq!(queue.count(Group::Met), 0);
+        assert_eq!(queue.count(Group::Unbuilt), 0);
         assert_eq!(queue.summary.out_of_scope, 1);
         assert!(!queue.rows[0].gates());
         assert_eq!(queue.rows[0].result_label, "out-of-scope");

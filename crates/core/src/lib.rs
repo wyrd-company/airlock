@@ -1,3 +1,9 @@
+// ---
+// relationships:
+//   implements: terminal-interface
+//   references: release-process-conformance
+// ---
+
 //! Repository release-readiness auditing for the `airlock` command line tool.
 //!
 //! The crate is organised around the shape of one audit run: a [`policy`]
@@ -26,7 +32,6 @@ pub mod fix;
 pub mod github;
 pub mod limits;
 pub mod maturity;
-pub mod plan;
 pub mod policy;
 pub mod render;
 pub mod rules;
