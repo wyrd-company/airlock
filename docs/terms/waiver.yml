@@ -1,7 +1,8 @@
 $schema: https://refinery.systems/ontology/term
 title: Waiver
 description: >-
-  A standard with effective severity none. It is not evaluated and does not produce Met or Gap.
-  The report lists its id and exception reason, or identifies it as not configured when required
-  configuration is absent. A waiver is visible debt, not evidence of conformance. Waiver
-  replaces suppression and enabled: false; it is not a separate authorization mechanism.
+  A rule with effective severity none. It is not evaluated and produces the waived outcome rather
+  than Met or Gap. The report lists its id and exception reason, or identifies it as not
+  configured when required configuration is absent. A waiver is visible debt, not evidence of
+  conformance. Waiver replaces suppression and enabled: false; it is not a separate authorization
+  mechanism.

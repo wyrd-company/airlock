@@ -1,7 +1,7 @@
 $schema: https://refinery.systems/ontology/term
 title: Parameter
 description: >-
-  A named input to a compiled standard, with a compiled default beside that standard's statement
-  and severity. An exception may set it where permitted. Defaults may substitute the repository
-  owner but cannot compute predicates. Missing required configuration yields effective severity
-  none and a visible not-configured entry.
+  A named input to a compiled rule, with a compiled default beside that rule's statement and
+  severity. An exception may set it where permitted. Defaults may substitute the repository owner
+  but cannot compute predicates. Missing required configuration yields effective severity none
+  and a visible not-configured entry.

@@ -1,0 +1,6 @@
+$schema: https://refinery.systems/ontology/term
+title: Effective rule
+description: >-
+  A governing rule with the parameters and severity produced from compiled defaults and permitted
+  organization and repository exceptions. Its identity and requirement remain compiled. Effective
+  rule replaces effective standard and rule instance; it is not selected through a capability.

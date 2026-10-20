@@ -2,5 +2,4 @@ $schema: https://refinery.systems/ontology/term
 title: Family
 description: >-
   The product family to which a repository belongs, declared as part of its organization-owned
-  classification. Standards compare the family with the repository's name and topics where
-  required.
+  classification. Rules compare the family with the repository's name and topics where required.

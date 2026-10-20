@@ -3,5 +3,5 @@ title: Released
 description: >-
   The lifecycle rung evidenced by a release tag above 0.0.0 and below 1.0.0 whose tag record is
   not a baseline. A baseline tag alone, including a takeover baseline above 0.0.0, does not
-  establish a release. Stable is the higher rung for release versions at or above 1.0.0. A
-  standard governing released and above governs both rungs.
+  establish a release. Stable is the higher rung for release versions at or above 1.0.0. A rule
+  governing released and above governs both rungs.

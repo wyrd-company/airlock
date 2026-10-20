@@ -1,0 +1,9 @@
+$schema: https://refinery.systems/ontology/term
+title: Rule
+description: >-
+  A compiled requirement that states what a repository must satisfy. Its identity, statement,
+  default severity, parameters, governing classification and evaluation requirements belong to
+  Airlock's rules. Configuration can parameterize or re-grade a rule but cannot define its
+  predicate. The collection is called the rules. Standard is retired as an Airlock term for the
+  requirement; check names the compiled procedure that evaluates a rule and remains a verb for
+  evaluating it. Rule identifiers such as REPO-REL-08 do not change.

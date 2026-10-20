@@ -1,7 +1,0 @@
-$schema: https://refinery.systems/ontology/term
-title: Effective standard
-description: >-
-  A governing standard with the parameters and severity produced from compiled defaults and
-  permitted organization and repository exceptions. Its identity and requirement remain
-  compiled. Effective standard replaces effective rule and rule instance; it is not selected
-  through a capability.

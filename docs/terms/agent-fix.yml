@@ -2,5 +2,5 @@ $schema: https://refinery.systems/ontology/term
 title: Agent fix
 description: >-
   Repository-specific file work handed to an agent for reasoning with the embedded guidance. It
-  names the standard, observed gap and proposed change. Agent fix replaces agent delegation and
+  names the rule, observed gap and proposed change. Agent fix replaces agent delegation and
   judgment-file work; mechanical file work remains in the Airlock lane.

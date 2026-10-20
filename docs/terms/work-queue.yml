@@ -2,5 +2,5 @@ $schema: https://refinery.systems/ontology/term
 title: Work queue
 description: >-
   The interactive view of the work remaining, centered on gaps and their fixes. Met and waived
-  standards are counts with selectable views; routed standards retain their named destination.
-  Work queue replaces the findings screen's competing status and remediation vocabularies.
+  rules are counts with selectable views; routed rules retain their named destination. Work queue
+  replaces the findings screen's competing status and remediation vocabularies.

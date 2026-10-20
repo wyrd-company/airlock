@@ -1,8 +1,10 @@
 $schema: https://refinery.systems/ontology/term
 title: Outcome
 description: >-
-  The result of evaluating one standard: Met or Gap. Only the compiled check decides this
-  result. Advisory agent evidence does not change it. Overall process exit status is distinct: 0
-  means no accepted blocking gaps, 1 means accepted blocking gaps remain, and 2 means Airlock
-  could not do its job. Outcome replaces the nine-state status taxonomy; the report-wide and
-  agent-work-list Outcome enums do not define additional standard outcomes.
+  The result of a compiled check for one rule: Met, Gap, waived, routed, unbuilt or out-of-scope.
+  Met and Gap are evaluated outcomes; the others record declared gates or boundaries without
+  claiming the rule is met. Advisory agent evidence does not change an outcome. Overall process
+  exit status is distinct: 0 means no accepted blocking gaps, 1 means accepted blocking gaps
+  remain, and 2 means Airlock could not do its job. Outcome replaces the nine-state status
+  taxonomy; the report-wide and agent-work-list Outcome enums do not define additional rule
+  outcomes.

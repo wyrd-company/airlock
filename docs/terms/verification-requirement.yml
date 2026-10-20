@@ -1,7 +1,7 @@
 $schema: https://refinery.systems/ontology/term
 title: Verification requirement
 description: >-
-  Compiled information declaring the input, credential or surface required to settle a standard
-  and the named destination when this run cannot meet it. It does not add an outcome.
-  Verification requirement replaces disclosure gate and verification surface as domain labels;
-  it is unrelated to the deleted severity-threshold Gate type.
+  Compiled information declaring the input, credential or surface required to settle a rule and
+  the named destination when this run cannot meet it. It does not add an outcome. Verification
+  requirement replaces disclosure gate and verification surface as domain labels; it is unrelated
+  to the deleted severity-threshold Gate type.

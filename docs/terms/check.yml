@@ -1,6 +1,7 @@
 $schema: https://refinery.systems/ontology/term
 title: Check
 description: >-
-  The compiled procedure that evaluates a standard and decides its Met or Gap outcome. A check
-  is distinct from the requirement it evaluates. An agent assessment is advisory evidence, never
-  a check, and cannot replace the compiled outcome or change the exit code.
+  The compiled procedure that evaluates a rule and decides its outcome: Met, Gap, waived, routed,
+  unbuilt or out-of-scope. A check is distinct from the requirement it evaluates. An agent
+  assessment is advisory evidence, never a check, and cannot replace the compiled outcome or
+  change the exit code.

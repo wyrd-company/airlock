@@ -1,9 +1,0 @@
-$schema: https://refinery.systems/ontology/term
-title: Standard
-description: >-
-  A compiled requirement that states what a repository must satisfy. Its identity, statement,
-  default severity, parameters, governing classification and evaluation requirements belong to
-  Airlock's standards. Configuration can parameterize or re-grade a standard but cannot define
-  its predicate. The collection is called the standards. Standard replaces rule and check as
-  names for the requirement. A check is the compiled procedure that evaluates a standard;
-  check also remains a verb for evaluating it.
