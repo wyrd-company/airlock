@@ -23,7 +23,7 @@ fix_class
   reversible          yes                                                       
 — 0 lines above · 18 below · ↑↓ moves the window —                              
 esc back · a fix transcript · o re-observe this rule · 3 more…                  
-decided · gating · blocking Gap                                                 
+evaluated · blocking Gap                                                        
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 cdeeeeeeeeeeeddcccdddfdddfddgggddddddhhhhhhhhddddddddddddddddddddddddddddddddddd

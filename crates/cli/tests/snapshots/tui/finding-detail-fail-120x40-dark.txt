@@ -39,7 +39,7 @@ observed              2026-01-02T03:04:05Z
 — 0 lines above · 2 below · ↑↓ moves the window —                                                                       
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 esc back · a fix transcript · o re-observe this rule · y copy the rule id · t theme · ctrl-c exit                       
-decided · gating · blocking Gap                                                                                         
+evaluated · blocking Gap                                                                                                
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc

@@ -39,7 +39,7 @@ use airlock_core::rules;
 
 use crate::admin::text::drawable;
 
-use super::lane::{self, Lane};
+use super::lane;
 use super::panel::{self, field_at, heading, Provenance, Scroll};
 use super::theme::{Role, Styles};
 
@@ -611,13 +611,15 @@ fn effect_region(styles: Styles, width: usize, row: &super::findings::Row) -> Ve
 /// The sentence itself.
 ///
 /// Composed from status, severity, and the gate together, because neither
-/// severity nor status alone is consequence: a fail at a severity the gate does
-/// not enforce stops nothing, and an not evaluated result there leaves the run
-/// complete.
+/// severity nor status alone determines the exit: new Gaps do not bind, and
+/// declared gates do not become evaluated outcomes.
 #[must_use]
 fn effect(row: &super::findings::Row) -> String {
     match row.status {
         Some(Status::Met) => "Met: the compiled requirement holds.".to_owned(),
+        Some(Status::Gap) if row.new => {
+            "New Gap: generation not accepted; exit code unchanged.".to_owned()
+        }
         Some(Status::Gap) if row.severity == rules::Severity::Blocking => {
             "Blocking Gap: Exit 1 when no run error is present.".to_owned()
         }
@@ -636,10 +638,9 @@ fn effect(row: &super::findings::Row) -> String {
 /// suppression.
 #[must_use]
 pub fn status(row: &super::findings::Row) -> String {
-    let lane = match lane::lane_of(row.status) {
-        Lane::Gating => "decided \u{b7} gating",
-        Lane::Inert => "decided \u{b7} inert",
-        Lane::NotEvaluated => "not evaluated",
+    let lane = match row.status {
+        Some(_) => "evaluated",
+        None => "not evaluated",
     };
     // NotEvaluated is asked first, because what an unanswered question does to a
     // run is decided before what a decided one does: it sets complete, and
@@ -827,6 +828,27 @@ mod tests {
     // -----------------------------------------------------------------
     // The three kinds
     // -----------------------------------------------------------------
+
+    #[test]
+    fn a_new_blocking_gap_has_no_exit_one_claim_anywhere_in_its_detail() {
+        let mut entry =
+            fixture::finding("REPO-LIC-01", rules::Severity::Blocking, Some(Status::Gap));
+        entry.new = true;
+        let report = only(entry);
+        let queue = queue(&report);
+        let row = row_for(&queue, "REPO-LIC-01");
+        assert!(!row.gates());
+        let effect = effect(row);
+        assert!(effect.to_ascii_lowercase().contains("new"));
+        assert!(effect.contains("exit code unchanged"));
+        assert!(!status(row).contains("gating"));
+        let rendered = text(&regions(styles(), 120, row, &queue.provenance));
+        assert!(
+            !rendered.to_ascii_lowercase().contains("exit 1"),
+            "{rendered}"
+        );
+        assert!(rendered.contains("generation not accepted"), "{rendered}");
+    }
 
     #[test]
     fn declared_gate_destination_is_complete_and_cannot_instruct_the_terminal() {
@@ -1341,7 +1363,7 @@ mod tests {
     #[test]
     fn the_status_line_states_the_lane_and_the_gating_effect() {
         let mixed = queue(&fixture::mixed());
-        assert!(status(row_for(&mixed, "REPO-GIT-01")).starts_with("decided \u{b7} gating"));
+        assert!(status(row_for(&mixed, "REPO-GIT-01")).starts_with("evaluated"));
         assert!(status(row_for(&mixed, "REPO-GIT-04")).starts_with("not evaluated"));
         let report = only(fixture::suppressed());
         let inert = queue(&report);
