@@ -166,28 +166,21 @@ its findings into the agent's file-change lanes:
 airlock agent-work wyrd-company/airlock --working-tree .
 ```
 
-Its `agent_lane` contains failed rules classified as `deterministic-file` or
-`judgment-file`, keyed by rule id and carrying the remediation code and the
-change it would make. `operator_deferred` separately identifies failed
-`operator-setting` rules and failures that declare no remediation; neither
-gates the command. `needs_decision`, `unsettled`, `admin_only`, `manual`, and
-`suppressed` keep the other unfinished or authorized-but-unaligned findings
-visible with their counts and identities. Undecided items say whether they gate
-and retain their evidence code, so a missing capability declaration is distinct
-from a retryable observation failure, and `admin_only` holds the gaps that
-require admin access to verify — named, never gating, and never passing. Every
-group retains each finding's observation
-source, and the top-level `observation` block says whether file findings came
-from the API tree or the local working tree.
+Its `agent_lane` contains Gaps classified as `deterministic-file` or
+`judgment-file`. `operator_deferred` lists operator work. `needs_decision` and
+`run_errors` name missing inputs and failed observations. `waived`, `routed`,
+and `unbuilt` list standards not evaluated here. These lists carry counts,
+identities, reasons, and settling surfaces. The `observation` block records
+whether files came from the API tree or the local working tree.
 
 This is a lane-scoped definition-of-done check, not an audit substitute or a
 repository conformance claim. A clear agent lane can coexist with operator
-work, manual judgment, suppressed debt, and other repository gaps; run
+work, unbuilt checks, waivers, routed standards, and other repository gaps; run
 `airlock audit` for the complete findings authority.
 
 `airlock audit --list-checks` prints the whole check registry: every rule id,
-its statement, its severity, whether airlock evaluates it mechanically, reports
-it for a human, or has not built it yet, and what closing its gap would take.
+its statement, its severity, its compiled check and declared gates, and what
+closing its gap would take.
 That last part is the remediation catalogue — read it to know what airlock
 would do to a repository before pointing it at one.
 
@@ -206,92 +199,61 @@ airlock align-files wyrd-company/airlock --working-tree .
 
 ## What the exit code means
 
-| Code | Outcome         | Meaning                                                                 |
-| ---- | --------------- | ----------------------------------------------------------------------- |
-| `0`  | `conformant`    | Every question this run could settle was settled; the gate is satisfied |
-| `1`  | `nonconformant` | Every question this run could settle was settled; a gating rule failed  |
-| `2`  | `incomplete`    | This run left a gating rule undecided, or never started                 |
+| Code | Result | Meaning |
+| ---- | ------ | ------- |
+| `0` | `conformant` | No blocking Gaps and no run errors |
+| `1` | `nonconformant` | At least one blocking Gap, with no run errors |
+| `2` | `incomplete` | Airlock could not complete its job |
 
-A rule behind a declared disclosure gate requires admin access to verify. It is
-reported `admin-only`, named as its own group, and counted against no exit code
-— codes `0` and `1` therefore mean "nothing this run could answer went
-unanswered", never "every rule was decided".
+An evaluated standard has exactly one outcome: `met` or `gap`. Severity is
+`none`, `advisory`, or `blocking`. A blocking Gap sets exit `1`; an advisory
+Gap leaves the exit code unchanged. An agent assessment is advisory evidence;
+only the compiled check decides Met or Gap.
+
+The JSON document uses schema version `2`. Its `findings` list contains the
+Met and Gap results. Separate lists identify work without an outcome:
+
+- `waived`: effective severity `none`; the check does not run. Each entry names
+  the standard and its authorization reason.
+- `routed`: a compiled gate sends the standard to another run or surface.
+  `needs-github-api` routes the whole standard to a credentialed API-tree audit
+  or Action. A disclosure gate names the interactive session. An unobserved
+  repository owner routes the Renovate preset comparison after file presence
+  has been checked.
+- `unbuilt`: this evaluation reaches a declared part of the check that Airlock
+  has not built. It names the reason and needs a release with that check built.
+  Other branches of the same check still decide Met or Gap.
+- `run_errors`: a failed read, exhausted budget, truncated input, or missing
+  input with no declared gate. Every run error sets exit `2`, at any severity.
+  A credentialed endpoint failure is a run error, never routing.
+
+Waived, routed, and unbuilt entries have no Met or Gap outcome and do not
+change the exit code. A standard is evaluated whole or routed whole when it
+requires an API-only fact. Other standards continue to run. A clean report
+with waivers or routed work is distinguishable from one where every standard
+was evaluated.
+
+The tests `decided_outcomes_match_the_integration_base`,
+`a_waived_standard_does_not_run_its_check`,
+`the_api_gate_routes_a_whole_file_tree_standard`,
+`disclosure_routing_and_a_missing_input_without_a_gate_are_distinct`, and
+`unbuilt_branches_preserve_decided_outcomes` verify these contracts.
+
+The binary's exit contract is unconditional. The composite Action retains
+`fail-on-incomplete: "false"` as an adapter override: it maps binary exit `2`
+to Action success while reporting `outcome: incomplete` and `complete: false`.
+The override also covers setup errors such as a missing `AIRLOCK_TOKEN`.
+`scripts/test-action.sh` verifies this mapping. Blocking Gaps still fail the
+Action.
 
 On Unix, a closed output pipe terminates silently on signal 13 (`SIGPIPE`),
 commonly reported by shells as status 141.
 
-`airlock agent-work` uses the same numeric codes for a different, explicitly
-lane-scoped question:
-
-| Code | Outcome                   | Meaning                                                             |
-| ---- | ------------------------- | ------------------------------------------------------------------- |
-| `0`  | `agent_lane_clear`        | No deterministic or judgment file failure remains                   |
-| `1`  | `agent_lane_work_remains` | At least one deterministic or judgment file failure remains         |
-| `2`  | `could_not_settle`        | The audit left a gate-relevant question unanswered or could not run |
-
-Operator-setting failures are always counted and identified in
-`operator_deferred`, but do not change code `0` to code `1`. Code `0` therefore
-means only “my lane is clear”; it never means “the repository is aligned.”
-
-The distinction is the point. An audit that fell short of evaluating an enabled
-rule — because it is not built yet, because a bounded scan ran out of budget, or
-because GitHub refused the request — never reports success. Every rule the
-policy enables produces exactly one finding, with one of nine statuses:
-
-`pass`, `fail`, `manual` (a judgment call for a human), `suppressed`,
-`skipped` (a capability condition was not met), `unimplemented`,
-`inconclusive` (a bound was hit), `admin-only` (the fact requires admin access
-to verify), `error` (an API failure, with its cause).
-
-`manual`, `suppressed`, and `skipped` are conclusive and never gate. The other
-four leave the assertion undecided, and each one carries which kind of
-undecided it is.
-
-`unimplemented`, `inconclusive`, and `error` are _circumstantial_: this run did
-not establish what it can normally establish, so at a gating severity they make
-the whole audit incomplete. `admin-only` is _structural_: the registry
-declares, per rule, a **disclosure gate** — a fact the platform reveals only to
-a grant the audit is not allowed to hold, plus the surface that verifies it
-instead. GitHub discloses merge settings only to `contents: write`
-(`administration: read` does not expose them), and the headless audit proves its
-credential read-only before it runs, so those facts are undisclosed on every
-scheduled run by construction. A verdict that is permanently red carries no
-information, so a structural gap does not make the audit incomplete.
-
-A check reports one observation — the platform did not disclose this field —
-and the declaration decides what it means. A structural gap needs both halves:
-a rule that declares the gate, and a credential airlock enumerated and found
-unable to hold the grant the gate requires. An absent field with no declaration
-behind it is a run that fell short and keeps blocking, and so is one missing
-from a write-capable credential that should have been shown it — the
-interactive session inherits no exemption.
-
-Which half a credential falls in is read from whichever representation carries
-its grant: installation permissions for an app credential, the scope list for a
-scoped one. A grant airlock cannot classify as entirely reads is treated as
-write-capable, including a scope its reviewed read-only list does not name.
-Read-only is the answer that excuses a gap, so an uncertain grant never earns
-it: reporting a permanent gap as a blocking one overstates what a retry can
-achieve, while excusing a field a credential should have been shown retires a
-gap that is real.
-
-A structural gap is never a pass either: it is named as its own group by `plan`
-and `agent-work`, counted in the summary, and pointed at the verification
-surface its gate declares — today the interactive session, which holds a
-credential that can both read and align the setting. Every surface takes its
-wording from the declaration rather than writing its own.
-`airlock audit --list-checks` prints each rule's gate, the grant it requires,
-and where it is verified, so which rules require admin access, and where they
-are verified, is readable before pointing airlock at anything.
-
-Incomplete input can never produce a clean result. A listing that stopped at
-the page budget, a recursive tree GitHub truncated, or a response airlock could
-not decode all make the assertions that depend on them inconclusive — airlock
-does not conclude "no tag carries a `v` prefix" from the tags it happened to
-read, or "no agent harness configuration is committed" from part of a tree.
-Requests carry connect and read timeouts and the whole run carries a wall-clock
-budget; exhausting either is a refusal before verification and an error finding
-after it.
+`airlock agent-work` asks whether agent file work remains. Its codes are `0`
+for `agent_lane_clear`, `1` for `agent_lane_work_remains`, and `2` for
+`could_not_settle`. It retains waived, routed, unbuilt, and run-error lists.
+Operator work does not turn a clear agent lane into a claim that the repository
+meets every standard.
 
 ## Remediation lanes
 
@@ -450,9 +412,10 @@ Platform rules — settings, rulesets, tags, history, secrets — have no local
 equivalent and are never inferred from a working tree. With a repository and
 a credential (`airlock audit owner/repo --working-tree .`) they still come
 from the API and the run mixes sources; without a credential
-(`airlock audit --working-tree . --policy ./policy.yml`) they are reported as
-`inconclusive` with evidence `not_observed` — never as passing — and the
-audit is `incomplete` at any gating severity.
+(`airlock audit --working-tree . --policy ./policy.yml`) each standard with a
+declared API gate is listed as `routed`, with reason `needs-github-api` and the
+credentialed API-tree audit or Action as its settling surface. Routing leaves
+the exit code unchanged.
 
 Every finding carries a `source` field naming what decided it (`api` or
 `working-tree`; null when nothing observed it), and the report carries an
@@ -474,24 +437,16 @@ It expresses no logic of its own: the checks are the only place logic lives.
 version: 1
 name: wyrd-company
 requires-registry: ">=0.2" # the binary's registry must satisfy this
-gate: blocking # which failing severities count: blocking | required
 
 capabilities:
   base: [identity, licensing, files, git, automation]
   registry: [release]
 
-apply:
-  base: always
-  registry:
-    when:
-      property: release
-      value: "true"
-
 checks:
   REPO-META-06:
     params: { min-topics: 3, max-topics: 8 }
   REPO-FILE-10:
-    severity: observation
+    severity: advisory
   REPO-DOCS-04:
     enabled: false
 
@@ -502,15 +457,12 @@ reference-data:
   topics: wyrd-company/.github:airlock/topics.yml
 ```
 
-The custom-property condition binds the capability to organization-owned policy
-data. A matching value enables its rules, a different value skips them, and an
-unset value is reported as `capability_undeclared` for an operator decision.
-An unreadable value is `condition_undecided`, never a decision or a skip. The
-reference vocabulary defines `release`, `product`, `component`, and `website`;
-the policy selects which property and value govern each capability.
+Capabilities select sections until the two-file configuration replaces this
+policy format. `apply` selectors and the separate `gate` threshold are rejected.
+Severity alone determines whether an evaluated Gap fails the audit.
 
 Anything airlock does not recognise — an unknown key, section, rule id,
-parameter, severity, or condition — is an error, never a silently narrower
+parameter, or severity — is an error, never a silently narrower
 audit. `--policy owner/repo:path[@ref]` names a policy explicitly, and
 `--policy ./path` reads a local one for development.
 

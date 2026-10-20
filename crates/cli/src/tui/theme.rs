@@ -87,7 +87,7 @@ pub enum Role {
     /// The status-line background.
     Bar,
     /// The colour that confirms a status. Never the only carrier of it.
-    Status(Status),
+    Status(Option<Status>),
 }
 
 /// A resolved palette plus the colour mode, and the only source of `Style`.
@@ -110,13 +110,7 @@ struct Palette {
     accent: Color,
     pass: Color,
     fail: Color,
-    manual: Color,
-    suppressed: Color,
-    skipped: Color,
-    unimplemented: Color,
     inconclusive: Color,
-    admin_only: Color,
-    error: Color,
 }
 
 const DARK: Palette = Palette {
@@ -131,17 +125,12 @@ const DARK: Palette = Palette {
     accent: Color::Rgb(0xE8, 0xB8, 0x4B),
     pass: Color::Rgb(0x5F, 0xB9, 0x8A),
     fail: Color::Rgb(0xE0, 0x5C, 0x58),
-    manual: Color::Rgb(0x6C, 0x9B, 0xE0),
-    suppressed: Color::Rgb(0xA8, 0x86, 0xD8),
-    skipped: Color::Rgb(0x77, 0x81, 0x8C),
-    unimplemented: Color::Rgb(0xB7, 0x9A, 0x5A),
+
     inconclusive: Color::Rgb(0xD9, 0xA4, 0x41),
     // The design export predates the admin-only status. It is given a hue no
     // other status uses, in a family the palette does not otherwise occupy, so
     // it cannot be mistaken at a glance for one of the two undecided statuses
     // that do gate. Its lane and glyph carry the meaning; this only confirms.
-    admin_only: Color::Rgb(0x4F, 0xA5, 0xA5),
-    error: Color::Rgb(0xE8, 0x84, 0x3A),
 };
 
 const LIGHT: Palette = Palette {
@@ -156,13 +145,8 @@ const LIGHT: Palette = Palette {
     accent: Color::Rgb(0x9A, 0x6B, 0x12),
     pass: Color::Rgb(0x2E, 0x7D, 0x52),
     fail: Color::Rgb(0xB0, 0x30, 0x28),
-    manual: Color::Rgb(0x2F, 0x5D, 0xA8),
-    suppressed: Color::Rgb(0x6C, 0x46, 0xA0),
-    skipped: Color::Rgb(0x7C, 0x75, 0x66),
-    unimplemented: Color::Rgb(0x8A, 0x6E, 0x22),
+
     inconclusive: Color::Rgb(0x9A, 0x6B, 0x12),
-    admin_only: Color::Rgb(0x1F, 0x6B, 0x6B),
-    error: Color::Rgb(0xB0, 0x58, 0x12),
 };
 
 impl Styles {
@@ -211,15 +195,9 @@ impl Styles {
             Role::Chrome => return Style::default().fg(p.fg).bg(p.chrome),
             Role::Bar => return Style::default().fg(p.dim).bg(p.bar),
             Role::Status(status) => match status {
-                Status::Pass => p.pass,
-                Status::Fail => p.fail,
-                Status::Manual => p.manual,
-                Status::Suppressed => p.suppressed,
-                Status::Skipped => p.skipped,
-                Status::Unimplemented => p.unimplemented,
-                Status::Inconclusive => p.inconclusive,
-                Status::AdminOnly => p.admin_only,
-                Status::Error => p.error,
+                Some(Status::Met) => p.pass,
+                Some(Status::Gap) => p.fail,
+                None => p.inconclusive,
             },
         };
         Style::default().fg(fg)
@@ -280,7 +258,7 @@ mod tests {
             let styles = Styles::new(theme, ColorMode::Color);
             let mut seen = Vec::new();
             for status in Status::ALL {
-                let style = styles.of(Role::Status(*status));
+                let style = styles.of(Role::Status(Some(*status)));
                 assert!(!seen.contains(&style), "{status:?} repeats a colour");
                 seen.push(style);
             }
@@ -307,7 +285,7 @@ mod tests {
             Role::Chrome,
             Role::Bar,
         ];
-        roles.extend(Status::ALL.iter().copied().map(Role::Status));
+        roles.extend(Status::ALL.iter().copied().map(|s| Role::Status(Some(s))));
         roles
     }
 }

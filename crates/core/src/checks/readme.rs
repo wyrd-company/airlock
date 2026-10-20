@@ -15,7 +15,7 @@ pub(crate) fn run(id: &str, _rule: &RuleInstance, context: &AuditContext) -> Opt
 
 fn demo_tape(context: &AuditContext) -> Verdict {
     if context.snapshot.tree_is_truncated() {
-        return Verdict::inconclusive(
+        return Verdict::run_error(
             "tree_truncated",
             context
                 .snapshot
@@ -109,7 +109,7 @@ mod tests {
     fn a_repository_without_a_demo_passes() {
         assert_eq!(
             CheckFixture::new(&[]).verdict("REPO-README-06").status,
-            Status::Pass
+            Some(Status::Met)
         );
     }
 
@@ -119,7 +119,7 @@ mod tests {
             ("docs/assets/demo.gif", "gif"),
             ("docs/demo.tape", "source"),
         ]);
-        assert_eq!(fixture.verdict("REPO-README-06").status, Status::Pass);
+        assert_eq!(fixture.verdict("REPO-README-06").status, Some(Status::Met));
     }
 
     #[test]
@@ -128,7 +128,7 @@ mod tests {
             ("docs/assets/demo.gif", "gif"),
             ("legacy/old.tape", "source"),
         ]);
-        assert_eq!(fixture.verdict("REPO-README-06").status, Status::Fail);
+        assert_eq!(fixture.verdict("REPO-README-06").status, Some(Status::Gap));
     }
 
     #[test]
@@ -137,7 +137,7 @@ mod tests {
             let fixture = CheckFixture::new(&[(demo, "gif"), ("legacy/old.tape", "source")]);
             assert_eq!(
                 fixture.verdict("REPO-README-06").status,
-                Status::Fail,
+                Some(Status::Gap),
                 "{demo}"
             );
         }
@@ -151,7 +151,7 @@ mod tests {
             ("demo/owl-reconstruction/04-inspect.tape", "source"),
             ("demo/owl-reconstruction/build-demo.sh", "script"),
         ]);
-        assert_eq!(fixture.verdict("REPO-README-06").status, Status::Pass);
+        assert_eq!(fixture.verdict("REPO-README-06").status, Some(Status::Met));
     }
 
     #[test]
@@ -161,14 +161,14 @@ mod tests {
             ("docs/demo.tape", "source"),
             ("examples/demo.gif", "gif"),
         ]);
-        assert_eq!(fixture.verdict("REPO-README-06").status, Status::Fail);
+        assert_eq!(fixture.verdict("REPO-README-06").status, Some(Status::Gap));
     }
 
     #[test]
     fn a_demo_without_tape_source_fails() {
         let fixture = CheckFixture::new(&[("docs/assets/demo.gif", "gif")]);
         let verdict = fixture.verdict("REPO-README-06");
-        assert_eq!(verdict.status, Status::Fail);
+        assert_eq!(verdict.status, Some(Status::Gap));
         assert_eq!(verdict.evidence.unwrap().code, "tape_source_missing");
         assert_eq!(
             verdict.remediation.unwrap().action_group,
@@ -180,23 +180,17 @@ mod tests {
     fn a_truncated_tree_never_proves_demo_or_tape_absence() {
         let mut no_demo = CheckFixture::new(&[]);
         no_demo.snapshot.tree.truncated = true;
-        assert_eq!(
-            no_demo.verdict("REPO-README-06").status,
-            Status::Inconclusive
-        );
+        assert_eq!(no_demo.verdict("REPO-README-06").status, None);
 
         let mut demo = CheckFixture::new(&[("docs/assets/demo.gif", "gif")]);
         demo.snapshot.tree.truncated = true;
-        assert_eq!(demo.verdict("REPO-README-06").status, Status::Inconclusive);
+        assert_eq!(demo.verdict("REPO-README-06").status, None);
 
         let mut complete_pair = CheckFixture::new(&[
             ("docs/assets/demo.gif", "gif"),
             ("docs/demo.tape", "source"),
         ]);
         complete_pair.snapshot.tree.truncated = true;
-        assert_eq!(
-            complete_pair.verdict("REPO-README-06").status,
-            Status::Inconclusive
-        );
+        assert_eq!(complete_pair.verdict("REPO-README-06").status, None);
     }
 }

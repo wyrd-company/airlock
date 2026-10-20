@@ -1182,7 +1182,7 @@ fn the_whole_vocabulary_is_legible_at_the_floor_without_colour() {
     });
     for status in airlock_core::findings::Status::ALL {
         assert!(
-            rendered.contains(super::lane::glyph_of(*status)),
+            rendered.contains(super::lane::glyph_of(Some(*status))),
             "{status:?} is not on screen at the floor"
         );
         assert!(

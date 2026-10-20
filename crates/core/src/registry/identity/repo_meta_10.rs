@@ -4,17 +4,15 @@
 //   references: registry
 
 use crate::registry::{
-    Applicability, CheckDefinition, Evaluation, Lifecycle, Observation, Parameter,
-    ParameterDefault, Section, Severity,
+    CheckDefinition, Lifecycle, Observation, Parameter, ParameterDefault, Section, Severity,
 };
 use crate::remediation::{remediation, Lane};
 
 pub(crate) const STANDARD: CheckDefinition = CheckDefinition {
     id: "REPO-META-10",
     statement: "No org-name topic is declared",
-    severity: Severity::Required,
+    severity: Severity::Advisory,
     section: Section::Identity,
-    evaluation: Evaluation::Mechanical,
     params: &[Parameter {
         name: "org-names",
         default: ParameterDefault::Strings(&[]),
@@ -28,8 +26,9 @@ pub(crate) const STANDARD: CheckDefinition = CheckDefinition {
         true,
     ),
     lifecycle: Lifecycle::Seeded,
-    applicability: Applicability::Always,
     observation: Observation::FileTree,
+    api_gate: false,
+    owner_gate: false,
     disclosure_gate: None,
-    evaluation_reason: None,
+    unbuilt_reason: None,
 };

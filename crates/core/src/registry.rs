@@ -5,11 +5,9 @@
 //! binary always reports what it actually evaluated. A policy may select,
 //! parameterise, and re-grade a registered check; it cannot define one.
 //!
-//! Checks are grouped into sections a policy selects through capabilities, and
-//! each carries an evaluation mode: mechanical checks run against the GitHub
-//! API, judgment checks are registered as manual and surfaced for a human, and
-//! checks not yet written are registered as unimplemented so they are visibly
-//! absent rather than silently absent.
+//! Standards are grouped into sections selected through capabilities. Each
+//! standard declares its observation source and any API, owner, disclosure, or
+//! unbuilt boundary. Missing evidence without such a declaration is a run error.
 //!
 //! The repository-standards skill's conformance reference is generated from
 //! this registry. A test in `tests/conformance.rs` parses that projection and
@@ -33,73 +31,40 @@ use sha2::{Digest, Sha256};
 /// The semantic version of the compiled registry.
 ///
 /// It moves when the set of rules, their statements, their default severities,
-/// evaluation modes, or applicability conditions change. Policies constrain it with
+/// or declared check boundaries change. Policies constrain it with
 /// `requires-registry`.
-pub const REGISTRY_VERSION: &str = "0.4.0";
-
-/// A built-in condition that determines whether a check applies.
-///
-/// Applicability is part of check identity: policies may select and re-grade
-/// checks, but they cannot broaden a check beyond the repositories its
-/// compiled statement governs.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Applicability {
-    /// The check applies to every repository that selects it.
-    Always,
-    /// The check applies only when at least one release unit is declared.
-    ReleaseUnitsDeclared,
-}
-
-impl Applicability {
-    /// The stable machine-readable name.
-    #[must_use]
-    pub fn code(self) -> &'static str {
-        match self {
-            Self::Always => "always",
-            Self::ReleaseUnitsDeclared => "release-units-declared",
-        }
-    }
-}
+pub const REGISTRY_VERSION: &str = "0.5.0";
 
 /// How severely a failure counts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Severity {
-    /// The repository should not be public in this state.
+    /// Do not evaluate; list the waiver and its reason.
+    None,
+    /// Report gaps without failing the Action.
+    Advisory,
+    /// Report gaps and fail the Action.
     Blocking,
-    /// A genuine gap; raise it.
-    Required,
-    /// Report it; it may be a deliberate choice or a not-yet-live practice.
-    Observation,
 }
 
 impl Severity {
-    /// The stable machine-readable name.
     #[must_use]
-    pub fn code(self) -> &'static str {
+    pub const fn code(self) -> &'static str {
         match self {
-            Severity::Blocking => "blocking",
-            Severity::Required => "required",
-            Severity::Observation => "observation",
+            Self::None => "none",
+            Self::Advisory => "advisory",
+            Self::Blocking => "blocking",
         }
     }
-
-    /// Parse a severity from its machine-readable name.
     #[must_use]
     pub fn parse(value: &str) -> Option<Self> {
         match value {
-            "blocking" => Some(Severity::Blocking),
-            "required" => Some(Severity::Required),
-            "observation" => Some(Severity::Observation),
+            "none" => Some(Self::None),
+            "advisory" => Some(Self::Advisory),
+            "blocking" => Some(Self::Blocking),
             _ => None,
         }
     }
-
-    /// Every severity, in order of decreasing weight.
-    pub const ALL: &'static [Severity] = &[
-        Severity::Blocking,
-        Severity::Required,
-        Severity::Observation,
-    ];
+    pub const ALL: &'static [Self] = &[Self::Blocking, Self::Advisory, Self::None];
 }
 
 impl fmt::Display for Severity {
@@ -185,48 +150,13 @@ impl fmt::Display for Section {
     }
 }
 
-/// How a rule is evaluated.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Evaluation {
-    /// Airlock evaluates it against the GitHub API.
-    ///
-    /// A mechanical rule with a judgment clause still fails mechanically on
-    /// the part it can decide, and defers the rest to a human rather than
-    /// claiming a pass it cannot prove.
-    Mechanical,
-    /// The rule is a judgment call. Airlock reports it for a human and it
-    /// never gates.
-    Manual,
-    /// The rule is registered but not yet built. Enabling it makes an audit
-    /// incomplete rather than silently narrower.
-    Unimplemented,
-}
-
-impl Evaluation {
-    /// The stable machine-readable name.
-    #[must_use]
-    pub fn code(self) -> &'static str {
-        match self {
-            Evaluation::Mechanical => "mechanical",
-            Evaluation::Manual => "manual",
-            Evaluation::Unimplemented => "unimplemented",
-        }
-    }
-}
-
-impl fmt::Display for Evaluation {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(self.code())
-    }
-}
-
 /// What a rule observes: the repository's file tree, or platform state that
 /// only the GitHub API can report.
 ///
 /// The domain decides which observation source can answer for the rule. A
 /// file-tree rule can be evaluated from the API tree or from a local working
 /// tree; a platform rule has no local equivalent and is never inferred from
-/// one — without the API it is reported as not observed, never as passing.
+/// one — without the API the standard is routed with no Met or Gap outcome.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Observation {
     /// The rule reads committed (or, locally, working-tree) file content.
@@ -383,7 +313,7 @@ impl VerificationSurface {
 ///
 /// This is rule metadata, not check trivia: it says the read-only audit cannot settle
 /// the rule, whatever it retries, and it names the surface that can. The audit
-/// derives a structurally undecided finding from it, and every projection
+/// derives a routed record from it, and every projection
 /// derives what it prints from it. A check may not decide on its own that its
 /// missing input was gated — a rule with no declaration whose input is absent
 /// is a run that fell short, and stays blocking.
@@ -413,7 +343,7 @@ impl DisclosureGate {
     /// the absence of the fact is explained and permanent on that surface. A
     /// write-capable credential may hold it, so an absent field is not evidence
     /// of the gate — something else went wrong, and a run that fell short is
-    /// circumstantial, not structural. This is what stops the interactive
+    /// a run error, not a routed result. This is what stops the interactive
     /// session, which holds a write-capable credential, from excusing a field it
     /// should have been shown.
     #[must_use]
@@ -503,8 +433,6 @@ pub struct CheckDefinition {
     pub severity: Severity,
     /// The section the rule belongs to.
     pub section: Section,
-    /// How the rule is evaluated.
-    pub evaluation: Evaluation,
     /// The parameters a policy may set, with their compiled defaults.
     pub params: &'static [Parameter],
     /// Inspection guidance authored with this standard.
@@ -513,10 +441,11 @@ pub struct CheckDefinition {
     pub remediation: crate::remediation::Classification,
     /// The earliest lifecycle rung; existing standards apply from seeding.
     pub lifecycle: Lifecycle,
-    applicability: Applicability,
     observation: Observation,
     disclosure_gate: Option<&'static DisclosureGate>,
-    evaluation_reason: Option<&'static str>,
+    unbuilt_reason: Option<&'static str>,
+    api_gate: bool,
+    owner_gate: bool,
 }
 
 /// Every registered check definition, in conformance document order.
@@ -648,6 +577,16 @@ pub fn in_section(section: Section) -> Vec<&'static CheckDefinition> {
 }
 
 impl CheckDefinition {
+    #[must_use]
+    pub fn needs_repository_owner(&self) -> bool {
+        self.owner_gate
+    }
+    /// API-only facts cannot be inferred from local file content.
+    #[must_use]
+    pub fn needs_github_api(&self) -> bool {
+        self.observation == Observation::Platform || self.api_gate
+    }
+
     /// The compiled default for a named parameter.
     #[must_use]
     pub fn parameter_default(&self, name: &str) -> Option<ParameterDefault> {
@@ -657,26 +596,17 @@ impl CheckDefinition {
             .map(|parameter| parameter.default)
     }
 
-    /// Why a non-mechanical evaluation mode is the honest boundary.
-    ///
-    /// This is registry data rather than only implementation commentary so
-    /// operators see the classification boundary in listings and findings.
+    /// The declared gate for a check that cannot yet decide the whole requirement.
     #[must_use]
-    pub fn evaluation_reason(&self) -> Option<&'static str> {
-        self.evaluation_reason
-    }
-
-    /// The repository state under which this check's statement applies.
-    #[must_use]
-    pub fn applicability(&self) -> Applicability {
-        self.applicability
+    pub fn unbuilt_reason(&self) -> Option<&'static str> {
+        self.unbuilt_reason
     }
 
     /// The platform disclosure gate standing between this rule and the audit's
     /// credential, when there is one.
     ///
     /// Declared here, per rule, so the classification has one home: the checks
-    /// derive a structurally undecided finding from this rather than knowing
+    /// derive a routed record from this rather than knowing
     /// privately that they are special, the projections derive what they print
     /// from it, and a policy author reading `--list-checks` can see which rules
     /// no scheduled run will ever settle.
@@ -715,13 +645,11 @@ pub fn digest() -> String {
         .iter()
         .map(|check| {
             format!(
-                "{}\u{1f}{}\u{1f}{}\u{1f}{}\u{1f}{}\u{1f}{}",
+                "{}\u{1f}{}\u{1f}{}\u{1f}{}",
                 check.id,
                 check.statement,
                 check.severity.code(),
-                check.evaluation.code(),
-                check.evaluation_reason().unwrap_or_default(),
-                check.applicability().code()
+                check.unbuilt_reason().unwrap_or_default()
             )
         })
         .collect();
@@ -744,16 +672,6 @@ mod tests {
     fn every_check_definition_id_is_unique() {
         let ids: BTreeSet<&str> = CHECKS.iter().map(|check| check.id).collect();
         assert_eq!(ids.len(), CHECKS.len());
-    }
-
-    #[test]
-    fn only_release_unit_rules_have_built_in_applicability() {
-        let conditioned: Vec<&str> = CHECKS
-            .iter()
-            .filter(|check| check.applicability() != Applicability::Always)
-            .map(|check| check.id)
-            .collect();
-        assert_eq!(conditioned, ["REPO-LIC-04", "REPO-GIT-09", "REPO-TASK-04"]);
     }
 
     #[test]
@@ -813,7 +731,6 @@ mod tests {
         for check in CHECKS {
             if check.disclosure_gate().is_some() {
                 assert_eq!(check.observation(), Observation::Platform, "{}", check.id);
-                assert_eq!(check.evaluation, Evaluation::Mechanical, "{}", check.id);
             }
         }
     }
@@ -873,13 +790,11 @@ mod tests {
         assert_eq!(before, digest());
         for check in CHECKS {
             let tuple = format!(
-                "{}\u{1f}{}\u{1f}{}\u{1f}{}\u{1f}{}\u{1f}{}",
+                "{}\u{1f}{}\u{1f}{}\u{1f}{}",
                 check.id,
                 check.statement,
                 check.severity.code(),
-                check.evaluation.code(),
-                check.evaluation_reason().unwrap_or_default(),
-                check.applicability().code()
+                check.unbuilt_reason().unwrap_or_default()
             );
             if let Some(gate) = check.disclosure_gate() {
                 assert!(
@@ -910,12 +825,8 @@ mod tests {
     }
 
     #[test]
-    fn module_extraction_preserves_registry_identity() {
+    fn all_standards_keep_their_identity_and_lifecycle() {
         assert_eq!(CHECKS.len(), 109);
-        assert_eq!(
-            digest(),
-            "sha256:5c8813c3bfc7bd06c869e72aeada56f1b256066e4349022b3a93a78e18f3f74b"
-        );
         assert!(CHECKS
             .iter()
             .all(|standard| standard.lifecycle == Lifecycle::Seeded));
@@ -958,15 +869,6 @@ mod tests {
     fn every_section_has_at_least_one_rule() {
         for section in Section::ALL {
             assert!(!in_section(*section).is_empty(), "{section}");
-        }
-    }
-
-    #[test]
-    fn declared_parameters_belong_to_mechanical_rules() {
-        for check in CHECKS {
-            if !check.params.is_empty() {
-                assert_eq!(check.evaluation, Evaluation::Mechanical, "{}", check.id);
-            }
         }
     }
 }

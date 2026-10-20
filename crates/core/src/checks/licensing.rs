@@ -45,7 +45,7 @@ fn not_dual_licensed(context: &AuditContext) -> Verdict {
         // The assertion is that no dual licence exists anywhere in the
         // repository, which a partial tree cannot establish.
         if context.snapshot.tree_is_truncated() {
-            return Verdict::inconclusive(
+            return Verdict::run_error(
                 "tree_truncated",
                 context
                     .snapshot
@@ -76,7 +76,7 @@ fn license_declared_in_metadata(context: &AuditContext) -> Verdict {
         .collect();
 
     if present.is_empty() {
-        return Verdict::inconclusive(
+        return Verdict::run_error(
             "no_package_manifest",
             "the repository carries no Cargo.toml, package.json, or pubspec.yaml, so whether it \
              publishes to a registry could not be determined",
@@ -167,7 +167,7 @@ mod tests {
     use super::super::fixtures::*;
     use crate::findings::Status;
 
-    fn verdict(id: &str, files: &[(&str, &str)]) -> Status {
+    fn verdict(id: &str, files: &[(&str, &str)]) -> Option<Status> {
         let mut files = files.to_vec();
         if id == "REPO-LIC-04" {
             files.push((
@@ -185,9 +185,9 @@ mod tests {
     fn a_license_file_passes() {
         assert_eq!(
             verdict("REPO-LIC-01", &[("LICENSE", "Apache License")]),
-            Status::Pass
+            Some(Status::Met)
         );
-        assert_eq!(verdict("REPO-LIC-01", &[]), Status::Fail);
+        assert_eq!(verdict("REPO-LIC-01", &[]), Some(Status::Gap));
     }
 
     #[test]
@@ -197,7 +197,7 @@ mod tests {
                 "REPO-LIC-03",
                 &[("LICENSE-MIT", "MIT"), ("LICENSE-APACHE", "Apache")]
             ),
-            Status::Fail
+            Some(Status::Gap)
         );
     }
 
@@ -208,7 +208,7 @@ mod tests {
                 "REPO-LIC-03",
                 &[("Cargo.toml", "[package]\nlicense = \"MIT OR Apache-2.0\"\n")]
             ),
-            Status::Fail
+            Some(Status::Gap)
         );
     }
 
@@ -219,13 +219,13 @@ mod tests {
                 "REPO-LIC-03",
                 &[("Cargo.toml", "[package]\nlicense = \"Apache-2.0\"\n")]
             ),
-            Status::Pass
+            Some(Status::Met)
         );
     }
 
     #[test]
     fn a_repository_with_no_manifest_is_inconclusive_not_passing() {
-        assert_eq!(verdict("REPO-LIC-04", &[]), Status::Inconclusive);
+        assert_eq!(verdict("REPO-LIC-04", &[]), None);
     }
 
     #[test]
@@ -235,7 +235,7 @@ mod tests {
                 "REPO-LIC-04",
                 &[("Cargo.toml", "[package]\nname = \"x\"\n")]
             ),
-            Status::Fail
+            Some(Status::Gap)
         );
     }
 
@@ -249,7 +249,7 @@ mod tests {
                     "[workspace]\nmembers = []\n[workspace.package]\nlicense = \"Apache-2.0\"\n"
                 )]
             ),
-            Status::Pass
+            Some(Status::Met)
         );
     }
 
@@ -263,7 +263,7 @@ mod tests {
                     "{\"name\":\"x\",\"license\":\"Apache-2.0\"}"
                 )]
             ),
-            Status::Pass
+            Some(Status::Met)
         );
     }
 }

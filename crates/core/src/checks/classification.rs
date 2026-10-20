@@ -51,7 +51,7 @@ fn no_declared_custom_properties(context: &AuditContext) -> Verdict {
 
 fn no_workflow_writes_properties(context: &AuditContext) -> Verdict {
     if context.workflows_truncated {
-        return Verdict::inconclusive(
+        return Verdict::run_error(
             "workflow_listing_truncated",
             "the workflow listing was cut short by a budget, so the absence of a property-writing \
              workflow could not be established",
@@ -103,7 +103,7 @@ mod tests {
     use super::super::fixtures::*;
     use crate::findings::Status;
 
-    fn verdict(id: &str, files: &[(&str, &str)]) -> Status {
+    fn verdict(id: &str, files: &[(&str, &str)]) -> Option<Status> {
         let snapshot = snapshot(files);
         let workflows = workflows(&snapshot);
         let policy = policy();
@@ -118,14 +118,14 @@ mod tests {
                 "REPO-PROP-03",
                 &[(".github/repo-settings.yml", "properties:\n  tier: gold\n")]
             ),
-            Status::Fail
+            Some(Status::Gap)
         );
         assert_eq!(
             verdict(
                 "REPO-PROP-03",
                 &[(".github/repo-settings.yml", "description: x\n")]
             ),
-            Status::Pass
+            Some(Status::Met)
         );
     }
 
@@ -139,7 +139,7 @@ mod tests {
                     "jobs:\n  a:\n    steps:\n      - run: gh api -X PATCH repos/o/n/properties/values\n"
                 )]
             ),
-            Status::Fail
+            Some(Status::Gap)
         );
         assert_eq!(
             verdict(
@@ -149,7 +149,7 @@ mod tests {
                     "jobs:\n  a:\n    steps:\n      - run: task check\n"
                 )]
             ),
-            Status::Pass
+            Some(Status::Met)
         );
     }
 }

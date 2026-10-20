@@ -981,9 +981,8 @@ impl App {
     fn working(&mut self, code: KeyCode) -> Option<Flow> {
         if matches!(code, KeyCode::Char('a' | 'A')) {
             let row_is_settings = self.focused_row().is_some_and(|row| {
-                (row.group == findings::Group::Settings && row.status == Status::Fail)
-                    || (row.group == findings::Group::Decision
-                        && row.status == Status::Inconclusive)
+                (row.group == findings::Group::Settings && row.status == Some(Status::Gap))
+                    || (row.group == findings::Group::Decision && row.status.is_none())
             });
             if row_is_settings {
                 if code == KeyCode::Char('A') {
@@ -1113,10 +1112,10 @@ impl App {
             return;
         };
         let actionable = (row.group == findings::Group::Settings
-            && row.status == Status::Fail
+            && row.status == Some(Status::Gap)
             && row.detail.remediation.code.is_some())
             || (row.group == findings::Group::Decision
-                && row.status == Status::Inconclusive
+                && row.status.is_none()
                 && row.remediation.as_deref() == Some("declare-capability-property"));
         if !actionable {
             self.note = Some(findings::inert_apply());
@@ -2014,7 +2013,10 @@ impl App {
                     styles.of(Role::Faint),
                 ),
             ]));
-            for status in Status::ALL.iter().filter(|s| lane::lane_of(**s) == lane) {
+            for status in Status::ALL
+                .iter()
+                .filter(|s| lane::lane_of(Some(**s)) == lane)
+            {
                 // A legend that wraps stops being a legend, so the gloss is
                 // elided to the room the lanes and the status name leave.
                 lines.push(lane::legend_row(*status, styles, width));
@@ -2035,7 +2037,7 @@ impl App {
         lines.push(Line::from(vec![
             Span::styled(
                 format!("{} ", lane::GATING_RAIL),
-                styles.of(Role::Status(Status::Fail)),
+                styles.of(Role::Status(Some(Status::Gap))),
             ),
             Span::styled(
                 "a solid left rail marks a row that actually gates the run",
@@ -2053,7 +2055,7 @@ impl App {
 /// classification treats it the same way. A 403 is a grant that is too narrow
 /// and re-authorizing would not widen it.
 fn rejected(report: &airlock_core::findings::Report) -> bool {
-    report.findings.iter().any(|finding| {
+    report.entries().any(|finding| {
         finding
             .error
             .as_ref()
@@ -2072,7 +2074,7 @@ fn bulk_items(
     queue
         .rows
         .iter()
-        .filter(|row| row.group == findings::Group::Settings && row.status == Status::Fail)
+        .filter(|row| row.group == findings::Group::Settings && row.status == Some(Status::Gap))
         .filter_map(|row| {
             let code = row.remediation.clone()?;
             if bulk_kind(&code) != Some(kind) {
@@ -2271,8 +2273,7 @@ mod tests {
             .and_then(|evidence| evidence.capability.as_mut())
             .expect("the fixture carries a declaration");
         capability.value = "tr\u{1b}ue".to_owned();
-        let report =
-            findings::fixture::report(airlock_core::findings::Gate::Required, vec![finding]);
+        let report = findings::fixture::report(vec![finding]);
         let mut app = app().with_catalogue(catalogue());
         app.observed_run(&report, &findings::Deliveries::default());
         app.screen = Screen::Findings;
@@ -2293,13 +2294,12 @@ mod tests {
     #[test]
     fn a_long_input_remediation_code_opens_its_text_input() {
         let mut finding =
-            findings::fixture::finding("REPO-NAME-02", Severity::Blocking, Status::Fail);
+            findings::fixture::finding("REPO-NAME-02", Severity::Blocking, Some(Status::Gap));
         finding.remediation = Some(airlock_core::findings::Remediation::new(
             airlock_core::remediation::ActionGroup::RENAME_REPOSITORY,
             "Rename the repository.",
         ));
-        let report =
-            findings::fixture::report(airlock_core::findings::Gate::Required, vec![finding]);
+        let report = findings::fixture::report(vec![finding]);
         let mut app = app();
         app.observed_run(&report, &findings::Deliveries::default());
         app.screen = Screen::Findings;
@@ -2323,17 +2323,14 @@ mod tests {
         use airlock_core::remediation::ActionGroup;
 
         let mut second =
-            findings::fixture::finding("REPO-GIT-04", Severity::Blocking, Status::Fail);
+            findings::fixture::finding("REPO-GIT-04", Severity::Blocking, Some(Status::Gap));
         second.remediation = Some(Remediation::new(
             ActionGroup::CORRECT_MERGE_SETTINGS,
             "Disable merge commits.",
         ));
         let mut app = app();
         app.observed_run(
-            &findings::fixture::report(
-                airlock_core::findings::Gate::Required,
-                vec![findings::fixture::settings_failure(), second],
-            ),
+            &findings::fixture::report(vec![findings::fixture::settings_failure(), second]),
             &findings::Deliveries::default(),
         );
         app.screen = Screen::Findings;
@@ -2359,7 +2356,6 @@ mod tests {
         let mut app = app();
         app.observed_run(
             &findings::fixture::report(
-                airlock_core::findings::Gate::Required,
                 vec![findings::fixture::settings_failure_without_a_remedy()],
             ),
             &findings::Deliveries::default(),
@@ -3217,7 +3213,7 @@ mod tests {
         .map(|code| {
             let mut row = template.clone();
             row.rule = format!("REPO-SAMPLE-{code}");
-            row.status = Status::Fail;
+            row.status = Some(Status::Gap);
             row.remediation = Some(code.to_owned());
             row.change = Some(code.to_owned());
             row.reversible = Some(true);
@@ -3244,13 +3240,10 @@ mod tests {
 
     #[test]
     fn merge_settings_bulk_groups_git_04_with_git_06_from_queue_rows() {
-        let report = findings::fixture::report(
-            airlock_core::findings::Gate::Required,
-            vec![
-                findings::fixture::finding("REPO-GIT-04", Severity::Blocking, Status::Fail),
-                findings::fixture::finding("REPO-GIT-06", Severity::Blocking, Status::Fail),
-            ],
-        );
+        let report = findings::fixture::report(vec![
+            findings::fixture::finding("REPO-GIT-04", Severity::Blocking, Some(Status::Gap)),
+            findings::fixture::finding("REPO-GIT-06", Severity::Blocking, Some(Status::Gap)),
+        ]);
         let queue = findings::Queue::of(&report, &findings::Deliveries::default());
         let items = bulk_items(
             &queue,
@@ -3341,7 +3334,7 @@ mod tests {
         let status = app.status();
         assert!(status.contains("complete"), "{status}");
         assert!(status.contains("9 rules"), "{status}");
-        assert!(status.contains("gate required"), "{status}");
+        assert!(status.contains("gate blocking"), "{status}");
     }
 
     #[test]
@@ -3375,10 +3368,13 @@ mod tests {
             .collect();
         for status in Status::ALL {
             assert!(text.contains(status.code()), "{status:?} is missing");
-            assert!(text.contains(lane::glyph_of(*status)), "{status:?} glyph");
+            assert!(
+                text.contains(lane::glyph_of(Some(*status))),
+                "{status:?} glyph"
+            );
             // The gloss is elided to the room the row leaves, so its opening is
             // what the row is asserted to carry.
-            let opening: String = lane::gloss_of(*status).chars().take(24).collect();
+            let opening: String = lane::gloss_of(Some(*status)).chars().take(24).collect();
             assert!(text.contains(&opening), "{status:?} gloss");
         }
         for lane in Lane::ALL {
@@ -3435,8 +3431,7 @@ mod tests {
 
     /// A run in which GitHub rejected the credential it was made with.
     fn rejected_run() -> airlock_core::findings::Report {
-        let mut finding =
-            findings::fixture::finding("REPO-GIT-01", Severity::Blocking, Status::Error);
+        let mut finding = findings::fixture::finding("REPO-GIT-01", Severity::Blocking, None);
         finding.error = Some(airlock_core::findings::FindingError {
             cause: "unauthenticated".to_owned(),
             endpoint: "GET /repos/{owner}/{repo}".to_owned(),
@@ -3447,7 +3442,7 @@ mod tests {
             documentation_url: None,
             message_hints_version: airlock_core::github::MESSAGE_HINTS_VERSION,
         });
-        findings::fixture::report(airlock_core::findings::Gate::Required, vec![finding])
+        findings::fixture::report(vec![finding])
     }
 
     #[test]
@@ -3754,8 +3749,7 @@ mod tests {
         // group, a moved row, and an open detail.
         press(&mut app, KeyCode::Char('f'));
         press(&mut app, KeyCode::Char(' '));
-        press(&mut app, KeyCode::Down);
-        press(&mut app, KeyCode::Down);
+        press(&mut app, KeyCode::Char('l'));
         let held = app.findings.clone();
         press(&mut app, KeyCode::Enter);
         assert_eq!(app.screen(), Screen::FindingDetail);

@@ -10,7 +10,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::registry::{self, Evaluation, Section};
+use crate::registry::{self, Section};
 
 const EMISSION_MARKER_PATH: &str = ".airlock-skill";
 const EMISSION_MARKER: &str = "airlock:repository-standards\n";
@@ -191,17 +191,15 @@ pub fn conformance() -> io::Result<String> {
         "# Conformance Checklist\n\n\
          This reference is generated from Airlock check registry **{}** \
          (`{}`). The registry is authoritative for every rule id, statement, \
-         default severity, section, and evaluation mode in this document.\n\n\
+         default severity, section, and declared gates in this document.\n\n\
          **Always cite a rule by id and statement together.** A rule id alone \
          is not a meaningful finding.\n\n\
-         `REPO-GIT-09`, `REPO-TASK-04`, and `REPO-LIC-04` apply only when the \
-         repository declares at least one release unit.\n\n\
          ## Severity\n\n\
          | Level | Meaning |\n\
          | --- | --- |\n\
-         | **Blocking** | The repository should not be public in this state |\n\
-         | **Required** | A genuine gap; raise it |\n\
-         | **Observation** | Report it; it may be a deliberate choice or a not-yet-live practice |\n",
+         | **Blocking** | Evaluate, report Gaps, and fail the Action on a Gap |\n\
+         | **Advisory** | Evaluate and report Gaps without failing the Action |\n\
+         | **None** | Do not evaluate; list the waiver and its reason |\n",
         registry::REGISTRY_VERSION,
         registry::digest()
     );
@@ -209,7 +207,7 @@ pub fn conformance() -> io::Result<String> {
     for section in Section::ALL {
         let _ = write!(
             output,
-            "\n## {}\n\n| Id | Assertion | Severity | Evaluation | Guidance |\n\
+            "\n## {}\n\n| Id | Assertion | Severity | Compiled check | Guidance |\n\
              | --- | --- | --- | --- | --- |\n",
             section_title(*section)
         );
@@ -220,7 +218,11 @@ pub fn conformance() -> io::Result<String> {
                 check.id,
                 escape_table(check.statement),
                 severity_title(check.severity.code()),
-                evaluation_title(check.evaluation),
+                if check.unbuilt_reason().is_some() {
+                    "Compiled check with an unbuilt gate"
+                } else {
+                    "Compiled check"
+                },
                 escape_table(check.guidance)
             );
         }
@@ -246,17 +248,9 @@ fn section_title(section: Section) -> &'static str {
 fn severity_title(code: &str) -> &'static str {
     match code {
         "blocking" => "Blocking",
-        "required" => "Required",
-        "observation" => "Observation",
+        "advisory" => "Advisory",
+        "none" => "None",
         _ => unreachable!("all registry severities are known"),
-    }
-}
-
-fn evaluation_title(evaluation: Evaluation) -> &'static str {
-    match evaluation {
-        Evaluation::Mechanical => "Mechanical — evaluated by Airlock",
-        Evaluation::Manual => "Manual — human judgment",
-        Evaluation::Unimplemented => "Unimplemented — audit is incomplete",
     }
 }
 

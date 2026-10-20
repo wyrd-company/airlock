@@ -1527,22 +1527,7 @@ impl Session {
         )
         .await?;
         let files = airlock_core::alignment::scaffold_files(&policy, owner);
-        let capabilities = policy
-            .capabilities
-            .iter()
-            .filter_map(|capability| match &capability.condition {
-                airlock_core::policy::Condition::CustomProperty { name, value } => {
-                    Some(ScaffoldCapability {
-                        name: capability.name.clone(),
-                        display_name: text::drawable(&capability.name),
-                        property: name.clone(),
-                        value: value.clone(),
-                    })
-                }
-                airlock_core::policy::Condition::Always
-                | airlock_core::policy::Condition::IntentionalConfigPresent => None,
-            })
-            .collect();
+        let capabilities = Vec::new();
         Ok((
             ScaffoldPlan {
                 owner: owner.to_owned(),
@@ -1808,7 +1793,7 @@ impl Session {
                     return transcript;
                 }
             };
-            let before_finding = before.findings.iter().find(|finding| finding.rule == rule);
+            let before_finding = before.entries().find(|finding| finding.rule == rule);
             let before_status = before_finding.map(|finding| finding.status);
             let capability_decision = remediation == "declare-capability-property"
                 && before_finding
@@ -1819,10 +1804,12 @@ impl Session {
                 before_status.is_some(),
                 "re-observed the rule immediately before acting",
             ));
-            if before_status != Some(airlock_core::findings::Status::Fail) && !capability_decision {
+            if before_status != Some(Some(airlock_core::findings::Status::Gap))
+                && !capability_decision
+            {
                 transcript.steps.push(step(
                     started,
-                    before_status == Some(airlock_core::findings::Status::Pass),
+                    before_status == Some(Some(airlock_core::findings::Status::Met)),
                     "the fresh observation does not report a gap; no write was made",
                 ));
             } else {
@@ -1898,10 +1885,10 @@ impl Session {
                 .await
             {
                 Ok(report) => {
-                    let finding = report.findings.iter().find(|finding| finding.rule == rule);
+                    let finding = report.entries().find(|finding| finding.rule == rule);
                     transcript.observed = match finding.map(|finding| finding.status) {
-                        Some(airlock_core::findings::Status::Pass) => ObservedStatus::Pass,
-                        Some(airlock_core::findings::Status::Fail) => ObservedStatus::Fail,
+                        Some(Some(airlock_core::findings::Status::Met)) => ObservedStatus::Pass,
+                        Some(Some(airlock_core::findings::Status::Gap)) => ObservedStatus::Fail,
                         _ => ObservedStatus::Inconclusive,
                     };
                     transcript.steps.push(step(
@@ -2237,8 +2224,7 @@ impl Session {
             }
         };
         let before_status = before
-            .findings
-            .iter()
+            .entries()
             .find(|finding| finding.rule == rule)
             .map(|finding| finding.status);
         transcript.steps.push(step(
@@ -2246,10 +2232,10 @@ impl Session {
             before_status.is_some(),
             "re-observed the rule immediately before acting",
         ));
-        if before_status != Some(airlock_core::findings::Status::Fail) {
+        if before_status != Some(Some(airlock_core::findings::Status::Gap)) {
             transcript.steps.push(step(
                 started,
-                before_status == Some(airlock_core::findings::Status::Pass),
+                before_status == Some(Some(airlock_core::findings::Status::Met)),
                 "the fresh observation does not report a gap; no write was made",
             ));
             return transcript;
@@ -2285,13 +2271,12 @@ impl Session {
         match self.observe(&target).await {
             Ok(report) => {
                 transcript.observed = match report
-                    .findings
-                    .iter()
+                    .entries()
                     .find(|finding| finding.rule == rule)
                     .map(|finding| finding.status)
                 {
-                    Some(airlock_core::findings::Status::Pass) => ObservedStatus::Pass,
-                    Some(airlock_core::findings::Status::Fail) => ObservedStatus::Fail,
+                    Some(Some(airlock_core::findings::Status::Met)) => ObservedStatus::Pass,
+                    Some(Some(airlock_core::findings::Status::Gap)) => ObservedStatus::Fail,
                     _ => ObservedStatus::Inconclusive,
                 };
                 transcript.steps.push(step(
@@ -2556,13 +2541,12 @@ impl Session {
             }
         };
         let observed = before
-            .findings
-            .iter()
+            .entries()
             .find(|finding| finding.rule == rule)
             .map(|finding| finding.status);
         let expected = match expected {
-            ObservedStatus::Pass => Some(airlock_core::findings::Status::Pass),
-            ObservedStatus::Fail => Some(airlock_core::findings::Status::Fail),
+            ObservedStatus::Pass => Some(Some(airlock_core::findings::Status::Met)),
+            ObservedStatus::Fail => Some(Some(airlock_core::findings::Status::Gap)),
             ObservedStatus::Inconclusive => None,
         };
         transcript.steps.push(step(
@@ -2591,13 +2575,12 @@ impl Session {
         match self.observe(target).await {
             Ok(report) => {
                 transcript.observed = match report
-                    .findings
-                    .iter()
+                    .entries()
                     .find(|finding| finding.rule == rule)
                     .map(|finding| finding.status)
                 {
-                    Some(airlock_core::findings::Status::Fail) => ObservedStatus::Fail,
-                    Some(airlock_core::findings::Status::Pass) => ObservedStatus::Pass,
+                    Some(Some(airlock_core::findings::Status::Gap)) => ObservedStatus::Fail,
+                    Some(Some(airlock_core::findings::Status::Met)) => ObservedStatus::Pass,
                     _ => ObservedStatus::Inconclusive,
                 };
                 transcript.steps.push(step(

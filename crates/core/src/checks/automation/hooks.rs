@@ -4,7 +4,7 @@ use crate::ActionGroup;
 pub(super) fn parse_lefthook(context: &AuditContext) -> Result<Yaml, Box<Verdict>> {
     match context.yaml(".config/lefthook.yml") {
         ParsedFile::Parsed(document) => Ok(document),
-        ParsedFile::Undecided(verdict) => Err(verdict),
+        ParsedFile::ReadError(verdict) => Err(verdict),
         ParsedFile::Missing | ParsedFile::NotAFile(_) => Err(Box::new(Verdict::fail_at(
             "file_missing",
             ".config/lefthook.yml",
@@ -31,7 +31,7 @@ pub(super) fn hook_commands(
         return Ok(None);
     };
     let Some(jobs) = jobs.as_seq() else {
-        return Err(Box::new(Verdict::inconclusive(
+        return Err(Box::new(Verdict::run_error(
             super::super::MALFORMED_DECLARATION,
             format!("the `{hook}` jobs in .config/lefthook.yml are not a list"),
         )));
@@ -42,7 +42,7 @@ pub(super) fn hook_commands(
         match job.get("run") {
             Some(Yaml::String(command)) => commands.push(command.clone()),
             _ => {
-                return Err(Box::new(Verdict::inconclusive(
+                return Err(Box::new(Verdict::run_error(
                     super::super::MALFORMED_DECLARATION,
                     format!(
                         "job {} of the `{hook}` hook in .config/lefthook.yml declares no string \
@@ -77,7 +77,7 @@ pub(super) fn pre_commit_hook(context: &AuditContext) -> Verdict {
         .collect();
 
     if missing.is_empty() {
-        Verdict::manual(
+        Verdict::unbuilt(
             "pre_commit_runs_format_and_lint",
             "pre-commit runs format and lint; whether it is limited to staged files is a \
              judgment call about the hook runner's configuration",
@@ -117,7 +117,7 @@ pub(super) fn commit_msg_hook(context: &AuditContext) -> Verdict {
             "commit-msg invokes a commit-message validation task",
         )
     } else {
-        Verdict::manual(
+        Verdict::unbuilt(
             "commit_msg_purpose_unclear",
             format!(
                 "commit-msg runs {}; whether that validates conventional commit format is a \
@@ -218,7 +218,7 @@ pub(super) fn hooks_invoke_tasks(context: &AuditContext) -> Verdict {
 pub(super) fn decided(verdict: &Verdict) -> bool {
     matches!(
         verdict.status,
-        crate::findings::Status::Pass | crate::findings::Status::Fail
+        Some(crate::findings::Status::Met) | Some(crate::findings::Status::Gap)
     )
 }
 
@@ -227,7 +227,7 @@ mod tests {
     use super::super::super::fixtures::*;
     use crate::findings::Status;
 
-    fn verdict(id: &str, files: &[(&str, &str)]) -> Status {
+    fn verdict(id: &str, files: &[(&str, &str)]) -> Option<Status> {
         CheckFixture::new(files).verdict(id).status
     }
 
@@ -247,19 +247,19 @@ commit-msg:
     fn hook_rules_read_the_lefthook_file() {
         assert_eq!(
             verdict("REPO-HOOK-01", &[(".config/lefthook.yml", LEFTHOOK)]),
-            Status::Manual
+            None
         );
         assert_eq!(
             verdict("REPO-HOOK-02", &[(".config/lefthook.yml", LEFTHOOK)]),
-            Status::Pass
+            Some(Status::Met)
         );
         assert_eq!(
             verdict("REPO-HOOK-03", &[(".config/lefthook.yml", LEFTHOOK)]),
-            Status::Pass
+            Some(Status::Met)
         );
         assert_eq!(
             verdict("REPO-HOOK-04", &[(".config/lefthook.yml", LEFTHOOK)]),
-            Status::Pass
+            Some(Status::Met)
         );
     }
 
@@ -273,7 +273,7 @@ commit-msg:
                     "pre-commit:\n  jobs:\n    - name: format\n      run: task format\n"
                 )]
             ),
-            Status::Fail
+            Some(Status::Gap)
         );
     }
 
@@ -287,7 +287,7 @@ commit-msg:
                     "pre-push:\n  jobs:\n    - name: test\n      run: task test\n"
                 )]
             ),
-            Status::Fail
+            Some(Status::Gap)
         );
     }
 
@@ -301,7 +301,7 @@ commit-msg:
                     "pre-commit:\n  jobs:\n    - name: fmt\n      run: cargo fmt\n"
                 )]
             ),
-            Status::Fail
+            Some(Status::Gap)
         );
     }
 
@@ -312,11 +312,11 @@ commit-msg:
         let lefthook = "pre-commit:\n  jobs:\n    - name: format\n      script: format.sh\n";
         assert_eq!(
             verdict("REPO-HOOK-04", &[(".config/lefthook.yml", lefthook)]),
-            Status::Inconclusive
+            None
         );
         assert_eq!(
             verdict("REPO-HOOK-01", &[(".config/lefthook.yml", lefthook)]),
-            Status::Inconclusive
+            None
         );
     }
 }

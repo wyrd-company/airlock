@@ -19,7 +19,7 @@
 use ratatui::text::{Line, Span};
 
 use airlock_core::findings::{Report, SuppressionSource};
-use airlock_core::registry::{self, Applicability, Severity};
+use airlock_core::registry::{self, Severity};
 
 use crate::admin::text::sanitize;
 
@@ -113,9 +113,14 @@ impl Inspector {
                 let definition = registry::find(&entry.rule);
                 Rule {
                     rule: sanitize(&entry.rule, VALUE_LIMIT),
-                    severity: Severity::parse(&entry.severity).unwrap_or(Severity::Observation),
-                    evaluation: definition
-                        .map_or("not registered", |check| check.evaluation.code()),
+                    severity: Severity::parse(&entry.severity).unwrap_or(Severity::Advisory),
+                    evaluation: definition.map_or("not registered", |check| {
+                        if check.unbuilt_reason().is_some() {
+                            "unbuilt gate"
+                        } else {
+                            "compiled"
+                        }
+                    }),
                     section: definition.map_or_else(
                         || "not registered".to_owned(),
                         |check| check.section.code().to_owned(),
@@ -159,7 +164,7 @@ impl Inspector {
 /// Policy-sourced material is marked as such rather than being listed beside a
 /// blob identity it does not have. A suppression has no bytes in the registry
 /// to point at, and printing a digest next to one would say it did.
-fn sources(report: &Report, rules: &[Rule]) -> Vec<Source> {
+fn sources(report: &Report, _rules: &[Rule]) -> Vec<Source> {
     let mut sources = vec![Source {
         name: sanitize(&report.policy.name, VALUE_LIMIT),
         reference: reference(&report.policy.source, report.policy.commit.as_deref()),
@@ -183,7 +188,7 @@ fn sources(report: &Report, rules: &[Rule]) -> Vec<Source> {
     // because the authorization is the source and one clause commonly covers
     // more than one rule.
     let mut authorizations: Vec<(String, usize)> = Vec::new();
-    for finding in &report.findings {
+    for finding in report.entries() {
         let Some(suppression) = finding.suppression.as_ref() else {
             continue;
         };
@@ -204,33 +209,6 @@ fn sources(report: &Report, rules: &[Rule]) -> Vec<Source> {
             name: "suppressions".to_owned(),
             reference: format!("{authorized_by} \u{b7} {count} rule(s)"),
             blob: "\u{2014} policy-sourced, not registry".to_owned(),
-        });
-    }
-    // Rules the registry enables only under a declared repository state. They
-    // are in the effective policy and they are not unconditional, and a reader
-    // who cannot tell the two apart cannot tell why a rule was asked about.
-    let mut conditions: Vec<(Applicability, usize)> = Vec::new();
-    for rule in rules {
-        let applicability = registry::find(&rule.rule).map_or(
-            Applicability::Always,
-            registry::CheckDefinition::applicability,
-        );
-        if applicability == Applicability::Always {
-            continue;
-        }
-        match conditions
-            .iter_mut()
-            .find(|(declared, _)| *declared == applicability)
-        {
-            Some((_, count)) => *count += 1,
-            None => conditions.push((applicability, 1)),
-        }
-    }
-    for (applicability, count) in conditions {
-        sources.push(Source {
-            name: "conditional".to_owned(),
-            reference: format!("{count} rule(s) enabled by {}", applicability.code()),
-            blob: "\u{2014} registry-declared applicability".to_owned(),
         });
     }
     sources
@@ -504,27 +482,19 @@ mod tests {
     fn evaluation_is_a_property_of_the_rule_and_never_of_the_run() {
         // The same rule, observed twice with different statuses. What the run
         // concluded does not touch how the rule is evaluated.
-        let manual = fixture::report(
-            airlock_core::findings::Gate::Required,
-            vec![fixture::finding(
-                "REPO-DOCS-05",
-                Severity::Required,
-                airlock_core::findings::Status::Manual,
-            )],
-        );
-        let failed = fixture::report(
-            airlock_core::findings::Gate::Required,
-            vec![fixture::finding(
-                "REPO-DOCS-05",
-                Severity::Required,
-                airlock_core::findings::Status::Fail,
-            )],
-        );
+        let manual = fixture::report(vec![crate::tui::findings::fixture::unbuilt(
+            fixture::finding("REPO-DOCS-05", Severity::Advisory, None),
+        )]);
+        let failed = fixture::report(vec![fixture::finding(
+            "REPO-DOCS-05",
+            Severity::Advisory,
+            Some(airlock_core::findings::Status::Gap),
+        )]);
         assert_eq!(
             Inspector::of(&manual).rules[0].evaluation,
             Inspector::of(&failed).rules[0].evaluation
         );
-        assert_eq!(Inspector::of(&failed).rules[0].evaluation, "manual");
+        assert_eq!(Inspector::of(&failed).rules[0].evaluation, "unbuilt gate");
     }
 
     #[test]
@@ -654,29 +624,6 @@ mod tests {
             suppression.blob
         );
         assert!(suppression.reference.contains("policy"));
-    }
-
-    #[test]
-    fn a_conditionally_enabled_rule_is_named_as_conditional() {
-        let report = fixture::report(
-            airlock_core::findings::Gate::Required,
-            vec![fixture::finding(
-                "REPO-GIT-09",
-                Severity::Required,
-                airlock_core::findings::Status::Pass,
-            )],
-        );
-        let inspector = Inspector::of(&report);
-        let conditional = inspector
-            .sources
-            .iter()
-            .find(|source| source.name == "conditional")
-            .expect("REPO-GIT-09 is enabled only where release units are declared");
-        assert!(
-            conditional.reference.contains("release-units-declared"),
-            "{}",
-            conditional.reference
-        );
     }
 
     #[test]

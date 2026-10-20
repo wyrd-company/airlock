@@ -99,11 +99,13 @@ Report one repository-level work item unless the user requests another shape.
 Group related gaps when they share one change, but preserve each rule's id and
 exact statement in the evidence. Separate:
 
-- mechanical failures Airlock established;
-- manual judgments awaiting a person;
-- evidence Airlock could not observe;
-- findings intentionally authorized but not aligned; and
-- applicable checks that are aligned.
+- evaluated Met and Gap outcomes from compiled checks;
+- waived standards with their authorization reasons;
+- routed standards with their declared gates and settling surfaces;
+- unbuilt checks with the reason that prevented an outcome; and
+- run errors that prevented Airlock from completing its job.
 
-Do not call a repository conformant while applicable evidence is missing or a
-gating finding remains open.
+An agent assessment is advisory evidence. It does not replace a compiled
+check or change Met, Gap, or the exit code. Waived, routed, and unbuilt
+standards have no Met or Gap outcome. A completed audit with no blocking
+Gaps does not claim that every standard was evaluated.

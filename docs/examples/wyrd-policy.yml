@@ -11,14 +11,11 @@ version: 1
 name: wyrd-company
 
 # Refuse to run against a binary whose check registry predates this policy.
-# The registry version moves when a rule, statement, severity, evaluation mode,
-# or applicability condition changes, so an upgrade cannot quietly change the gate.
-requires-registry: ">=0.4, <0.5"
+# The registry version moves when a rule, statement, severity, or declared
+# gate changes, so an upgrade cannot quietly change the audit.
+requires-registry: ">=0.5, <0.6"
 
-# Only Blocking failures make a repository nonconformant. Required failures
-# are reported and tracked; they do not stop a release. Raise this to
-# `required` when the estate is clean enough to hold that line.
-gate: blocking
+# Blocking Gaps fail the audit; advisory Gaps are reported.
 
 capabilities:
   base:
@@ -33,15 +30,6 @@ capabilities:
     - classification
   registry:
     - release
-
-apply:
-  base: always
-  # Release rules describe repositories whose organization-owned classification
-  # says downstream consumers pin a version of their output.
-  registry:
-    when:
-      property: release
-      value: "true"
 
 checks:
   # The organisation preset every repository extends.

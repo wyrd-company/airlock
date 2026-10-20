@@ -38,12 +38,12 @@ pub(crate) fn run(id: &str, rule: &RuleInstance, context: &AuditContext) -> Opti
 
 fn gitignore(context: &AuditContext) -> Verdict {
     let verdict = presence(context, ".gitignore", ".gitignore");
-    if verdict.status != crate::findings::Status::Pass {
+    if verdict.status != Some(crate::findings::Status::Met) {
         return verdict;
     }
     // Presence is a fact; "ecosystem-appropriate" is a judgment about what the
     // repository builds, so airlock stops where it can no longer prove.
-    Verdict::manual(
+    Verdict::unbuilt(
         "file_present_appropriateness_unproven",
         ".gitignore is present; whether it is ecosystem-appropriate is a judgment call",
     )
@@ -102,7 +102,7 @@ fn taskfile(context: &AuditContext) -> Verdict {
 
 fn ci_workflow(context: &AuditContext) -> Verdict {
     if context.workflows_truncated {
-        return Verdict::inconclusive(
+        return Verdict::run_error(
             "workflow_listing_truncated",
             "the workflow listing was cut short by a budget, so the absence of a pull-request \
              workflow could not be established",
@@ -132,18 +132,15 @@ fn ci_workflow(context: &AuditContext) -> Verdict {
 }
 
 fn renovate(rule: &RuleInstance, context: &AuditContext) -> Verdict {
-    let owner = context.snapshot.repository.owner.as_str();
-    let Some(expected) = rule.param_str_for_owner("renovate-preset", Some(owner)) else {
-        return Verdict::manual(
-            "renovate_preset_unspecified",
-            "the repository owner was not observed, so the organisation's Renovate preset is a judgment call",
-        );
-    };
     let Some(text) = context.text(".github/renovate.json") else {
         return presence(context, ".github/renovate.json", ".github/renovate.json");
     };
+    let owner = context.snapshot.repository.owner.as_str();
+    let Some(expected) = rule.param_str_for_owner("renovate-preset", Some(owner)) else {
+        return Verdict::needs_repository_owner();
+    };
     let Ok(document) = serde_json::from_str::<serde_json::Value>(text) else {
-        return Verdict::inconclusive(
+        return Verdict::run_error(
             "unparseable_json",
             ".github/renovate.json is not valid JSON, so its presets could not be read",
         );
@@ -197,7 +194,7 @@ fn devcontainer(context: &AuditContext) -> Verdict {
             ".devcontainer/ is present",
         )
     } else if context.snapshot.tree_is_truncated() {
-        Verdict::inconclusive(
+        Verdict::run_error(
             "tree_truncated",
             context
                 .snapshot
@@ -294,7 +291,7 @@ fn no_harness_config(rule: &RuleInstance, context: &AuditContext) -> Verdict {
         Ok(Some(paths)) => paths,
         Ok(None) => unreachable!("registered list default"),
         Err(malformed) => {
-            return Verdict::inconclusive(super::MALFORMED_DECLARATION, malformed.to_string())
+            return Verdict::run_error(super::MALFORMED_DECLARATION, malformed.to_string())
         }
     };
 
@@ -310,7 +307,7 @@ fn no_harness_config(rule: &RuleInstance, context: &AuditContext) -> Verdict {
         // This rule asserts nothing is there. A truncated tree cannot support
         // that: the forbidden path may be in the part airlock never received.
         if context.snapshot.tree_is_truncated() {
-            return Verdict::inconclusive(
+            return Verdict::run_error(
                 "tree_truncated",
                 context
                     .snapshot
@@ -341,7 +338,7 @@ fn no_codeowners(context: &AuditContext) -> Verdict {
 
     if found.is_empty() {
         if context.snapshot.tree_is_truncated() {
-            return Verdict::inconclusive(
+            return Verdict::run_error(
                 "tree_truncated",
                 context
                     .snapshot
@@ -411,7 +408,7 @@ mod tests {
     use crate::snapshot::FileState;
     use serde_json::json;
 
-    fn verdict(id: &str, files: &[(&str, &str)]) -> Status {
+    fn verdict(id: &str, files: &[(&str, &str)]) -> Option<Status> {
         let snapshot = snapshot(files);
         let workflows = workflows(&snapshot);
         let policy = policy();
@@ -429,33 +426,30 @@ mod tests {
             ("REPO-FILE-11", "AGENTS.md"),
             ("REPO-FILE-16", ".github/repo-settings.yml"),
         ] {
-            assert_eq!(verdict(id, &[(path, "content")]), Status::Pass, "{id}");
-            assert_eq!(verdict(id, &[]), Status::Fail, "{id}");
+            assert_eq!(verdict(id, &[(path, "content")]), Some(Status::Met), "{id}");
+            assert_eq!(verdict(id, &[]), Some(Status::Gap), "{id}");
         }
     }
 
     #[test]
     fn a_present_gitignore_still_defers_the_appropriateness_judgment() {
-        assert_eq!(
-            verdict("REPO-FILE-03", &[(".gitignore", "target\n")]),
-            Status::Manual
-        );
-        assert_eq!(verdict("REPO-FILE-03", &[]), Status::Fail);
+        assert_eq!(verdict("REPO-FILE-03", &[(".gitignore", "target\n")]), None);
+        assert_eq!(verdict("REPO-FILE-03", &[]), Some(Status::Gap));
     }
 
     #[test]
     fn gitattributes_must_normalise_line_endings() {
         assert_eq!(
             verdict("REPO-FILE-04", &[(".gitattributes", "* text=auto\n")]),
-            Status::Pass
+            Some(Status::Met)
         );
         assert_eq!(
             verdict("REPO-FILE-04", &[(".gitattributes", "*.png binary\n")]),
-            Status::Fail
+            Some(Status::Gap)
         );
         assert_eq!(
             verdict("REPO-FILE-04", &[(".gitattributes", "# * text=auto\n")]),
-            Status::Fail
+            Some(Status::Gap)
         );
     }
 
@@ -465,7 +459,7 @@ mod tests {
         let policy = policy();
         let context = context(&snapshot, &policy, Vec::new());
         let verdict = evaluate(&rule("REPO-FILE-06"), &context);
-        assert_eq!(verdict.status, Status::Fail);
+        assert_eq!(verdict.status, Some(Status::Gap));
         assert_eq!(verdict.evidence.unwrap().code, "taskfile_misnamed");
     }
 
@@ -479,14 +473,14 @@ mod tests {
                     "on:\n  pull_request:\njobs: {}\n"
                 )]
             ),
-            Status::Pass
+            Some(Status::Met)
         );
         assert_eq!(
             verdict(
                 "REPO-FILE-07",
                 &[(".github/workflows/ci.yml", "on:\n  push:\njobs: {}\n")]
             ),
-            Status::Fail
+            Some(Status::Gap)
         );
     }
 
@@ -503,7 +497,7 @@ mod tests {
                     (".github/workflows/z-malformed.yml", "on: [pull_request,"),
                 ],
             ),
-            Status::Pass
+            Some(Status::Met)
         );
     }
 
@@ -517,18 +511,18 @@ mod tests {
         let context = context(&snapshot, &policy, Vec::new());
         assert_eq!(
             evaluate(&rule("REPO-FILE-08"), &context).status,
-            Status::Pass
+            Some(Status::Met)
         );
         let matched = rule_with(
             "REPO-FILE-08",
             &[("renovate-preset", json!("github>owner/.github"))],
         );
-        assert_eq!(evaluate(&matched, &context).status, Status::Pass);
+        assert_eq!(evaluate(&matched, &context).status, Some(Status::Met));
         let mismatched = rule_with(
             "REPO-FILE-08",
             &[("renovate-preset", json!("github>elsewhere/.github"))],
         );
-        assert_eq!(evaluate(&mismatched, &context).status, Status::Fail);
+        assert_eq!(evaluate(&mismatched, &context).status, Some(Status::Gap));
     }
 
     #[test]
@@ -541,7 +535,7 @@ mod tests {
                     r#"{"extends":["github>another-org/.github"]}"#
                 )]
             ),
-            Status::Fail
+            Some(Status::Gap)
         );
     }
 
@@ -549,9 +543,9 @@ mod tests {
     fn a_devcontainer_directory_is_recognised_by_its_contents() {
         assert_eq!(
             verdict("REPO-FILE-10", &[(".devcontainer/devcontainer.json", "{}")]),
-            Status::Pass
+            Some(Status::Met)
         );
-        assert_eq!(verdict("REPO-FILE-10", &[]), Status::Fail);
+        assert_eq!(verdict("REPO-FILE-10", &[]), Some(Status::Gap));
     }
 
     #[test]
@@ -567,7 +561,7 @@ mod tests {
         let context = context(&snapshot, &policy, Vec::new());
         assert_eq!(
             evaluate(&rule("REPO-FILE-12"), &context).status,
-            Status::Pass
+            Some(Status::Met)
         );
     }
 
@@ -583,7 +577,7 @@ mod tests {
         let policy = policy();
         let context = context(&snapshot, &policy, Vec::new());
         let verdict = evaluate(&rule("REPO-FILE-12"), &context);
-        assert_eq!(verdict.status, Status::Fail);
+        assert_eq!(verdict.status, Some(Status::Gap));
         assert_eq!(verdict.evidence.unwrap().code, "symlink_target_wrong");
     }
 
@@ -591,7 +585,7 @@ mod tests {
     fn a_regular_claude_md_fails() {
         assert_eq!(
             verdict("REPO-FILE-12", &[("CLAUDE.md", "not a link")]),
-            Status::Fail
+            Some(Status::Gap)
         );
     }
 
@@ -599,17 +593,23 @@ mod tests {
     fn committed_harness_configuration_fails() {
         assert_eq!(
             verdict("REPO-FILE-13", &[(".claude/settings.json", "{}")]),
-            Status::Fail
+            Some(Status::Gap)
         );
-        assert_eq!(verdict("REPO-FILE-13", &[("README.md", "x")]), Status::Pass);
+        assert_eq!(
+            verdict("REPO-FILE-13", &[("README.md", "x")]),
+            Some(Status::Met)
+        );
     }
 
     #[test]
     fn a_codeowners_file_anywhere_github_honours_it_fails() {
         for path in ["CODEOWNERS", ".github/CODEOWNERS", "docs/CODEOWNERS"] {
-            assert_eq!(verdict("REPO-FILE-14", &[(path, "* @owner")]), Status::Fail);
+            assert_eq!(
+                verdict("REPO-FILE-14", &[(path, "* @owner")]),
+                Some(Status::Gap)
+            );
         }
-        assert_eq!(verdict("REPO-FILE-14", &[]), Status::Pass);
+        assert_eq!(verdict("REPO-FILE-14", &[]), Some(Status::Met));
     }
 
     #[test]
@@ -622,7 +622,7 @@ mod tests {
                     "on:\n  schedule:\n    - cron: '0 0 * * 1'\n  workflow_dispatch: {}\njobs: {}\n"
                 )]
             ),
-            Status::Pass
+            Some(Status::Met)
         );
         assert_eq!(
             verdict(
@@ -632,9 +632,9 @@ mod tests {
                     "on:\n  schedule:\n    - cron: '0 0 * * 1'\njobs: {}\n"
                 )]
             ),
-            Status::Fail
+            Some(Status::Gap)
         );
-        assert_eq!(verdict("REPO-FILE-17", &[]), Status::Fail);
+        assert_eq!(verdict("REPO-FILE-17", &[]), Some(Status::Gap));
     }
 
     /// A snapshot whose tree GitHub cut short.
@@ -650,7 +650,7 @@ mod tests {
         let policy = policy();
         let context = context(&snapshot, &policy, Vec::new());
         let verdict = evaluate(&rule("REPO-FILE-13"), &context);
-        assert_eq!(verdict.status, Status::Inconclusive);
+        assert_eq!(verdict.status, None);
         assert_eq!(verdict.evidence.unwrap().code, "tree_truncated");
     }
 
@@ -661,7 +661,7 @@ mod tests {
         let context = context(&snapshot, &policy, Vec::new());
         assert_eq!(
             evaluate(&rule("REPO-FILE-13"), &context).status,
-            Status::Fail
+            Some(Status::Gap)
         );
     }
 
@@ -670,10 +670,7 @@ mod tests {
         let snapshot = truncated(&[("README.md", "x")]);
         let policy = policy();
         let context = context(&snapshot, &policy, Vec::new());
-        assert_eq!(
-            evaluate(&rule("REPO-FILE-14"), &context).status,
-            Status::Inconclusive
-        );
+        assert_eq!(evaluate(&rule("REPO-FILE-14"), &context).status, None);
     }
 
     #[test]
@@ -683,14 +680,11 @@ mod tests {
         let context = context(&snapshot, &policy, Vec::new());
         // CONTRIBUTING.md was not in the part of the tree airlock received, so
         // "it is absent" is a claim it cannot make.
-        assert_eq!(
-            evaluate(&rule("REPO-FILE-02"), &context).status,
-            Status::Inconclusive
-        );
+        assert_eq!(evaluate(&rule("REPO-FILE-02"), &context).status, None);
         // The file it did see is still conclusively present.
         assert_eq!(
             evaluate(&rule("REPO-FILE-01"), &context).status,
-            Status::Pass
+            Some(Status::Met)
         );
     }
 
@@ -699,10 +693,7 @@ mod tests {
         let snapshot = truncated(&[("README.md", "x")]);
         let policy = policy();
         let context = context(&snapshot, &policy, Vec::new());
-        assert_eq!(
-            evaluate(&rule("REPO-FILE-10"), &context).status,
-            Status::Inconclusive
-        );
+        assert_eq!(evaluate(&rule("REPO-FILE-10"), &context).status, None);
     }
 
     #[test]
@@ -715,7 +706,7 @@ mod tests {
                     "{\"extends\":[\"github>owner/.github\", 7]}"
                 )]
             ),
-            Status::Inconclusive
+            None
         );
     }
 
@@ -729,7 +720,7 @@ mod tests {
             &[("forbidden-paths", json!([".claude", 7]))],
         );
         let verdict = evaluate(&instance, &context);
-        assert_eq!(verdict.status, Status::Inconclusive);
+        assert_eq!(verdict.status, None);
         assert!(verdict.evidence.unwrap().detail.contains("forbidden-paths"));
     }
 }

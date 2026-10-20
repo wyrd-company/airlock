@@ -3,9 +3,7 @@
 // relationships:
 //   references: registry
 
-use crate::registry::{
-    Applicability, CheckDefinition, Evaluation, Lifecycle, Observation, Section, Severity,
-};
+use crate::registry::{CheckDefinition, Lifecycle, Observation, Section, Severity};
 use crate::remediation::{remediation, Lane};
 
 pub(crate) const STANDARD: CheckDefinition = CheckDefinition {
@@ -14,7 +12,6 @@ pub(crate) const STANDARD: CheckDefinition = CheckDefinition {
         "A CD `workflow_dispatch` can only re-deliver an existing tag, never create a release",
     severity: Severity::Blocking,
     section: Section::Automation,
-    evaluation: Evaluation::Manual,
     params: &[],
     guidance: "Dispatch inputs and their use",
     remediation: remediation(
@@ -25,8 +22,9 @@ pub(crate) const STANDARD: CheckDefinition = CheckDefinition {
         true,
     ),
     lifecycle: Lifecycle::Seeded,
-    applicability: Applicability::Always,
     observation: Observation::FileTree,
+    api_gate: false,
+    owner_gate: false,
     disclosure_gate: None,
-    evaluation_reason: None,
+    unbuilt_reason: Some("The compiled check is not built yet"),
 };

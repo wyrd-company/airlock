@@ -36,22 +36,8 @@ pub(super) fn compile(
 
     check_registry_requirement(document)?;
 
-    let gate = match document.get("gate").and_then(Yaml::as_str) {
-        Some(value) => Gate::parse(value).ok_or_else(|| {
-            Error::Policy(format!(
-                "unknown gate `{value}`; airlock accepts `blocking` or `required`"
-            ))
-        })?,
-        None => {
-            return Err(Error::Policy(
-                "the policy must declare a `gate` of `blocking` or `required`".to_owned(),
-            ))
-        }
-    };
-
     let capabilities = read_capabilities(document)?;
-    let conditions = read_apply(document, &capabilities)?;
-    let mut rules = expand_capabilities(&capabilities, &conditions);
+    let mut rules = expand_capabilities(&capabilities);
     apply_check_refinements(document, &mut rules)?;
 
     let suppressions = read_suppressions(document, &rules)?;
@@ -59,7 +45,7 @@ pub(super) fn compile(
     let mut rules: Vec<RuleInstance> = rules.into_values().collect();
     rules.sort_by(|left, right| left.def.id.cmp(right.def.id));
 
-    let bundle_digest = bundle_digest(&sources, &rules, gate);
+    let bundle_digest = bundle_digest(&sources, &rules);
 
     Ok(ResolvedPolicy {
         name,
@@ -67,16 +53,12 @@ pub(super) fn compile(
         commit: sources.first().and_then(|first| first.commit.clone()),
         bundle_digest,
         sources,
-        gate,
         rules,
         suppressions,
         reference_data,
         capabilities: capabilities
             .into_iter()
-            .map(|(name, _)| Capability {
-                condition: conditions.get(&name).cloned().unwrap_or(Condition::Always),
-                name,
-            })
+            .map(|(name, _)| Capability { name })
             .collect(),
     })
 }
@@ -157,108 +139,15 @@ fn read_capabilities(document: &Yaml) -> Result<Vec<(String, Vec<Section>)>> {
     Ok(capabilities)
 }
 
-fn read_apply(
-    document: &Yaml,
-    capabilities: &[(String, Vec<Section>)],
-) -> Result<BTreeMap<String, Condition>> {
-    let mut conditions: BTreeMap<String, Condition> = capabilities
-        .iter()
-        .map(|(name, _)| (name.clone(), Condition::Always))
-        .collect();
-
-    let Some(apply) = document.get("apply") else {
-        return Ok(conditions);
-    };
-    let Some(entries) = apply.as_map() else {
-        return Err(Error::Policy(format!(
-            "`apply` should be a mapping of capability name to condition, found {}",
-            apply.kind()
-        )));
-    };
-
-    for (capability, value) in entries {
-        if !conditions.contains_key(capability) {
-            return Err(Error::Policy(format!(
-                "`apply` names capability `{capability}`, which `capabilities` does not declare"
-            )));
-        }
-        let condition = match value {
-            Yaml::String(name) => Condition::parse(name).ok_or_else(|| {
-                Error::Policy(format!(
-                    "unknown condition `{name}` on capability `{capability}`"
-                ))
-            })?,
-            Yaml::Map(_) => {
-                reject_unknown_keys(value, &["when"], |key| {
-                    Error::Policy(format!(
-                        "unknown key `{key}` in the `apply` entry for `{capability}`"
-                    ))
-                })?;
-                let when = value.get("when").ok_or_else(|| {
-                    Error::Policy(format!(
-                        "capability `{capability}` should be applied `always` or under a `when:` condition"
-                    ))
-                })?;
-                match when {
-                    Yaml::String(name) => Condition::parse(name).ok_or_else(|| {
-                        Error::Policy(format!(
-                            "unknown condition `{name}` on capability `{capability}`"
-                        ))
-                    })?,
-                    Yaml::Map(_) => {
-                        reject_unknown_keys(when, &["property", "value"], |key| {
-                            Error::Policy(format!(
-                                "unknown key `{key}` in the custom-property condition for `{capability}`"
-                            ))
-                        })?;
-                        let name = when.get("property").and_then(Yaml::as_str).ok_or_else(|| {
-                            Error::Policy(format!(
-                                "the custom-property condition for `{capability}` must name a string `property`"
-                            ))
-                        })?;
-                        let expected = when.get("value").and_then(Yaml::as_str).ok_or_else(|| {
-                            Error::Policy(format!(
-                                "the custom-property condition for `{capability}` must name a string `value`"
-                            ))
-                        })?;
-                        Condition::CustomProperty {
-                            name: name.to_owned(),
-                            value: expected.to_owned(),
-                        }
-                    }
-                    other => return Err(Error::Policy(format!(
-                        "the `when` condition for `{capability}` should be a name or custom-property mapping, found {}",
-                        other.kind()
-                    ))),
-                }
-            }
-            other => {
-                return Err(Error::Policy(format!(
-                    "the `apply` entry for `{capability}` should be a condition name or a `when:` \
-                     mapping, found {}",
-                    other.kind()
-                )))
-            }
-        };
-        conditions.insert(capability.clone(), condition);
-    }
-    Ok(conditions)
-}
-
 /// Expand capabilities into rule instances.
 ///
 /// A rule reachable through more than one capability is instantiated once; the
 /// first capability that names it, in declaration order, owns its provenance.
 fn expand_capabilities(
     capabilities: &[(String, Vec<Section>)],
-    conditions: &BTreeMap<String, Condition>,
 ) -> BTreeMap<&'static str, RuleInstance> {
     let mut rules: BTreeMap<&'static str, RuleInstance> = BTreeMap::new();
     for (capability, sections) in capabilities {
-        let condition = conditions
-            .get(capability)
-            .cloned()
-            .unwrap_or(Condition::Always);
         for section in sections {
             for def in registry::in_section(*section) {
                 rules.entry(def.id).or_insert_with(|| RuleInstance {
@@ -266,7 +155,6 @@ fn expand_capabilities(
                     severity: def.severity,
                     params: BTreeMap::new(),
                     provenance: format!("capability:{capability}/{section}"),
-                    condition: condition.clone(),
                 });
             }
         }

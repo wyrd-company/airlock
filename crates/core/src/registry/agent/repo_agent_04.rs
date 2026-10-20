@@ -3,17 +3,14 @@
 // relationships:
 //   references: registry
 
-use crate::registry::{
-    Applicability, CheckDefinition, Evaluation, Lifecycle, Observation, Section, Severity,
-};
+use crate::registry::{CheckDefinition, Lifecycle, Observation, Section, Severity};
 use crate::remediation::{remediation, Lane};
 
 pub(crate) const STANDARD: CheckDefinition = CheckDefinition {
     id: "REPO-AGENT-04",
     statement: "`CONTRIBUTING.md` contains no command sequences beyond `task check`",
-    severity: Severity::Required,
+    severity: Severity::Advisory,
     section: Section::Agent,
-    evaluation: Evaluation::Manual,
     params: &[],
     guidance: "Read",
     remediation: remediation(
@@ -24,8 +21,9 @@ pub(crate) const STANDARD: CheckDefinition = CheckDefinition {
         true,
     ),
     lifecycle: Lifecycle::Seeded,
-    applicability: Applicability::Always,
     observation: Observation::FileTree,
+    api_gate: false,
+    owner_gate: false,
     disclosure_gate: None,
-    evaluation_reason: None,
+    unbuilt_reason: Some("The compiled check is not built yet"),
 };

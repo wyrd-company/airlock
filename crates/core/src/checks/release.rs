@@ -29,7 +29,7 @@ pub(crate) fn run(id: &str, _rule: &RuleInstance, context: &AuditContext) -> Opt
 
 fn release_units_declared(context: &AuditContext) -> Verdict {
     match context.yaml(".intentional/config.yml") {
-        ParsedFile::Undecided(verdict) => *verdict,
+        ParsedFile::ReadError(verdict) => *verdict,
         ParsedFile::Missing | ParsedFile::NotAFile(_) => Verdict::fail_at(
             "file_missing",
             ".intentional/config.yml",
@@ -68,7 +68,7 @@ fn release_units_declared(context: &AuditContext) -> Verdict {
 
 fn changelog_per_unit(context: &AuditContext) -> Verdict {
     let Some(units) = context.release_units() else {
-        return Verdict::inconclusive(
+        return Verdict::run_error(
             "no_release_units_declared",
             "the repository declares no release units, so per-unit changelogs could not be \
              checked",
@@ -111,7 +111,7 @@ fn changelog_path(unit_path: &str) -> String {
 
 fn no_root_aggregate_changelog(context: &AuditContext) -> Verdict {
     let Some(units) = context.release_units() else {
-        return Verdict::inconclusive(
+        return Verdict::run_error(
             "no_release_units_declared",
             "the repository declares no release units, so whether a root changelog aggregates \
              them could not be established",
@@ -161,7 +161,7 @@ fn no_root_aggregate_changelog(context: &AuditContext) -> Verdict {
 
 fn release_is_dispatched(context: &AuditContext) -> Verdict {
     let Some(workflow) = context.workflow("release.yml") else {
-        return Verdict::manual(
+        return Verdict::unbuilt(
             "no_release_workflow",
             "there is no .github/workflows/release.yml; whether this repository creates releases \
              is a judgment call",
@@ -216,7 +216,7 @@ fn release_is_dispatched(context: &AuditContext) -> Verdict {
 
 fn no_publish_on_merge(context: &AuditContext) -> Verdict {
     if context.workflows_truncated {
-        return Verdict::inconclusive(
+        return Verdict::run_error(
             "workflow_listing_truncated",
             "the workflow listing was cut short by a budget, so the absence of a publish-on-merge \
              workflow could not be established",
@@ -274,7 +274,7 @@ mod tests {
     use super::super::fixtures::*;
     use crate::findings::Status;
 
-    fn verdict(id: &str, files: &[(&str, &str)]) -> Status {
+    fn verdict(id: &str, files: &[(&str, &str)]) -> Option<Status> {
         let snapshot = snapshot(files);
         let workflows = workflows(&snapshot);
         let policy = policy();
@@ -289,15 +289,15 @@ mod tests {
     fn release_units_must_be_declared() {
         assert_eq!(
             verdict("REPO-REL-01", &[(".intentional/config.yml", SINGLE_UNIT)]),
-            Status::Pass
+            Some(Status::Met)
         );
-        assert_eq!(verdict("REPO-REL-01", &[]), Status::Fail);
+        assert_eq!(verdict("REPO-REL-01", &[]), Some(Status::Gap));
         assert_eq!(
             verdict(
                 "REPO-REL-01",
                 &[(".intentional/config.yml", "settings: {}\n")]
             ),
-            Status::Fail
+            Some(Status::Gap)
         );
     }
 
@@ -311,11 +311,11 @@ mod tests {
                     ("CHANGELOG.md", "# log")
                 ]
             ),
-            Status::Pass
+            Some(Status::Met)
         );
         assert_eq!(
             verdict("REPO-REL-02", &[(".intentional/config.yml", SINGLE_UNIT)]),
-            Status::Fail
+            Some(Status::Gap)
         );
         assert_eq!(
             verdict(
@@ -325,7 +325,7 @@ mod tests {
                     ("core/CHANGELOG.md", "# log")
                 ]
             ),
-            Status::Fail
+            Some(Status::Gap)
         );
     }
 
@@ -339,7 +339,7 @@ mod tests {
                     ("CHANGELOG.md", "# log")
                 ]
             ),
-            Status::Pass
+            Some(Status::Met)
         );
     }
 
@@ -353,11 +353,11 @@ mod tests {
                     ("CHANGELOG.md", "# log")
                 ]
             ),
-            Status::Fail
+            Some(Status::Gap)
         );
         assert_eq!(
             verdict("REPO-REL-03", &[(".intentional/config.yml", TWO_UNITS)]),
-            Status::Pass
+            Some(Status::Met)
         );
     }
 
@@ -367,7 +367,7 @@ mod tests {
                     required: true\npermissions: {}\njobs: {}\n";
         assert_eq!(
             verdict("REPO-REL-04", &[(".github/workflows/release.yml", good)]),
-            Status::Pass
+            Some(Status::Met)
         );
         let automatic = "on:\n  push:\n    branches: [main]\npermissions: {}\njobs: {}\n";
         assert_eq!(
@@ -375,9 +375,9 @@ mod tests {
                 "REPO-REL-04",
                 &[(".github/workflows/release.yml", automatic)]
             ),
-            Status::Fail
+            Some(Status::Gap)
         );
-        assert_eq!(verdict("REPO-REL-04", &[]), Status::Manual);
+        assert_eq!(verdict("REPO-REL-04", &[]), None);
     }
 
     #[test]
@@ -386,13 +386,13 @@ mod tests {
                           steps:\n      - run: cargo publish\n";
         assert_eq!(
             verdict("REPO-REL-07", &[(".github/workflows/x.yml", publishing)]),
-            Status::Fail
+            Some(Status::Gap)
         );
         let harmless = "on:\n  push:\n    branches: [main]\npermissions: {}\njobs:\n  a:\n    \
                         steps:\n      - run: task check\n";
         assert_eq!(
             verdict("REPO-REL-07", &[(".github/workflows/x.yml", harmless)]),
-            Status::Pass
+            Some(Status::Met)
         );
     }
 }

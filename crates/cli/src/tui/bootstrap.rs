@@ -817,7 +817,7 @@ mod tests {
             assert!(
                 !Status::ALL
                     .iter()
-                    .any(|status| super::super::lane::glyph_of(*status) == glyph),
+                    .any(|status| super::super::lane::glyph_of(Some(*status)) == glyph),
                 "{} is drawn with a finding glyph",
                 state.name()
             );

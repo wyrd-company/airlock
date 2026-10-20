@@ -3,17 +3,14 @@
 // relationships:
 //   references: registry
 
-use crate::registry::{
-    Applicability, CheckDefinition, Evaluation, Lifecycle, Observation, Section, Severity,
-};
+use crate::registry::{CheckDefinition, Lifecycle, Observation, Section, Severity};
 use crate::remediation::{remediation, Lane};
 
 pub(crate) const STANDARD: CheckDefinition = CheckDefinition {
     id: "REPO-LIC-04",
     statement: "A repository publishing to a registry declares the license in package metadata",
-    severity: Severity::Required,
+    severity: Severity::Advisory,
     section: Section::Licensing,
-    evaluation: Evaluation::Mechanical,
     params: &[],
     guidance: "`package.json`, `Cargo.toml`, `pubspec.yaml`",
     remediation: remediation(
@@ -24,8 +21,9 @@ pub(crate) const STANDARD: CheckDefinition = CheckDefinition {
         true,
     ),
     lifecycle: Lifecycle::Seeded,
-    applicability: Applicability::ReleaseUnitsDeclared,
     observation: Observation::FileTree,
+    api_gate: false,
+    owner_gate: false,
     disclosure_gate: None,
-    evaluation_reason: None,
+    unbuilt_reason: None,
 };

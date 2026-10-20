@@ -131,7 +131,7 @@ fn description_shape(context: &AuditContext) -> Verdict {
         );
     }
 
-    Verdict::manual(
+    Verdict::unbuilt(
         "description_shape_verified",
         format!(
             "the description is {length} characters and one sentence; whether it still reads \
@@ -210,7 +210,7 @@ fn topic_vocabulary(context: &AuditContext) -> Verdict {
     let artifacts = try_verdict!(vocabulary(context, "artifact-type"));
     let ecosystems = try_verdict!(vocabulary(context, "ecosystem"));
     let (Some(artifacts), Some(ecosystems)) = (artifacts, ecosystems) else {
-        return Verdict::inconclusive(
+        return Verdict::run_error(
             "no_topic_reference_data",
             "the policy declares no `topics` reference data with `artifact-type` and \
              `ecosystem` lists, so the declared topics cannot be classified",
@@ -250,7 +250,7 @@ fn topics_are_catalogued(context: &AuditContext) -> Verdict {
     let topics = try_verdict!(topics(context));
 
     let Some(reference) = context.policy.reference_data.get("topics") else {
-        return Verdict::inconclusive(
+        return Verdict::run_error(
             "no_topic_reference_data",
             "the policy declares no `topics` reference data, so the declared topics cannot be \
              checked against a catalogue",
@@ -258,7 +258,7 @@ fn topics_are_catalogued(context: &AuditContext) -> Verdict {
     };
 
     let Some(categories) = reference.as_map() else {
-        return Verdict::inconclusive(
+        return Verdict::run_error(
             super::MALFORMED_DECLARATION,
             "the policy's topic vocabulary is not a mapping of category to terms",
         );
@@ -309,7 +309,7 @@ fn no_org_topic(rule: &RuleInstance, context: &AuditContext) -> Verdict {
         Ok(Some(names)) => names,
         Ok(None) => Vec::new(),
         Err(malformed) => {
-            return Verdict::inconclusive(super::MALFORMED_DECLARATION, malformed.to_string())
+            return Verdict::run_error(super::MALFORMED_DECLARATION, malformed.to_string())
         }
     };
     org_names.push(context.snapshot.repository.owner.clone());
@@ -538,7 +538,7 @@ features:
   discussions: false
 ";
 
-    fn verdict(id: &str, files: &[(&str, &str)]) -> Status {
+    fn verdict(id: &str, files: &[(&str, &str)]) -> Option<Status> {
         let snapshot = snapshot(files);
         let policy = policy();
         let context = context(&snapshot, &policy, Vec::new());
@@ -562,7 +562,7 @@ features:
         let context = context(&snapshot, &policy, Vec::new());
 
         let verdict = evaluate(&rule("REPO-META-13"), &context);
-        assert_eq!(verdict.status, Status::AdminOnly);
+        assert_eq!(verdict.status, None);
         assert_eq!(
             verdict.evidence.expect("admin-only evidence").code,
             crate::registry::MERGE_SETTINGS_DISCLOSURE.evidence_code
@@ -586,7 +586,7 @@ features:
         let context = context(&snapshot, &policy, Vec::new());
 
         let verdict = evaluate(&rule("REPO-META-13"), &context);
-        assert_eq!(verdict.status, Status::Fail);
+        assert_eq!(verdict.status, Some(Status::Gap));
         assert_eq!(
             verdict.evidence.expect("failure evidence").detail,
             "live metadata differs from the declared file in description"
@@ -595,7 +595,7 @@ features:
 
     #[test]
     fn a_lower_kebab_name_passes() {
-        assert_eq!(verdict("REPO-NAME-01", &[]), Status::Pass);
+        assert_eq!(verdict("REPO-NAME-01", &[]), Some(Status::Met));
     }
 
     #[test]
@@ -606,7 +606,7 @@ features:
         let context = context(&snapshot, &policy, Vec::new());
         assert_eq!(
             evaluate(&rule("REPO-NAME-01"), &context).status,
-            Status::Fail
+            Some(Status::Gap)
         );
     }
 
@@ -614,13 +614,13 @@ features:
     fn a_declared_description_passes() {
         assert_eq!(
             verdict("REPO-META-01", &[(".github/repo-settings.yml", SETTINGS)]),
-            Status::Pass
+            Some(Status::Met)
         );
     }
 
     #[test]
     fn a_missing_settings_file_fails_the_description_rule() {
-        assert_eq!(verdict("REPO-META-01", &[]), Status::Fail);
+        assert_eq!(verdict("REPO-META-01", &[]), Some(Status::Gap));
     }
 
     #[test]
@@ -633,7 +633,7 @@ features:
                     "description: a\ndescription: b\n"
                 )]
             ),
-            Status::Inconclusive
+            None
         );
     }
 
@@ -642,7 +642,7 @@ features:
         let long = format!("description: \"{}\"\n", "x".repeat(200));
         assert_eq!(
             verdict("REPO-META-02", &[(".github/repo-settings.yml", &long)]),
-            Status::Fail
+            Some(Status::Gap)
         );
     }
 
@@ -656,7 +656,7 @@ features:
                     "description: One thing. Then another.\n"
                 )]
             ),
-            Status::Fail
+            Some(Status::Gap)
         );
     }
 
@@ -664,7 +664,7 @@ features:
     fn a_well_shaped_description_defers_the_truncation_judgment() {
         assert_eq!(
             verdict("REPO-META-02", &[(".github/repo-settings.yml", SETTINGS)]),
-            Status::Manual
+            None
         );
     }
 
@@ -675,17 +675,17 @@ features:
         let context = context(&snapshot, &policy, Vec::new());
         assert_eq!(
             evaluate(&rule("REPO-META-06"), &context).status,
-            Status::Pass
+            Some(Status::Met)
         );
         let strict = rule_with("REPO-META-06", &[("min-topics", json!(5))]);
-        assert_eq!(evaluate(&strict, &context).status, Status::Fail);
+        assert_eq!(evaluate(&strict, &context).status, Some(Status::Gap));
     }
 
     #[test]
     fn topic_vocabulary_is_inconclusive_without_reference_data() {
         assert_eq!(
             verdict("REPO-META-07", &[(".github/repo-settings.yml", SETTINGS)]),
-            Status::Inconclusive
+            None
         );
     }
 
@@ -704,11 +704,11 @@ features:
         let context = context(&snapshot, &policy, Vec::new());
         assert_eq!(
             evaluate(&rule("REPO-META-07"), &context).status,
-            Status::Pass
+            Some(Status::Met)
         );
         assert_eq!(
             evaluate(&rule("REPO-META-09"), &context).status,
-            Status::Pass
+            Some(Status::Met)
         );
     }
 
@@ -730,7 +730,7 @@ features:
         let context = context(&snapshot, &policy, Vec::new());
         assert_eq!(
             evaluate(&rule("REPO-META-09"), &context).status,
-            Status::Fail
+            Some(Status::Gap)
         );
     }
 
@@ -741,11 +741,11 @@ features:
                 "REPO-META-10",
                 &[(".github/repo-settings.yml", "topics: [cli, rust, owner]\n")]
             ),
-            Status::Fail
+            Some(Status::Gap)
         );
         assert_eq!(
             verdict("REPO-META-10", &[(".github/repo-settings.yml", SETTINGS)]),
-            Status::Pass
+            Some(Status::Met)
         );
     }
 
@@ -753,7 +753,7 @@ features:
     fn declared_merge_settings_are_checked_field_by_field() {
         assert_eq!(
             verdict("REPO-META-11", &[(".github/repo-settings.yml", SETTINGS)]),
-            Status::Pass
+            Some(Status::Met)
         );
         assert_eq!(
             verdict(
@@ -764,7 +764,7 @@ features:
                      delete_branch_on_merge: true\n"
                 )]
             ),
-            Status::Fail
+            Some(Status::Gap)
         );
     }
 
@@ -775,11 +775,11 @@ features:
                 "REPO-META-12",
                 &[(".github/repo-settings.yml", "visibility: public\n")]
             ),
-            Status::Fail
+            Some(Status::Gap)
         );
         assert_eq!(
             verdict("REPO-META-12", &[(".github/repo-settings.yml", SETTINGS)]),
-            Status::Pass
+            Some(Status::Met)
         );
     }
 
@@ -792,7 +792,7 @@ features:
         let drifted_context = context(&drifted, &policy, Vec::new());
         assert_eq!(
             evaluate(&rule("REPO-META-13"), &drifted_context).status,
-            Status::Fail
+            Some(Status::Gap)
         );
 
         let mut aligned = snapshot;
@@ -805,7 +805,7 @@ features:
         let aligned_context = context(&aligned, &policy, Vec::new());
         assert_eq!(
             evaluate(&rule("REPO-META-13"), &aligned_context).status,
-            Status::Pass
+            Some(Status::Met)
         );
     }
 
@@ -822,7 +822,7 @@ features:
         let context = context(&snapshot, &policy, Vec::new());
 
         let verdict = evaluate(&rule("REPO-META-06"), &context);
-        assert_eq!(verdict.status, Status::Inconclusive);
+        assert_eq!(verdict.status, None);
         let evidence = verdict.evidence.unwrap();
         assert_eq!(evidence.code, crate::checks::MALFORMED_DECLARATION);
         assert!(evidence.detail.contains("entry 2"));
@@ -849,7 +849,7 @@ features:
 
         for id in ["REPO-META-07", "REPO-META-09", "REPO-META-10"] {
             let verdict = evaluate(&rule(id), &context);
-            assert_eq!(verdict.status, Status::Inconclusive, "{id}");
+            assert_eq!(verdict.status, None, "{id}");
             assert_eq!(
                 verdict.evidence.unwrap().code,
                 crate::checks::MALFORMED_DECLARATION,
@@ -872,11 +872,7 @@ features:
         );
         let context = context(&snapshot, &policy, Vec::new());
         for id in ["REPO-META-07", "REPO-META-09"] {
-            assert_eq!(
-                evaluate(&rule(id), &context).status,
-                Status::Inconclusive,
-                "{id}"
-            );
+            assert_eq!(evaluate(&rule(id), &context).status, None, "{id}");
         }
     }
 
@@ -886,10 +882,7 @@ features:
         snapshot.topics = Ok(vec!["cli".to_owned()]);
         let policy = policy();
         let context = context(&snapshot, &policy, Vec::new());
-        assert_eq!(
-            evaluate(&rule("REPO-META-13"), &context).status,
-            Status::Inconclusive
-        );
+        assert_eq!(evaluate(&rule("REPO-META-13"), &context).status, None);
     }
 
     #[test]
@@ -904,7 +897,7 @@ features:
             &[("org-names", json!(["wyrd-company", 42]))],
         );
         let verdict = evaluate(&instance, &context);
-        assert_eq!(verdict.status, Status::Inconclusive);
+        assert_eq!(verdict.status, None);
         let evidence = verdict.evidence.unwrap();
         assert_eq!(evidence.code, crate::checks::MALFORMED_DECLARATION);
         assert!(evidence.detail.contains("org-names"));

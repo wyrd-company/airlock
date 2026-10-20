@@ -3,17 +3,14 @@
 // relationships:
 //   references: registry
 
-use crate::registry::{
-    Applicability, CheckDefinition, Evaluation, Lifecycle, Observation, Section, Severity,
-};
+use crate::registry::{CheckDefinition, Lifecycle, Observation, Section, Severity};
 use crate::remediation::not_remediable;
 
 pub(crate) const STANDARD: CheckDefinition = CheckDefinition {
     id: "REPO-GIT-09",
     statement: "Multi-release-unit tags use `@scope/name@version`",
-    severity: Severity::Required,
+    severity: Severity::Advisory,
     section: Section::Git,
-    evaluation: Evaluation::Mechanical,
     params: &[],
     guidance: "`git tag`",
     remediation: not_remediable(
@@ -21,8 +18,9 @@ pub(crate) const STANDARD: CheckDefinition = CheckDefinition {
         "Closing it means re-tagging published releases — history surgery airlock does not automate.",
     ),
     lifecycle: Lifecycle::Seeded,
-    applicability: Applicability::ReleaseUnitsDeclared,
     observation: Observation::Platform,
+    api_gate: false,
+    owner_gate: false,
     disclosure_gate: None,
-    evaluation_reason: None,
+    unbuilt_reason: None,
 };

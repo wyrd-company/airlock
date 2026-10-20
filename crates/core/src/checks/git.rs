@@ -58,7 +58,7 @@ fn org_ruleset_coverage(context: &AuditContext) -> Verdict {
     if covering.is_empty() {
         // Absence over a listing airlock only saw part of is not absence.
         if rulesets.truncated {
-            return Verdict::inconclusive(
+            return Verdict::run_error(
                 "ruleset_listing_truncated",
                 format!(
                     "no organisation ruleset was found in the {} rulesets airlock could read, \
@@ -107,7 +107,7 @@ fn branch_rule_shape(context: &AuditContext) -> Verdict {
     // A rule airlock did not see is not a rule that is absent. Only a complete
     // listing can support "this branch is not protected".
     if rules.truncated && (pull_request.is_none() || !linear) {
-        return Verdict::inconclusive(
+        return Verdict::run_error(
             "branch_rule_listing_truncated",
             format!(
                 "the rules on `{branch}` stopped at the page budget after {} rules, so a \
@@ -292,7 +292,7 @@ fn optional_features_off(context: &AuditContext) -> Verdict {
     } else {
         // Whether an enabled feature is deliberate is not something the API
         // can answer, so airlock reports it rather than failing it.
-        Verdict::manual(
+        Verdict::unbuilt(
             "optional_features_on",
             format!(
                 "{} enabled; whether that is deliberate use is a judgment call",
@@ -321,7 +321,7 @@ fn tags_have_no_v_prefix(context: &AuditContext) -> Verdict {
         // "No tag carries a `v` prefix" is an assertion about every tag. A
         // clean prefix of the tag list does not establish it.
         if tags.truncated {
-            return Verdict::inconclusive(
+            return Verdict::run_error(
                 "tag_listing_truncated",
                 format!(
                     "none of the {} tags airlock read carry a `v` prefix, but the listing \
@@ -349,7 +349,7 @@ fn tags_have_no_v_prefix(context: &AuditContext) -> Verdict {
 fn multi_unit_tag_shape(context: &AuditContext) -> Verdict {
     // Built-in applicability intercepts this; retain the guard as belt-and-braces defense.
     let Some(units) = context.release_units() else {
-        return Verdict::inconclusive(
+        return Verdict::run_error(
             "no_release_units_declared",
             "the repository declares no release units, so whether its tags should be scoped \
              could not be established",
@@ -375,7 +375,7 @@ fn multi_unit_tag_shape(context: &AuditContext) -> Verdict {
 
     if offenders.is_empty() {
         if tags.truncated {
-            return Verdict::inconclusive(
+            return Verdict::run_error(
                 "tag_listing_truncated",
                 format!(
                     "all {} tags airlock read are scoped, but the listing stopped at the page \
@@ -448,7 +448,7 @@ fn no_merge_commits(rule: &RuleInstance, context: &AuditContext) -> Verdict {
     if truncated {
         // The assertion is about the whole history. A clean prefix does not
         // prove it, so this is inconclusive with the bound named.
-        return Verdict::inconclusive(
+        return Verdict::run_error(
             "history_scan_truncated",
             format!(
                 "no merge commits in the newest {} commits, but the walk stopped at the {budget} \
@@ -534,12 +534,12 @@ mod tests {
         let mut fixture = CheckFixture::new(&[]);
         assert_eq!(
             evaluate(&rule("REPO-GIT-01"), &fixture.context()).status,
-            Status::Pass
+            Some(Status::Met)
         );
         fixture.snapshot.repository.default_branch = "master".to_owned();
         assert_eq!(
             evaluate(&rule("REPO-GIT-01"), &fixture.context()).status,
-            Status::Fail
+            Some(Status::Gap)
         );
     }
 
@@ -549,7 +549,7 @@ mod tests {
         let mut context = fixture.context();
         assert_eq!(
             evaluate(&rule("REPO-GIT-02"), &context).status,
-            Status::Fail
+            Some(Status::Gap)
         );
 
         context.rulesets = Ok(Paged::complete(vec![Ruleset {
@@ -562,7 +562,7 @@ mod tests {
         }]));
         assert_eq!(
             evaluate(&rule("REPO-GIT-02"), &context).status,
-            Status::Pass
+            Some(Status::Met)
         );
     }
 
@@ -580,7 +580,7 @@ mod tests {
         }]));
         assert_eq!(
             evaluate(&rule("REPO-GIT-02"), &context).status,
-            Status::Fail
+            Some(Status::Gap)
         );
     }
 
@@ -598,7 +598,7 @@ mod tests {
             request_id: Some("REQ:1".to_owned()),
         });
         let verdict = evaluate(&rule("REPO-GIT-02"), &context);
-        assert_eq!(verdict.status, Status::Error);
+        assert_eq!(verdict.status, None);
         let error = verdict.error.unwrap();
         assert_eq!(error.cause, "permission");
         assert_eq!(
@@ -621,7 +621,7 @@ mod tests {
             request_id: None,
         });
         let verdict = evaluate(&rule("REPO-GIT-02"), &context);
-        assert_eq!(verdict.status, Status::Error);
+        assert_eq!(verdict.status, None);
         assert_eq!(
             verdict.remediation.unwrap().action_group,
             ActionGroup::PLAN_GATE
@@ -645,7 +645,7 @@ mod tests {
         ]));
         assert_eq!(
             evaluate(&rule("REPO-GIT-03"), &context).status,
-            Status::Pass
+            Some(Status::Met)
         );
 
         context.branch_rules = Ok(Paged::complete(vec![BranchRule {
@@ -654,13 +654,13 @@ mod tests {
         }]));
         assert_eq!(
             evaluate(&rule("REPO-GIT-03"), &context).status,
-            Status::Fail
+            Some(Status::Gap)
         );
 
         context.branch_rules = Ok(Paged::complete(Vec::new()));
         assert_eq!(
             evaluate(&rule("REPO-GIT-03"), &context).status,
-            Status::Fail
+            Some(Status::Gap)
         );
     }
 
@@ -669,14 +669,18 @@ mod tests {
         let mut fixture = CheckFixture::new(&[]);
         assert_eq!(
             evaluate(&rule("REPO-GIT-04"), &fixture.context()).status,
-            Status::Pass
+            Some(Status::Met)
         );
         fixture.snapshot.repository.allow_merge_commit = Some(true);
         fixture.snapshot.repository.allow_squash_merge = Some(false);
         fixture.snapshot.repository.delete_branch_on_merge = Some(false);
         let context = fixture.context();
         for id in ["REPO-GIT-04", "REPO-GIT-05", "REPO-GIT-06"] {
-            assert_eq!(evaluate(&rule(id), &context).status, Status::Fail, "{id}");
+            assert_eq!(
+                evaluate(&rule(id), &context).status,
+                Some(Status::Gap),
+                "{id}"
+            );
         }
     }
 
@@ -690,7 +694,7 @@ mod tests {
 
         for id in ["REPO-GIT-04", "REPO-GIT-05", "REPO-GIT-06"] {
             let verdict = evaluate(&rule(id), &context);
-            assert_eq!(verdict.status, Status::AdminOnly, "{id}");
+            assert_eq!(verdict.status, None, "{id}");
             let evidence = verdict.evidence.expect("admin-only evidence");
             assert_eq!(
                 evidence.code,
@@ -715,10 +719,7 @@ mod tests {
         let mut fixture = CheckFixture::new(&[]);
         fixture.snapshot.repository.has_wiki = true;
         let context = fixture.context();
-        assert_eq!(
-            evaluate(&rule("REPO-GIT-07"), &context).status,
-            Status::Manual
-        );
+        assert_eq!(evaluate(&rule("REPO-GIT-07"), &context).status, None);
     }
 
     #[test]
@@ -737,7 +738,7 @@ mod tests {
         ]));
         assert_eq!(
             evaluate(&rule("REPO-GIT-08"), &context).status,
-            Status::Fail
+            Some(Status::Gap)
         );
 
         context.tags = Ok(Paged::complete(vec![
@@ -753,7 +754,7 @@ mod tests {
         ]));
         assert_eq!(
             evaluate(&rule("REPO-GIT-08"), &context).status,
-            Status::Pass
+            Some(Status::Met)
         );
     }
 
@@ -770,7 +771,7 @@ mod tests {
         }]));
         assert_eq!(
             evaluate(&rule("REPO-GIT-09"), &context).status,
-            Status::Pass
+            Some(Status::Met)
         );
     }
 
@@ -787,7 +788,7 @@ mod tests {
         }]));
         assert_eq!(
             evaluate(&rule("REPO-GIT-09"), &context).status,
-            Status::Fail
+            Some(Status::Gap)
         );
 
         context.tags = Ok(Paged::complete(vec![TagRef {
@@ -796,7 +797,7 @@ mod tests {
         }]));
         assert_eq!(
             evaluate(&rule("REPO-GIT-09"), &context).status,
-            Status::Pass
+            Some(Status::Met)
         );
     }
 
@@ -816,7 +817,7 @@ mod tests {
         ]));
         assert_eq!(
             evaluate(&rule("REPO-GIT-10"), &context).status,
-            Status::Fail
+            Some(Status::Gap)
         );
     }
 
@@ -832,7 +833,7 @@ mod tests {
             truncated: true,
         });
         let verdict = evaluate(&rule("REPO-GIT-10"), &context);
-        assert_eq!(verdict.status, Status::Inconclusive);
+        assert_eq!(verdict.status, None);
         assert!(verdict.evidence.unwrap().detail.contains("budget"));
     }
 
@@ -865,7 +866,7 @@ mod tests {
         }]));
         assert_eq!(
             evaluate(&rule("REPO-GIT-10"), &context).status,
-            Status::Pass
+            Some(Status::Met)
         );
     }
 
@@ -878,7 +879,7 @@ mod tests {
         let context = fixture.context();
         assert_eq!(
             evaluate(&rule("REPO-GIT-13"), &context).status,
-            Status::Fail
+            Some(Status::Gap)
         );
     }
 
@@ -895,7 +896,7 @@ mod tests {
         let context = fixture.context();
         assert_eq!(
             evaluate(&rule("REPO-GIT-13"), &context).status,
-            Status::Pass
+            Some(Status::Met)
         );
     }
 
@@ -911,7 +912,7 @@ mod tests {
             truncated: true,
         });
         let verdict = evaluate(&rule("REPO-GIT-08"), &context);
-        assert_eq!(verdict.status, Status::Inconclusive);
+        assert_eq!(verdict.status, None);
         assert_eq!(verdict.evidence.unwrap().code, "tag_listing_truncated");
     }
 
@@ -929,7 +930,7 @@ mod tests {
         });
         assert_eq!(
             evaluate(&rule("REPO-GIT-08"), &context).status,
-            Status::Fail
+            Some(Status::Gap)
         );
     }
 
@@ -947,10 +948,7 @@ mod tests {
             }],
             truncated: true,
         });
-        assert_eq!(
-            evaluate(&rule("REPO-GIT-09"), &context).status,
-            Status::Inconclusive
-        );
+        assert_eq!(evaluate(&rule("REPO-GIT-09"), &context).status, None);
     }
 
     #[test]
@@ -969,7 +967,7 @@ mod tests {
             truncated: true,
         });
         let verdict = evaluate(&rule("REPO-GIT-02"), &context);
-        assert_eq!(verdict.status, Status::Inconclusive);
+        assert_eq!(verdict.status, None);
         assert_eq!(verdict.evidence.unwrap().code, "ruleset_listing_truncated");
     }
 
@@ -990,7 +988,7 @@ mod tests {
         });
         assert_eq!(
             evaluate(&rule("REPO-GIT-02"), &context).status,
-            Status::Pass
+            Some(Status::Met)
         );
     }
 
@@ -1006,7 +1004,7 @@ mod tests {
             truncated: true,
         });
         let verdict = evaluate(&rule("REPO-GIT-03"), &context);
-        assert_eq!(verdict.status, Status::Inconclusive);
+        assert_eq!(verdict.status, None);
         assert_eq!(
             verdict.evidence.unwrap().code,
             "branch_rule_listing_truncated"
@@ -1032,7 +1030,7 @@ mod tests {
         });
         assert_eq!(
             evaluate(&rule("REPO-GIT-03"), &context).status,
-            Status::Pass
+            Some(Status::Met)
         );
     }
 
@@ -1046,7 +1044,7 @@ mod tests {
             "the 300 second audit budget was exhausted before this request completed",
         ));
         let verdict = evaluate(&rule("REPO-GIT-02"), &context);
-        assert_eq!(verdict.status, Status::Error);
+        assert_eq!(verdict.status, None);
         assert_eq!(verdict.error.unwrap().cause, "budget_exhausted");
     }
 
@@ -1064,9 +1062,6 @@ mod tests {
                 parameters: json!({}),
             },
         ]));
-        assert_eq!(
-            evaluate(&rule("REPO-GIT-03"), &context).status,
-            Status::Inconclusive
-        );
+        assert_eq!(evaluate(&rule("REPO-GIT-03"), &context).status, None);
     }
 }

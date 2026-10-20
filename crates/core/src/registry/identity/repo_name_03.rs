@@ -3,17 +3,14 @@
 // relationships:
 //   references: registry
 
-use crate::registry::{
-    Applicability, CheckDefinition, Evaluation, Lifecycle, Observation, Section, Severity,
-};
+use crate::registry::{CheckDefinition, Lifecycle, Observation, Section, Severity};
 use crate::remediation::{remediation, Lane};
 
 pub(crate) const STANDARD: CheckDefinition = CheckDefinition {
     id: "REPO-NAME-03",
     statement: "A repository in a product family carries the family prefix",
-    severity: Severity::Observation,
+    severity: Severity::Advisory,
     section: Section::Identity,
-    evaluation: Evaluation::Manual,
     params: &[],
     guidance: "Repository name",
     remediation: remediation(
@@ -24,8 +21,9 @@ pub(crate) const STANDARD: CheckDefinition = CheckDefinition {
         true,
     ),
     lifecycle: Lifecycle::Seeded,
-    applicability: Applicability::Always,
     observation: Observation::Platform,
+    api_gate: false,
+    owner_gate: false,
     disclosure_gate: None,
-    evaluation_reason: None,
+    unbuilt_reason: Some("The compiled check is not built yet"),
 };

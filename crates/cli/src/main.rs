@@ -488,12 +488,11 @@ async fn align_files_command(args: AlignFilesArgs, interactive: bool) -> Result<
         .map(|operation| operation.rule.as_str())
         .collect();
     let reobserved = after
-        .findings
-        .iter()
+        .entries()
         .filter(|finding| affected.contains(finding.rule.as_str()))
         .map(|finding| ReobservedFinding {
             rule: finding.rule.clone(),
-            status: finding.status.code().to_owned(),
+            status: finding.status_code().to_owned(),
             source: finding.source.clone(),
         })
         .collect();

@@ -3,9 +3,7 @@
 // relationships:
 //   references: registry
 
-use crate::registry::{
-    Applicability, CheckDefinition, Evaluation, Lifecycle, Observation, Section, Severity,
-};
+use crate::registry::{CheckDefinition, Lifecycle, Observation, Section, Severity};
 use crate::remediation::{remediation, Lane};
 
 pub(crate) const STANDARD: CheckDefinition = CheckDefinition {
@@ -13,7 +11,6 @@ pub(crate) const STANDARD: CheckDefinition = CheckDefinition {
     statement: "No workflow writes organization custom properties",
     severity: Severity::Blocking,
     section: Section::Classification,
-    evaluation: Evaluation::Mechanical,
     params: &[],
     guidance: "Workflow contents",
     remediation: remediation(
@@ -24,8 +21,9 @@ pub(crate) const STANDARD: CheckDefinition = CheckDefinition {
         true,
     ),
     lifecycle: Lifecycle::Seeded,
-    applicability: Applicability::Always,
     observation: Observation::FileTree,
+    api_gate: false,
+    owner_gate: false,
     disclosure_gate: None,
-    evaluation_reason: None,
+    unbuilt_reason: None,
 };

@@ -4,7 +4,7 @@ use crate::ActionGroup;
 pub(super) fn parse_taskfile(context: &AuditContext) -> Result<Yaml, Box<Verdict>> {
     match context.yaml("taskfile.yml") {
         ParsedFile::Parsed(document) => Ok(document),
-        ParsedFile::Undecided(verdict) => Err(verdict),
+        ParsedFile::ReadError(verdict) => Err(verdict),
         ParsedFile::Missing | ParsedFile::NotAFile(_) => Err(Box::new(Verdict::fail_at(
             "file_missing",
             "taskfile.yml",
@@ -58,7 +58,7 @@ pub(super) fn required_tasks(context: &AuditContext) -> Verdict {
 pub(super) fn per_unit_taskfiles(context: &AuditContext) -> Verdict {
     // Built-in applicability intercepts this; retain the guard as belt-and-braces defense.
     let Some(units) = context.release_units() else {
-        return Verdict::inconclusive(
+        return Verdict::run_error(
             "no_release_units_declared",
             "the repository declares no release units, so per-unit taskfiles could not be checked",
         );
@@ -164,7 +164,7 @@ pub(super) fn include_namespaces(context: &AuditContext) -> Verdict {
     }
 
     let Some(units) = context.release_units() else {
-        return Verdict::inconclusive(
+        return Verdict::run_error(
             "no_release_units_declared",
             "the repository declares no release units, so include namespaces could not be \
              compared against them",
@@ -209,7 +209,7 @@ mod tests {
     use super::super::super::fixtures::*;
     use crate::findings::Status;
 
-    fn verdict(id: &str, files: &[(&str, &str)]) -> Status {
+    fn verdict(id: &str, files: &[(&str, &str)]) -> Option<Status> {
         CheckFixture::new(files).verdict(id).status
     }
 
@@ -229,7 +229,7 @@ tasks:
     fn required_task_verbs_must_all_exist() {
         assert_eq!(
             verdict("REPO-TASK-01", &[("taskfile.yml", TASKFILE)]),
-            Status::Pass
+            Some(Status::Met)
         );
         assert_eq!(
             verdict(
@@ -239,13 +239,13 @@ tasks:
                     "version: '3'\ntasks:\n  test:\n    cmds: []\n"
                 )]
             ),
-            Status::Fail
+            Some(Status::Gap)
         );
     }
 
     #[test]
     fn a_missing_taskfile_fails_rather_than_passing_vacuously() {
-        assert_eq!(verdict("REPO-TASK-01", &[]), Status::Fail);
+        assert_eq!(verdict("REPO-TASK-01", &[]), Some(Status::Gap));
     }
 
     #[test]
@@ -254,11 +254,11 @@ tasks:
         let without = "version: '3'\nincludes:\n  core:\n    taskfile: ./core\n";
         assert_eq!(
             verdict("REPO-TASK-05", &[("taskfile.yml", with_dir)]),
-            Status::Pass
+            Some(Status::Met)
         );
         assert_eq!(
             verdict("REPO-TASK-05", &[("taskfile.yml", without)]),
-            Status::Fail
+            Some(Status::Gap)
         );
     }
 
@@ -274,7 +274,7 @@ tasks:
                 "release-units:\n  core:\n    path: core\n  cli:\n    path: cli\n",
             ),
         ];
-        assert_eq!(verdict("REPO-TASK-06", &files), Status::Pass);
+        assert_eq!(verdict("REPO-TASK-06", &files), Some(Status::Met));
 
         let mismatched = [
             (
@@ -283,6 +283,6 @@ tasks:
             ),
             files[1],
         ];
-        assert_eq!(verdict("REPO-TASK-06", &mismatched), Status::Fail);
+        assert_eq!(verdict("REPO-TASK-06", &mismatched), Some(Status::Gap));
     }
 }

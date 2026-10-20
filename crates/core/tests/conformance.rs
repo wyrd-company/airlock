@@ -10,7 +10,7 @@
 
 use std::collections::BTreeMap;
 
-use airlock_core::registry::{Evaluation, Section, Severity, CHECKS};
+use airlock_core::registry::{Section, Severity, CHECKS};
 
 #[test]
 fn agent_context_locates_standard_modules_and_generated_inspection_guidance() {
@@ -23,7 +23,7 @@ struct Rule {
     statement: String,
     severity: Severity,
     section: Section,
-    evaluation: Evaluation,
+    unbuilt: bool,
     method: String,
     guidance: String,
 }
@@ -75,13 +75,7 @@ fn parse_checklist() -> BTreeMap<String, Rule> {
 
         let severity = Severity::parse(&cells[2].replace('*', "").trim().to_lowercase())
             .unwrap_or_else(|| panic!("{id} has an unreadable severity: {}", cells[2]));
-        let evaluation = if cells[3].starts_with("Manual") {
-            Evaluation::Manual
-        } else if cells[3].starts_with("Unimplemented") {
-            Evaluation::Unimplemented
-        } else {
-            Evaluation::Mechanical
-        };
+        let unbuilt = cells[3].contains("unbuilt gate");
         let section = section.unwrap_or_else(|| panic!("{id} appears outside a known section"));
 
         rules.insert(
@@ -90,7 +84,7 @@ fn parse_checklist() -> BTreeMap<String, Rule> {
                 statement: cells[1].to_owned(),
                 severity,
                 section,
-                evaluation,
+                unbuilt,
                 method: cells[3].to_owned(),
                 guidance: cells[4].to_owned(),
             },
@@ -168,9 +162,11 @@ fn every_registered_rule_matches_the_checklist() {
             check.id
         );
         assert_eq!(
-            check.evaluation, rule.evaluation,
+            check.unbuilt_reason().is_some(),
+            rule.unbuilt,
             "{} evaluation mode drifted from checklist method `{}`",
-            check.id, rule.method
+            check.id,
+            rule.method
         );
     }
 }

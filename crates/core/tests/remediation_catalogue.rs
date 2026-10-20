@@ -20,9 +20,8 @@ use std::path::Path;
 use std::process::Command;
 
 use airlock_core::audit::{self, AuditOptions};
-use airlock_core::findings::Gate;
 use airlock_core::limits::Limits;
-use airlock_core::policy::{Condition, ResolvedPolicy, RuleInstance};
+use airlock_core::policy::{ResolvedPolicy, RuleInstance};
 use airlock_core::{registry, render};
 use serde_json::Value;
 
@@ -81,7 +80,7 @@ fn full_policy() -> ResolvedPolicy {
         commit: None,
         bundle_digest: "sha256:0".to_owned(),
         sources: Vec::new(),
-        gate: Gate::Blocking,
+
         rules: registry::CHECKS
             .iter()
             .map(|def| RuleInstance {
@@ -89,7 +88,6 @@ fn full_policy() -> ResolvedPolicy {
                 severity: def.severity,
                 params: BTreeMap::new(),
                 provenance: "catalogue".to_owned(),
-                condition: Condition::Always,
             })
             .collect(),
         suppressions: Default::default(),
@@ -132,8 +130,7 @@ fn a_run_reports_the_classification_the_catalogue_publishes_for_every_rule() {
     // Without this the comparison could pass over a handful of rules and
     // prove nothing about the rest.
     let observed: BTreeSet<&str> = report
-        .findings
-        .iter()
+        .entries()
         .map(|finding| finding.rule.as_str())
         .collect();
     let registered: BTreeSet<&str> = registry::CHECKS.iter().map(|check| check.id).collect();
@@ -143,7 +140,7 @@ fn a_run_reports_the_classification_the_catalogue_publishes_for_every_rule() {
     );
     assert_eq!(catalogue.len(), registered.len());
 
-    for finding in &report.findings {
+    for finding in report.entries() {
         let from_run =
             serde_json::to_value(&finding.remediation_class).expect("a finding serialises");
         let from_catalogue = catalogue
@@ -173,8 +170,7 @@ fn a_run_carries_a_classification_for_every_finding_it_produces() {
         .expect("the working tree is audited");
 
     let classified = report
-        .findings
-        .iter()
+        .entries()
         .filter(|finding| {
             finding.remediation_class.code.is_some()
                 || finding.remediation_class.none_reason.is_some()
@@ -183,13 +179,12 @@ fn a_run_carries_a_classification_for_every_finding_it_produces() {
 
     assert_eq!(
         classified,
-        report.findings.len(),
+        report.entries().count(),
         "every finding a run produces carries a declared remediation or a declared reason there is none"
     );
     assert!(
         report
-            .findings
-            .iter()
+            .entries()
             .filter(|finding| finding.remediation_class.code.is_some())
             .count()
             > 50,

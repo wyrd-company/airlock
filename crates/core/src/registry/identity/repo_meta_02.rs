@@ -3,18 +3,15 @@
 // relationships:
 //   references: registry
 
-use crate::registry::{
-    Applicability, CheckDefinition, Evaluation, Lifecycle, Observation, Section, Severity,
-};
+use crate::registry::{CheckDefinition, Lifecycle, Observation, Section, Severity};
 use crate::remediation::{remediation, Lane};
 
 pub(crate) const STANDARD: CheckDefinition = CheckDefinition {
     id: "REPO-META-02",
     statement:
         "The description is one sentence, at most 160 characters, and survives truncation at ~80",
-    severity: Severity::Required,
+    severity: Severity::Advisory,
     section: Section::Identity,
-    evaluation: Evaluation::Mechanical,
     params: &[],
     guidance: "File contents",
     remediation: remediation(
@@ -25,8 +22,9 @@ pub(crate) const STANDARD: CheckDefinition = CheckDefinition {
         true,
     ),
     lifecycle: Lifecycle::Seeded,
-    applicability: Applicability::Always,
     observation: Observation::FileTree,
+    api_gate: false,
+    owner_gate: false,
     disclosure_gate: None,
-    evaluation_reason: None,
+    unbuilt_reason: Some("A remaining requirement has no compiled check yet"),
 };

@@ -2,14 +2,13 @@ finding-detail-error-120x40-no-color · 120x40 · theme dark · NO_COLOR
 --- text ---
 AIRLOCK 0.0.0  …ations › repositories › findings › finding detail  no credential stored · tty required · theme t · dark 
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-▌ REPO-GIT-09        │ ! │  error  ███ blocking                                                                         
-gates the run: error at blocking severity, which the required gate enforces, so complete is false and no verdict can be 
-certified                                                                                                               
+▌ REPO-GIT-09        │   │  run-error  ███ blocking                                                                     
+Run error: complete is false, at every severity. The audit exits 2.                                                     
                                                                                                                         
 the condition REPO-GIT-09 states                                                                                        
                                                                                                                         
 EVIDENCE                                                                                                                
-evidence              null — the call did not complete, so no evidence exists                                           
+evidence              null — not evaluated: read the result label and reason                                            
                                                                                                                         
 ERROR                                                                                                                   
 error.cause           permission                                                                                        
@@ -30,21 +29,21 @@ remediation_class
                                                                                                                         
 WHY THIS RULE APPLIES                                                                                                   
 severity              blocking                                                                                          
-evaluation            mechanical                                                                                        
+evaluation            compiled                                                                                          
 section               git                                                                                               
 provenance            capability:base/git                                                                               
                                                                                                                         
 RUN PROVENANCE                                                                                                          
 airlock               0.0.0                                                                                             
-— 0 lines above · 10 below · ↑↓ moves the window —                                                                      
+registry              0.5.0                                                                                             
+— 0 lines above · 7 below · ↑↓ moves the window —                                                                       
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 esc back · a remediation transcript · o re-observe this rule · y copy the rule id · t theme · ctrl-c exit               
-undecided · complete: false                                                                                             
+not evaluated · run error; complete: false                                                                              
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-bbaaaaaaaaaaabbbbbbbbbbbbbbbaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+bbaaaaaaaaaaabbbbbbbbbbbbbbbaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
@@ -76,6 +75,7 @@ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 aaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb

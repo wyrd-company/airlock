@@ -107,7 +107,6 @@ action_groups! {
     DECLARE_TOPICS => "declare_topics",
     DEFAULT_DENY_PERMISSIONS => "default_deny_permissions",
     DEFINE_TASKS => "define_tasks",
-    DISABLE_OR_WAIT => "disable_or_wait",
     DISPATCH_ON_PINNED_SHA => "dispatch_on_pinned_sha",
     DISPATCH_PUBLICATION => "dispatch_publication",
     DO_NOT_CANCEL_DELIVERY => "do_not_cancel_delivery",
@@ -288,7 +287,7 @@ pub fn classify(rule: &str) -> Option<&'static Classification> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::registry::{self, Evaluation, CHECKS};
+    use crate::registry::CHECKS;
     use std::collections::BTreeSet;
 
     #[test]
@@ -369,26 +368,6 @@ mod tests {
                 "{}",
                 definition.code
             );
-        }
-    }
-
-    #[test]
-    fn deterministic_remediations_close_mechanical_rules() {
-        // The deterministic lane is closed headlessly from a failing finding,
-        // which only a mechanical evaluation can produce.
-        for definition in CLASSIFICATIONS
-            .iter()
-            .filter_map(Classification::remediation)
-        {
-            if definition.lane == Lane::DeterministicFile {
-                let check = registry::find(definition.rule).expect(definition.rule);
-                assert_eq!(
-                    check.evaluation,
-                    Evaluation::Mechanical,
-                    "{} is deterministic but not mechanically evaluated",
-                    definition.rule
-                );
-            }
         }
     }
 

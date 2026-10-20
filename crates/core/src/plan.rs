@@ -13,7 +13,7 @@
 //! what the run observed, so that a person can see what closing the gaps would
 //! take before anything is done about it.
 
-use crate::findings::{Report, Status, Undecided};
+use crate::findings::{Report, Status};
 use crate::registry::{self, VerificationSurface};
 use crate::remediation::Lane;
 
@@ -26,8 +26,8 @@ pub struct ProposedChange<'a> {
     pub statement: &'a str,
     /// The severity the effective policy graded the rule at.
     pub severity: &'a str,
-    /// What the run observed. Always an open gap: `fail`, or `suppressed`.
-    pub status: Status,
+    /// The evaluated Gap that supports this proposed fix.
+    pub status: Option<Status>,
     /// The rule's declared remediation code — the per-rule join key.
     pub code: &'a str,
     /// What the remediation would change.
@@ -37,54 +37,38 @@ pub struct ProposedChange<'a> {
     pub lane: Lane,
     /// Whether a later change of mind can undo it.
     pub reversible: bool,
-    /// This failure is one the policy authorized. The authorization did not
-    /// close the gap, so the change is still on offer, and it is standing debt
-    /// rather than a fresh failure.
-    pub authorized: bool,
     /// What this particular failure needs, where the run said something more
     /// specific than the rule's standing sentence.
     pub detail: Option<&'a str>,
 }
 
-/// A rule the run could not decide.
-///
-/// It proposes nothing, because there is no observed gap to propose a change
-/// for. It is named anyway: an unanswered question is not a pass, and a plan
-/// that omitted it would be claiming to have looked where it had not.
+/// A standard whose input could not be evaluated. Every run error blocks completion.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct UndecidedRule<'a> {
+pub struct RunErrorRule<'a> {
     /// The rule that could not be decided.
     pub rule: &'a str,
     /// The severity the effective policy graded the rule at.
     pub severity: &'a str,
-    /// Which of the three undecided statuses it ended in.
-    pub status: Status,
-    /// Whether this leaves the run incomplete, which is severity times status
-    /// rather than status alone. A rule the effective gate does not enforce is
-    /// still unanswered; it just does not stop the run.
+    /// No outcome was established.
+    pub status: Option<Status>,
+    /// Always true for a run error, independent of severity.
     pub blocks_completeness: bool,
 }
 
-/// A rule that requires admin access to verify.
-///
-/// It proposes nothing and it answers nothing, and unlike an undecided rule
-/// there is no point looking again with the read-only credential. The move is
-/// to use the interactive session (admin mode), so the plan names the rule and
-/// says so.
+/// A declared gate names the other surface or implementation that settles this standard.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct AdminOnlyRule<'a> {
-    /// The rule that requires admin access to verify.
+pub struct RoutedRule<'a> {
+    pub reason: &'a str,
+    pub settling_surface: &'a str,
+    /// The standard that was not evaluated here.
     pub rule: &'a str,
     /// The severity the effective policy graded the rule at.
     pub severity: &'a str,
     /// What the run said about why it could not be seen, when it said
     /// anything.
     pub detail: Option<&'a str>,
-    /// Where the rule is verified instead, from the gate the registry declares.
-    ///
-    /// Null only for a rule that reported a structural gap the registry does
-    /// not declare, which the checks make unreachable — a plan invents no
-    /// destination it was not given.
+    /// The operator verification surface, for a declared disclosure gate.
+    /// Other gates use settling_surface.
     pub verified_by: Option<VerificationSurface>,
 }
 
@@ -98,7 +82,7 @@ pub struct UnclosableGap<'a> {
     /// The severity the effective policy graded the rule at.
     pub severity: &'a str,
     /// What the run observed.
-    pub status: Status,
+    pub status: Option<Status>,
     /// Why airlock offers no remediation. The only remaining move is a
     /// person's.
     pub reason: &'a str,
@@ -111,80 +95,54 @@ pub struct Plan<'a> {
     pub proposed: Vec<ProposedChange<'a>>,
     /// Open gaps airlock declares it cannot close.
     pub unclosable: Vec<UnclosableGap<'a>>,
-    /// Every rule that ended undecided, whether or not it gates.
-    ///
-    /// All of them are reported. A non-gating undecided rule leaves the run
-    /// complete and still means airlock could not see whether that gap is
-    /// open, so a change this plan does not name may nevertheless be needed.
-    ///
-    /// A plan deliberately carries no `complete` field. Completeness is a
-    /// statement about the gate, not about what was answered, and holding both
-    /// invites reaching for the wrong one: the first version of this type did,
-    /// and silently dropped every non-gating undecided rule. Ask
-    /// [`Self::is_incomplete`] for the gate question and read this list for
-    /// the other.
-    ///
-    /// Rules that require admin access to verify are not here; they are in
-    /// [`Self::admin_only`], because "look again" is advice only one of the
-    /// two lists can act on.
-    pub undecided: Vec<UndecidedRule<'a>>,
-    /// Every rule whose fact requires admin access to verify.
-    ///
-    /// Named for the same reason [`Self::undecided`] is — a rule not verified
-    /// here is not a passing rule — and separately, because these do not leave
-    /// the run incomplete and no retry with read-only access will change them.
-    pub admin_only: Vec<AdminOnlyRule<'a>>,
+    /// Run errors are visible and prevent a complete audit.
+    pub run_errors: Vec<RunErrorRule<'a>>,
+    /// Declared routing and unbuilt boundaries, with their reasons and destinations.
+    pub routed: Vec<RoutedRule<'a>>,
+    pub waived: Vec<&'a crate::findings::Finding>,
 }
 
 impl<'a> Plan<'a> {
-    /// Derive the plan a report implies.
-    ///
-    /// A finding contributes a proposed change when it names an open gap —
-    /// `fail`, or `suppressed`, which is an authorized failure whose gap is
-    /// still open — and its rule declares a remediation. A finding whose rule
-    /// declares no remediation contributes an unclosable gap instead, carrying
-    /// the declared reason.
-    ///
-    /// Nothing else contributes. A `pass` has no gap; an undecided rule has no
-    /// established gap to propose a change for, and proposing one would be
-    /// acting on a question rather than an observation. Undecided rules are
-    /// reported separately so the plan can say what it could not see.
+    /// Derive fixes only from evaluated Gaps. Waivers, routed standards, unbuilt
+    /// checks, and run errors remain visible without proposing an unobserved fix.
     #[must_use]
     pub fn derive(report: &'a Report) -> Self {
         let mut proposed = Vec::new();
         let mut unclosable = Vec::new();
-        let mut undecided = Vec::new();
-        let mut admin_only = Vec::new();
+        let mut run_errors = Vec::new();
+        let mut routed = Vec::new();
+        let mut waived = Vec::new();
 
-        for finding in &report.findings {
-            // The audit's own typed distinction, so a plan and the report it
-            // came from cannot disagree about which unanswered questions stop
-            // the run and which are the surface working as mandated.
-            match finding.status.undecided() {
-                Some(Undecided::Structural) => {
-                    admin_only.push(AdminOnlyRule {
-                        rule: &finding.rule,
-                        severity: &finding.severity,
-                        detail: finding
-                            .evidence
-                            .as_ref()
-                            .map(|evidence| evidence.detail.as_str()),
-                        verified_by: registry::find(&finding.rule)
-                            .and_then(registry::CheckDefinition::disclosure_gate)
-                            .map(|gate| gate.verified_by),
-                    });
-                    continue;
-                }
-                Some(Undecided::Circumstantial) => {
-                    undecided.push(UndecidedRule {
-                        rule: &finding.rule,
-                        severity: &finding.severity,
-                        status: finding.status,
-                        blocks_completeness: finding.blocks_completeness(report.policy.gate),
-                    });
-                    continue;
-                }
-                None => {}
+        for finding in report.entries() {
+            if finding.suppression.is_some() {
+                waived.push(finding);
+                continue;
+            }
+            if let Some(route) = &finding.routing {
+                routed.push(RoutedRule {
+                    reason: &route.reason,
+                    settling_surface: &route.settling_surface,
+                    rule: &finding.rule,
+                    severity: &finding.severity,
+                    detail: finding
+                        .evidence
+                        .as_ref()
+                        .map(|e| e.detail.as_str())
+                        .or(Some(&route.settling_surface)),
+                    verified_by: registry::find(&finding.rule)
+                        .and_then(registry::CheckDefinition::disclosure_gate)
+                        .map(|gate| gate.verified_by),
+                });
+                continue;
+            }
+            if finding.blocks_completeness() {
+                run_errors.push(RunErrorRule {
+                    rule: &finding.rule,
+                    severity: &finding.severity,
+                    status: None,
+                    blocks_completeness: true,
+                });
+                continue;
             }
             if !is_open_gap(finding.status) {
                 continue;
@@ -208,7 +166,6 @@ impl<'a> Plan<'a> {
                         change,
                         lane,
                         reversible,
-                        authorized: finding.status == Status::Suppressed,
                         detail: finding
                             .remediation
                             .as_ref()
@@ -235,24 +192,25 @@ impl<'a> Plan<'a> {
                 .then_with(|| left.rule.cmp(right.rule))
         });
         unclosable.sort_by(|left, right| left.rule.cmp(right.rule));
-        admin_only.sort_by(|left, right| left.rule.cmp(right.rule));
+        routed.sort_by(|left, right| left.rule.cmp(right.rule));
 
         Self {
             proposed,
             unclosable,
-            undecided,
-            admin_only,
+            run_errors,
+            routed,
+            waived,
         }
     }
 
-    /// Whether an undecided rule leaves the run incomplete.
+    /// Whether an run_errors rule leaves the run incomplete.
     ///
     /// Derived from the same per-finding predicate the audit assembles a
     /// report with, so a plan and the report it came from cannot disagree —
     /// and so a plan cannot contradict the rules it just printed.
     #[must_use]
     pub fn is_incomplete(&self) -> bool {
-        self.undecided.iter().any(|rule| rule.blocks_completeness)
+        self.run_errors.iter().any(|rule| rule.blocks_completeness)
     }
 
     /// The proposed changes in one lane, in plan order.
@@ -269,13 +227,9 @@ impl<'a> Plan<'a> {
     }
 }
 
-/// Whether a status names a gap that is open.
-///
-/// `suppressed` counts: the policy authorized the failure, which permitted it
-/// without closing it. Folding an authorized failure in with the passes would
-/// hide standing debt.
-const fn is_open_gap(status: Status) -> bool {
-    matches!(status, Status::Fail | Status::Suppressed)
+/// Only an evaluated Gap supports a proposed fix.
+const fn is_open_gap(status: Option<Status>) -> bool {
+    matches!(status, Some(Status::Gap))
 }
 
 /// The lanes in display order, most actionable first: what an operator can
@@ -314,12 +268,12 @@ pub const fn lane_gloss(lane: Lane) -> &'static str {
 mod tests {
     use super::*;
     use crate::findings::{
-        AirlockIdentity, AuditedRepository, Finding, Gate, ObservationRecord, PolicyIdentity,
-        Remediation, RemediationClass, Suppression, SuppressionSource,
+        AirlockIdentity, AuditedRepository, Finding, ObservationRecord, PolicyIdentity,
+        Remediation, RemediationClass,
     };
     use crate::ActionGroup;
 
-    fn finding(rule: &str, status: Status) -> Finding {
+    fn finding(rule: &str, status: Option<Status>) -> Finding {
         Finding {
             rule: rule.to_owned(),
             statement: format!("{rule} holds"),
@@ -331,6 +285,7 @@ mod tests {
             suppression: None,
             source: Some("api".to_owned()),
             error: None,
+            routing: None,
         }
     }
 
@@ -351,7 +306,6 @@ mod tests {
                 commit: None,
                 sources: Vec::new(),
                 bundle_digest: format!("sha256:{}", "b".repeat(64)),
-                gate: Gate::Blocking,
             },
             Vec::new(),
             Vec::new(),
@@ -361,7 +315,7 @@ mod tests {
 
     #[test]
     fn a_failing_rule_proposes_the_change_its_rule_declares() {
-        let report = report(vec![finding("REPO-GIT-04", Status::Fail)]);
+        let report = report(vec![finding("REPO-GIT-04", Some(Status::Gap))]);
         let plan = Plan::derive(&report);
 
         assert_eq!(plan.proposed.len(), 1);
@@ -370,7 +324,6 @@ mod tests {
         assert_eq!(change.code, "disable-merge-commits");
         assert_eq!(change.lane, Lane::OperatorSetting);
         assert!(change.reversible);
-        assert!(!change.authorized);
         assert!(change
             .change
             .contains("Disable merge commits in the live repository settings"));
@@ -378,30 +331,23 @@ mod tests {
 
     #[test]
     fn a_passing_rule_proposes_nothing() {
-        let report = report(vec![finding("REPO-GIT-04", Status::Pass)]);
+        let report = report(vec![finding("REPO-GIT-04", Some(Status::Met))]);
         assert!(Plan::derive(&report).is_empty());
     }
 
     #[test]
-    fn an_authorized_failure_keeps_its_change_on_offer_and_is_marked() {
-        let mut open = finding("REPO-GIT-04", Status::Suppressed);
-        open.suppression = Some(Suppression {
-            source: SuppressionSource::Policy,
-            requested_reason: None,
-            policy_reason: Some("not yet".to_owned()),
-            authorized_by: "policy".to_owned(),
-        });
-        let report = report(vec![open]);
-        let plan = Plan::derive(&report);
-
-        assert_eq!(plan.proposed.len(), 1);
-        assert!(plan.proposed[0].authorized);
-        assert_eq!(plan.proposed[0].code, "disable-merge-commits");
+    fn a_waiver_does_not_propose_a_fix_without_an_observed_gap() {
+        let report = report(vec![crate::findings::fixtures::waived(finding(
+            "REPO-GIT-04",
+            None,
+        ))]);
+        assert!(Plan::derive(&report).proposed.is_empty());
+        assert_eq!(report.waived.len(), 1);
     }
 
     #[test]
     fn a_rule_declaring_no_remediation_is_reported_as_unclosable_with_its_reason() {
-        let report = report(vec![finding("REPO-GIT-08", Status::Fail)]);
+        let report = report(vec![finding("REPO-GIT-08", Some(Status::Gap))]);
         let plan = Plan::derive(&report);
 
         assert!(plan.proposed.is_empty());
@@ -412,55 +358,39 @@ mod tests {
 
     #[test]
     fn an_undecided_rule_proposes_nothing_and_is_named() {
-        for status in [Status::Inconclusive, Status::Unimplemented, Status::Error] {
+        for status in [None, None, None] {
             let report = report(vec![finding("REPO-GIT-04", status)]);
             let plan = Plan::derive(&report);
             assert!(plan.is_empty(), "{status:?} proposed a change");
-            assert_eq!(plan.undecided.len(), 1, "{status:?}");
-            assert_eq!(plan.undecided[0].rule, "REPO-GIT-04", "{status:?}");
-            assert_eq!(plan.undecided[0].status, status);
+            assert_eq!(plan.run_errors.len(), 1, "{status:?}");
+            assert_eq!(plan.run_errors[0].rule, "REPO-GIT-04", "{status:?}");
+            assert_eq!(plan.run_errors[0].status, status);
             assert!(
-                plan.undecided[0].blocks_completeness,
+                plan.run_errors[0].blocks_completeness,
                 "{status:?} at blocking severity under a blocking gate stops the run"
             );
         }
     }
 
     #[test]
-    fn a_non_gating_undecided_rule_is_still_named_though_the_run_stays_complete() {
-        // The regression this guards: `Report::complete` describes the gate,
-        // not what was answered. Keying the plan's undecided section on it
-        // dropped every rule the gate does not enforce, silently.
-        let mut ungated = finding("REPO-GIT-04", Status::Inconclusive);
-        ungated.severity = "observation".to_owned();
-        let report = report(vec![ungated]);
+    fn an_advisory_run_error_is_named_and_blocks_completeness() {
+        let mut error = finding("REPO-GIT-04", None);
+        error.severity = "advisory".to_owned();
+        let report = report(vec![error]);
         let plan = Plan::derive(&report);
-
-        assert!(
-            !plan.is_incomplete(),
-            "an undecided observation-severity rule leaves a blocking gate complete"
-        );
-        assert_eq!(
-            report.complete,
-            !plan.is_incomplete(),
-            "the plan and the report it came from must agree about the gate"
-        );
-        assert_eq!(plan.undecided.len(), 1, "it is still unanswered");
-        assert_eq!(plan.undecided[0].rule, "REPO-GIT-04");
-        assert!(
-            !plan.undecided[0].blocks_completeness,
-            "it does not gate, and the plan must say so rather than omit it"
-        );
+        assert!(plan.is_incomplete());
+        assert!(!report.complete);
+        assert_eq!(plan.run_errors.len(), 1);
     }
 
     #[test]
     fn an_admin_only_rule_is_named_separately_and_does_not_gate() {
-        let mut admin_only = finding("REPO-GIT-04", Status::AdminOnly);
-        admin_only.evidence = Some(crate::findings::Evidence::new(
+        let mut routed = crate::findings::fixtures::routed(finding("REPO-GIT-04", None));
+        routed.evidence = Some(crate::findings::Evidence::new(
             "merge_settings_unavailable",
             "the merge-commit setting cannot be verified with this credential",
         ));
-        let report = report(vec![admin_only]);
+        let report = report(vec![routed]);
         let plan = Plan::derive(&report);
 
         assert!(
@@ -468,12 +398,12 @@ mod tests {
             "there is no observed gap to close"
         );
         assert!(
-            plan.undecided.is_empty(),
+            plan.run_errors.is_empty(),
             "a rule no retry here can answer is not filed with the ones a retry could"
         );
-        assert_eq!(plan.admin_only.len(), 1);
-        assert_eq!(plan.admin_only[0].rule, "REPO-GIT-04");
-        assert!(plan.admin_only[0]
+        assert_eq!(plan.routed.len(), 1);
+        assert_eq!(plan.routed[0].rule, "REPO-GIT-04");
+        assert!(plan.routed[0]
             .detail
             .expect("the run said why")
             .contains("this credential"));
@@ -491,10 +421,10 @@ mod tests {
     #[test]
     fn changes_are_ordered_by_lane_then_rule() {
         let report = report(vec![
-            finding("REPO-FILE-04", Status::Fail),
-            finding("REPO-GIT-05", Status::Fail),
-            finding("REPO-FILE-01", Status::Fail),
-            finding("REPO-GIT-04", Status::Fail),
+            finding("REPO-FILE-04", Some(Status::Gap)),
+            finding("REPO-GIT-05", Some(Status::Gap)),
+            finding("REPO-FILE-01", Some(Status::Gap)),
+            finding("REPO-GIT-04", Some(Status::Gap)),
         ]);
         let plan = Plan::derive(&report);
 
@@ -507,7 +437,7 @@ mod tests {
 
     #[test]
     fn the_contextual_detail_is_carried_when_the_run_gave_one() {
-        let mut open = finding("REPO-GIT-04", Status::Fail);
+        let mut open = finding("REPO-GIT-04", Some(Status::Gap));
         open.remediation = Some(Remediation::new(
             ActionGroup::CORRECT_MERGE_SETTINGS,
             "Merge commits are enabled.",
@@ -521,8 +451,8 @@ mod tests {
     #[test]
     fn in_lane_selects_only_that_lane() {
         let report = report(vec![
-            finding("REPO-GIT-04", Status::Fail),
-            finding("REPO-FILE-04", Status::Fail),
+            finding("REPO-GIT-04", Some(Status::Gap)),
+            finding("REPO-FILE-04", Some(Status::Gap)),
         ]);
         let plan = Plan::derive(&report);
 

@@ -3,20 +3,17 @@
 // relationships:
 //   references: registry
 
-use crate::registry::{
-    Applicability, CheckDefinition, Evaluation, Lifecycle, Observation, Section, Severity,
-};
+use crate::registry::{CheckDefinition, Lifecycle, Observation, Section, Severity};
 use crate::remediation::{remediation, Lane};
 
 pub(crate) const STANDARD: CheckDefinition = CheckDefinition {
     id: "REPO-DOCS-05",
     statement: "Schema-bound YAML artifacts follow their schema where one exists",
-    severity: Severity::Observation,
+    severity: Severity::Advisory,
     section: Section::Docs,
     // Manual: schema references may resolve outside the bounded repository
     // snapshot. The registry-owned evaluation reason records why partial
     // validation was rejected and is surfaced in listings and findings.
-    evaluation: Evaluation::Manual,
     params: &[],
     guidance: "schemas may resolve outside the bounded repository snapshot",
     remediation: remediation(
@@ -27,10 +24,11 @@ pub(crate) const STANDARD: CheckDefinition = CheckDefinition {
         true,
     ),
     lifecycle: Lifecycle::Seeded,
-    applicability: Applicability::Always,
     observation: Observation::FileTree,
+    api_gate: false,
+    owner_gate: false,
     disclosure_gate: None,
-    evaluation_reason: Some(
+    unbuilt_reason: Some(
         "Schema discovery can leave the bounded repository snapshot. Partial validation \
                  of only in-snapshot schemas was rejected because a manual finding communicates \
                  the whole-repository judgment consistently; mixing passes with inconclusive \

@@ -2,13 +2,13 @@ finding-detail-suppressed-120x40-dark · 120x40 · theme dark · colour
 --- text ---
 AIRLOCK 0.0.0  …ations › repositories › findings › finding detail  no credential stored · tty required · theme t · dark 
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-  REPO-CI-02      ⊘ │   │  suppressed  ███ blocking                                                                     
-does not gate: suppressed never gates and never affects completeness                                                    
+  REPO-CI-02        │   │  waived  ░░░ none                                                                             
+waived: exit code unchanged.                                                                                            
                                                                                                                         
 the condition REPO-CI-02 states                                                                                         
                                                                                                                         
 EVIDENCE                                                                                                                
-evidence              null — a failure the policy authorized                                                            
+evidence              null — not evaluated: read the result label and reason                                            
                                                                                                                         
 SUPPRESSION                                                                                                             
 suppression.source    policy                                                                                            
@@ -17,8 +17,7 @@ policy_reason         migration in flight
 authorized_by         policy                                                                                            
                                                                                                                         
 REMEDIATION                                                                                                             
-retained              the failure is authorized and the fix for it is not deleted by that. Applying it ends the         
-                      suppression by closing the gap.                                                                   
+retained              The standard is waived. Its declared fix is reference guidance; no gap was evaluated.             
 remediation_class                                                                                                       
   code                empty-workflow-permissions                                                                        
   change              Set workflow-level `permissions:` to `{}`.                                                        
@@ -26,30 +25,31 @@ remediation_class
   reversible          yes                                                                                               
                                                                                                                         
 WHY THIS RULE APPLIES                                                                                                   
-severity              blocking                                                                                          
-evaluation            mechanical                                                                                        
+severity              none                                                                                              
+evaluation            compiled                                                                                          
 section               automation                                                                                        
 provenance            capability:base/automation                                                                        
                                                                                                                         
 RUN PROVENANCE                                                                                                          
 airlock               0.0.0                                                                                             
-registry              0.4.0                                                                                             
-digest                sha256:5c8813c3bfc7bd06c869e72aeada56f1b256066e4349022b3a93a78e18f3f74b                           
-schema                1                                                                                                 
-— 0 lines above · 7 below · ↑↓ moves the window —                                                                       
+registry              0.5.0                                                                                             
+digest                sha256:57150107b0eb125895831f98843953d413189f50c8454d1f38d533d0fe7f53bd                           
+schema                2                                                                                                 
+commit                aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa                                                          
+— 0 lines above · 4 below · ↑↓ moves the window —                                                                       
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 esc back · a remediation transcript · o re-observe this rule · y copy the rule id · t theme · ctrl-c exit               
-decided · inert · does not gate · authorized by policy                                                                  
+not evaluated · exit code unchanged · authorized by policy                                                              
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-deffffffffffeeeeedddgeeegeehhhhhhhhhheeeeeeiiiiiiiieeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiieeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+deffffffffffeeeeeeeegeeegeehhhhhheeeeeeiiiieeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+iiiiiiiiiiiiiiiiiiiiiiiiiiiieeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 jjjjjjjjeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-kkkkkkkkkkkkkkkkkkkkkkiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiieeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+kkkkkkkkkkkkkkkkkkkkkkiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiieeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 jjjjjjjjjjjeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 kkkkkkkkkkkkkkkkkkkkkkiiiiiieeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
@@ -58,8 +58,7 @@ kkkkkkkkkkkkkkkkkkkkkkiiiiiiiiiiiiiiiiiiieeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 kkkkkkkkkkkkkkkkkkkkkkiiiiiieeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 jjjjjjjjjjjeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-kkkkkkkkkkkkkkkkkkkkkkiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiieeeeeeeee
-kkkkkkkkkkkkkkkkkkkkkkiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiieeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+kkkkkkkkkkkkkkkkkkkkkkiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiieeeeeeeeeeeee
 kkkkkkkkkkkkkkkkkeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 kkkkkkkkkkkkkkkkkkkkkkiiiiiiiiiiiiiiiiiiiiiiiiiieeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 kkkkkkkkkkkkkkkkkkkkkkiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiieeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
@@ -67,8 +66,8 @@ kkkkkkkkkkkkkkkkkkkkkkiiiiiiiiiiiiiiiiiieeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 kkkkkkkkkkkkkkkkkkkkkkiiieeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 jjjjjjjjjjjjjjjjjjjjjeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+kkkkkkkkkkkkkkkkkkkkkkiiiieeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 kkkkkkkkkkkkkkkkkkkkkkiiiiiiiieeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-kkkkkkkkkkkkkkkkkkkkkkiiiiiiiiiieeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 kkkkkkkkkkkkkkkkkkkkkkiiiiiiiiiieeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 kkkkkkkkkkkkkkkkkkkkkkiiiiiiiiiiiiiiiiiiiiiiiiiieeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
@@ -77,6 +76,7 @@ kkkkkkkkkkkkkkkkkkkkkkiiiiieeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 kkkkkkkkkkkkkkkkkkkkkkiiiiieeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 kkkkkkkkkkkkkkkkkkkkkkiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiieeeeeeeeeeeeeeeeeeeeeeeeeee
 kkkkkkkkkkkkkkkkkkkkkkieeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+kkkkkkkkkkkkkkkkkkkkkkiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiieeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 fffeiiiikkkfeiiiiiiiiiiiiiiiiiiiiiikkkfeiiiiiiiiiiiiiiiiiiiikkkfeiiiiiiiiiiiiiiiikkkfeiiiiikkkffffffeiiiieeeeeeeeeeeeeee
@@ -85,11 +85,11 @@ llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
 a fg=#CBD3DD bg=#14181D BOLD
 b fg=#CBD3DD bg=#14181D
 c fg=#39434F bg=#0B0D10
-d fg=#A886D8 bg=#0B0D10
+d fg=#D9A441 bg=#0B0D10
 e fg=#CBD3DD bg=#0B0D10
 f fg=#E8B84B bg=#0B0D10 BOLD
 g fg=#232A33 bg=#0B0D10
-h fg=#A886D8 bg=#0B0D10 BOLD
+h fg=#D9A441 bg=#0B0D10 BOLD
 i fg=#79838F bg=#0B0D10
 j fg=#CBD3DD bg=#0B0D10 BOLD
 k fg=#4C5661 bg=#0B0D10

@@ -3,32 +3,32 @@ findings-lookup-120x40-dark · 120x40 · theme dark · colour
 AIRLOCK 0.0.0  sign-in › organizations › repositories › findings   no credential stored · tty required · theme t · dark 
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 RUN INCOMPLETE  complete is false, and no verdict below it can be certified                                             
-  ▢ REPO-CI-02     unimplemented registered and enabled, not yet evaluated                                              
-  ◑ REPO-REL-04    inconclusive  capability_undeclared: the repository has no organization custom property `release`; d…
+  ? REPO-GIT-09    run-error     permission on GET /repos/{owner}/{repo}/rulesets                                       
+  ? REPO-REL-04    run-error     capability_undeclared: the repository has no organization custom property `release`; d…
                                                                                                                         
-VERDICT  ◑ incomplete   ALIGNED 2 of 9                                                                                  
-  complete    false  2 rules at a gating severity ended undecided because this run fell short                           
-  conformant  false  2 rules at a gating severity ended in fail                                                         
-  unanswered  1      ended admin-only and are still undecided, so this verdict is not every rule having been decided    
-DECIDED · GATING    ✓ pass 1 · ✗ fail 2                                                                                 
-  counts toward the verdict                                                                                             
-DECIDED · INERT     ◆ manual 1 · ⊘ suppressed 1 · ○ skipped 1                                                           
-  never gates                                                                                                           
-UNDECIDED           ▢ unimplemented 1 · ◑ inconclusive 1 · ◍ admin-only 1 · ! error 0                                   
-  makes the run incomplete at a gating severity, unless the fact requires admin access to verify                        
+VERDICT  ? incomplete   ALIGNED 2 of 9                                                                                  
+  complete    false  2 run errors prevented completion                                                                  
+  conformant  false  1 blocking Gaps                                                                                    
+  unanswered  1      routed: no Met or Gap outcome; see the settling surface                                            
+met 2 · gap 2 · waived 1 · routed 1 · unbuilt 1 · errors 2                                                              
 LOOKUP  every finding, ordered by rule id — the predictable address for every rule                                      
-showing       lookup · every finding ordered by rule id · all 9 shown, never narrowed · gate required · l returns to the
+showing       lookup · every finding ordered by rule id · all 9 shown, never narrowed · gate blocking · l returns to the
               queue                                                                                                     
-▸ ▌ ███       │ ▢ │ REPO-CI-02     unimplemented automation     the condition REPO-CI-02 states                         
-    ███     ⊘ │   │ REPO-CI-02     suppressed    automation   still on offer: Set workflow-level `permissions:` to `{}`.
-  ▌ ███  ✗    │   │ REPO-GIT-01    fail          git            the condition REPO-GIT-01 states                        
-    ██░       │ ◍ │ REPO-GIT-04    admin-only    git            grant contents:write · verified by interactive-session  
-  ▌ ██░  ✗    │   │ REPO-LIC-01    fail          licensing      pull request open · the condition REPO-LIC-01 states    
-    ███  ✓    │   │ REPO-META-01   pass          identity       the condition REPO-META-01 states                       
-    ██░     ○ │   │ REPO-META-02   skipped       identity       the condition REPO-META-02 states                       
-    ██░     ◆ │   │ REPO-README-04 manual        readme         the condition REPO-README-04 states                     
-  ▌ ██░       │ ◑ │ REPO-REL-04    inconclusive  release        the condition REPO-REL-04 states                        
+▸   ░░░       │   │ REPO-CI-02     waived        automation   still on offer: Set workflow-level `permissions:` to `{}`.
+  ▌ ███  ✗    │   │ REPO-GIT-01    gap           git            the condition REPO-GIT-01 states                        
+    ██░       │   │ REPO-GIT-04    routed        git            grant contents:write · verified by interactive-session  
+  ▌ ███       │   │ REPO-GIT-09    run-error     git            run error: blocks completeness at every severity · the …
+    ██░  ✗    │   │ REPO-LIC-01    gap           licensing      pull request open · the condition REPO-LIC-01 states    
+    ███  ✓    │   │ REPO-META-01   met           identity       the condition REPO-META-01 states                       
+    ██░  ✓    │   │ REPO-META-02   met           identity       the condition REPO-META-02 states                       
+    ██░       │   │ REPO-README-04 unbuilt       readme         unbuilt — A release with the compiled check implemented 
+  ▌ ██░       │   │ REPO-REL-04    run-error     release        the condition REPO-REL-04 states                        
 0 above · 0 below · working set 9 of 9 · ↑↓ moves through the rest                                                      
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
                                                                                                                         
                                                                                                                         
                                                                                                                         
@@ -39,36 +39,31 @@ showing       lookup · every finding ordered by rule id · all 9 shown, never n
                                                                                                                         
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 ↑↓/j/k move · space collapse or expand · ↵ finding detail · f filter · a apply · A bulk apply · l flat list · 5 more…   
-incomplete · complete false · 9 rules · registry 0.4.0 · gate required                                                  
+incomplete · complete false · 9 rules · registry 0.5.0 · gate blocking                                                  
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 ddddddddddddddddeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-fffffffffffffffffffffffffffffffffgggggggggggggggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+fffffffffffffffffffffffffffffffffggggggggggggggggggggggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+fffffffffffffffffffffffffffffffffggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-iiiiiiiiijjjjjjjjjjjjkkklllllllllllllleeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-eeeeeeeeeeeeeeeeeeeeeggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeeee
-eeeeeeeeeeeeeeeeeeeeeggggggggggggggggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-mmmmmmmmmmmmmmmmmmmmmgggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggeeee
-nnnnnnnnnnnnnnnnnnnneeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-oooooooooooooooooooooooooooeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-nnnnnnnnnnnnnnnnnnnneeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-oooooooooooooeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-nnnnnnnnnnnnnnnnnnnneeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooeeeeeeeeeeeeeeeeeeeeeeee
-iiiiiiiikkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-kkkkkkkkkkkkkkgggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
-kkkkkkkkkkkkkkgggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-ppqeeeeeeeeeeerfffreiiiiiiiiiiiiiiiffffffffffffffkkkkkkkkkkkkkkkgggggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeee
-ppqeeeeeeeesssreeereeeeeeeeeeeeeeeesssssssssssssskkkkkkkkkkkkkgggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
-ppqeeeeeqqqeeereeereeeeeeeeeeeeeeeeqqqqqqqqqqqqqqkkkkkkkkkkkkkkkggggggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeee
-ppqeeeeeeeeeeermmmreeeeeeeeeeeeeeeemmmmmmmmmmmmmmkkkkkkkkkkkkkkkggggggggggggggggggggggggggggggggggggggggggggggggggggggee
-ppqeeeeeqqqeeereeereeeeeeeeeeeeeeeeqqqqqqqqqqqqqqkkkkkkkkkkkkkkkggggggggggggggggggggggggggggggggggggggggggggggggggggeeee
-ppqeeeeettteeereeereeeeeeeeeeeeeeeettttttttttttttkkkkkkkkkkkkkkkgggggggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeee
-ppqeeeeeeeeuuureeereeeeeeeeeeeeeeeeuuuuuuuuuuuuuukkkkkkkkkkkkkkkgggggggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeee
-ppqeeeeeeeevvvreeereeeeeeeeeeeeeeeevvvvvvvvvvvvvvkkkkkkkkkkkkkkkgggggggggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeee
-ppqeeeeeeeeeeerhhhreeeeeeeeeeeeeeeehhhhhhhhhhhhhhkkkkkkkkkkkkkkkggggggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeee
+hhhhhhhhhddddddddddddiiijjjjjjjjjjjjjjeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeegggggggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeegggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+fffffffffffffffffffffgggggggggggggggggggggggggggggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+hhhhhhhhiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiieeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+iiiiiiiiiiiiiigggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+iiiiiiiiiiiiiigggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+kkleeeeeeeeeeemeeemehhhhhhhhhhhhhhhffffffffffffffiiiiiiiiiiiiigggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+kkleeeeellleeemeeemeeeeeeeeeeeeeeeelllllllllllllliiiiiiiiiiiiiiiggggggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeee
+kkleeeeeeeeeeemeeemeeeeeeeeeeeeeeeeffffffffffffffiiiiiiiiiiiiiiiggggggggggggggggggggggggggggggggggggggggggggggggggggggee
+kkleeeeeeeeeeemeeemeeeeeeeeeeeeeeeeffffffffffffffiiiiiiiiiiiiiiigggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+kkleeeeellleeemeeemeeeeeeeeeeeeeeeelllllllllllllliiiiiiiiiiiiiiiggggggggggggggggggggggggggggggggggggggggggggggggggggeeee
+kkleeeeennneeemeeemeeeeeeeeeeeeeeeennnnnnnnnnnnnniiiiiiiiiiiiiiigggggggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeee
+kkleeeeennneeemeeemeeeeeeeeeeeeeeeennnnnnnnnnnnnniiiiiiiiiiiiiiigggggggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeee
+kkleeeeeeeeeeemeeemeeeeeeeeeeeeeeeeffffffffffffffiiiiiiiiiiiiiiiggggggggggggggggggggggggggggggggggggggggggggggggggggggge
+kkleeeeeeeeeeemeeemeeeeeeeeeeeeeeeeffffffffffffffiiiiiiiiiiiiiiiggggggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeee
 ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
@@ -78,30 +73,28 @@ eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-ppppppeggggkkkpppppeggggggggggggggggggkkkpeggggggggggggggkkkpeggggggkkkpegggggkkkpeggggggggggkkkpegggggggggkkkoooooooeee
-wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
+kkkkkkeggggiiikkkkkeggggggggggggggggggiiikeggggggggggggggiiikeggggggiiikegggggiiikeggggggggggiiikegggggggggiiioooooooeee
+pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp
 --- legend ---
 a fg=#CBD3DD bg=#14181D BOLD
 b fg=#CBD3DD bg=#14181D
 c fg=#39434F bg=#0B0D10
-d fg=#E8843A bg=#0B0D10 BOLD
+d fg=#D9A441 bg=#0B0D10 BOLD
 e fg=#CBD3DD bg=#0B0D10
-f fg=#B79A5A bg=#0B0D10
+f fg=#D9A441 bg=#0B0D10
 g fg=#79838F bg=#0B0D10
-h fg=#D9A441 bg=#0B0D10
-i fg=#CBD3DD bg=#0B0D10 BOLD
-j fg=#D9A441 bg=#0B0D10 BOLD
-k fg=#4C5661 bg=#0B0D10
-l fg=#5FB98A bg=#0B0D10 BOLD
-m fg=#4FA5A5 bg=#0B0D10
-n fg=#79838F bg=#0B0D10 BOLD
+h fg=#CBD3DD bg=#0B0D10 BOLD
+i fg=#4C5661 bg=#0B0D10
+j fg=#5FB98A bg=#0B0D10 BOLD
+k fg=#E8B84B bg=#0B0D10 BOLD
+l fg=#E05C58 bg=#0B0D10
+m fg=#232A33 bg=#0B0D10
+n fg=#5FB98A bg=#0B0D10
 o fg=#4C5661 bg=#0B0D10 ITALIC
-p fg=#E8B84B bg=#0B0D10 BOLD
-q fg=#E05C58 bg=#0B0D10
-r fg=#232A33 bg=#0B0D10
-s fg=#A886D8 bg=#0B0D10
-t fg=#5FB98A bg=#0B0D10
-u fg=#77818C bg=#0B0D10
-v fg=#6C9BE0 bg=#0B0D10
-w fg=#79838F bg=#101419
+p fg=#79838F bg=#101419

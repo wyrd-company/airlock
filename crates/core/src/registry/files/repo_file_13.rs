@@ -4,8 +4,7 @@
 //   references: registry
 
 use crate::registry::{
-    Applicability, CheckDefinition, Evaluation, Lifecycle, Observation, Parameter,
-    ParameterDefault, Section, Severity,
+    CheckDefinition, Lifecycle, Observation, Parameter, ParameterDefault, Section, Severity,
 };
 use crate::remediation::{remediation, Lane};
 
@@ -13,9 +12,8 @@ pub(crate) const STANDARD: CheckDefinition = CheckDefinition {
     id: "REPO-FILE-13",
     statement:
         "No agent harness configuration is committed — no `.claude/`, `.cursor/`, or equivalent",
-    severity: Severity::Required,
+    severity: Severity::Advisory,
     section: Section::Files,
-    evaluation: Evaluation::Mechanical,
     params: &[Parameter {
         name: "forbidden-paths",
         default: ParameterDefault::Strings(&[
@@ -36,8 +34,9 @@ pub(crate) const STANDARD: CheckDefinition = CheckDefinition {
         true,
     ),
     lifecycle: Lifecycle::Seeded,
-    applicability: Applicability::Always,
     observation: Observation::FileTree,
+    api_gate: false,
+    owner_gate: false,
     disclosure_gate: None,
-    evaluation_reason: None,
+    unbuilt_reason: None,
 };

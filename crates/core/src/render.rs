@@ -45,18 +45,25 @@ pub fn report_text(report: &Report) -> String {
     }
     let _ = writeln!(
         out,
-        "registry {} ({}), gate {}",
+        "registry {} ({})",
         report.airlock.registry_version,
-        short_digest(&report.airlock.registry_digest),
-        report.policy.gate.code()
+        short_digest(&report.airlock.registry_digest)
+    );
+    let _ = writeln!(
+        out,
+        "waived: {}, routed: {}, unbuilt: {}, run errors: {}",
+        report.summary.waived,
+        report.summary.routed,
+        report.summary.unbuilt,
+        report.summary.run_errors
     );
     out.push('\n');
 
-    for finding in &report.findings {
+    for finding in report.entries() {
         let _ = writeln!(
             out,
             "{:<13} {:<13} {} | {}",
-            finding.status.code(),
+            finding.status_code(),
             finding.severity,
             finding.rule,
             finding.statement
@@ -77,10 +84,17 @@ pub fn report_text(report: &Report) -> String {
                     .unwrap_or_default()
             );
         }
+        if let Some(route) = &finding.routing {
+            let _ = writeln!(
+                out,
+                "              {} — {}",
+                route.reason, route.settling_surface
+            );
+        }
         if let Some(suppression) = &finding.suppression {
             let _ = writeln!(
                 out,
-                "              suppressed by {} — {}",
+                "              waived by {} — {}",
                 suppression.authorized_by,
                 suppression
                     .policy_reason
@@ -89,7 +103,7 @@ pub fn report_text(report: &Report) -> String {
                     .map_or("", String::as_str)
             );
         }
-        if finding.status == Status::Fail {
+        if finding.status == Some(Status::Gap) {
             if let Some(remediation) = &finding.remediation {
                 let _ = writeln!(out, "              → {}", remediation.detail);
             }
@@ -122,7 +136,11 @@ pub fn report_text(report: &Report) -> String {
     // above this line would tell a reader it exists. It is named here for the
     // same reason it is never a pass: the assertion is still open, and the
     // surface that can settle it is not this one.
-    let admin_only = report.summary.count(Status::AdminOnly);
+    let admin_only = report
+        .routed
+        .iter()
+        .filter(|f| registry::find(&f.rule).is_some_and(|d| d.disclosure_gate().is_some()))
+        .count();
     if admin_only > 0 {
         let _ = writeln!(
             out,
@@ -194,24 +212,24 @@ pub fn agent_work_list_text(list: &AgentWorkList) -> String {
     }
 
     render_unsettled_group(&mut out, "needs a decision", &list.needs_decision);
-    render_unsettled_group(&mut out, "unsettled questions", &list.unsettled);
-    render_unsettled_group(
-        &mut out,
-        "admin-only (requires admin access; never gates)",
-        &list.admin_only,
-    );
-    render_attention_group(&mut out, "manual judgment (never gates)", &list.manual);
-    render_attention_group(&mut out, "suppressed debt (never gates)", &list.suppressed);
+    render_unsettled_group(&mut out, "run errors", &list.run_errors);
+    render_unsettled_group(&mut out, "routed (exit code unchanged)", &list.routed);
+    render_unsettled_group(&mut out, "unbuilt (exit code unchanged)", &list.unbuilt);
+    render_attention_group(&mut out, "waived (not evaluated)", &list.waived);
 
     let gating_unsettled = list
         .needs_decision
         .items
         .iter()
-        .chain(&list.unsettled.items)
+        .chain(&list.run_errors.items)
         .filter(|item| item.gating)
         .count();
     let _ = writeln!(out, "\nunsettled gating questions: {gating_unsettled}");
-    let _ = writeln!(out, "admin-only: {}", list.admin_only.count);
+    let _ = writeln!(
+        out,
+        "routed: {}, unbuilt: {}, waived: {}",
+        list.routed.count, list.unbuilt.count, list.waived.count
+    );
     let _ = writeln!(
         out,
         "\n{} — this is not a repository conformance verdict",
@@ -232,13 +250,25 @@ fn render_unsettled_group(
             "  {} [{}] {} ({}, evidence: {}, source: {})",
             item.rule,
             item.severity,
-            item.status.code(),
+            item.status.map_or(
+                if item.gating {
+                    "run-error"
+                } else if heading.starts_with("unbuilt") {
+                    "unbuilt"
+                } else {
+                    "routed"
+                },
+                Status::code
+            ),
             if item.gating { "gating" } else { "non-gating" },
             item.evidence_code.as_deref().unwrap_or("none"),
             item.source.as_deref().unwrap_or("not observed")
         );
         // Where the answer is taken, when the registry named a surface that
         // can take it. The wording is the declaration's, not this renderer's.
+        if let Some(reason) = &item.reason {
+            let _ = writeln!(out, "      reason: {reason}");
+        }
         if let Some(surface) = item.verified_by.as_deref() {
             let guidance = registry::VerificationSurface::ALL
                 .iter()
@@ -268,9 +298,12 @@ fn render_attention_group(
             "  {} [{}] {} (source: {})",
             item.rule,
             item.severity,
-            item.status.code(),
+            item.status.map_or("waived", Status::code),
             item.source.as_deref().unwrap_or("not observed")
         );
+        if let Some(reason) = &item.reason {
+            let _ = writeln!(out, "      reason: {reason}");
+        }
     }
 }
 
@@ -319,10 +352,9 @@ pub fn plan_text(report: &Report) -> String {
     );
     let _ = writeln!(
         out,
-        "registry {} ({}), gate {}",
+        "registry {} ({})",
         report.airlock.registry_version,
-        short_digest(&report.airlock.registry_digest),
-        report.policy.gate.code()
+        short_digest(&report.airlock.registry_digest)
     );
     out.push('\n');
     let _ = writeln!(
@@ -334,12 +366,7 @@ pub fn plan_text(report: &Report) -> String {
 
     if plan.is_empty() {
         out.push('\n');
-        let _ = writeln!(
-            out,
-            "No change is proposed. Every rule the policy enabled either holds, \
-             does not\napply, or is waiting on a person's judgment; none named an \
-             open gap that\nairlock has an answer for."
-        );
+        let _ = writeln!(out, "No change is proposed for the evaluated standards.");
     }
 
     for lane in plan::DISPLAY_ORDER {
@@ -367,16 +394,11 @@ pub fn plan_text(report: &Report) -> String {
             }
             let _ = writeln!(
                 out,
-                "      {}{}",
+                "      {}",
                 if change.reversible {
                     "reversible"
                 } else {
                     "not reversible — there is no undo for this one"
-                },
-                if change.authorized {
-                    ", and authorized by the policy: the failure was permitted, not closed"
-                } else {
-                    ""
                 }
             );
         }
@@ -396,93 +418,66 @@ pub fn plan_text(report: &Report) -> String {
                 "  {:<16} {:<13} {}",
                 gap.rule,
                 gap.severity,
-                gap.status.code()
+                gap.status.map_or("run-error", Status::code)
             );
             let _ = writeln!(out, "      {}", gap.reason);
         }
     }
 
-    if !plan.admin_only.is_empty() {
-        out.push('\n');
+    let _ = writeln!(out, "\nwaived ({})", plan.waived.len());
+    for finding in &plan.waived {
+        let reason = finding
+            .suppression
+            .as_ref()
+            .and_then(|w| w.policy_reason.as_ref().or(w.requested_reason.as_ref()))
+            .map_or("not configured", String::as_str);
+        let _ = writeln!(out, "  {} — {}", finding.rule, reason);
+    }
+    for (heading, unbuilt) in [("routed", false), ("unbuilt", true)] {
+        let rules: Vec<_> = plan
+            .routed
+            .iter()
+            .filter(|r| (r.reason == "unbuilt") == unbuilt)
+            .collect();
         let _ = writeln!(
             out,
-            "admin-only ({}) — these rules require admin access to verify, so looking\n\
-             again with this credential will not answer them. They are not passes, and\n\
-             they do not make the read-only run incomplete.",
-            plan.admin_only.len()
+            "\n{heading} ({}) — no Met or Gap outcome; exit code unchanged",
+            rules.len()
         );
-        for rule in &plan.admin_only {
-            let _ = writeln!(out, "  {:<16} {:<13}", rule.rule, rule.severity);
+        for rule in rules {
+            let _ = writeln!(
+                out,
+                "  {} [{}] {} — {}",
+                rule.rule, rule.severity, rule.reason, rule.settling_surface
+            );
             if let Some(detail) = rule.detail {
                 let _ = writeln!(out, "      {detail}");
             }
-            // The destination and the sentence about it both come from the
-            // rule's declared gate, so the plan cannot offer advice the
-            // registry did not give it.
             if let Some(surface) = rule.verified_by {
                 let _ = writeln!(out, "      {}: {}", surface.code(), surface.guidance());
             }
         }
     }
-
-    // Undecided rules are named whenever there are any. Completeness is a
-    // statement about the gate, not about what was answered: a rule the
-    // effective gate does not enforce can end undecided and leave the run
-    // complete. Keying this on `complete` would drop those rules silently,
-    // and a plan that omits a rule it could not see is claiming to have
-    // looked where it had not.
-    out.push('\n');
-    if plan.undecided.is_empty() {
-        // "Nothing this surface could ask went unanswered" and "every rule was
-        // decided" are different claims, and a plan that has just listed rules
-        // it can ask only with admin access may only make the first one.
-        if plan.admin_only.is_empty() {
-            let _ = writeln!(
-                out,
-                "Every rule the policy asked about was decided, so this names every \
-                 gap it\nfound."
-            );
-        } else {
-            let _ = writeln!(
-                out,
-                "Every question this read-only surface can ask was answered. The {} \
-                 admin-only\nrule(s) above remain undecided, so this names every gap it \
-                 could verify\nwithout admin access — not every gap there is.",
-                plan.admin_only.len()
-            );
-        }
+    let _ = writeln!(out, "\nrun errors ({})", plan.run_errors.len());
+    for error in &plan.run_errors {
+        let _ = writeln!(
+            out,
+            "  run-error: {} [{}] — makes the run incomplete",
+            error.rule, error.severity
+        );
+    }
+    if plan.is_incomplete() {
+        let _ = writeln!(
+            out,
+            "The run is incomplete; no audit result can be certified."
+        );
+    } else if plan.routed.is_empty() && plan.waived.is_empty() {
+        let _ = writeln!(
+            out,
+            "Every standard was evaluated; this names each observed gap."
+        );
     } else {
-        let _ = writeln!(
-            out,
-            "{} rule(s) ended undecided, so this plan may be missing changes. An\n\
-             unanswered question is not a clean repository.",
-            plan.undecided.len()
-        );
-        for rule in &plan.undecided {
-            let _ = writeln!(
-                out,
-                "  undecided: {:<16} {:<13} {:<14} {}",
-                rule.rule,
-                rule.severity,
-                rule.status.code(),
-                if rule.blocks_completeness {
-                    "makes the run incomplete"
-                } else {
-                    "does not gate, and is still not a pass"
-                }
-            );
-        }
-        let _ = writeln!(
-            out,
-            "{}",
-            if plan.is_incomplete() {
-                "At least one is graded at a severity the effective gate enforces, so \
-                 the\nrun is incomplete and no verdict below it can be certified."
-            } else {
-                "None of them is graded at a severity the effective gate enforces, so \
-                 the\nrun is still complete."
-            }
-        );
+        let _ = writeln!(out, "No run errors. The waived, routed, and unbuilt standards above have no Met or Gap outcome.");
     }
 
     out
@@ -507,7 +502,11 @@ pub fn list_checks_text() -> String {
                 "  {:<16} {:<12} {:<14} {}",
                 check.id,
                 check.severity.code(),
-                check.evaluation.code(),
+                if check.unbuilt_reason().is_some() {
+                    "unbuilt gate"
+                } else {
+                    "compiled"
+                },
                 check.statement
             );
             // The declared remediation is printed with the rule so an adopter
@@ -571,8 +570,8 @@ fn check_json(check: &CheckDefinition) -> serde_json::Value {
         "severity": check.severity.code(),
         "section": check.section.code(),
         "remediation_class": RemediationClass::for_rule(check.id),
-        "evaluation": check.evaluation.code(),
-        "evaluation_reason": check.evaluation_reason(),
+        "evaluation": if check.unbuilt_reason().is_some() { "unbuilt gate" } else { "compiled" },
+        "unbuilt_reason": check.unbuilt_reason(),
         "disclosure_gate": check.disclosure_gate().map(|gate| serde_json::json!({
             "fact": gate.fact,
             "evidence_code": gate.evidence_code,
@@ -585,7 +584,7 @@ fn check_json(check: &CheckDefinition) -> serde_json::Value {
             "verified_by": gate.verified_by.code(),
             "rationale": gate.rationale(),
         })),
-        "implemented": check.evaluation != registry::Evaluation::Unimplemented,
+        "needs_github_api": check.needs_github_api(),
         "params": check.params.iter().map(|parameter| parameter.name).collect::<Vec<_>>(),
     })
 }
@@ -600,8 +599,8 @@ fn verification_surfaces(report: &Report) -> Vec<registry::VerificationSurface> 
         .iter()
         .copied()
         .filter(|surface| {
-            report.findings.iter().any(|finding| {
-                finding.names_a_structural_gap()
+            report.entries().any(|finding| {
+                finding.routing.is_some()
                     && registry::find(&finding.rule)
                         .and_then(registry::CheckDefinition::disclosure_gate)
                         .is_some_and(|gate| gate.verified_by == *surface)
@@ -625,8 +624,8 @@ fn short_digest(digest: &str) -> String {
 mod tests {
     use super::*;
     use crate::findings::{
-        AirlockIdentity, AuditedRepository, Evidence, Finding, Gate, ObservationRecord,
-        PolicyIdentity, Remediation, RemediationClass,
+        AirlockIdentity, AuditedRepository, Evidence, Finding, ObservationRecord, PolicyIdentity,
+        Remediation, RemediationClass,
     };
     use crate::ActionGroup;
 
@@ -653,7 +652,6 @@ mod tests {
                     content_digest: format!("sha256:{}", "e".repeat(64)),
                 }],
                 bundle_digest: format!("sha256:{}", "b".repeat(64)),
-                gate: Gate::Blocking,
             },
             Vec::new(),
             Vec::new(),
@@ -661,13 +659,14 @@ mod tests {
                 rule: "REPO-LIC-01".to_owned(),
                 statement: "A `LICENSE` file exists".to_owned(),
                 severity: "blocking".to_owned(),
-                status: Status::Fail,
+                status: Some(Status::Gap),
                 evidence: Some(Evidence::at("file_missing", "LICENSE", "LICENSE is absent")),
                 remediation: Some(Remediation::new(ActionGroup::ADD_FILE, "Add LICENSE.")),
                 remediation_class: RemediationClass::for_rule("REPO-LIC-01"),
                 suppression: None,
                 source: Some("api".to_owned()),
                 error: None,
+                routing: None,
             }],
         )
     }
@@ -676,7 +675,7 @@ mod tests {
     fn the_text_report_shows_the_rule_its_statement_and_the_remedy() {
         let text = report_text(&report());
         assert!(text.contains("REPO-LIC-01 | A `LICENSE` file exists"));
-        assert!(text.contains("fail"));
+        assert!(text.contains("gap"));
         assert!(text.contains("Add LICENSE."));
         assert!(text.contains("nonconformant"));
     }
@@ -706,8 +705,8 @@ mod tests {
                 status.code()
             );
         }
-        assert!(text.contains("1 fail"));
-        assert!(text.contains("0 pass"));
+        assert!(text.contains("1 gap"));
+        assert!(text.contains("0 met"));
     }
 
     #[test]
@@ -730,14 +729,14 @@ mod tests {
     #[test]
     fn the_plan_reports_the_completeness_of_the_observation_it_came_from() {
         let text = plan_text(&report());
-        assert!(text.contains("Every rule the policy asked about was decided"));
+        assert!(text.contains("Every standard was evaluated"));
     }
 
     #[test]
     fn a_plan_holding_an_admin_only_rule_never_claims_everything_was_decided() {
         let mut source = report();
         source.findings[0].rule = "REPO-GIT-04".to_owned();
-        source.findings[0].status = Status::AdminOnly;
+        source.findings[0] = crate::findings::fixtures::routed(source.findings[0].clone());
         let admin_only = crate::findings::Report::assemble(
             source.airlock.clone(),
             source.repository.clone(),
@@ -750,38 +749,24 @@ mod tests {
 
         let text = plan_text(&admin_only);
         assert!(
-            !text.contains("Every rule the policy asked about was decided"),
+            !text.contains("Every standard was evaluated"),
             "one rule is undecided, and the plan has just said so: {text}"
         );
+        assert!(text.contains("No run errors"), "{text}");
         assert!(
-            text.contains("Every question this read-only surface can ask was answered"),
-            "{text}"
-        );
-        assert!(
-            text.contains("not every gap there is"),
+            text.contains("no Met or Gap outcome"),
             "the plan states the limit of what it names: {text}"
         );
     }
 
     #[test]
-    fn the_plan_names_an_undecided_rule_even_when_the_run_stays_complete() {
-        let mut ungated = report();
-        ungated.findings[0].status = Status::Inconclusive;
-        ungated.findings[0].severity = "observation".to_owned();
-        let text = plan_text(&ungated);
-
-        assert!(
-            text.contains("undecided: REPO-LIC-01"),
-            "a non-gating undecided rule must still be named: {text}"
-        );
-        assert!(
-            text.contains("does not gate, and is still not a pass"),
-            "{text}"
-        );
-        assert!(
-            !text.contains("Every rule the policy asked about was decided"),
-            "the plan must not claim everything was decided: {text}"
-        );
+    fn the_plan_names_an_advisory_run_error_as_incomplete() {
+        let mut error = report();
+        error.findings[0].status = None;
+        error.findings[0].severity = "advisory".to_owned();
+        let text = plan_text(&error);
+        assert!(text.contains("REPO-LIC-01"));
+        assert!(text.contains("makes the run incomplete"));
     }
 
     #[test]
@@ -790,7 +775,7 @@ mod tests {
         // print has a declaration to come from.
         let mut source = report();
         source.findings[0].rule = "REPO-GIT-04".to_owned();
-        source.findings[0].status = Status::AdminOnly;
+        source.findings[0] = crate::findings::fixtures::routed(source.findings[0].clone());
         let admin_only = crate::findings::Report::assemble(
             source.airlock.clone(),
             source.repository.clone(),
@@ -807,7 +792,7 @@ mod tests {
             "a structural gap leaves the run complete"
         );
         let text = report_text(&admin_only);
-        assert!(text.contains("1 admin-only"), "{text}");
+        assert!(text.contains("routed: 1"), "{text}");
         assert!(
             text.contains("never gating, and never a pass"),
             "the run is complete, so the report itself must name the gap: {text}"
@@ -818,7 +803,7 @@ mod tests {
         );
 
         let plan = plan_text(&admin_only);
-        assert!(plan.contains("admin-only (1)"), "{plan}");
+        assert!(plan.contains("routed (1)"), "{plan}");
         assert!(plan.contains("REPO-GIT-04"), "{plan}");
         assert!(plan.contains(surface.code()), "{plan}");
         assert!(
@@ -837,7 +822,7 @@ mod tests {
         // surfaces must say what they know and no more: the gap is named, and
         // no destination is invented for it.
         let mut source = report();
-        source.findings[0].status = Status::AdminOnly;
+        source.findings[0].status = None;
         let undeclared = crate::findings::Report::assemble(
             source.airlock.clone(),
             source.repository.clone(),
@@ -852,7 +837,7 @@ mod tests {
             .and_then(registry::CheckDefinition::disclosure_gate)
             .is_none());
         let text = report_text(&undeclared);
-        assert!(text.contains("1 admin-only"), "{text}");
+        assert!(text.contains("run errors: 1"), "{text}");
         assert!(
             !text.contains(registry::VerificationSurface::InteractiveSession.guidance()),
             "no surface was declared, so none is promised: {text}"
@@ -863,7 +848,7 @@ mod tests {
             "the report must not invent destination prose: {text}"
         );
         let plan = plan_text(&undeclared);
-        assert!(plan.contains("admin-only (1)"), "{plan}");
+        assert!(plan.contains("run-error"), "{plan}");
         assert!(plan.contains("REPO-LIC-01"), "{plan}");
         assert!(
             !plan.contains(registry::VerificationSurface::InteractiveSession.code()),
@@ -915,21 +900,18 @@ mod tests {
     #[test]
     fn the_plan_says_when_an_undecided_rule_stops_the_run() {
         let mut gated = report();
-        gated.findings[0].status = Status::Error;
+        gated.findings[0].status = None;
         let text = plan_text(&gated);
 
-        assert!(text.contains("undecided: REPO-LIC-01"), "{text}");
+        assert!(text.contains("run-error: REPO-LIC-01"), "{text}");
         assert!(text.contains("makes the run incomplete"), "{text}");
-        assert!(
-            text.contains("no verdict below it can be certified"),
-            "{text}"
-        );
+        assert!(text.contains("no audit result can be certified"), "{text}");
     }
 
     #[test]
     fn a_plan_with_nothing_to_propose_says_so_rather_than_rendering_empty() {
         let mut clean = report();
-        clean.findings[0].status = Status::Pass;
+        clean.findings[0].status = Some(Status::Met);
         let text = plan_text(&clean);
         assert!(text.contains("No change is proposed"));
         assert!(!text.contains("add-license-file"));
@@ -1014,13 +996,13 @@ mod tests {
         assert_eq!(checks.len(), registry::CHECKS.len());
         let unimplemented = checks
             .iter()
-            .filter(|check| check["implemented"] == false)
+            .filter(|check| check["unbuilt_reason"].is_string())
             .count();
         assert_eq!(
             unimplemented,
             registry::CHECKS
                 .iter()
-                .filter(|check| check.evaluation == registry::Evaluation::Unimplemented)
+                .filter(|check| check.unbuilt_reason().is_some())
                 .count()
         );
     }

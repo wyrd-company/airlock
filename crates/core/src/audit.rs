@@ -11,13 +11,13 @@ use crate::auth::VerifiedGrant;
 use crate::checks::{self, AuditContext, Workflow};
 use crate::findings::{
     AirlockIdentity, AuditedRepository, EffectiveRule, Finding, PolicyIdentity, PolicyObservation,
-    PolicyObservationCode, PolicySourceIdentity, RemediationClass, Report, Status, Suppression,
+    PolicyObservationCode, PolicySourceIdentity, RemediationClass, Report, Suppression,
     SuppressionSource,
 };
 use crate::github::{ApiError, ErrorCause, GitHub};
 use crate::limits::Limits;
 use crate::policy::ResolvedPolicy;
-use crate::registry::{CredentialCapability, Evaluation, Observation};
+use crate::registry::{CredentialCapability, Observation, Severity};
 use crate::snapshot::RepoSnapshot;
 use crate::yaml;
 use crate::{Error, Result};
@@ -116,8 +116,8 @@ impl Sources {
 /// # Errors
 ///
 /// Returns an operational error when the repository itself cannot be read.
-/// Anything narrower than that is a finding, not an error: one unreadable
-/// endpoint makes one rule inconclusive, never the whole run.
+/// A failure reading one standard's inputs is listed in the report's run errors.
+/// Other standards continue; the completed report carries exit code 2.
 pub async fn run<G: GitHub>(
     client: &G,
     owner: &str,
@@ -159,7 +159,6 @@ pub async fn run<G: GitHub>(
     let branch = snapshot.repository.default_branch.clone();
     let commit = snapshot.commit.clone();
     let platform = PlatformData {
-        custom_property_values: observe_custom_property_values(client, owner, repo, policy).await,
         tags: client.tags(owner, repo).await,
         history: client
             .history(owner, repo, &commit, options.limits.max_history_commits)
@@ -217,7 +216,6 @@ async fn run_mixed<G: GitHub>(
     let workflows = parse_workflows(&snapshot, &workflow_paths.paths, options.limits);
 
     let platform = PlatformData {
-        custom_property_values: observe_custom_property_values(client, owner, repo, policy).await,
         tags: client.tags(owner, repo).await,
         history: client
             .history(
@@ -318,7 +316,6 @@ pub fn run_local(
     let workflows = parse_workflows(&snapshot, &workflow_paths.paths, options.limits);
 
     let platform = PlatformData {
-        custom_property_values: Err(not_observed_error("custom property values")),
         tags: Err(not_observed_error("tags")),
         history: Err(not_observed_error("history")),
         rulesets: Err(not_observed_error("rulesets")),
@@ -426,29 +423,10 @@ fn not_observed_error(subject: &str) -> ApiError {
 /// The platform-owned inputs of one run, however they were (or were not)
 /// gathered.
 struct PlatformData {
-    custom_property_values: std::result::Result<Vec<crate::github::CustomPropertyValue>, ApiError>,
     tags: std::result::Result<crate::github::Paged<crate::github::TagRef>, ApiError>,
     history: std::result::Result<crate::github::Paged<crate::github::CommitSummary>, ApiError>,
     rulesets: std::result::Result<crate::github::Paged<crate::github::Ruleset>, ApiError>,
     branch_rules: std::result::Result<crate::github::Paged<crate::github::BranchRule>, ApiError>,
-}
-
-async fn observe_custom_property_values<G: GitHub>(
-    client: &G,
-    owner: &str,
-    repo: &str,
-    policy: &ResolvedPolicy,
-) -> std::result::Result<Vec<crate::github::CustomPropertyValue>, ApiError> {
-    if policy.rules.iter().any(|rule| {
-        matches!(
-            rule.condition,
-            crate::policy::Condition::CustomProperty { .. }
-        )
-    }) {
-        client.custom_property_values(owner, repo).await
-    } else {
-        Ok(Vec::new())
-    }
 }
 
 /// Evaluate every enabled rule and assemble the report.
@@ -472,7 +450,6 @@ fn complete_run(
         limits: options.limits,
         workflows,
         workflows_truncated,
-        custom_property_values: platform.custom_property_values,
         tags: platform.tags,
         history: platform.history,
         rulesets: platform.rulesets,
@@ -497,57 +474,54 @@ fn complete_run(
     let mut effective_policy = Vec::with_capacity(policy.rules.len());
 
     for rule in &policy.rules {
+        let waiver = waiver_for(rule, policy, &requests, context.full_name());
         effective_policy.push(EffectiveRule {
             rule: rule.def.id.to_owned(),
-            severity: rule.severity.code().to_owned(),
+            severity: if waiver.is_some() {
+                "none".to_owned()
+            } else {
+                rule.severity.code().to_owned()
+            },
             params: rule.params.clone(),
             provenance: rule.provenance.clone(),
         });
 
-        // A platform rule with no API behind it was not observed. It is
-        // gated here, before its check could run against synthesized state,
-        // and it can never pass.
-        let gated = platform_unobserved
-            && rule.def.observation() == Observation::Platform
-            && rule.def.evaluation == Evaluation::Mechanical;
-        let verdict = if gated {
-            checks::Verdict::inconclusive(
-                "not_observed",
-                format!(
-                    "{} reads platform state only the GitHub API reports, and this run had no \
-                     credential, so it was not observed",
-                    rule.def.id
-                ),
-            )
+        // Waivers are authorization and prevent the check from executing.
+        let gated = platform_unobserved && rule.def.needs_github_api();
+        let verdict = if waiver.is_some() {
+            checks::Verdict::waived()
+        } else if gated {
+            checks::Verdict::needs_github_api()
         } else {
             checks::evaluate(rule, &context)
         };
-
-        // The source that decided the finding. A judgment or unimplemented
-        // rule was decided by neither source, and an unobserved platform
-        // rule was decided by none at all.
-        let source = match rule.def.evaluation {
-            Evaluation::Mechanical => match rule.def.observation() {
+        let source = if verdict.status.is_some() {
+            match rule.def.observation() {
                 Observation::FileTree => Some(sources.file.to_owned()),
                 Observation::Platform => sources.platform.map(ToOwned::to_owned),
-            },
-            Evaluation::Manual | Evaluation::Unimplemented => None,
+            }
+        } else {
+            None
         };
 
-        let mut finding = Finding {
+        let finding = Finding {
             rule: rule.def.id.to_owned(),
             statement: rule.def.statement.to_owned(),
-            severity: rule.severity.code().to_owned(),
+            severity: if waiver.is_some() {
+                "none".to_owned()
+            } else {
+                rule.severity.code().to_owned()
+            },
             status: verdict.status,
             evidence: verdict.evidence,
             remediation: verdict.remediation,
             remediation_class: RemediationClass::for_rule(rule.def.id),
-            suppression: None,
+            suppression: waiver,
             source,
             error: verdict.error,
+            routing: verdict.routing,
         };
 
-        apply_suppressions(&mut finding, policy, &requests, context.full_name());
         findings.push(finding);
     }
 
@@ -581,7 +555,6 @@ fn complete_run(
                 })
                 .collect(),
             bundle_digest: policy.bundle_digest.clone(),
-            gate: policy.gate,
         },
         effective_policy,
         observations,
@@ -698,48 +671,40 @@ fn suppression_requests(
     Ok((valid, observations))
 }
 
-fn apply_suppressions(
-    finding: &mut Finding,
+fn waiver_for(
+    rule: &crate::policy::RuleInstance,
     policy: &ResolvedPolicy,
     requests: &[crate::policy::SuppressionRequest],
     full_name: &str,
-) {
-    // Only a failure can be suppressed. Suppressing a pass would hide that the
-    // rule was evaluated, and suppressing an undecided result would let a
-    // repository suppress its way out of completeness.
-    if finding.status != Status::Fail {
-        return;
-    }
-
-    if let Some(direct) = policy.suppressions.direct_for(&finding.rule, full_name) {
-        finding.status = Status::Suppressed;
-        finding.suppression = Some(Suppression {
+) -> Option<Suppression> {
+    if let Some(direct) = policy.suppressions.direct_for(rule.def.id, full_name) {
+        return Some(Suppression {
             source: SuppressionSource::Policy,
             requested_reason: None,
             policy_reason: Some(direct.reason.clone()),
             authorized_by: format!("policy `{}` suppressions.direct", policy.name),
         });
-        return;
     }
-
-    if !policy
+    if policy
         .suppressions
         .allow_repo_requests
-        .contains(&finding.rule)
+        .contains(rule.def.id)
     {
-        return;
+        if let Some(request) = requests.iter().find(|request| request.rule == rule.def.id) {
+            return Some(Suppression {
+                source: SuppressionSource::RepositoryRequest,
+                requested_reason: Some(request.reason.clone()),
+                policy_reason: None,
+                authorized_by: format!("policy `{}` suppressions.allow-repo-requests", policy.name),
+            });
+        }
     }
-    let Some(request) = requests.iter().find(|request| request.rule == finding.rule) else {
-        return;
-    };
-
-    finding.status = Status::Suppressed;
-    finding.suppression = Some(Suppression {
-        source: SuppressionSource::RepositoryRequest,
-        requested_reason: Some(request.reason.clone()),
-        policy_reason: None,
-        authorized_by: format!("policy `{}` suppressions.allow-repo-requests", policy.name),
-    });
+    (rule.severity == Severity::None).then(|| Suppression {
+        source: SuppressionSource::Policy,
+        requested_reason: None,
+        policy_reason: Some("effective severity is none".to_owned()),
+        authorized_by: rule.provenance.clone(),
+    })
 }
 
 fn unauthorized_requests(
@@ -760,7 +725,7 @@ fn unauthorized_requests(
                 .iter()
                 .find(|finding| finding.rule == request.rule)
                 .map_or("not enabled by the policy".to_owned(), |finding| {
-                    format!("still {}", finding.status.code())
+                    format!("still {}", finding.status_code())
                 });
             PolicyObservation {
                 code: PolicyObservationCode::UnauthorizedSuppressionRequest,
@@ -818,7 +783,7 @@ fn repository_error(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::findings::Gate;
+    use crate::findings::Status;
     use crate::policy::{DirectSuppression, SuppressionRequest};
     use crate::registry::Severity;
     use std::collections::BTreeMap;
@@ -830,7 +795,7 @@ mod tests {
             commit: None,
             bundle_digest: "sha256:0".to_owned(),
             sources: Vec::new(),
-            gate: Gate::Blocking,
+
             rules: Vec::new(),
             suppressions: Default::default(),
             reference_data: BTreeMap::new(),
@@ -847,13 +812,14 @@ mod tests {
             rule: rule.to_owned(),
             statement: "statement".to_owned(),
             severity: Severity::Blocking.code().to_owned(),
-            status: Status::Fail,
+            status: Some(Status::Gap),
             evidence: None,
             remediation: None,
             remediation_class: RemediationClass::for_rule(rule),
             suppression: None,
             source: None,
             error: None,
+            routing: None,
         }
     }
 
@@ -868,8 +834,16 @@ mod tests {
             &[],
         );
         let mut finding = failing("REPO-FILE-10");
-        apply_suppressions(&mut finding, &policy, &[], "owner/name");
-        assert_eq!(finding.status, Status::Suppressed);
+        finding.suppression = waiver_for(
+            &crate::checks::fixtures::rule(&finding.rule),
+            &policy,
+            &[],
+            "owner/name",
+        );
+        if finding.suppression.is_some() {
+            finding.status = None;
+        }
+        assert_eq!(finding.status, None);
         let suppression = finding.suppression.unwrap();
         assert_eq!(suppression.source.code(), "policy");
         assert!(suppression.policy_reason.is_some());
@@ -886,8 +860,16 @@ mod tests {
             &[],
         );
         let mut finding = failing("REPO-FILE-10");
-        apply_suppressions(&mut finding, &policy, &[], "owner/name");
-        assert_eq!(finding.status, Status::Fail);
+        finding.suppression = waiver_for(
+            &crate::checks::fixtures::rule(&finding.rule),
+            &policy,
+            &[],
+            "owner/name",
+        );
+        if finding.suppression.is_some() {
+            finding.status = None;
+        }
+        assert_eq!(finding.status, Some(Status::Gap));
     }
 
     #[test]
@@ -898,8 +880,16 @@ mod tests {
             reason: "docs are stubs until the first release".to_owned(),
         }];
         let mut finding = failing("REPO-DOCS-01");
-        apply_suppressions(&mut finding, &policy, &requests, "owner/name");
-        assert_eq!(finding.status, Status::Suppressed);
+        finding.suppression = waiver_for(
+            &crate::checks::fixtures::rule(&finding.rule),
+            &policy,
+            &requests,
+            "owner/name",
+        );
+        if finding.suppression.is_some() {
+            finding.status = None;
+        }
+        assert_eq!(finding.status, None);
         let suppression = finding.suppression.unwrap();
         assert_eq!(suppression.source.code(), "repository_request");
         assert_eq!(
@@ -917,8 +907,16 @@ mod tests {
             reason: "inconvenient".to_owned(),
         }];
         let mut finding = failing("REPO-CI-02");
-        apply_suppressions(&mut finding, &policy, &requests, "owner/name");
-        assert_eq!(finding.status, Status::Fail);
+        finding.suppression = waiver_for(
+            &crate::checks::fixtures::rule(&finding.rule),
+            &policy,
+            &requests,
+            "owner/name",
+        );
+        if finding.suppression.is_some() {
+            finding.status = None;
+        }
+        assert_eq!(finding.status, Some(Status::Gap));
 
         let observations = unauthorized_requests(&policy, &requests, &[finding]);
         assert_eq!(observations.len(), 1);
@@ -926,33 +924,7 @@ mod tests {
             observations[0].code.code(),
             "unauthorized_suppression_request"
         );
-        assert!(observations[0].detail.contains("still fail"));
-    }
-
-    #[test]
-    fn only_failures_are_suppressible() {
-        let policy = policy_with(
-            vec![DirectSuppression {
-                rule: "REPO-CI-02".to_owned(),
-                repository: None,
-                reason: "why".to_owned(),
-            }],
-            &[],
-        );
-        for status in [
-            Status::Unimplemented,
-            Status::Error,
-            Status::Inconclusive,
-            Status::Pass,
-        ] {
-            let mut finding = failing("REPO-CI-02");
-            finding.status = status;
-            apply_suppressions(&mut finding, &policy, &[], "owner/name");
-            assert_eq!(
-                finding.status, status,
-                "{status:?} must not be suppressible"
-            );
-        }
+        assert!(observations[0].detail.contains("still gap"));
     }
 
     #[test]

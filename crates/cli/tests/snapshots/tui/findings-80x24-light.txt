@@ -7,21 +7,21 @@ takes and who can close it.
                                                                                 
 STATUS VOCABULARY                                                               
 DECIDED · GATING                                                                
- ✓    │   │  pass          the condition was observed to hold                   
- ✗    │   │  fail          the condition was observed not to hold               
+ ✓    │   │  met           the compiled requirement is met                      
+ ✗    │   │  gap           the compiled requirement is not met                  
 DECIDED · INERT                                                                 
-    ◆ │   │  manual        judgment_rule, reported for a human                  
-    ⊘ │   │  suppressed    a failure the policy authorized                      
-    ○ │   │  skipped       condition_not_met, the capability condition did not …
 UNDECIDED                                                                       
-      │ ▢ │  unimplemented registered and enabled, not yet evaluated            
-      │ ◑ │  inconclusive  the question could not be established                
-      │ ◍ │  admin-only    the rule requires admin access to verify, so the que…
-      │ ! │  error         the call did not complete, so no evidence exists     
                                                                                 
-SEVERITY  ███ blocking   ██░ required   █░░ observation                         
+SEVERITY  ███ blocking   ██░ advisory   ░░░ none                                
 ▌ a solid left rail marks a row that actually gates the run                     
-— 10 more lines withheld: this screen needs 30 rows and has 21 —                
+                                                                                
+NOTHING OBSERVED YET                                                            
+would show      the verdict, the status summary, and the eight groups of the    
+                work queue                                                      
+empty because   this build is the interface shell. It draws the frame, the      
+                status vocabulary, and the navigation between screens. No       
+                authorization is requested and no repository is observed, so    
+— 3 more lines withheld: this screen needs 23 rows and has 21 —                 
 ↑↓/j/k move · space collapse or expand · ↵ finding detail · f filter · 8 more…  
 no repository observed · this shell renders the frame only · tty required       
 --- style keys ---
@@ -32,23 +32,23 @@ dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 eeeeeeeeeeeeeeeeeddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 ffffffffffffffffdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-gggdddhdddhddiiiiiiiiiiiiiijjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjddddddddddddddddddd
-kkkdddhdddhddlllllllllllllljjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjddddddddddddddd
+gggdddhdddhddiiiiiiiiiiiiiijjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjdddddddddddddddddddddd
+kkkdddhdddhddlllllllllllllljjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjdddddddddddddddddd
 fffffffffffffffddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-dddmmmhdddhddnnnnnnnnnnnnnnjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjdddddddddddddddddd
-dddooohdddhddppppppppppppppjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjdddddddddddddddddddddd
-dddqqqhdddhddrrrrrrrrrrrrrrjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj
 fffffffffddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-ddddddhssshddttttttttttttttjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjdddddddddddd
-ddddddhuuuhddccccccccccccccjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjdddddddddddddddd
-ddddddhvvvhddwwwwwwwwwwwwwwjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj
-ddddddhxxxhddyyyyyyyyyyyyyyjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-ffffffffddddddjjjjjjjjzzzddddjjjjjjjjzzzddddjjjjjjjjjjjddddddddddddddddddddddddd
-kkAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAddddddddddddddddddddd
-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAdddddddddddddddd
-ccccccdjjjjzzzcccccdjjjjjjjjjjjjjjjjjjzzzcdjjjjjjjjjjjjjjzzzcdjjjjjjzzzAAAAAAAdd
-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB
+ffffffffddddddjjjjjjjjmmmddddjjjjjjjjmmmddddjjjjdddddddddddddddddddddddddddddddd
+kknnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnddddddddddddddddddddd
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+eeeeeeeeeeeeeeeeeeeedddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+mmmmmmmmmmmmmmmmjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjdddd
+mmmmmmmmmmmmmmmmjjjjjjjjjjdddddddddddddddddddddddddddddddddddddddddddddddddddddd
+mmmmmmmmmmmmmmmmjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjdddddd
+mmmmmmmmmmmmmmmmjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjddddddd
+mmmmmmmmmmmmmmmmjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjdddd
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnddddddddddddddddd
+ccccccdjjjjmmmcccccdjjjjjjjjjjjjjjjjjjmmmcdjjjjjjjjjjjjjjmmmcdjjjjjjmmmnnnnnnndd
+oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo
 --- legend ---
 a fg=#2B2822 bg=#EDE8DD BOLD
 b fg=#2B2822 bg=#EDE8DD
@@ -62,19 +62,6 @@ i fg=#2E7D52 bg=#F6F3EC BOLD
 j fg=#6E6759 bg=#F6F3EC
 k fg=#B03028 bg=#F6F3EC
 l fg=#B03028 bg=#F6F3EC BOLD
-m fg=#2F5DA8 bg=#F6F3EC
-n fg=#2F5DA8 bg=#F6F3EC BOLD
-o fg=#6C46A0 bg=#F6F3EC
-p fg=#6C46A0 bg=#F6F3EC BOLD
-q fg=#7C7566 bg=#F6F3EC
-r fg=#7C7566 bg=#F6F3EC BOLD
-s fg=#8A6E22 bg=#F6F3EC
-t fg=#8A6E22 bg=#F6F3EC BOLD
-u fg=#9A6B12 bg=#F6F3EC
-v fg=#1F6B6B bg=#F6F3EC
-w fg=#1F6B6B bg=#F6F3EC BOLD
-x fg=#B05812 bg=#F6F3EC
-y fg=#B05812 bg=#F6F3EC BOLD
-z fg=#958C78 bg=#F6F3EC
-A fg=#958C78 bg=#F6F3EC ITALIC
-B fg=#6E6759 bg=#EFEAE0
+m fg=#958C78 bg=#F6F3EC
+n fg=#958C78 bg=#F6F3EC ITALIC
+o fg=#6E6759 bg=#EFEAE0

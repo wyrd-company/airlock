@@ -19,8 +19,8 @@ use airlock_core::github::{
     TreeEntry,
 };
 use airlock_core::limits::Limits;
-use airlock_core::policy::{Condition, ResolvedPolicy, RuleInstance};
-use airlock_core::registry::{self, Evaluation, Observation};
+use airlock_core::policy::{ResolvedPolicy, RuleInstance};
+use airlock_core::registry::{self, Observation};
 
 /// One fixture file: path, content, and whether it is a symlink target
 /// instead of regular content.
@@ -110,6 +110,7 @@ fn committed_repository() -> tempfile::TempDir {
 struct FakeGitHub {
     tree: Tree,
     blobs: BTreeMap<String, Vec<u8>>,
+    disclose_merge_settings: bool,
 }
 
 impl FakeGitHub {
@@ -137,6 +138,7 @@ impl FakeGitHub {
                 truncated: false,
             },
             blobs,
+            disclose_merge_settings: true,
         }
     }
 }
@@ -152,7 +154,7 @@ impl GitHub for FakeGitHub {
             visibility: "public".to_owned(),
             description: Some("A thing that widgets.".to_owned()),
             license_spdx: Some("Apache-2.0".to_owned()),
-            allow_merge_commit: Some(false),
+            allow_merge_commit: self.disclose_merge_settings.then_some(false),
             allow_squash_merge: Some(true),
             allow_rebase_merge: Some(true),
             delete_branch_on_merge: Some(true),
@@ -250,7 +252,6 @@ fn full_policy() -> ResolvedPolicy {
         commit: None,
         bundle_digest: "sha256:0".to_owned(),
         sources: Vec::new(),
-        gate: airlock_core::findings::Gate::Blocking,
         rules: registry::CHECKS
             .iter()
             .map(|def| RuleInstance {
@@ -258,7 +259,6 @@ fn full_policy() -> ResolvedPolicy {
                 severity: def.severity,
                 params: BTreeMap::new(),
                 provenance: "parity".to_owned(),
-                condition: Condition::Always,
             })
             .collect(),
         suppressions: Default::default(),
@@ -283,13 +283,13 @@ fn file_rule_outcomes(report: &Report) -> BTreeMap<String, (String, Option<Strin
         .iter()
         .filter(|finding| {
             let def = registry::find(&finding.rule).expect("a registered rule");
-            def.observation() == Observation::FileTree && def.evaluation == Evaluation::Mechanical
+            def.observation() == Observation::FileTree && !def.needs_github_api()
         })
         .map(|finding| {
             (
                 finding.rule.clone(),
                 (
-                    finding.status.code().to_owned(),
+                    finding.status_code().to_owned(),
                     finding
                         .evidence
                         .as_ref()
@@ -353,13 +353,7 @@ async fn every_finding_names_the_source_that_decided_it() {
     .await
     .expect("the API audit runs");
     for finding in &api_report.findings {
-        let def = registry::find(&finding.rule).expect("registered");
-        match def.evaluation {
-            Evaluation::Mechanical => {
-                assert_eq!(finding.source.as_deref(), Some("api"), "{}", finding.rule);
-            }
-            _ => assert_eq!(finding.source, None, "{}", finding.rule),
-        }
+        assert_eq!(finding.source.as_deref(), Some("api"), "{}", finding.rule);
     }
     assert_eq!(api_report.observation.file_source, "api");
     assert_eq!(
@@ -371,36 +365,29 @@ async fn every_finding_names_the_source_that_decided_it() {
     let local_report =
         audit::run_local(&policy, &options(), repo.path()).expect("the local audit runs");
     for finding in &local_report.findings {
-        let def = registry::find(&finding.rule).expect("registered");
-        match (def.evaluation, def.observation()) {
-            (Evaluation::Mechanical, Observation::FileTree) => {
-                assert_eq!(
-                    finding.source.as_deref(),
-                    Some("working-tree"),
-                    "{}",
-                    finding.rule
-                );
-            }
-            _ => assert_eq!(finding.source, None, "{}", finding.rule),
-        }
+        assert_eq!(
+            finding.source.as_deref(),
+            Some("working-tree"),
+            "{}",
+            finding.rule
+        );
     }
 }
 
 #[tokio::test]
-async fn an_unobserved_platform_rule_is_inconclusive_and_never_passes() {
+async fn an_unobserved_platform_standard_is_routed_and_never_met() {
     let repo = committed_repository();
     let policy = full_policy();
     let report = audit::run_local(&policy, &options(), repo.path()).expect("the local audit runs");
 
     let mut gated = 0;
-    for finding in &report.findings {
+    for finding in report.entries() {
         let def = registry::find(&finding.rule).expect("registered");
-        if def.observation() == Observation::Platform && def.evaluation == Evaluation::Mechanical {
+        if def.observation() == Observation::Platform {
             gated += 1;
-            assert_eq!(finding.status, Status::Inconclusive, "{}", finding.rule);
             assert_eq!(
-                finding.evidence.as_ref().expect("evidence").code,
-                "not_observed",
+                finding.routing.as_ref().map(|r| r.reason.as_str()),
+                Some("needs-github-api"),
                 "{}",
                 finding.rule
             );
@@ -408,8 +395,7 @@ async fn an_unobserved_platform_rule_is_inconclusive_and_never_passes() {
     }
     assert!(gated > 0, "the fixture policy enables platform rules");
     assert_eq!(report.observation.platform_source, None);
-    // An audit that could not observe its platform half is incomplete.
-    assert!(!report.complete);
+    assert!(report.routed.iter().all(|f| f.status.is_none()));
 }
 
 #[tokio::test]
@@ -463,7 +449,7 @@ async fn an_ignored_untracked_file_satisfies_no_rule() {
         .expect("REPO-FILE-05 is enabled");
     assert_eq!(
         finding.status,
-        Status::Fail,
+        Some(Status::Gap),
         "an ignored file is not destined for the repository, so it satisfies nothing"
     );
 }
@@ -484,7 +470,7 @@ async fn an_untracked_file_is_observed_as_it_stands() {
         .iter()
         .find(|finding| finding.rule == "REPO-FILE-02")
         .expect("REPO-FILE-02 is enabled");
-    assert_eq!(finding.status, Status::Pass);
+    assert_eq!(finding.status, Some(Status::Met));
     let observed = report.observation.working_tree.as_ref().expect("observed");
     assert_eq!(observed.dirty, Some(true));
 }
@@ -523,7 +509,7 @@ async fn an_uncommitted_suppression_request_suppresses_nothing() {
         .expect("REPO-FILE-14 is enabled");
     assert_eq!(
         finding.status,
-        Status::Fail,
+        Some(Status::Gap),
         "authorization comes from committed content, not the tree as it stands"
     );
 
@@ -532,9 +518,184 @@ async fn an_uncommitted_suppression_request_suppresses_nothing() {
     git(repo.path(), &["commit", "-q", "-m", "request suppression"]);
     let report = audit::run_local(&policy, &options(), repo.path()).expect("the local audit runs");
     let finding = report
-        .findings
+        .waived
         .iter()
         .find(|finding| finding.rule == "REPO-FILE-14")
         .expect("REPO-FILE-14 is enabled");
-    assert_eq!(finding.status, Status::Suppressed);
+    assert_eq!(finding.status, None);
+}
+
+/// Captured by running the same API corpus at the integration base 7708ddd.
+/// Only the old compiled pass/fail results are authoritative for this agreement.
+#[tokio::test]
+async fn decided_outcomes_match_the_integration_base() {
+    let expected: serde_json::Value =
+        serde_json::from_str(include_str!("fixtures/outcomes-7708ddd.json")).unwrap();
+    for (name, empty) in [("populated", false), ("empty", true)] {
+        let mut api = FakeGitHub::new();
+        if empty {
+            api.tree.entries.clear();
+            api.blobs.clear();
+        }
+        let report = audit::run(&api, "acme", "widget", &full_policy(), &options(), None)
+            .await
+            .unwrap();
+        let expected = expected[name].as_object().unwrap();
+        assert!(!expected.is_empty());
+        for (id, base) in expected {
+            let finding = report
+                .findings
+                .iter()
+                .find(|f| &f.rule == id)
+                .unwrap_or_else(|| {
+                    panic!("{name}: previously decided {id} no longer has a compiled outcome")
+                });
+            assert_eq!(
+                finding.status_code(),
+                base["status"].as_str().unwrap(),
+                "{name}: {id}"
+            );
+            assert_eq!(
+                serde_json::to_value(finding.evidence.as_ref().map(|e| &e.code)).unwrap(),
+                base["evidence"],
+                "{name}: {id}"
+            );
+        }
+    }
+}
+
+fn policy_with_one(id: &str, severity: airlock_core::registry::Severity) -> ResolvedPolicy {
+    let mut policy = full_policy();
+    policy.rules.retain(|rule| rule.def.id == id);
+    assert_eq!(policy.rules.len(), 1);
+    policy.rules[0].severity = severity;
+    policy
+}
+
+#[test]
+fn a_waived_standard_does_not_run_its_check() {
+    let repo = committed_repository();
+    std::fs::write(repo.path().join(".github/renovate.json"), "{").unwrap();
+    let policy = policy_with_one("REPO-FILE-08", airlock_core::registry::Severity::None);
+    let report = audit::run_local(&policy, &options(), repo.path()).unwrap();
+    assert_eq!(report.exit_code(), 0);
+    assert!(report.findings.is_empty());
+    assert!(report.run_errors.is_empty());
+    assert_eq!(report.waived.len(), 1);
+    assert_eq!(report.effective_policy[0].severity, "none");
+    assert!(report.waived[0].status.is_none());
+    assert!(
+        report.waived[0].evidence.is_none(),
+        "the waived check must not execute"
+    );
+    assert!(report.waived[0]
+        .suppression
+        .as_ref()
+        .unwrap()
+        .policy_reason
+        .is_some());
+}
+
+#[test]
+fn the_api_gate_routes_a_whole_file_tree_standard() {
+    let repo = committed_repository();
+    let policy = policy_with_one("REPO-CD-03", airlock_core::registry::Severity::Blocking);
+    assert!(policy.rules[0].def.needs_github_api());
+    let report = audit::run_local(&policy, &options(), repo.path()).unwrap();
+    assert_eq!(report.exit_code(), 0);
+    assert!(report.findings.is_empty());
+    assert!(report.unbuilt.is_empty());
+    assert!(report.run_errors.is_empty());
+    assert_eq!(report.routed.len(), 1);
+    let route = report.routed[0].routing.as_ref().unwrap();
+    assert_eq!(route.reason, "needs-github-api");
+    assert!(route.settling_surface.contains("API-tree"));
+}
+
+#[tokio::test]
+async fn disclosure_routing_and_a_missing_input_without_a_gate_are_distinct() {
+    let policy = policy_with_one("REPO-GIT-04", airlock_core::registry::Severity::Blocking);
+    let mut api = FakeGitHub::new();
+    api.disclose_merge_settings = false;
+    let report = audit::run(&api, "acme", "widget", &policy, &options(), None)
+        .await
+        .unwrap();
+    assert_eq!(report.exit_code(), 0);
+    assert!(report.findings.is_empty());
+    assert_eq!(report.routed.len(), 1);
+    assert!(report.routed[0]
+        .routing
+        .as_ref()
+        .unwrap()
+        .settling_surface
+        .contains("interactive"));
+
+    let repo = committed_repository();
+    // No manifest can tell this check whether a registry package exists.
+    std::fs::remove_file(repo.path().join("Cargo.toml")).unwrap();
+    let policy = policy_with_one("REPO-LIC-04", airlock_core::registry::Severity::Advisory);
+    let report = audit::run_local(&policy, &options(), repo.path()).unwrap();
+    assert_eq!(report.exit_code(), 2);
+    assert!(report.findings.is_empty());
+    assert!(report.routed.is_empty());
+    assert_eq!(report.run_errors.len(), 1);
+    assert!(report.run_errors[0].error.is_some());
+}
+
+#[test]
+fn unbuilt_branches_preserve_decided_outcomes() {
+    let repo = committed_repository();
+    let policy = policy_with_one("REPO-FILE-03", airlock_core::registry::Severity::Blocking);
+    let unbuilt = audit::run_local(&policy, &options(), repo.path()).unwrap();
+    assert_eq!(unbuilt.exit_code(), 0);
+    assert_eq!(unbuilt.unbuilt.len(), 1);
+    assert!(unbuilt.findings.is_empty());
+    assert_eq!(
+        unbuilt.unbuilt[0].routing.as_ref().unwrap().reason,
+        "unbuilt"
+    );
+    std::fs::remove_file(repo.path().join(".gitignore")).unwrap();
+    let gap = audit::run_local(&policy, &options(), repo.path()).unwrap();
+    assert_eq!(gap.exit_code(), 1);
+    assert_eq!(gap.findings[0].status, Some(Status::Gap));
+    assert!(gap.unbuilt.is_empty());
+}
+
+#[test]
+fn missing_renovate_file_is_a_gap_before_the_owner_gate() {
+    let repo = committed_repository();
+    let policy = policy_with_one("REPO-FILE-08", airlock_core::registry::Severity::Blocking);
+    let gap = audit::run_local(&policy, &options(), repo.path()).unwrap();
+    assert_eq!(gap.findings[0].status, Some(Status::Gap));
+    assert_eq!(gap.exit_code(), 1);
+    std::fs::write(repo.path().join(".github/renovate.json"), "{}").unwrap();
+    let routed = audit::run_local(&policy, &options(), repo.path()).unwrap();
+    assert_eq!(routed.exit_code(), 0);
+    assert!(routed.findings.is_empty());
+    assert_eq!(
+        routed.routed[0].routing.as_ref().unwrap().reason,
+        "needs-repository-owner"
+    );
+}
+
+#[test]
+fn severity_alone_controls_the_gap_exit_code() {
+    let repo = committed_repository();
+    std::fs::remove_file(repo.path().join("LICENSE")).unwrap();
+    for (severity, expected) in [
+        (airlock_core::registry::Severity::Advisory, 0),
+        (airlock_core::registry::Severity::Blocking, 1),
+    ] {
+        let policy = policy_with_one("REPO-LIC-01", severity);
+        let report = audit::run_local(&policy, &options(), repo.path()).unwrap();
+        assert_eq!(report.findings[0].status, Some(Status::Gap));
+        assert_eq!(report.exit_code(), expected);
+        assert_eq!(report.schema_version, 2);
+        let json = serde_json::to_value(&report).unwrap();
+        assert_eq!(json["findings"][0]["status"], "gap");
+        assert!(json["policy"].get("gate").is_none());
+        for list in ["waived", "routed", "unbuilt", "run_errors"] {
+            assert!(json[list].as_array().unwrap().is_empty());
+        }
+    }
 }

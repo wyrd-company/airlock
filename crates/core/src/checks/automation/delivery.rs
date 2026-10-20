@@ -8,7 +8,7 @@ pub(super) fn cd<'a>(context: &'a AuditContext<'_>) -> Option<&'a Workflow> {
 /// The shared shape of the delivery rules: without a `cd.yml`, whether the
 /// repository delivers anything is a judgment call, not a failure.
 pub(super) fn no_cd_workflow(subject: &str) -> Verdict {
-    Verdict::manual(
+    Verdict::unbuilt(
         "no_cd_workflow",
         format!(
             "there is no .github/workflows/cd.yml, so {subject} could not be checked; whether \
@@ -47,7 +47,7 @@ pub(super) fn cd_on_tags(rule: &RuleInstance, context: &AuditContext) -> Verdict
     };
 
     if tags.is_empty() {
-        return Verdict::manual(
+        return Verdict::unbuilt(
             "cd_has_no_tag_trigger",
             "cd.yml does not trigger on tags; whether this repository publishes a versioned \
              artifact is a judgment call",
@@ -88,7 +88,7 @@ pub(super) fn cd_on_default_branch(context: &AuditContext) -> Verdict {
             format!("cd.yml triggers on push to `{branch}`"),
         )
     } else {
-        Verdict::manual(
+        Verdict::unbuilt(
             "cd_has_no_branch_trigger",
             format!(
                 "cd.yml does not trigger on push to `{branch}`; whether this repository deploys a \
@@ -103,7 +103,7 @@ pub(super) fn cd_concurrency(context: &AuditContext) -> Verdict {
         return no_cd_workflow("the concurrency group");
     };
     let Some(document) = &workflow.document else {
-        return Verdict::inconclusive(
+        return Verdict::run_error(
             "unparseable_workflow",
             format!("{} could not be parsed", workflow.path),
         );
@@ -189,7 +189,7 @@ mod tests {
     use crate::findings::Status;
     use serde_json::json;
 
-    fn verdict(id: &str, files: &[(&str, &str)]) -> Status {
+    fn verdict(id: &str, files: &[(&str, &str)]) -> Option<Status> {
         CheckFixture::new(files).verdict(id).status
     }
     #[test]
@@ -201,7 +201,7 @@ mod tests {
             "REPO-CD-04",
             "REPO-CD-07",
         ] {
-            assert_eq!(verdict(id, &[]), Status::Manual, "{id}");
+            assert_eq!(verdict(id, &[]), None, "{id}");
         }
     }
 
@@ -210,7 +210,7 @@ mod tests {
         let cd = "on:\n  push:\n    tags: ['[0-9]*.[0-9]*.[0-9]*']\npermissions: {}\njobs: {}\n";
         assert_eq!(
             verdict("REPO-CD-02", &[(".github/workflows/cd.yml", cd)]),
-            Status::Pass
+            Some(Status::Met)
         );
 
         let snapshot = snapshot(&[(".github/workflows/cd.yml", cd)]);
@@ -218,7 +218,7 @@ mod tests {
         let policy = policy();
         let context = context(&snapshot, &policy, workflows);
         let custom = rule_with("REPO-CD-02", &[("tag-pattern", json!("release-*"))]);
-        assert_eq!(evaluate(&custom, &context).status, Status::Fail);
+        assert_eq!(evaluate(&custom, &context).status, Some(Status::Gap));
     }
 
     #[test]
@@ -227,12 +227,12 @@ mod tests {
                   cancel-in-progress: false\npermissions: {}\njobs: {}\n";
         assert_eq!(
             verdict("REPO-CD-04", &[(".github/workflows/cd.yml", cd)]),
-            Status::Pass
+            Some(Status::Met)
         );
         let cancelling = cd.replace("cancel-in-progress: false", "cancel-in-progress: true");
         assert_eq!(
             verdict("REPO-CD-04", &[(".github/workflows/cd.yml", &cancelling)]),
-            Status::Fail
+            Some(Status::Gap)
         );
     }
 
@@ -242,7 +242,7 @@ mod tests {
                   - run: gh release create 1.0.0\n";
         assert_eq!(
             verdict("REPO-CD-07", &[(".github/workflows/cd.yml", cd)]),
-            Status::Fail
+            Some(Status::Gap)
         );
     }
 
@@ -251,7 +251,7 @@ mod tests {
         let cd = "on:\n  push:\n    tags: ['1.0.0', 7]\npermissions: {}\njobs: {}\n";
         assert_eq!(
             verdict("REPO-CD-02", &[(".github/workflows/cd.yml", cd)]),
-            Status::Inconclusive
+            None
         );
     }
 }

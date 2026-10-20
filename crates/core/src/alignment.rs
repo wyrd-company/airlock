@@ -37,7 +37,7 @@ pub fn scaffold_files(policy: &crate::policy::ResolvedPolicy, owner: &str) -> Ve
     for rule in policy
         .rules
         .iter()
-        .filter(|rule| rule.condition == crate::policy::Condition::Always)
+        .filter(|rule| rule.severity != crate::registry::Severity::None)
     {
         let Some(definition) = crate::remediation::classify(rule.def.id)
             .and_then(crate::remediation::Classification::remediation)
@@ -378,7 +378,7 @@ fn judgment_findings(report: &Report) -> Vec<AgentDelegation> {
         .findings
         .iter()
         .filter(|finding| {
-            finding.status == Status::Fail
+            finding.status == Some(Status::Gap)
                 && finding.remediation_class.lane.as_deref() == Some(Lane::JudgmentFile.code())
         })
         .filter_map(|finding| {
@@ -414,7 +414,7 @@ fn plan_operations(
     };
     let owner = full_name.and_then(|name| name.split_once('/').map(|(owner, _)| owner));
     for finding in report.findings.iter().filter(|finding| {
-        finding.status == Status::Fail
+        finding.status == Some(Status::Gap)
             && finding.remediation_class.lane.as_deref() == Some(Lane::DeterministicFile.code())
             && finding.source.as_deref() == Some("working-tree")
     }) {
@@ -1368,128 +1368,9 @@ mod tests {
 
     use super::*;
     use crate::findings::{
-        AirlockIdentity, AuditedRepository, Gate, ObservationRecord, PolicyIdentity,
-        RemediationClass,
+        AirlockIdentity, AuditedRepository, ObservationRecord, PolicyIdentity, RemediationClass,
     };
     use crate::remediation;
-
-    #[test]
-    fn scaffold_files_include_only_fixed_deterministic_unconditional_rules() {
-        let rule = |id, condition| crate::policy::RuleInstance {
-            def: crate::registry::find(id).expect("registered rule"),
-            severity: crate::registry::Severity::Required,
-            params: BTreeMap::new(),
-            provenance: "capability:fixture".to_owned(),
-            condition,
-        };
-        let policy = crate::policy::ResolvedPolicy {
-            name: "fixture".to_owned(),
-            source: "fixture".to_owned(),
-            commit: None,
-            bundle_digest: "digest".to_owned(),
-            sources: Vec::new(),
-            gate: Gate::Blocking,
-            rules: vec![
-                rule("REPO-LIC-01", crate::policy::Condition::Always),
-                rule(
-                    "REPO-FILE-05",
-                    crate::policy::Condition::CustomProperty {
-                        name: "publishes".to_owned(),
-                        value: "true".to_owned(),
-                    },
-                ),
-            ],
-            suppressions: Default::default(),
-            reference_data: Default::default(),
-            capabilities: Vec::new(),
-        };
-        let files = scaffold_files(&policy, "example-org");
-        assert_eq!(files.len(), 1);
-        assert_eq!(files[0].path, "LICENSE");
-        assert_eq!(files[0].contents, APACHE_2_LICENSE.as_bytes());
-    }
-
-    #[test]
-    fn scaffolded_bytes_are_the_bytes_the_deterministic_author_would_write() {
-        let preset = "github>example-org/.github";
-        let policy = crate::policy::ResolvedPolicy {
-            name: "fixture".to_owned(),
-            source: "fixture".to_owned(),
-            commit: None,
-            bundle_digest: "digest".to_owned(),
-            sources: Vec::new(),
-            gate: Gate::Blocking,
-            rules: vec![crate::policy::RuleInstance {
-                def: crate::registry::find("REPO-FILE-08").expect("registered rule"),
-                severity: crate::registry::Severity::Required,
-                params: BTreeMap::from([("renovate-preset".to_owned(), serde_json::json!(preset))]),
-                provenance: "fixture".to_owned(),
-                condition: crate::policy::Condition::Always,
-            }],
-            suppressions: Default::default(),
-            reference_data: Default::default(),
-            capabilities: Vec::new(),
-        };
-        let scaffolded = scaffold_files(&policy, "example-org");
-        let directory = repository();
-        let facts = worktree::read_facts(directory.path()).unwrap();
-        let authored = report("REPO-FILE-08");
-        let operations = author_for(
-            "add-renovate-config",
-            &authored.findings[0],
-            &facts,
-            Some(preset),
-        )
-        .into_operations();
-        let OperationKind::Write(expected) = &operations[0].kind else {
-            panic!("renovate author did not produce a write")
-        };
-
-        assert_eq!(scaffolded[0].path, operations[0].path);
-        assert_eq!(&scaffolded[0].contents, expected);
-    }
-
-    #[test]
-    fn scaffold_renovate_substitutes_the_owner_only_in_the_default() {
-        let mut policy = crate::policy::ResolvedPolicy {
-            name: "fixture".to_owned(),
-            source: "fixture".to_owned(),
-            commit: None,
-            bundle_digest: "digest".to_owned(),
-            sources: Vec::new(),
-            gate: Gate::Blocking,
-            rules: vec![crate::policy::RuleInstance {
-                def: crate::registry::find("REPO-FILE-08").unwrap(),
-                severity: crate::registry::Severity::Required,
-                params: BTreeMap::new(),
-                provenance: "fixture".to_owned(),
-                condition: crate::policy::Condition::Always,
-            }],
-            suppressions: Default::default(),
-            reference_data: Default::default(),
-            capabilities: Vec::new(),
-        };
-        let preset = |policy: &crate::policy::ResolvedPolicy| {
-            let files = scaffold_files(policy, "example-org");
-            let file = files
-                .iter()
-                .find(|file| file.path == ".github/renovate.json")
-                .unwrap();
-            serde_json::from_slice::<serde_json::Value>(&file.contents).unwrap()["extends"].clone()
-        };
-        assert_eq!(
-            preset(&policy),
-            serde_json::json!(["github>example-org/.github"])
-        );
-        policy.rules[0].params.insert(
-            "renovate-preset".to_owned(),
-            serde_json::json!("github>{owner}/custom"),
-        );
-        assert_eq!(
-            preset(&policy),
-            serde_json::json!(["github>{owner}/custom"])
-        );
-    }
 
     #[test]
     fn renovate_alignment_uses_the_observed_api_owner() {
@@ -1513,7 +1394,7 @@ mod tests {
                 .effective_policy
                 .push(crate::findings::EffectiveRule {
                     rule: "REPO-FILE-08".to_owned(),
-                    severity: "required".to_owned(),
+                    severity: "advisory".to_owned(),
                     params: BTreeMap::new(),
                     provenance: "fixture".to_owned(),
                 });
@@ -1539,7 +1420,7 @@ mod tests {
             .effective_policy
             .push(crate::findings::EffectiveRule {
                 rule: "REPO-FILE-08".to_owned(),
-                severity: "required".to_owned(),
+                severity: "advisory".to_owned(),
                 params: BTreeMap::new(),
                 provenance: "fixture".to_owned(),
             });
@@ -1596,21 +1477,21 @@ mod tests {
                 commit: None,
                 sources: Vec::new(),
                 bundle_digest: format!("sha256:{}", "b".repeat(64)),
-                gate: Gate::Blocking,
             },
             Vec::new(),
             Vec::new(),
             vec![Finding {
                 rule: rule.to_owned(),
                 statement: "fixture".to_owned(),
-                severity: "required".to_owned(),
-                status: Status::Fail,
+                severity: "advisory".to_owned(),
+                status: Some(Status::Gap),
                 evidence: None,
                 remediation: None,
                 remediation_class: RemediationClass::for_rule(rule),
                 suppression: None,
                 source: Some("working-tree".to_owned()),
                 error: None,
+                routing: None,
             }],
         )
     }
@@ -1800,5 +1681,99 @@ jobs:
         assert!(safe_repository_path(".github/workflows/ci.yml"));
         assert!(!safe_repository_path("../outside"));
         assert!(!safe_repository_path("/outside"));
+    }
+    #[test]
+    fn scaffolded_bytes_are_the_bytes_the_deterministic_author_would_write() {
+        let preset = "github>example-org/.github";
+        let policy = crate::policy::ResolvedPolicy {
+            name: "fixture".to_owned(),
+            source: "fixture".to_owned(),
+            commit: None,
+            bundle_digest: "digest".to_owned(),
+            sources: Vec::new(),
+
+            rules: vec![crate::policy::RuleInstance {
+                def: crate::registry::find("REPO-FILE-08").expect("registered rule"),
+                severity: crate::registry::Severity::Advisory,
+                params: BTreeMap::from([("renovate-preset".to_owned(), serde_json::json!(preset))]),
+                provenance: "fixture".to_owned(),
+            }],
+            suppressions: Default::default(),
+            reference_data: Default::default(),
+            capabilities: Vec::new(),
+        };
+        let scaffolded = scaffold_files(&policy, "example-org");
+        let directory = repository();
+        let facts = worktree::read_facts(directory.path()).unwrap();
+        let authored = report("REPO-FILE-08");
+        let operations = author_for(
+            "add-renovate-config",
+            &authored.findings[0],
+            &facts,
+            Some(preset),
+        )
+        .into_operations();
+        let OperationKind::Write(expected) = &operations[0].kind else {
+            panic!("renovate author did not produce a write")
+        };
+
+        assert_eq!(scaffolded[0].path, operations[0].path);
+        assert_eq!(&scaffolded[0].contents, expected);
+    }
+    #[test]
+    fn scaffold_renovate_substitutes_the_owner_only_in_the_default() {
+        let mut policy = crate::policy::ResolvedPolicy {
+            name: "fixture".to_owned(),
+            source: "fixture".to_owned(),
+            commit: None,
+            bundle_digest: "digest".to_owned(),
+            sources: Vec::new(),
+
+            rules: vec![crate::policy::RuleInstance {
+                def: crate::registry::find("REPO-FILE-08").unwrap(),
+                severity: crate::registry::Severity::Advisory,
+                params: BTreeMap::new(),
+                provenance: "fixture".to_owned(),
+            }],
+            suppressions: Default::default(),
+            reference_data: Default::default(),
+            capabilities: Vec::new(),
+        };
+        let preset = |policy: &crate::policy::ResolvedPolicy| {
+            let files = scaffold_files(policy, "example-org");
+            let file = files
+                .iter()
+                .find(|file| file.path == ".github/renovate.json")
+                .unwrap();
+            serde_json::from_slice::<serde_json::Value>(&file.contents).unwrap()["extends"].clone()
+        };
+        assert_eq!(
+            preset(&policy),
+            serde_json::json!(["github>example-org/.github"])
+        );
+        policy.rules[0].params.insert(
+            "renovate-preset".to_owned(),
+            serde_json::json!("github>{owner}/custom"),
+        );
+        assert_eq!(
+            preset(&policy),
+            serde_json::json!(["github>{owner}/custom"])
+        );
+    }
+    #[test]
+    fn scaffold_templates_follow_selected_standards_and_skip_waivers() {
+        let mut policy = crate::checks::fixtures::policy();
+        policy.rules = vec![
+            crate::checks::fixtures::rule("REPO-LIC-01"),
+            crate::checks::fixtures::rule("REPO-FILE-05"),
+        ];
+        let files = scaffold_files(&policy, "example-org");
+        assert_eq!(files.len(), 2);
+        assert!(files.iter().any(|file| file.path == "LICENSE"));
+        assert!(files.iter().any(|file| file.path == ".editorconfig"));
+        policy.rules[1].severity = crate::registry::Severity::None;
+        let files = scaffold_files(&policy, "example-org");
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, "LICENSE");
     }
 }

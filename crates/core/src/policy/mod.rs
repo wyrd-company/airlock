@@ -20,7 +20,6 @@ use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
-use crate::findings::Gate;
 use crate::github::GitHub;
 use crate::limits::Limits;
 use crate::registry::{self, CheckDefinition, Section, Severity, REGISTRY_VERSION};
@@ -70,50 +69,6 @@ pub enum PolicySource {
     Local(PathBuf),
 }
 
-/// A named condition a capability may be applied under.
-///
-/// Conditions are built into airlock. A policy names one; it cannot define one.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Condition {
-    /// The capability always applies.
-    Always,
-    /// The capability applies when the repository declares release units.
-    IntentionalConfigPresent,
-    /// The capability applies when an organization custom property has a value.
-    CustomProperty { name: String, value: String },
-}
-
-impl Condition {
-    /// Parse a condition by name.
-    #[must_use]
-    pub fn parse(value: &str) -> Option<Self> {
-        match value {
-            "always" => Some(Condition::Always),
-            "intentional-config-present" => Some(Condition::IntentionalConfigPresent),
-            _ => None,
-        }
-    }
-
-    /// The stable machine-readable name.
-    #[must_use]
-    pub fn code(&self) -> &'static str {
-        match self {
-            Condition::Always => "always",
-            Condition::IntentionalConfigPresent => "intentional-config-present",
-            Condition::CustomProperty { .. } => "custom-property",
-        }
-    }
-
-    pub(crate) fn digest_identity(&self) -> String {
-        match self {
-            Condition::CustomProperty { name, value } => {
-                format!("custom-property\u{1f}{name}\u{1f}{value}")
-            }
-            other => other.code().to_owned(),
-        }
-    }
-}
-
 /// One rule instance in the effective, normalised policy.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RuleInstance {
@@ -125,8 +80,6 @@ pub struct RuleInstance {
     pub params: BTreeMap<String, serde_json::Value>,
     /// Where the rule came from.
     pub provenance: String,
-    /// The condition the capability that brought it in applies under.
-    pub condition: Condition,
 }
 
 impl RuleInstance {
@@ -335,8 +288,6 @@ pub struct ResolvedPolicy {
     pub bundle_digest: String,
     /// Every source in the bundle, in resolution order.
     pub sources: Vec<BundleSource>,
-    /// Which failing severities make an audit nonconformant.
-    pub gate: Gate,
     /// The effective rule instances, ordered by rule id.
     pub rules: Vec<RuleInstance>,
     /// Who may suppress what.
@@ -351,7 +302,6 @@ pub struct ResolvedPolicy {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Capability {
     pub name: String,
-    pub condition: Condition,
 }
 
 impl ResolvedPolicy {
@@ -366,9 +316,7 @@ const KNOWN_TOP_LEVEL_KEYS: &[&str] = &[
     "version",
     "name",
     "requires-registry",
-    "gate",
     "capabilities",
-    "apply",
     "checks",
     "suppressions",
     "reference-data",
@@ -434,41 +382,19 @@ mod tests {
         )
     }
 
-    #[test]
-    fn compiled_policy_retains_capability_declaration_conditions_for_scaffolding() {
-        let policy = compile_text(
-            "version: 1\nname: sample\ngate: blocking\ncapabilities:\n  base: [files]\n  package: [release]\napply:\n  base: always\n  package:\n    when:\n      property: publishes\n      value: 'true'\n",
-        )
-        .expect("policy compiles");
-        assert_eq!(
-            policy.capabilities,
-            vec![
-                Capability {
-                    name: "base".to_owned(),
-                    condition: Condition::Always,
-                },
-                Capability {
-                    name: "package".to_owned(),
-                    condition: Condition::CustomProperty {
-                        name: "publishes".to_owned(),
-                        value: "true".to_owned(),
-                    },
-                },
-            ]
-        );
-    }
-
     const MINIMAL: &str = "\
 version: 1
 name: test
-gate: blocking
 capabilities:
   base: [licensing]
 ";
 
     #[test]
     fn compiled_policy_reads_defaults_from_each_standard() {
-        let policy = compile_text("version: 1\nname: test\ngate: blocking\ncapabilities:\n  base: [identity, files, git, automation]\n").unwrap();
+        let policy = compile_text(
+            "version: 1\nname: test\ncapabilities:\n  base: [identity, files, git, automation]\n",
+        )
+        .unwrap();
         let rule = |id| policy.rules.iter().find(|rule| rule.def.id == id).unwrap();
         assert_eq!(rule("REPO-META-06").param_u64("min-topics"), Some(3));
         assert_eq!(rule("REPO-META-06").param_u64("max-topics"), Some(8));
@@ -513,10 +439,8 @@ capabilities:
 
     #[test]
     fn only_defaults_substitute_the_owner_and_only_as_literal_text() {
-        let policy = compile_text(
-            "version: 1\nname: test\ngate: blocking\ncapabilities:\n  base: [files]\n",
-        )
-        .unwrap();
+        let policy =
+            compile_text("version: 1\nname: test\ncapabilities:\n  base: [files]\n").unwrap();
         let mut rule = policy
             .rules
             .into_iter()
@@ -546,10 +470,8 @@ capabilities:
 
     #[test]
     fn explicit_empty_lists_override_defaults_and_malformed_lists_are_errors() {
-        let policy = compile_text(
-            "version: 1\nname: test\ngate: blocking\ncapabilities:\n  base: [files]\n",
-        )
-        .unwrap();
+        let policy =
+            compile_text("version: 1\nname: test\ncapabilities:\n  base: [files]\n").unwrap();
         let mut rule = policy
             .rules
             .into_iter()
@@ -570,7 +492,6 @@ capabilities:
     fn a_minimal_policy_compiles_to_its_section() {
         let policy = compile_text(MINIMAL).unwrap();
         assert_eq!(policy.name, "test");
-        assert_eq!(policy.gate, Gate::Blocking);
         assert_eq!(
             policy.rules.len(),
             registry::in_section(Section::Licensing).len()
@@ -591,13 +512,13 @@ capabilities:
     fn the_bundle_digest_moves_when_a_severity_is_refined() {
         let base = compile_text(MINIMAL).unwrap();
         let refined = compile_text(&format!(
-            "{MINIMAL}checks:\n  REPO-LIC-01:\n    severity: observation\n"
+            "{MINIMAL}checks:\n  REPO-LIC-01:\n    severity: advisory\n"
         ))
         .unwrap();
         assert_ne!(base.bundle_digest, refined.bundle_digest);
         assert_eq!(
             refined.rule("REPO-LIC-01").unwrap().severity,
-            Severity::Observation
+            Severity::Advisory
         );
     }
 
@@ -617,10 +538,8 @@ capabilities:
 
     #[test]
     fn an_unknown_section_is_a_policy_error() {
-        let error = compile_text(
-            "version: 1\nname: test\ngate: blocking\ncapabilities:\n  base: [nonsense]\n",
-        )
-        .unwrap_err();
+        let error = compile_text("version: 1\nname: test\ncapabilities:\n  base: [nonsense]\n")
+            .unwrap_err();
         assert!(error.to_string().contains("unknown section `nonsense`"));
     }
 
@@ -636,7 +555,7 @@ capabilities:
     #[test]
     fn refining_a_rule_no_capability_enables_is_a_policy_error() {
         let error = compile_text(&format!(
-            "{MINIMAL}checks:\n  REPO-CI-02:\n    severity: observation\n"
+            "{MINIMAL}checks:\n  REPO-CI-02:\n    severity: advisory\n"
         ))
         .unwrap_err();
         assert!(error.to_string().contains("no enabled capability"));
@@ -645,7 +564,7 @@ capabilities:
     #[test]
     fn an_unknown_parameter_is_a_policy_error() {
         let error = compile_text(
-            "version: 1\nname: test\ngate: blocking\ncapabilities:\n  base: [identity]\n\
+            "version: 1\nname: test\ncapabilities:\n  base: [identity]\n\
              checks:\n  REPO-META-06:\n    params: { min-topics: 3, surprise: 1 }\n",
         )
         .unwrap_err();
@@ -657,7 +576,7 @@ capabilities:
     #[test]
     fn a_declared_parameter_is_carried_onto_the_rule() {
         let policy = compile_text(
-            "version: 1\nname: test\ngate: blocking\ncapabilities:\n  base: [identity]\n\
+            "version: 1\nname: test\ncapabilities:\n  base: [identity]\n\
              checks:\n  REPO-META-06:\n    params: { min-topics: 2, max-topics: 5 }\n",
         )
         .unwrap();
@@ -688,7 +607,7 @@ capabilities:
     #[test]
     fn the_first_capability_to_name_a_rule_owns_its_provenance() {
         let policy = compile_text(
-            "version: 1\nname: test\ngate: blocking\ncapabilities:\n  base: [licensing]\n  \
+            "version: 1\nname: test\ncapabilities:\n  base: [licensing]\n  \
              extra: [licensing]\n",
         )
         .unwrap();
@@ -707,66 +626,6 @@ capabilities:
     #[test]
     fn a_satisfied_registry_requirement_compiles() {
         assert!(compile_text(&format!("{MINIMAL}requires-registry: \">=0.1\"\n")).is_ok());
-    }
-
-    #[test]
-    fn a_missing_gate_is_a_policy_error() {
-        let error = compile_text("version: 1\nname: test\ncapabilities:\n  base: [licensing]\n")
-            .unwrap_err();
-        assert!(error.to_string().contains("gate"));
-    }
-
-    #[test]
-    fn a_condition_is_carried_onto_every_rule_it_governs() {
-        let policy = compile_text(
-            "version: 1\nname: test\ngate: blocking\ncapabilities:\n  registry: [release]\n\
-             apply:\n  registry:\n    when: intentional-config-present\n",
-        )
-        .unwrap();
-        assert_eq!(
-            policy.rule("REPO-REL-01").unwrap().condition,
-            Condition::IntentionalConfigPresent
-        );
-    }
-
-    #[test]
-    fn a_custom_property_condition_carries_its_policy_owned_binding() {
-        let policy = compile_text(
-            "version: 1\nname: test\ngate: blocking\ncapabilities:\n  registry: [release]\n\
-             apply:\n  registry:\n    when:\n      property: release\n      value: \"true\"\n",
-        )
-        .unwrap();
-        assert_eq!(
-            policy.rule("REPO-REL-01").unwrap().condition,
-            Condition::CustomProperty {
-                name: "release".to_owned(),
-                value: "true".to_owned(),
-            }
-        );
-    }
-
-    #[test]
-    fn a_custom_property_binding_moves_the_policy_digest() {
-        let policy = |value: &str| {
-            compile_text(&format!(
-                "version: 1\nname: test\ngate: blocking\ncapabilities:\n  registry: [release]\napply:\n  registry:\n    when:\n      property: release\n      value: \"{value}\"\n"
-            ))
-            .unwrap()
-        };
-        assert_ne!(policy("true").bundle_digest, policy("false").bundle_digest);
-    }
-
-    #[test]
-    fn applying_an_undeclared_capability_is_a_policy_error() {
-        let error = compile_text(&format!("{MINIMAL}apply:\n  registry: always\n")).unwrap_err();
-        assert!(error.to_string().contains("does not declare"));
-    }
-
-    #[test]
-    fn an_unknown_condition_is_a_policy_error() {
-        let error =
-            compile_text(&format!("{MINIMAL}apply:\n  base:\n    when: some-day\n")).unwrap_err();
-        assert!(error.to_string().contains("unknown condition"));
     }
 
     #[test]
@@ -1084,5 +943,38 @@ capabilities:
             "test",
             "this test must not reach github",
         )
+    }
+}
+
+#[cfg(test)]
+mod outcome_contract_tests {
+    use super::*;
+
+    #[test]
+    fn retired_gate_and_apply_keys_are_refused() {
+        for retired in ["gate: blocking\n", "apply:\n  base: always\n"] {
+            let input =
+                format!("version: 1\nname: example\ncapabilities:\n  base: [licensing]\n{retired}");
+            let document = yaml::parse_mapping(&input, Limits::default().yaml).unwrap();
+            let error = compile(
+                &PolicySource::Local(PathBuf::from("policy.yml")),
+                &document,
+                BTreeMap::new(),
+                Vec::new(),
+            )
+            .unwrap_err();
+            assert!(error.to_string().contains("unknown policy key"));
+        }
+    }
+
+    #[test]
+    fn severity_names_have_only_one_meaning() {
+        assert_eq!(
+            Severity::ALL,
+            &[Severity::Blocking, Severity::Advisory, Severity::None]
+        );
+        for name in ["required", "observation"] {
+            assert_eq!(Severity::parse(name), None);
+        }
     }
 }

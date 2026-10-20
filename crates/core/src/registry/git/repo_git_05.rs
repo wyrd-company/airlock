@@ -4,17 +4,15 @@
 //   references: registry
 
 use crate::registry::{
-    Applicability, CheckDefinition, Evaluation, Lifecycle, Observation, Section, Severity,
-    MERGE_SETTINGS_DISCLOSURE,
+    CheckDefinition, Lifecycle, Observation, Section, Severity, MERGE_SETTINGS_DISCLOSURE,
 };
 use crate::remediation::{remediation, Lane};
 
 pub(crate) const STANDARD: CheckDefinition = CheckDefinition {
     id: "REPO-GIT-05",
     statement: "Squash merge is enabled",
-    severity: Severity::Required,
+    severity: Severity::Advisory,
     section: Section::Git,
-    evaluation: Evaluation::Mechanical,
     params: &[],
     guidance: "`gh repo view --json squashMergeAllowed`",
     remediation: remediation(
@@ -25,8 +23,9 @@ pub(crate) const STANDARD: CheckDefinition = CheckDefinition {
         true,
     ),
     lifecycle: Lifecycle::Seeded,
-    applicability: Applicability::Always,
     observation: Observation::Platform,
+    api_gate: false,
+    owner_gate: false,
     disclosure_gate: Some(&MERGE_SETTINGS_DISCLOSURE),
-    evaluation_reason: None,
+    unbuilt_reason: None,
 };

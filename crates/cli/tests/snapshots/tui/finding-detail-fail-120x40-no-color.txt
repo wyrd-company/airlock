@@ -2,8 +2,8 @@ finding-detail-fail-120x40-no-color · 120x40 · theme dark · NO_COLOR
 --- text ---
 AIRLOCK 0.0.0  …ations › repositories › findings › finding detail  no credential stored · tty required · theme t · dark 
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-▌ REPO-GIT-01   ✗    │   │  fail  ███ blocking                                                                          
-gates the run: fail at blocking severity, which the required gate enforces                                              
+▌ REPO-GIT-01   ✗    │   │  gap  ███ blocking                                                                           
+Blocking Gap: the audit exits 1 when no run error is present.                                                           
                                                                                                                         
 the condition REPO-GIT-01 states                                                                                        
                                                                                                                         
@@ -24,26 +24,26 @@ remediation_class
                                                                                                                         
 WHY THIS RULE APPLIES                                                                                                   
 severity              blocking                                                                                          
-evaluation            mechanical                                                                                        
+evaluation            compiled                                                                                          
 section               git                                                                                               
 provenance            capability:base/git                                                                               
                                                                                                                         
 RUN PROVENANCE                                                                                                          
 airlock               0.0.0                                                                                             
-registry              0.4.0                                                                                             
-digest                sha256:5c8813c3bfc7bd06c869e72aeada56f1b256066e4349022b3a93a78e18f3f74b                           
-schema                1                                                                                                 
+registry              0.5.0                                                                                             
+digest                sha256:57150107b0eb125895831f98843953d413189f50c8454d1f38d533d0fe7f53bd                           
+schema                2                                                                                                 
 commit                aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa                                                          
 observed              2026-01-02T03:04:05Z                                                                              
                                                                                                                         
-— 0 lines above · 4 below · ↑↓ moves the window —                                                                       
+— 0 lines above · 2 below · ↑↓ moves the window —                                                                       
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 esc back · a remediation transcript · o re-observe this rule · y copy the rule id · t theme · ctrl-c exit               
-decided · gating · gates the run                                                                                        
+decided · gating · blocking Gap                                                                                         
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-bbaaaaaaaaaaabbbbbbbbbbbbbbbaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+bbaaaaaaaaaaabbbbbbbbbbbbbbbaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
