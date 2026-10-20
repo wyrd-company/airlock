@@ -108,25 +108,8 @@ pub(crate) async fn gather<G: GitHub>(
     let Some(rule) = policy.rule(RULE).filter(|r| r.severity != Severity::None) else {
         return Ok(Vec::new());
     };
-    if policy
-        .suppressions
-        .direct_for(RULE, &snapshot.repository.full_name)
-        .is_some()
-    {
-        return Ok(Vec::new());
-    }
     // The compiled release-unit boundary is settled before any template API read.
-    let in_scope = snapshot
-        .file(".intentional/config.yml")
-        .text()
-        .and_then(|text| crate::yaml::parse_mapping(text, snapshot.limits.yaml).ok())
-        .and_then(|doc| {
-            doc.get("release-units")
-                .and_then(crate::yaml::Yaml::as_map)
-                .map(|entries| !entries.is_empty())
-        })
-        .unwrap_or(false);
-    if !in_scope {
+    if crate::checks::release_units(snapshot).is_err() {
         return Ok(Vec::new());
     }
     let entries = config::expected(rule)

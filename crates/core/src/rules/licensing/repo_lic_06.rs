@@ -21,6 +21,8 @@ pub(crate) const RULE: RuleDefinition = RuleDefinition {
         "Record the reason for the non-default licence in the README or a decision record.",
         true,
     ),
+    since: "0.6.0",
+    allow_override: true,
     lifecycle: Lifecycle::Seeded,
     observation: Observation::FileTree,
     api_gate: false,

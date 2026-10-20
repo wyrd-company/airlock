@@ -278,7 +278,7 @@ fn digest_region(styles: Styles, width: usize, inspector: &Inspector) -> Vec<Lin
         width,
         "computed over",
         "every rule the compiled rules declare: its id, its statement, its \
-         default severity, its section, and its evaluation mode.",
+         default severity, unbuilt boundary, release-unit scope, required topic categories, since release and override permission.",
     ));
     lines.extend(value(
         styles,

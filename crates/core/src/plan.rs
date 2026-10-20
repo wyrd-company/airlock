@@ -268,6 +268,7 @@ mod tests {
 
     fn finding(rule: &str, status: Option<Status>) -> Finding {
         Finding {
+            new: false,
             rule: rule.to_owned(),
             statement: format!("{rule} holds"),
             severity: "blocking".to_owned(),

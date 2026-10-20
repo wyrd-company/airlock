@@ -40,7 +40,7 @@ const FILES: &[(&str, &str)] = &[
     ("references/templates/lefthook.yml", include_str!("../skills/repository-standards/references/templates/lefthook.yml")),
     ("references/templates/reconcile-settings.yml", include_str!("../skills/repository-standards/references/templates/reconcile-settings.yml")),
     ("references/templates/renovate.json", include_str!("../skills/repository-standards/references/templates/renovate.json")),
-    ("references/templates/repo-settings.yml", include_str!("../skills/repository-standards/references/templates/repo-settings.yml")),
+    ("references/templates/airlock.yml", include_str!("../skills/repository-standards/references/templates/airlock.yml")),
     ("references/templates/taskfile.yml", include_str!("../skills/repository-standards/references/templates/taskfile.yml")),
 ];
 

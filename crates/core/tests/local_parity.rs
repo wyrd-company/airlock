@@ -47,8 +47,8 @@ const FIXTURES: &[Fixture] = &[
     File("AGENTS.md", "Widget conventions.\n"),
     Symlink("CLAUDE.md", "AGENTS.md"),
     File(
-        ".github/repo-settings.yml",
-        "description: A thing that widgets.\ntopics: [cli, rust-crate, widgets]\nmerge:\n  squash: true\n  rebase: true\n  merge-commit: false\n  delete-branch-on-merge: true\n",
+        ".github/airlock.yml",
+        "version: 0.6.0\ndescription: A thing that widgets.\ntopics: [cli, rust-crate, widgets]\nmerge:\n  squash: true\n  rebase: true\n  merge_commit: false\n  delete_branch_on_merge: true\n",
     ),
     File(
         ".github/workflows/ci.yml",
@@ -262,8 +262,9 @@ fn full_policy() -> ResolvedPolicy {
             })
             .collect(),
         suppressions: Default::default(),
-        reference_data: BTreeMap::new(),
-        capabilities: Vec::new(),
+
+        accepted_version: airlock_core::policy::current_generation(),
+        exceptions: Default::default(),
     }
 }
 
@@ -497,7 +498,7 @@ async fn an_uncommitted_suppression_request_suppresses_nothing() {
     // The request exists only in the working tree, never committed.
     std::fs::write(
         repo.path().join(".github/airlock.yml"),
-        "version: 1\nsuppress:\n  - rule: REPO-FILE-14\n    reason: we like CODEOWNERS\n",
+        "version: 0.6.0\nexceptions:\n  REPO-FILE-14:\n    reason: Focused fixture waiver\n    severity: none\n",
     )
     .expect("write");
 
@@ -584,6 +585,15 @@ async fn decided_outcomes_match_the_integration_base() {
                 .unwrap_or_else(|| {
                     panic!("{name}: previously decided {id} no longer has a compiled outcome")
                 });
+            // The consolidated declaration fixture uses the supported underscore keys.
+            if !empty && id == "REPO-META-11" {
+                assert_eq!(finding.status_code(), "met");
+                assert_eq!(
+                    finding.evidence.as_ref().unwrap().code,
+                    "merge_settings_declared"
+                );
+                continue;
+            }
             assert_eq!(
                 finding.status_code(),
                 base["status"].as_str().unwrap(),
@@ -855,6 +865,27 @@ fn include_namespaces_only_reach_the_scope_gate_when_a_comparison_is_needed() {
     assert!(report.findings.is_empty());
 }
 
+fn configure_topics(policy: &mut ResolvedPolicy, topics: airlock_core::yaml::Yaml) {
+    for rule in &mut policy.rules {
+        rule.params.insert("topics".into(), yaml_json(&topics));
+    }
+}
+
+fn yaml_json(value: &airlock_core::yaml::Yaml) -> serde_json::Value {
+    use airlock_core::yaml::Yaml;
+    match value {
+        Yaml::Null => serde_json::Value::Null,
+        Yaml::Bool(v) => (*v).into(),
+        Yaml::Int(v) => (*v).into(),
+        Yaml::Float(v) => serde_json::json!(v),
+        Yaml::String(v) => v.clone().into(),
+        Yaml::Seq(v) => serde_json::Value::Array(v.iter().map(yaml_json).collect()),
+        Yaml::Map(v) => {
+            serde_json::Value::Object(v.iter().map(|(k, v)| (k.clone(), yaml_json(v))).collect())
+        }
+    }
+}
+
 fn topic_policy() -> ResolvedPolicy {
     let mut policy = full_policy();
     policy
@@ -869,7 +900,7 @@ fn topic_policy() -> ResolvedPolicy {
 #[test]
 fn absent_topic_configuration_waives_checks_before_reading_repository_inputs() {
     let repo = committed_repository();
-    std::fs::write(repo.path().join(".github/repo-settings.yml"), "{invalid").unwrap();
+    std::fs::write(repo.path().join(".github/airlock.yml"), "{invalid").unwrap();
     let policy = topic_policy();
     let report = audit::run_local(&policy, &options(), repo.path()).unwrap();
     assert_eq!(report.exit_code(), 0);
@@ -892,7 +923,7 @@ fn absent_topic_configuration_waives_checks_before_reading_repository_inputs() {
 #[test]
 fn partial_topic_configuration_names_missing_categories_before_reading_repository_inputs() {
     let repo = committed_repository();
-    std::fs::write(repo.path().join(".github/repo-settings.yml"), "{invalid").unwrap();
+    std::fs::write(repo.path().join(".github/airlock.yml"), "{invalid").unwrap();
     for (topics, reason) in [
         (
             "artifact-type: [cli]\n",
@@ -913,10 +944,11 @@ fn partial_topic_configuration_names_missing_categories_before_reading_repositor
     ] {
         let mut policy = topic_policy();
         policy.rules.retain(|rule| rule.def.id == "REPO-META-07");
-        policy.reference_data.insert(
-            "topics".to_owned(),
+        configure_topics(
+            &mut policy,
             airlock_core::yaml::parse_mapping(topics, Limits::default().yaml).unwrap(),
         );
+
         let report = audit::run_local(&policy, &options(), repo.path()).unwrap();
         assert_eq!(report.exit_code(), 0, "{topics}");
         assert!(report.findings.is_empty() && report.run_errors.is_empty());
@@ -937,39 +969,42 @@ fn partial_topic_configuration_names_missing_categories_before_reading_repositor
 fn configured_topics_evaluate_and_malformed_configuration_is_a_run_error() {
     let repo = committed_repository();
     let mut policy = topic_policy();
-    policy.reference_data.insert(
-        "topics".to_owned(),
+    configure_topics(
+        &mut policy,
         airlock_core::yaml::parse_mapping(
             "artifact-type: [cli]\necosystem: [rust-crate]\nother: [widgets]\n",
             Limits::default().yaml,
         )
         .unwrap(),
     );
+
     let met = audit::run_local(&policy, &options(), repo.path()).unwrap();
     assert_eq!(met.exit_code(), 0);
     assert_eq!(met.summary.met, 2);
     assert!(met.waived.is_empty());
 
-    policy.reference_data.insert(
-        "topics".to_owned(),
+    configure_topics(
+        &mut policy,
         airlock_core::yaml::parse_mapping(
             "artifact-type: [cli]\necosystem: [other]\n",
             Limits::default().yaml,
         )
         .unwrap(),
     );
+
     let gaps = audit::run_local(&policy, &options(), repo.path()).unwrap();
     assert_eq!(gaps.exit_code(), 1);
     assert_eq!(gaps.summary.gap, 2);
 
-    policy.reference_data.insert(
-        "topics".to_owned(),
+    configure_topics(
+        &mut policy,
         airlock_core::yaml::parse_mapping(
             "artifact-type: [42]\necosystem: []\n",
             Limits::default().yaml,
         )
         .unwrap(),
     );
+
     let malformed = audit::run_local(&policy, &options(), repo.path()).unwrap();
     assert_eq!(malformed.exit_code(), 2);
     assert_eq!(malformed.run_errors.len(), 2);
@@ -979,18 +1014,20 @@ fn configured_topics_evaluate_and_malformed_configuration_is_a_run_error() {
         airlock_core::yaml::Yaml::Null,
         airlock_core::yaml::Yaml::Seq(Vec::new()),
     ] {
-        policy.reference_data.insert("topics".to_owned(), malformed);
+        configure_topics(&mut policy, malformed);
+
         let report = audit::run_local(&policy, &options(), repo.path()).unwrap();
         assert_eq!(report.exit_code(), 2);
         assert_eq!(report.run_errors.len(), 2);
         assert!(report.waived.is_empty());
     }
 
-    policy.reference_data.insert(
-        "topics".to_owned(),
+    configure_topics(
+        &mut policy,
         airlock_core::yaml::parse_mapping("artifact-type: [cli]\n", Limits::default().yaml)
             .unwrap(),
     );
+
     let partial = audit::run_local(&policy, &options(), repo.path()).unwrap();
     assert_eq!(partial.waived.len(), 1);
     assert_eq!(partial.waived[0].rule, "REPO-META-07");
@@ -1058,9 +1095,23 @@ async fn template_identity_credentialed_working_tree_reads_the_configured_local_
         "templates".into(),
         serde_json::json!([{"source":"gh:example-org/catalog#bundle","ref":"main"}]),
     );
-    policy.rules[0].params.insert(
-        "record-path".into(),
-        serde_json::json!("state/applied.json"),
+    policy.exceptions.insert(
+        "REPO-TPL-01".into(),
+        airlock_core::policy::Exception {
+            reason: "Repository convention".into(),
+            repositories: std::collections::BTreeMap::from([(
+                "acme/widget".into(),
+                airlock_core::policy::Exception {
+                    reason: "Configured record".into(),
+                    params: std::collections::BTreeMap::from([(
+                        "record-path".into(),
+                        serde_json::json!("state/applied.json"),
+                    )]),
+                    ..Default::default()
+                },
+            )]),
+            ..Default::default()
+        },
     );
     let grant = airlock_core::auth::VerifiedGrant {
         kind: airlock_core::auth::TokenKind::ClassicPat,
@@ -1103,7 +1154,7 @@ fn template_identity_repository_request_cannot_override_the_compiled_rule() {
     let repo = committed_repository();
     std::fs::write(
         repo.path().join(".github/airlock.yml"),
-        "version: 1\nsuppress:\n  - rule: REPO-TPL-01\n    reason: Fixture request\n",
+        "version: 0.6.0\nexceptions:\n  REPO-TPL-01:\n    reason: Fixture request\n    severity: none\n",
     )
     .unwrap();
     git(repo.path(), &["add", ".github/airlock.yml"]);
@@ -1125,4 +1176,25 @@ fn template_identity_repository_request_cannot_override_the_compiled_rule() {
         .policy_observations
         .iter()
         .any(|observation| observation.rule.as_deref() == Some("REPO-TPL-01")));
+}
+
+#[test]
+fn accepted_generation_reports_new_gaps_without_binding_and_repository_can_pilot() {
+    let repo = committed_repository();
+    std::fs::write(repo.path().join(".github/airlock.yml"), "version: 0.5.0\n").unwrap();
+    git(repo.path(), &["add", ".github/airlock.yml"]);
+    git(repo.path(), &["commit", "-q", "-m", "accept generation"]);
+    let mut policy = policy_with_one("REPO-FILE-14", airlock_core::rules::Severity::Blocking);
+    policy.accepted_version = semver::Version::new(0, 5, 0);
+    let new = audit::run_local(&policy, &options(), repo.path()).unwrap();
+    assert_eq!(new.exit_code(), 0);
+    assert!(new.findings[0].new);
+    assert!(new.effective_policy[0].new);
+    assert_eq!(new.findings[0].status, Some(Status::Gap));
+    std::fs::write(repo.path().join(".github/airlock.yml"), "version: 0.6.0\n").unwrap();
+    git(repo.path(), &["add", ".github/airlock.yml"]);
+    git(repo.path(), &["commit", "-q", "-m", "pilot generation"]);
+    let accepted = audit::run_local(&policy, &options(), repo.path()).unwrap();
+    assert_eq!(accepted.exit_code(), 1);
+    assert!(!accepted.findings[0].new);
 }

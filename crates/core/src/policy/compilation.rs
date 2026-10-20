@@ -3,270 +3,97 @@ use super::*;
 pub(super) fn compile(
     source: &PolicySource,
     document: &Yaml,
-    reference_data: BTreeMap<String, Yaml>,
     sources: Vec<BundleSource>,
 ) -> Result<ResolvedPolicy> {
+    validate_document(document)?;
+    let accepted_version = accepted_version(document)?;
+    // Organization declarations are misplaced, never silently ignored.
+    if document
+        .keys()
+        .any(|key| !["version", "exceptions"].contains(&key))
+    {
+        return Err(Error::Policy(
+            "repository declarations belong in the repository .github/airlock.yml".into(),
+        ));
+    }
+    let exceptions = super::exceptions::parse(document, false)?;
+    let mut rules: Vec<_> = rules::RULES
+        .iter()
+        .map(|def| EffectiveRule {
+            def,
+            severity: def.severity,
+            params: BTreeMap::new(),
+            provenance: "compiled".into(),
+        })
+        .collect();
+    for rule in &mut rules {
+        if let Some(exception) = exceptions.get(rule.def.id) {
+            super::exceptions::apply(rule, exception)?;
+        }
+        super::exceptions::validate_required(rule)?;
+    }
+    rules.sort_by_key(|rule| rule.def.id);
+    let bundle_digest = bundle_digest(&sources, &rules);
+    Ok(ResolvedPolicy {
+        accepted_version,
+        exceptions,
+        name: match source {
+            PolicySource::Remote { owner, .. } => owner.clone(),
+            PolicySource::Local(path) => path.display().to_string(),
+        },
+        source: source.label(),
+        commit: sources.first().and_then(|first| first.commit.clone()),
+        bundle_digest,
+        sources,
+        rules,
+        suppressions: SuppressionAuthority::default(),
+    })
+}
+
+pub(crate) fn validate_document(document: &Yaml) -> Result<()> {
     reject_unknown_keys(document, KNOWN_TOP_LEVEL_KEYS, |key| {
         Error::Policy(format!(
             "unknown policy key `{key}`; airlock accepts {}",
             KNOWN_TOP_LEVEL_KEYS.join(", ")
         ))
     })?;
-
-    match document.get("version").and_then(Yaml::as_i64) {
-        Some(POLICY_SCHEMA_VERSION) => {}
-        Some(other) => {
-            return Err(Error::Policy(format!(
-                "policy schema version {other} is not supported; airlock understands version \
-                 {POLICY_SCHEMA_VERSION}"
-            )))
-        }
-        None => {
-            return Err(Error::Policy(
-                "the policy must declare `version: 1`".to_owned(),
-            ))
-        }
-    }
-
-    let name = document
-        .get("name")
-        .and_then(Yaml::as_str)
-        .ok_or_else(|| Error::Policy("the policy must declare a `name`".to_owned()))?
-        .to_owned();
-
-    check_rules_requirement(document)?;
-
-    let capabilities = read_capabilities(document)?;
-    let mut rules = expand_capabilities(&capabilities);
-    apply_check_refinements(document, &mut rules)?;
-    super::template_exception::apply(document, &mut rules)?;
-
-    let suppressions = read_suppressions(document, &rules)?;
-
-    let mut rules: Vec<EffectiveRule> = rules.into_values().collect();
-    rules.sort_by(|left, right| left.def.id.cmp(right.def.id));
-
-    let bundle_digest = bundle_digest(&sources, &rules);
-
-    Ok(ResolvedPolicy {
-        name,
-        source: source.label(),
-        commit: sources.first().and_then(|first| first.commit.clone()),
-        bundle_digest,
-        sources,
-        rules,
-        suppressions,
-        reference_data,
-        capabilities: capabilities
-            .into_iter()
-            .map(|(name, _)| Capability { name })
-            .collect(),
-    })
-}
-
-fn check_rules_requirement(document: &Yaml) -> Result<()> {
-    let Some(requirement) = document.get("requires-rules") else {
-        return Ok(());
-    };
-    let Some(requirement) = requirement.as_str() else {
-        return Err(Error::Policy(
-            "`requires-rules` should be a semver requirement string".to_owned(),
-        ));
-    };
-    let requirement = semver::VersionReq::parse(requirement).map_err(|error| {
-        Error::Policy(format!(
-            "`requires-rules: {requirement}` is not a semver requirement: {error}"
-        ))
-    })?;
-    let version = semver::Version::parse(RULES_VERSION).map_err(|error| {
-        Error::Policy(format!("the compiled rules version is invalid: {error}"))
-    })?;
-    if !requirement.matches(&version) {
-        return Err(Error::Policy(format!(
-            "this airlock carries rules {RULES_VERSION}, which does not satisfy the \
-             policy's `requires-rules: {requirement}`"
-        )));
-    }
-    Ok(())
-}
-
-fn read_capabilities(document: &Yaml) -> Result<Vec<(String, Vec<Section>)>> {
-    let Some(capabilities) = document.get("capabilities") else {
-        return Err(Error::Policy(
-            "the policy must declare at least one capability".to_owned(),
-        ));
-    };
-    let Some(entries) = capabilities.as_map() else {
-        return Err(Error::Policy(format!(
-            "`capabilities` should be a mapping of capability name to sections, found {}",
-            capabilities.kind()
-        )));
-    };
-    if entries.is_empty() {
-        return Err(Error::Policy(
-            "the policy must declare at least one capability".to_owned(),
-        ));
-    }
-
-    let mut capabilities = Vec::new();
-    for (capability, value) in entries {
-        let Some(sections) = value.as_seq() else {
-            return Err(Error::Policy(format!(
-                "capability `{capability}` should list sections, found {}",
-                value.kind()
-            )));
-        };
-        let mut parsed = Vec::new();
-        for section in sections {
-            let Some(section) = section.as_str() else {
-                return Err(Error::Policy(format!(
-                    "capability `{capability}` should list section names as strings"
-                )));
-            };
-            let section = Section::parse(section).ok_or_else(|| {
-                Error::Policy(format!(
-                    "unknown section `{section}` in capability `{capability}`; airlock knows {}",
-                    Section::ALL
-                        .iter()
-                        .map(|section| section.code())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                ))
+    for (name, keys) in [
+        (
+            "merge",
+            &["squash", "rebase", "merge_commit", "delete_branch_on_merge"][..],
+        ),
+        (
+            "features",
+            &["wiki", "projects", "discussions", "issues"][..],
+        ),
+    ] {
+        if let Some(group) = document.get(name) {
+            if group.as_map().is_none() {
+                return Err(Error::Policy(format!("{name} must be a mapping")));
+            }
+            reject_unknown_keys(group, keys, |key| {
+                Error::Policy(format!("unknown key {key} in {name}"))
             })?;
-            parsed.push(section);
-        }
-        capabilities.push((capability.clone(), parsed));
-    }
-    Ok(capabilities)
-}
-
-/// Expand capabilities into rule instances.
-///
-/// A rule reachable through more than one capability is instantiated once; the
-/// first capability that names it, in declaration order, owns its provenance.
-fn expand_capabilities(
-    capabilities: &[(String, Vec<Section>)],
-) -> BTreeMap<&'static str, EffectiveRule> {
-    let mut rules: BTreeMap<&'static str, EffectiveRule> = BTreeMap::new();
-    for (capability, sections) in capabilities {
-        for section in sections {
-            for def in rules::in_section(*section) {
-                if def.id == "REPO-TPL-01" && capability != "rules" {
-                    continue;
-                }
-                rules.entry(def.id).or_insert_with(|| EffectiveRule {
-                    def,
-                    severity: def.severity,
-                    params: BTreeMap::new(),
-                    provenance: format!("capability:{capability}/{section}"),
-                });
-            }
-        }
-    }
-    rules
-}
-
-fn apply_check_refinements(
-    document: &Yaml,
-    rules: &mut BTreeMap<&'static str, EffectiveRule>,
-) -> Result<()> {
-    let Some(checks) = document.get("checks") else {
-        return Ok(());
-    };
-    let Some(entries) = checks.as_map() else {
-        return Err(Error::Policy(format!(
-            "`checks` should be a mapping of rule id to refinement, found {}",
-            checks.kind()
-        )));
-    };
-
-    for (id, refinement) in entries {
-        if id == "REPO-TPL-01" {
-            return Err(Error::Policy(
-                "REPO-TPL-01 is configured only through organization exceptions".into(),
-            ));
-        }
-        let def = rules::find(id).ok_or_else(|| {
-            Error::Policy(format!(
-                "`checks` names `{id}`, which is not a rule airlock knows"
-            ))
-        })?;
-        if !rules.contains_key(def.id) {
-            return Err(Error::Policy(format!(
-                "`checks` refines `{id}`, which no enabled capability brings in"
-            )));
-        }
-        let Some(fields) = refinement.as_map() else {
-            return Err(Error::Policy(format!(
-                "the `checks` entry for `{id}` should be a mapping, found {}",
-                refinement.kind()
-            )));
-        };
-        for (key, _) in fields {
-            if !["params", "severity", "enabled"].contains(&key.as_str()) {
-                return Err(Error::Policy(format!(
-                    "unknown key `{key}` in the `checks` entry for `{id}`; airlock accepts \
-                     params, severity, enabled"
-                )));
-            }
-        }
-
-        // `enabled: false` always wins, whatever else the entry says.
-        if refinement.get("enabled").and_then(Yaml::as_bool) == Some(false) {
-            rules.remove(def.id);
-            continue;
-        }
-
-        let rule = rules.get_mut(def.id).expect("membership checked above");
-        rule.provenance = format!("{};refined-by:checks", rule.provenance);
-
-        if let Some(severity) = refinement.get("severity") {
-            let Some(severity) = severity.as_str().and_then(Severity::parse) else {
-                return Err(Error::Policy(format!(
-                    "unknown severity in the `checks` entry for `{id}`; airlock accepts blocking, \
-                     required, observation"
-                )));
-            };
-            rule.severity = severity;
-        }
-
-        if let Some(params) = refinement.get("params") {
-            let Some(params) = params.as_map() else {
-                return Err(Error::Policy(format!(
-                    "`params` in the `checks` entry for `{id}` should be a mapping, found {}",
-                    params.kind()
-                )));
-            };
-            for (name, value) in params {
-                if !def.params.iter().any(|parameter| parameter.name == name) {
-                    return Err(Error::Policy(format!(
-                        "`{id}` declares no parameter `{name}`; it accepts {}",
-                        if def.params.is_empty() {
-                            "none".to_owned()
-                        } else {
-                            def.params
-                                .iter()
-                                .map(|parameter| parameter.name)
-                                .collect::<Vec<_>>()
-                                .join(", ")
-                        }
-                    )));
-                }
-                rule.params.insert(name.clone(), to_json(value));
-            }
         }
     }
     Ok(())
+}
+
+pub(crate) fn accepted_version(document: &Yaml) -> Result<semver::Version> {
+    let value = document.get("version").and_then(Yaml::as_str)
+        .ok_or_else(|| Error::Policy("configuration must declare version as an accepted Airlock release, for example 0.6.0".into()))?;
+    semver::Version::parse(value)
+        .map_err(|e| Error::Policy(format!("invalid accepted Airlock version: {e}")))
 }
 
 pub(super) fn to_json(value: &Yaml) -> serde_json::Value {
     match value {
         Yaml::Null => serde_json::Value::Null,
-        Yaml::Bool(value) => serde_json::Value::Bool(*value),
-        Yaml::Int(value) => serde_json::Value::from(*value),
+        Yaml::Bool(value) => (*value).into(),
+        Yaml::Int(value) => (*value).into(),
         Yaml::Float(value) => serde_json::Number::from_f64(*value)
             .map_or(serde_json::Value::Null, serde_json::Value::Number),
-        Yaml::String(value) => serde_json::Value::String(value.clone()),
+        Yaml::String(value) => value.clone().into(),
         Yaml::Seq(values) => serde_json::Value::Array(values.iter().map(to_json).collect()),
         Yaml::Map(entries) => serde_json::Value::Object(
             entries

@@ -32,13 +32,13 @@ fn no_declared_custom_properties(context: &AuditContext) -> Verdict {
     if declared.is_empty() {
         Verdict::pass_at(
             "no_custom_properties_declared",
-            ".github/repo-settings.yml",
+            ".github/airlock.yml",
             "no custom property values are declared",
         )
     } else {
         Verdict::fail_at(
             "custom_properties_declared",
-            ".github/repo-settings.yml",
+            ".github/airlock.yml",
             format!("the declared settings file carries {}", declared.join(", ")),
             Fix::new(
                 FixGroup::REMOVE_CUSTOM_PROPERTIES,
@@ -116,14 +116,14 @@ mod tests {
         assert_eq!(
             verdict(
                 "REPO-PROP-03",
-                &[(".github/repo-settings.yml", "properties:\n  tier: gold\n")]
+                &[(".github/airlock.yml", "properties:\n  tier: gold\n")]
             ),
             Some(Status::Gap)
         );
         assert_eq!(
             verdict(
                 "REPO-PROP-03",
-                &[(".github/repo-settings.yml", "description: x\n")]
+                &[(".github/airlock.yml", "description: x\n")]
             ),
             Some(Status::Met)
         );

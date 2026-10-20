@@ -20,6 +20,8 @@ pub(crate) const RULE: RuleDefinition = RuleDefinition {
         "Add the pull request title check workflow required by the rule; marking it required is the rulesets' operator work.",
         true,
     ),
+    since: "0.6.0",
+    allow_override: true,
     lifecycle: Lifecycle::Seeded,
     observation: Observation::FileTree,
     api_gate: false,

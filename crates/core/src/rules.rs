@@ -2,10 +2,10 @@
 //!
 //! Rule identifiers, statements, and default severities are compiled into the
 //! binary rather than loaded from the conformance document, so a released
-//! binary always reports what it actually evaluated. A policy may select,
+//! binary always reports what it actually evaluated. Organization configuration may
 //! parameterise, and re-grade a registered rule; it cannot define one.
 //!
-//! Rules are grouped into sections selected through capabilities. Each
+//! Sections group rules for presentation. Each
 //! rule declares its observation source and any API, owner, disclosure, or
 //! unbuilt boundary. Missing evidence without such a declaration is a run error.
 //!
@@ -32,7 +32,7 @@ use sha2::{Digest, Sha256};
 ///
 /// It moves when the set of rules, their statements, their default severities,
 /// or declared check boundaries change. Policies constrain it with
-/// `requires-rules`.
+/// the accepted configuration generation.
 pub const RULES_VERSION: &str = "0.6.0";
 
 /// How severely a failure counts.
@@ -75,9 +75,7 @@ impl fmt::Display for Severity {
 
 /// The section of the conformance checklist a rule belongs to.
 ///
-/// Sections are what a policy's `capabilities` select. Membership can grow as
-/// the rules grow; a policy that wants immunity from that names rule ids
-/// explicitly instead.
+/// Sections group rules for presentation and never select applicability.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Section {
     /// Organisation placement, naming, and declared metadata.
@@ -414,6 +412,8 @@ pub struct Parameter {
 /// Literal parameter defaults, with no predicates or executable computation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ParameterDefault {
+    /// Required organization configuration.
+    Required,
     /// An unsigned integer.
     Integer(u64),
     /// A string, optionally containing `{owner}`.
@@ -439,6 +439,10 @@ pub struct RuleDefinition {
     pub guidance: &'static str,
     /// The declared fix, including its delivery fix kind.
     pub fix: crate::fix::FixAvailability,
+    /// First accepted Airlock generation containing this rule.
+    pub since: &'static str,
+    /// Compiled repository override permission.
+    pub allow_override: bool,
     /// The earliest lifecycle rung; existing rules apply from seeding.
     pub lifecycle: Lifecycle,
     observation: Observation,
@@ -586,7 +590,7 @@ impl RuleDefinition {
     /// Whether the repository may override the organization rule.
     #[must_use]
     pub fn allow_override(&self) -> bool {
-        self.id != "REPO-TPL-01"
+        self.allow_override
     }
 
     #[must_use]
@@ -688,7 +692,7 @@ fn requirement_identity(check: &RuleDefinition) -> String {
         check.unbuilt_reason().unwrap_or_default(),
         check.release_units_gate,
         topics
-    )
+    ) + &format!("\u{1f}{}\u{1f}{}", check.since, check.allow_override)
 }
 
 #[cfg(test)]
@@ -826,7 +830,7 @@ mod tests {
     #[test]
     fn a_disclosure_gate_is_not_part_of_the_rules_digest() {
         // The digest attests what every rule means, which is the contract a
-        // policy binds to with `requires-rules`. Who is allowed to read the
+        // audit records in its policy bundle. Who is allowed to read the
         // answer is not part of the statement, exactly as the observation
         // domain and the fix classification are not.
         let before = digest();

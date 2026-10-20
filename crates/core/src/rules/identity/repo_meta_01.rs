@@ -8,7 +8,7 @@ use crate::rules::{Lifecycle, Observation, RuleDefinition, Section, Severity};
 
 pub(crate) const RULE: RuleDefinition = RuleDefinition {
     id: "REPO-META-01",
-    statement: "`.github/repo-settings.yml` declares a description",
+    statement: "`.github/airlock.yml` declares a description",
     severity: Severity::Blocking,
     section: Section::Identity,
     params: &[],
@@ -17,9 +17,11 @@ pub(crate) const RULE: RuleDefinition = RuleDefinition {
         "declare-description",
         "REPO-META-01",
         FixKind::Agent,
-        "Add a `description` to `.github/repo-settings.yml`.",
+        "Add a `description` to `.github/airlock.yml`.",
         true,
     ),
+    since: "0.6.0",
+    allow_override: true,
     lifecycle: Lifecycle::Seeded,
     observation: Observation::FileTree,
     api_gate: false,

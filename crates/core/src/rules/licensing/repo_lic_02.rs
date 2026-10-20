@@ -20,6 +20,8 @@ pub(crate) const RULE: RuleDefinition = RuleDefinition {
         "Replace the licence with the one the repository's category calls for.",
         false,
     ),
+    since: "0.6.0",
+    allow_override: true,
     lifecycle: Lifecycle::Seeded,
     observation: Observation::FileTree,
     api_gate: false,

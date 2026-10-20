@@ -1732,8 +1732,9 @@ async fn release_audit(
             provenance: "fixture".into(),
         }],
         suppressions: Default::default(),
-        reference_data: Default::default(),
-        capabilities: vec![],
+
+        accepted_version: airlock_core::policy::current_generation(),
+        exceptions: Default::default(),
     };
     airlock_core::audit::run(
         &client_with_page_budget(server, max_pages),

@@ -1,91 +1,22 @@
-//! Organization exception for the template identity rule.
+//! Template configuration regression coverage.
 //
 // relationships:
 //   implements: release-process-conformance
 
-use super::*;
-use crate::template_identity::config::{self, RULE};
-
-pub(super) fn apply(
-    document: &Yaml,
-    rules: &mut BTreeMap<&'static str, EffectiveRule>,
-) -> Result<()> {
-    if let Some(exceptions) = document.get("exceptions") {
-        let entries = exceptions
-            .as_map()
-            .ok_or_else(|| Error::Policy("exceptions must be a mapping".into()))?;
-        for (id, value) in entries {
-            if id != RULE {
-                return Err(Error::Policy(format!(
-                    "exceptions currently accepts only {RULE}; found {id}"
-                )));
-            }
-            let rule = rules.get_mut(RULE).ok_or_else(|| {
-                Error::Policy(format!(
-                    "{RULE} requires the release section in capability rules"
-                ))
-            })?;
-            if !rule.provenance.starts_with("capability:rules/") {
-                return Err(Error::Policy(format!(
-                    "{RULE} belongs to capability rules, never base"
-                )));
-            }
-            if value.as_map().is_none() {
-                return Err(Error::Policy(format!(
-                    "exceptions.{RULE} must be a mapping"
-                )));
-            }
-            reject_unknown_keys(
-                value,
-                &["reason", "severity", "record-path", "templates"],
-                |key| Error::Policy(format!("unknown key {key} in exceptions.{RULE}")),
-            )?;
-            if !value
-                .get("reason")
-                .and_then(Yaml::as_str)
-                .is_some_and(|r| !r.trim().is_empty())
-            {
-                return Err(Error::Policy(format!(
-                    "exceptions.{RULE} requires a reason"
-                )));
-            }
-            if let Some(severity) = value.get("severity") {
-                rule.severity = severity.as_str().and_then(Severity::parse).ok_or_else(|| {
-                    Error::Policy(format!("invalid severity in exceptions.{RULE}"))
-                })?;
-            }
-            for name in ["record-path", "templates"] {
-                if let Some(value) = value.get(name) {
-                    rule.params
-                        .insert(name.to_owned(), compilation::to_json(value));
-                }
-            }
-            rule.provenance.push_str(";configured-by:exceptions");
-        }
-    }
-    if let Some(rule) = rules.get_mut(RULE) {
-        config::validate(rule)?;
-        if config::expected(rule)?.is_empty() {
-            rule.severity = Severity::None;
-        }
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::super::*;
 
     fn compile(extra: &str) -> Result<ResolvedPolicy> {
-        let text = format!("version: 1\nname: sample\ncapabilities:\n  rules: [release]\n{extra}");
+        let text = format!("version: 0.6.0\n{extra}");
         let document = yaml::parse_mapping(&text, Limits::default().yaml).unwrap();
-        super::super::compilation::compile(
+        compilation::compile(
             &PolicySource::Local("policy.yml".into()),
             &document,
-            BTreeMap::new(),
             Vec::new(),
         )
     }
+    use crate::template_identity::config::{self, RULE};
     const VALID: &str = "exceptions:\n  REPO-TPL-01:\n    reason: Expected process\n    templates: [{source: 'gh:example-org/catalog#bundle', ref: main, parts: [alpha]}]\n";
 
     #[test]
@@ -167,18 +98,13 @@ mod tests {
     fn template_expectations_cannot_use_legacy_refinements_or_repository_overrides() {
         assert!(compile("checks:\n  REPO-TPL-01:\n    severity: none\n").is_err());
         assert!(compile("suppressions:\n  allow-repo-requests: [REPO-TPL-01]\n").is_err());
-        let document = yaml::parse_mapping(
-            "version: 1\nname: sample\ncapabilities: {base: [release]}\n",
-            Limits::default().yaml,
-        )
-        .unwrap();
-        let policy = super::super::compilation::compile(
+        let document = yaml::parse_mapping("version: 0.6.0\n", Limits::default().yaml).unwrap();
+        let policy = compilation::compile(
             &PolicySource::Local("policy.yml".into()),
             &document,
-            BTreeMap::new(),
             Vec::new(),
         )
         .unwrap();
-        assert!(policy.rule(RULE).is_none());
+        assert_eq!(policy.rule(RULE).unwrap().severity, Severity::None);
     }
 }

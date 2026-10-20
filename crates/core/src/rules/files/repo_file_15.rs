@@ -20,6 +20,8 @@ pub(crate) const RULE: RuleDefinition = RuleDefinition {
         "Remove community health files the org already provides, unless the local copy is deliberate.",
         true,
     ),
+    since: "0.6.0",
+    allow_override: true,
     lifecycle: Lifecycle::Seeded,
     observation: Observation::FileTree,
     api_gate: false,

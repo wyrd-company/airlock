@@ -20,6 +20,8 @@ pub(crate) const RULE: RuleDefinition = RuleDefinition {
         "Assert in the release workflow a successful push-event CI run for exactly that SHA.",
         true,
     ),
+    since: "0.6.0",
+    allow_override: true,
     lifecycle: Lifecycle::Seeded,
     observation: Observation::FileTree,
     api_gate: false,

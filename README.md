@@ -110,7 +110,7 @@ steps:
     env:
       AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}
     with:
-      policy: example/.github:airlock/policy.yml
+      policy: example-org/.github:.github/airlock.yml
       ref: ${{ github.sha }}
       format: json
   - if: always() && env.AIRLOCK_FINDINGS != ''
@@ -149,7 +149,7 @@ including the toolchain setup and cached source build. The positive read-only
 verification is therefore the security boundary; the Action does not claim
 credential isolation from the build it performs.
 
-With no `--policy`, airlock reads `{owner}/.github:airlock/policy.yml` for the
+With no `--policy`, airlock reads `{owner}/.github:.github/airlock.yml` for the
 audited repository's owner. Airlock ships no built-in policy, so a repository
 whose owner has none cannot be audited — that is an error, not an empty run.
 
@@ -290,8 +290,8 @@ facts can still need repository judgment and therefore remain
 `agent`.
 
 The classification is not part of the rules digest. The digest attests what
-every rule means and how it is evaluated — the contract a policy binds to with
-`requires-rules`. Fix is airlock's answer to a gap, and a better
+every rule means and how it is evaluated — the compiled rule contract. Fix is
+airlock's answer to a gap, and a better
 answer must not invalidate policy compatibility.
 
 ## Planning what would change
@@ -441,43 +441,83 @@ result with `dirty: true` describes something not yet committed, and a
 working-tree run that had to assume the default branch says so with
 `default_branch_observed: false`.
 
-## Policy
+## Configuration
 
-The policy is YAML. It selects sections of the rules through
-capabilities, refines individual rules, and decides who may suppress what.
-It expresses no logic of its own: the checks are the only place logic lives.
+Airlock reads `.github/airlock.yml` in the organization's reserved `.github`
+repository and in the audited repository. The organization file governs
+exceptions. The repository file holds declarations and exception requests.
+Unknown keys, malformed parameters and exceptions without a reason are
+configuration errors. Configuration never selects rules.
 
 ```yaml
-version: 1
-name: wyrd-company
-requires-rules: ">=0.2" # the binary's rules must satisfy this
-
-capabilities:
-  base: [identity, licensing, files, git, automation]
-  rules: [release]
-
-checks:
+# Organization .github repository: .github/airlock.yml
+version: 0.6.0
+exceptions:
   REPO-META-06:
-    params: { min-topics: 3, max-topics: 8 }
-  REPO-FILE-10:
-    severity: advisory
-  REPO-DOCS-04:
-    enabled: false
-
-suppressions:
-  allow-repo-requests: [REPO-DOCS-01, REPO-DOCS-02]
-
-reference-data:
-  topics: wyrd-company/.github:airlock/topics.yml
+    reason: Keep repository discovery concise
+    min-topics: 3
+    max-topics: 8
+  REPO-META-07:
+    reason: Shared topic vocabulary
+    topics:
+      artifact-type: [cli, library]
+      ecosystem: [rust, node]
+  REPO-META-09:
+    reason: Shared topic vocabulary
+    topics:
+      artifact-type: [cli, library]
+      ecosystem: [rust, node]
+  REPO-DOCS-01:
+    reason: Small utilities can document usage in their README
+    repositories:
+      example-org/sample:
+        reason: Usage is complete in README.md
+        severity: none
 ```
 
-Template identity uses an organization exception. Select `release` in the
-`rules` capability and list each required parent template:
+Every exception names a compiled rule. Parameters sit beside `reason` and
+`severity`. A waiver is `severity: none`; the report keeps its reason visible.
+A rule with absent required configuration is visibly not asked.
+
+```yaml
+# Audited repository: .github/airlock.yml
+version: 0.6.0
+description: A command line utility
+topics: [cli, rust]
+merge:
+  squash: true
+  rebase: true
+  merge_commit: false
+  delete_branch_on_merge: true
+exceptions:
+  REPO-DOCS-02:
+    reason: One module requires no separate architecture guide
+    severity: none
+```
+
+Each rule has a compiled `allow_override` permission. The organization can
+set `allow-override: false` on its exception to refuse repository requests.
+It cannot loosen a compiled prohibition. Refused requests remain visible in
+`policy_observations` and do not change the rule. Repository requests cannot
+set override authority. Working-tree audits read requests from the committed
+file; uncommitted requests grant nothing.
+
+`version` is the accepted Airlock generation. A repository may accept a later
+generation than its organization but cannot accept an earlier one. Each rule's
+compiled `since` release identifies its introduction. Rules newer than the
+accepted generation are evaluated and reported with `new: true`; their gaps
+do not fail the gate. Run errors still make the audit incomplete with exit 2.
+`repository_generation_cannot_lag_organization` and
+`organization_can_tighten_but_not_loosen_compiled_override_permission` pin these
+configuration boundaries.
+
+Template identity is organization-only configuration:
 
 ```yaml
 exceptions:
   REPO-TPL-01:
-    reason: Governed repositories use this release process.
+    reason: Expected release process
+    allow-override: false
     record-path: .toha.json
     templates:
       - source: gh:example-org/catalog#bundle
@@ -486,70 +526,23 @@ exceptions:
         parts: [alpha, beta]
 ```
 
-Each parent is required at its `target` (default `.`) inside the configured
-record. The recorded Git commit must be reachable from `ref` and equal to or
-descend from `minimum` when specified. Selected parts must be listed; listed
-parts need not be selected. An empty template list is visibly not configured.
-Organization policy can lower the compiled blocking severity. Repository
-refinements and suppression requests cannot override this rule.
+The existing structured template shape is validated at load. Each parent is
+required at its `target` (default `.`); recorded commits must be reachable from
+`ref` and descend from `minimum` when supplied. An empty list is visibly not
+configured. A repository request cannot waive or replace these expectations.
+`template_configuration_shape_and_compiled_prohibition_are_preserved` checks the
+configuration contract. REST tests in `template_identity.rs` cover evaluation
+and the absence of template repository requests outside scope or under a waiver.
 
-The check validates the record as JSON against the embedded Toha applied-record
-schema. JSON evidence includes each expected parent, found identity, resolved
-refs, comparison statuses and Gap reasons. Apply, update or baseline with Toha,
-select accepted parts, and commit the result to close a Gap. Missing credentials
-route the whole rule; unreadable API inputs and exhausted budgets are run errors.
-`template_audit_reads_configured_record_at_captured_commit_and_compares_both_directions`
-and `template_audit_without_credential_routes_whole_rule_without_template_api_calls`
-exercise these contracts through the REST transport and report.
+A topic parameter can also name a local or remote vocabulary file, for example
+`topics: example-org/.github:airlock/topics.yml`. Remote configuration cannot
+read local files. Configuration sources are bounded and pinned by commit/blob
+or content digest; their identities appear in `policy.sources` and contribute
+to the bundle digest. `--policy owner/repo:path[@ref]` selects an explicit
+organization source; `--policy ./path` reads one from disk.
 
-Capabilities select sections until the two-file configuration replaces this
-policy format. `apply` selectors and the separate `gate` threshold are rejected.
-Severity alone determines whether an evaluated Gap fails the audit.
-
-Anything airlock does not recognise — an unknown key, section, rule id,
-parameter, or severity — is an error, never a silently narrower
-audit. `--policy owner/repo:path[@ref]` names a policy explicitly, and
-`--policy ./path` reads a local one for development.
-
-Before any check runs, the policy and every transitive reference are resolved
-to immutable identities — a commit and blob sha for remote sources, a content
-hash for local ones — and hashed into a **policy bundle digest** that travels
-in every result alongside the rules version and digest. Two runs that agree
-on those three values ran the same rules against the same policy.
-
-Each source is also reported individually under `policy.sources`, with what it
-pinned to, so a reader who sees the bundle digest move can tell which reference
-moved it:
-
-```json
-"sources": [
-  {
-    "name": "topics",
-    "source": "wyrd-company/.github:airlock/topics.yml",
-    "commit": "def456…",
-    "blob_sha": "abc789…",
-    "content_digest": "sha256:…"
-  }
-]
-```
-
-Suppression authority lives in the policy. An audited repository's
-`.github/airlock.yml` holds _requests_:
-
-```yaml
-version: 1
-suppress:
-  - rule: REPO-DOCS-01
-    reason: "docs are design notes until the first release"
-```
-
-A request is honoured only where the policy's `allow-repo-requests` names that
-rule, and the honoured finding records both the request's reason and the
-policy's authorisation. Anything else leaves the finding exactly as it was and
-records the attempt in `policy_observations`. The repository being judged never
-controls the exceptions to the judge.
-
-Worked examples are in [`docs/examples/`](docs/examples/).
+Examples of both files are in [`docs/examples/`](docs/examples/). No file
+migration runs. An existing configuration is validated as supplied.
 
 ## Credentials
 

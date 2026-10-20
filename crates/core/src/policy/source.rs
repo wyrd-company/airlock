@@ -7,7 +7,7 @@ impl PolicySource {
         PolicySource::Remote {
             owner: owner.to_owned(),
             repo: ".github".to_owned(),
-            path: "airlock/policy.yml".to_owned(),
+            path: ".github/airlock.yml".to_owned(),
             reference: None,
         }
     }

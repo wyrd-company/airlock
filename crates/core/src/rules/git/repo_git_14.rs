@@ -20,6 +20,8 @@ pub(crate) const RULE: RuleDefinition = RuleDefinition {
         "Rename secrets and variables after what they are, not the task that introduced them.",
         true,
     ),
+    since: "0.6.0",
+    allow_override: true,
     lifecycle: Lifecycle::Seeded,
     observation: Observation::Platform,
     api_gate: false,

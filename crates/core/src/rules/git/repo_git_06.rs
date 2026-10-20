@@ -22,6 +22,8 @@ pub(crate) const RULE: RuleDefinition = RuleDefinition {
         "Enable auto-delete of head branches on merge.",
         true,
     ),
+    since: "0.6.0",
+    allow_override: true,
     lifecycle: Lifecycle::Seeded,
     observation: Observation::Platform,
     api_gate: false,

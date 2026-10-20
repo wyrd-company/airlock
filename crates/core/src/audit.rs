@@ -32,7 +32,6 @@ const AUDITED_PATHS: &[&str] = &[
     ".editorconfig",
     ".github/airlock.yml",
     ".github/renovate.json",
-    ".github/repo-settings.yml",
     ".gitattributes",
     ".gitignore",
     ".intentional/config.yml",
@@ -162,6 +161,18 @@ pub async fn run<G: GitHub>(
         snapshot.load_files(client, owner, repo, &unit_paths).await;
     }
 
+    let gathering_policy = policy.for_repository(
+        &snapshot.repository.full_name,
+        snapshot.file(".github/airlock.yml").text(),
+        &options.limits,
+    )?;
+    if let Some(rule) = gathering_policy
+        .rule("REPO-TPL-01")
+        .filter(|r| r.severity != Severity::None)
+    {
+        let path = crate::template_identity::config::record_path(rule).to_owned();
+        snapshot.load_files(client, owner, repo, &[path]).await;
+    }
     let workflows = parse_workflows(&snapshot, &workflow_paths.paths, options.limits);
     let branch = snapshot.repository.default_branch.clone();
     let commit = snapshot.commit.clone();
@@ -179,7 +190,7 @@ pub async fn run<G: GitHub>(
     )
     .await;
     let template_revisions = if grant.is_some() {
-        crate::template_identity::gather(client, &snapshot, policy).await
+        crate::template_identity::gather(client, &snapshot, &gathering_policy).await
     } else {
         Ok(Vec::new())
     };
@@ -240,6 +251,24 @@ async fn run_mixed<G: GitHub>(
         limits: options.limits,
     };
     let workflow_paths = load_local_files(&mut snapshot, &facts, options.limits, policy);
+    let gathering_policy = policy.for_repository(
+        &snapshot.repository.full_name,
+        facts.head_file(".github/airlock.yml").as_deref(),
+        &options.limits,
+    )?;
+    if let Some(rule) = gathering_policy
+        .rule("REPO-TPL-01")
+        .filter(|r| r.severity != Severity::None)
+    {
+        let path = crate::template_identity::config::record_path(rule).to_owned();
+        crate::worktree::load_files(
+            &facts,
+            &[path],
+            options.limits,
+            &mut snapshot.files,
+            &mut snapshot.bytes_read,
+        );
+    }
     let workflows = parse_workflows(&snapshot, &workflow_paths.paths, options.limits);
 
     let tags = client.tags(owner, repo).await;
@@ -256,7 +285,7 @@ async fn run_mixed<G: GitHub>(
     )
     .await;
     let template_revisions = if grant.is_some() {
-        crate::template_identity::gather(client, &snapshot, policy).await
+        crate::template_identity::gather(client, &snapshot, &gathering_policy).await
     } else {
         Ok(Vec::new())
     };
@@ -527,8 +556,18 @@ fn complete_run(
         SuppressionInput::Snapshot => context.text(".github/airlock.yml").map(ToOwned::to_owned),
         SuppressionInput::Committed(text) => text.clone(),
     };
-    let (requests, mut observations) =
-        suppression_requests(request_text.as_deref(), options.limits)?;
+    let resolved = policy.for_repository(
+        context.full_name(),
+        request_text.as_deref(),
+        &options.limits,
+    )?;
+    let policy = &resolved;
+    let (requests, mut observations) = if context.full_name().rsplit('/').next() == Some(".github")
+    {
+        (Vec::new(), Vec::new())
+    } else {
+        suppression_requests(request_text.as_deref(), options.limits)?
+    };
 
     let platform_unobserved = sources.platform.is_none();
     let mut findings = Vec::with_capacity(policy.rules.len());
@@ -536,8 +575,11 @@ fn complete_run(
 
     for rule in &policy.rules {
         let waiver = waiver_for(rule, policy, &requests, context.full_name());
+        let is_new = semver::Version::parse(rule.def.since).expect("compiled since is valid")
+            > policy.accepted_version;
         effective_policy.push(EffectiveRuleRecord {
             rule: rule.def.id.to_owned(),
+            new: is_new,
             severity: if waiver.is_some() {
                 "none".to_owned()
             } else {
@@ -585,6 +627,7 @@ fn complete_run(
 
         let fix_class = FixClass::for_observation(rule.def.id, verdict.evidence.as_ref());
         let finding = Finding {
+            new: is_new,
             rule: rule.def.id.to_owned(),
             statement: rule.def.statement.to_owned(),
             severity: if waiver.is_some() {
@@ -754,7 +797,7 @@ fn suppression_requests(
 fn waiver_for(
     rule: &crate::policy::EffectiveRule,
     policy: &ResolvedPolicy,
-    requests: &[crate::policy::SuppressionRequest],
+    _requests: &[crate::policy::SuppressionRequest],
     full_name: &str,
 ) -> Option<Suppression> {
     if rule.def.id == "REPO-TPL-01"
@@ -767,31 +810,37 @@ fn waiver_for(
             authorized_by: "REPO-TPL-01 required configuration".to_owned(),
         });
     }
-    if let Some(direct) = policy.suppressions.direct_for(rule.def.id, full_name) {
-        return Some(Suppression {
-            source: SuppressionSource::Policy,
-            requested_reason: None,
-            policy_reason: Some(direct.reason.clone()),
-            authorized_by: format!("policy `{}` suppressions.direct", policy.name),
-        });
-    }
-    if rule.def.allow_override()
+    if rule.severity == Severity::None
+        && rule.def.allow_override()
         && policy
             .suppressions
             .allow_repo_requests
             .contains(rule.def.id)
     {
-        if let Some(request) = requests.iter().find(|request| request.rule == rule.def.id) {
+        if let Some(request) = _requests.iter().find(|request| request.rule == rule.def.id) {
             return Some(Suppression {
                 source: SuppressionSource::RepositoryRequest,
                 requested_reason: Some(request.reason.clone()),
                 policy_reason: None,
-                authorized_by: format!("policy `{}` suppressions.allow-repo-requests", policy.name),
+                authorized_by: format!("organization exceptions for {}", rule.def.id),
             });
         }
     }
+    if let Some(direct) = policy.suppressions.direct_for(rule.def.id, full_name) {
+        return Some(Suppression {
+            source: SuppressionSource::Policy,
+            requested_reason: None,
+            policy_reason: Some(direct.reason.clone()),
+            authorized_by: format!("policy `{}` exceptions", policy.name),
+        });
+    }
     if let Some(categories) = rule.def.required_topic_categories() {
-        let reason = match policy.reference_data.get("topics") {
+        let reason = match rule
+            .params
+            .get("topics")
+            .map(crate::yaml::from_json)
+            .as_ref()
+        {
             None => Some("no reference data configured".to_owned()),
             Some(crate::yaml::Yaml::Map(entries)) => {
                 let mut missing: Vec<_> = categories
@@ -903,7 +952,6 @@ mod tests {
     use crate::findings::Status;
     use crate::policy::{DirectSuppression, SuppressionRequest};
     use crate::rules::Severity;
-    use std::collections::BTreeMap;
 
     fn policy_with(direct: Vec<DirectSuppression>, allowed: &[&str]) -> ResolvedPolicy {
         let mut policy = ResolvedPolicy {
@@ -915,8 +963,9 @@ mod tests {
 
             rules: Vec::new(),
             suppressions: Default::default(),
-            reference_data: BTreeMap::new(),
-            capabilities: Vec::new(),
+
+            accepted_version: crate::policy::current_generation(),
+            exceptions: Default::default(),
         };
         policy.suppressions.direct = direct;
         policy.suppressions.allow_repo_requests =
@@ -926,6 +975,7 @@ mod tests {
 
     fn failing(rule: &str) -> Finding {
         Finding {
+            new: false,
             rule: rule.to_owned(),
             statement: "statement".to_owned(),
             severity: Severity::Blocking.code().to_owned(),
@@ -997,12 +1047,9 @@ mod tests {
             reason: "docs are stubs until the first release".to_owned(),
         }];
         let mut finding = failing("REPO-DOCS-01");
-        finding.suppression = waiver_for(
-            &crate::checks::fixtures::rule(&finding.rule),
-            &policy,
-            &requests,
-            "owner/name",
-        );
+        let mut effective = crate::checks::fixtures::rule(&finding.rule);
+        effective.severity = Severity::None;
+        finding.suppression = waiver_for(&effective, &policy, &requests, "owner/name");
         if finding.suppression.is_some() {
             finding.status = None;
         }
@@ -1013,7 +1060,7 @@ mod tests {
             suppression.requested_reason.as_deref(),
             Some("docs are stubs until the first release")
         );
-        assert!(suppression.authorized_by.contains("allow-repo-requests"));
+        assert!(suppression.authorized_by.contains("exceptions"));
     }
 
     #[test]

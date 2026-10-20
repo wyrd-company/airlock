@@ -20,6 +20,8 @@ pub(crate) const RULE: RuleDefinition = RuleDefinition {
         "Publish each required GitHub Release; regenerate and commit an absent or invalid Release Model.",
         true,
     ),
+    since: "0.6.0",
+    allow_override: true,
     lifecycle: Lifecycle::Released,
     observation: Observation::Platform,
     api_gate: true,

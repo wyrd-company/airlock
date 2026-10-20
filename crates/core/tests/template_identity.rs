@@ -34,6 +34,7 @@ struct Fixture {
     record_path: &'static str,
     release_config: &'static str,
     organization_waiver: bool,
+    organization_scope: bool,
 }
 impl Fixture {
     async fn new() -> Self {
@@ -52,6 +53,7 @@ impl Fixture {
             record_path: ".toha.json",
             release_config: "release-units: {sample: {path: .}}",
             organization_waiver: false,
+            organization_scope: false,
         }
     }
     async fn run(&self, credential: bool) -> airlock_core::findings::Report {
@@ -137,12 +139,31 @@ impl Fixture {
         .unwrap();
         let dir = tempfile::tempdir().unwrap();
         let policy_path = dir.path().join("policy.yml");
+        let reason = if self.organization_waiver {
+            "Organization waiver"
+        } else {
+            "Expected process"
+        };
         let waiver = if self.organization_waiver {
-            "suppressions:\n  direct:\n    - rule: REPO-TPL-01\n      repository: owner/name\n      reason: Organization waiver\n"
+            "    severity: none\n"
         } else {
             ""
         };
-        std::fs::write(&policy_path,format!("version: 1\nname: sample\ncapabilities: {{rules: [release]}}\nexceptions:\n  REPO-TPL-01:\n    reason: Expected process\n    record-path: {}\n    templates: [{{source: '{}', ref: accepted/branch, minimum: start, parts: [alpha, beta]}}]\n{waiver}",self.record_path,SOURCE)).unwrap();
+        let entry = format!("    reason: {reason}\n{waiver}    record-path: {}\n    templates: [{{source: '{}', ref: accepted/branch, minimum: start, parts: [alpha, beta]}}]\n",self.record_path,SOURCE);
+        let entry = if self.organization_scope {
+            let nested: String = entry.lines().map(|line| format!("    {line}\n")).collect();
+            format!(
+                "    reason: Repository convention\n    repositories:\n      owner/name:\n{nested}"
+            )
+        } else {
+            entry
+        };
+        std::fs::write(
+            &policy_path,
+            format!("version: 0.6.0\nexceptions:\n  REPO-TPL-01:\n{entry}"),
+        )
+        .unwrap();
+
         let mut policy = policy::resolve(
             &client,
             &policy::PolicySource::Local(policy_path),
@@ -211,6 +232,25 @@ async fn template_audit_reads_configured_record_at_captured_commit_and_compares_
 }
 
 #[tokio::test]
+async fn template_audit_loads_the_record_selected_by_organization_repository_scope() {
+    let mut fixture = Fixture::new().await;
+    fixture.organization_scope = true;
+    fixture.record_path = "state/scoped.json";
+    let report = fixture.run(true).await;
+    assert_eq!(report.exit_code(), 0);
+    assert_eq!(report.findings[0].status_code(), "met");
+    assert_eq!(
+        report.findings[0]
+            .evidence
+            .as_ref()
+            .unwrap()
+            .path
+            .as_deref(),
+        Some("state/scoped.json")
+    );
+}
+
+#[tokio::test]
 async fn template_audit_without_release_units_makes_no_template_repository_requests() {
     let mut fixture = Fixture::new().await;
     fixture.release_config = "release-units: {}";
@@ -233,6 +273,9 @@ async fn template_audit_without_release_units_makes_no_template_repository_reque
 #[tokio::test]
 async fn template_audit_with_organization_waiver_makes_no_template_repository_requests() {
     let mut fixture = Fixture::new().await;
+    // This generally audited path keeps the valid record readable under a waiver.
+    // The file-loading severity guard must not mask the gather severity guard.
+    fixture.record_path = "README.md";
     fixture.organization_waiver = true;
     let report = fixture.run(true).await;
     assert_no_template_repository_requests(&fixture).await;

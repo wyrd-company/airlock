@@ -8,7 +8,7 @@ use crate::rules::{Lifecycle, Observation, RuleDefinition, Section, Severity};
 
 pub(crate) const RULE: RuleDefinition = RuleDefinition {
     id: "REPO-PROP-03",
-    statement: "`.github/repo-settings.yml` declares no custom property values",
+    statement: "`.github/airlock.yml` declares no custom property values",
     severity: Severity::Blocking,
     section: Section::Classification,
     params: &[],
@@ -17,9 +17,11 @@ pub(crate) const RULE: RuleDefinition = RuleDefinition {
         "remove-custom-property-values",
         "REPO-PROP-03",
         FixKind::Airlock,
-        "Remove custom property values from `.github/repo-settings.yml`.",
+        "Remove custom property values from `.github/airlock.yml`.",
         true,
     ),
+    since: "0.6.0",
+    allow_override: true,
     lifecycle: Lifecycle::Seeded,
     observation: Observation::FileTree,
     api_gate: false,

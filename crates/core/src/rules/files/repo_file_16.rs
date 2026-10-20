@@ -8,7 +8,7 @@ use crate::rules::{Lifecycle, Observation, RuleDefinition, Section, Severity};
 
 pub(crate) const RULE: RuleDefinition = RuleDefinition {
     id: "REPO-FILE-16",
-    statement: "`.github/repo-settings.yml` exists",
+    statement: "`.github/airlock.yml` exists",
     severity: Severity::Blocking,
     section: Section::Files,
     params: &[],
@@ -17,9 +17,11 @@ pub(crate) const RULE: RuleDefinition = RuleDefinition {
         "add-repo-settings",
         "REPO-FILE-16",
         FixKind::Agent,
-        "Add `.github/repo-settings.yml` declaring this repository's metadata.",
+        "Add `.github/airlock.yml` declaring this repository's metadata.",
         true,
     ),
+    since: "0.6.0",
+    allow_override: true,
     lifecycle: Lifecycle::Seeded,
     observation: Observation::FileTree,
     api_gate: false,

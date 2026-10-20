@@ -15,7 +15,7 @@
 //!
 //! Fix classification is deliberately *not* part of the rules
 //! content digest. The digest attests what every rule means and how it is
-//! evaluated — the contract a policy binds to with `requires-rules`.
+//! evaluated — the contract recorded in the policy bundle.
 //! Fix is airlock's answer to a gap, and a better answer must not
 //! invalidate policy compatibility. Two binaries that agree on the digest
 //! agree on what every rule means; they may still differ on how they would

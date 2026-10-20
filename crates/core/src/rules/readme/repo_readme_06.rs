@@ -23,6 +23,8 @@ pub(crate) const RULE: RuleDefinition = RuleDefinition {
         "Commit the demo's `.tape` source.",
         true,
     ),
+    since: "0.6.0",
+    allow_override: true,
     lifecycle: Lifecycle::Seeded,
     observation: Observation::FileTree,
     api_gate: false,

@@ -25,6 +25,8 @@ pub(crate) const RULE: RuleDefinition = RuleDefinition {
         "REPO-GIT-10",
         "Closing it means rewriting published history, which airlock does not automate.",
     ),
+    since: "0.6.0",
+    allow_override: true,
     lifecycle: Lifecycle::Seeded,
     observation: Observation::Platform,
     api_gate: false,

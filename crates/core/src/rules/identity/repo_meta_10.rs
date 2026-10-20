@@ -25,6 +25,8 @@ pub(crate) const RULE: RuleDefinition = RuleDefinition {
         "Remove org-name topics from the declared topics.",
         true,
     ),
+    since: "0.6.0",
+    allow_override: true,
     lifecycle: Lifecycle::Seeded,
     observation: Observation::FileTree,
     api_gate: false,

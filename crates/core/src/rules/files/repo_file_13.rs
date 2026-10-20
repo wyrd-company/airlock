@@ -33,6 +33,8 @@ pub(crate) const RULE: RuleDefinition = RuleDefinition {
         "Remove committed agent harness configuration directories.",
         true,
     ),
+    since: "0.6.0",
+    allow_override: true,
     lifecycle: Lifecycle::Seeded,
     observation: Observation::FileTree,
     api_gate: false,

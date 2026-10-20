@@ -96,21 +96,16 @@ proposed-design:
     parameter definitions and evaluation categories are compiled.
 
   classification-and-scope: >-
-    In the capability configuration, `REPO-TPL-01` belongs to the `rules`
-    group alongside `release`, never `base`. Capability groups select sections;
-    the org example includes the release section. Compiled release-unit boundaries
-    list rules as out-of-scope when no release units are declared, without an
-    outcome or exit effect. Scope is a declared boundary, not a policy predicate.
-    In the classification model, capability selectors disappear;
-    compiled rules use the org-owned audience, family and category that
-    identify repositories with a versioned release process. This is the same
-    release-process scope, with maturity observed separately. A repository
-    outside that scope is not governed by template identity, even when the
-    organization lists templates. A repository in scope cannot evade the
-    rule by deleting its model, record or workflow: these are evidence,
-    not classification inputs. Unclassified repositories are undeclared work,
-    not Met and not Gap. The two-file configuration carries exceptions only;
-    it does not reintroduce a capability selector.
+    Compiled rules use org-owned audience, family and category to identify
+    repositories with a versioned release process. Maturity is observed
+    separately. A repository outside this scope is not governed by template
+    identity, even when the organization lists templates. A repository in scope
+    cannot evade the rule by deleting its model, record or workflow: these are
+    evidence, not classification inputs. Unclassified repositories are
+    undeclared work, not Met and not Gap. Compiled release-unit boundaries list
+    rules as out-of-scope when no release units are declared, without an
+    outcome or exit effect. Configuration carries declarations and reasoned
+    exceptions; it cannot select sections or define scope predicates.
 
   expected-template-configuration: |-
     The organization supplies both `record-path` and `templates` under

@@ -69,6 +69,9 @@ pub fn report_text(report: &Report) -> String {
             finding.rule,
             finding.statement
         );
+        if finding.new {
+            let _ = writeln!(out, "              new rule; generation not accepted");
+        }
         if let Some(evidence) = &finding.evidence {
             let _ = writeln!(out, "              {}", evidence.detail);
         }
@@ -664,6 +667,7 @@ mod tests {
             Vec::new(),
             Vec::new(),
             vec![Finding {
+                new: false,
                 rule: "REPO-LIC-01".to_owned(),
                 statement: "A `LICENSE` file exists".to_owned(),
                 severity: "blocking".to_owned(),
@@ -677,6 +681,56 @@ mod tests {
                 routing: None,
             }],
         )
+    }
+
+    #[test]
+    fn a_new_rule_reports_its_gap_without_binding_until_accepted() {
+        let before = report();
+        let mut finding = before.findings[0].clone();
+        finding.new = true;
+        let after = Report::assemble(
+            before.airlock,
+            before.repository,
+            before.observation,
+            before.policy,
+            Vec::new(),
+            Vec::new(),
+            vec![finding.clone()],
+        );
+        assert_eq!(after.exit_code(), 0);
+        assert_eq!(after.findings[0].status, Some(Status::Gap));
+        assert!(report_text(&after).contains("new rule; generation not accepted"));
+        finding.new = false;
+        let accepted = Report::assemble(
+            after.airlock,
+            after.repository,
+            after.observation,
+            after.policy,
+            Vec::new(),
+            Vec::new(),
+            vec![finding],
+        );
+        assert_eq!(accepted.exit_code(), 1);
+    }
+
+    #[test]
+    fn a_new_rule_run_error_still_makes_the_audit_incomplete() {
+        let before = report();
+        let mut finding = before.findings[0].clone();
+        finding.new = true;
+        finding.status = None;
+        let after = Report::assemble(
+            before.airlock,
+            before.repository,
+            before.observation,
+            before.policy,
+            Vec::new(),
+            Vec::new(),
+            vec![finding],
+        );
+        assert_eq!(after.exit_code(), 2);
+        assert!(!after.complete);
+        assert_eq!(after.run_errors.len(), 1);
     }
 
     #[test]

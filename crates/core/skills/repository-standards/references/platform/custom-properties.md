@@ -16,7 +16,7 @@ this a site?_ Prefer a property over an inference wherever one exists.
 ## Properties must stay organization-managed
 
 **A property is never reconciled from the repository it classifies.** It must
-not appear in `.github/repo-settings.yml`, and no workflow may set one.
+not appear in `.github/airlock.yml`, and no workflow may set one.
 
 This is a security boundary, not a preference. Rulesets are targeted by these
 values, so a repository able to declare its own could edit one line and opt

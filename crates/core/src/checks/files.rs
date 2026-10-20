@@ -26,11 +26,7 @@ pub(crate) fn run(id: &str, rule: &EffectiveRule, context: &AuditContext) -> Opt
         "REPO-FILE-12" => claude_symlink(context),
         "REPO-FILE-13" => no_harness_config(rule, context),
         "REPO-FILE-14" => no_codeowners(context),
-        "REPO-FILE-16" => presence(
-            context,
-            ".github/repo-settings.yml",
-            ".github/repo-settings.yml",
-        ),
+        "REPO-FILE-16" => presence(context, ".github/airlock.yml", ".github/airlock.yml"),
         "REPO-FILE-17" => audit_workflow(context),
         _ => return None,
     })
@@ -422,7 +418,7 @@ mod tests {
             ("REPO-FILE-05", ".editorconfig"),
             ("REPO-FILE-09", ".config/lefthook.yml"),
             ("REPO-FILE-11", "AGENTS.md"),
-            ("REPO-FILE-16", ".github/repo-settings.yml"),
+            ("REPO-FILE-16", ".github/airlock.yml"),
         ] {
             assert_eq!(verdict(id, &[(path, "content")]), Some(Status::Met), "{id}");
             assert_eq!(verdict(id, &[]), Some(Status::Gap), "{id}");

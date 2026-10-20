@@ -35,8 +35,8 @@ proves it read-only, or refusing it.
 
 **Check identity is compiled in.** Rule ids, statements, and default severities
 live in per-rule modules under `crates/core/src/rules/`, assembled by
-`crates/core/src/rules.rs`, not in policy files. A
-policy selects, parameterises, and re-grades; it cannot define a check or
+`crates/core/src/rules.rs`, not in policy files. Organization configuration
+parameterises and re-grades; it cannot define a check or
 express a predicate. If a policy needs to say something the checks cannot, the
 answer is a new check.
 
@@ -45,7 +45,7 @@ is the failure mode that makes an audit tool untrustworthy.
 
 ## What not to touch
 
-`.github/repo-settings.yml` is the source of truth for repository metadata and
+`.github/airlock.yml` is the source of truth for repository metadata and
 is applied by an operator through Airlock's terminal interface. `airlock
 align-files` cannot apply settings. Editing settings in the GitHub web
 interface is drift, not a change; the scheduled read-only audit detects the
@@ -67,9 +67,9 @@ parameter defaults, fix kinds, lifecycle metadata, and inspection guidance.
 `references/check-guidance.md` from those modules. The embedded skill's
 workflow guidance and supporting material are hand-written.
 
-`docs/examples/` holds candidate copies of files that belong elsewhere — the
-organisation policy and its topic vocabulary live in `wyrd-company/.github`
-once an operator moves them. An integration test compiles the candidate policy
+`docs/examples/` holds organization and repository `.github/airlock.yml`
+examples that show declarations
+and exceptions. An integration test compiles the candidate configuration
 against the compiled rules, so it cannot rot in place.
 
 `action.yml` defines the adopter-facing composite Action.

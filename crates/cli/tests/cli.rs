@@ -20,12 +20,7 @@ use wiremock::MockServer;
 
 /// A policy over the licensing section only, which is small enough to reason
 /// about and contains one blocking rule.
-const LICENSING_POLICY: &str = "\
-version: 1
-name: test-policy
-capabilities:
-  base: [licensing]
-";
+const LICENSING_POLICY: &str = "# fixture-sections: licensing\nversion: 0.6.0\n";
 
 fn airlock(server: &MockServer, config: &TempDir) -> Command {
     let mut command = Command::cargo_bin("airlock").expect("the airlock binary builds");
@@ -55,9 +50,34 @@ fn offline() -> Command {
     command
 }
 
+// Tests focus on checks with explicit waivers; production config never selects rules.
+fn fixture_policy(body: &str) -> String {
+    let Some(sections) = body
+        .lines()
+        .find_map(|line| line.strip_prefix("# fixture-sections: "))
+    else {
+        return body.to_owned();
+    };
+    let sections: Vec<_> = sections.split(',').map(str::trim).collect();
+    let mut waivers = String::new();
+    for rule in airlock_core::rules::RULES {
+        if !sections.contains(&rule.section.code()) && !body.contains(&format!("  {}:", rule.id)) {
+            waivers.push_str(&format!(
+                "  {}: {{reason: Focused fixture, severity: none}}\n",
+                rule.id
+            ));
+        }
+    }
+    if body.contains("exceptions:\n") {
+        body.replacen("exceptions:\n", &format!("exceptions:\n{waivers}"), 1)
+    } else {
+        format!("{body}exceptions:\n{waivers}")
+    }
+}
+
 fn policy_path(directory: &TempDir, body: &str) -> String {
     let path = directory.path().join("policy.yml");
-    std::fs::write(&path, body).expect("the policy is written");
+    std::fs::write(&path, fixture_policy(body)).expect("the policy is written");
     path.display().to_string()
 }
 
@@ -550,18 +570,18 @@ fn renovate_repository(owner: Option<&str>, contents: Option<&str>) -> TempDir {
 }
 
 fn renovate_policy(preset: Option<&str>) -> String {
-    let mut policy = format!("{FILES_POLICY}checks:\n");
+    let mut policy = format!("{FILES_POLICY}exceptions:\n");
     for rule in airlock_core::rules::in_section(airlock_core::rules::Section::Files) {
         if rule.id != "REPO-FILE-08" {
-            policy.push_str(&format!("  {}: {{enabled: false}}\n", rule.id));
+            policy.push_str(&format!(
+                "  {}: {{reason: Focused fixture, severity: none}}\n",
+                rule.id
+            ));
         }
     }
-    policy.push_str("  REPO-FILE-08:\n    severity: blocking\n");
+    policy.push_str("  REPO-FILE-08:\n    reason: Fixture configuration\n    severity: blocking\n");
     if let Some(preset) = preset {
-        policy.push_str(&format!(
-            "    params:\n      renovate-preset: '{}'\n",
-            preset
-        ));
+        policy.push_str(&format!("    renovate-preset: '{}'\n", preset));
     }
     policy
 }
@@ -827,15 +847,7 @@ async fn an_enabled_manual_rule_does_not_make_the_audit_incomplete() {
     let repo = FakeRepo::new("wyrd-company", "example").with_file("README.md", "# example");
 
     // Manual judgment never gates, even when policy re-grades the rule.
-    let policy = "\
-version: 1
-name: test-policy
-capabilities:
-  base: [docs]
-checks:
-  REPO-DOCS-05:
-    severity: blocking
-";
+    let policy = "# fixture-sections: docs\nversion: 0.6.0\nexceptions:\n  REPO-DOCS-05:\n    reason: Fixture configuration\n    severity: blocking\n";
 
     let report = audit_json(repo, policy, 0).await;
     assert_eq!(report["outcome"], "conformant");
@@ -858,12 +870,7 @@ async fn a_plan_limitation_makes_the_audit_incomplete_rather_than_passing() {
         }),
     ));
 
-    let policy = "\
-version: 1
-name: test-policy
-capabilities:
-  base: [git]
-";
+    let policy = "# fixture-sections: git\nversion: 0.6.0\n";
 
     let report = audit_json(repo, policy, 2).await;
     assert_eq!(report["outcome"], "incomplete");
@@ -884,12 +891,7 @@ async fn agent_work_cannot_settle_when_the_audit_is_incomplete() {
             "documentation_url": "https://docs.github.com/rest/repos/rules"
         }),
     ));
-    let policy = "\
-version: 1
-name: test-policy
-capabilities:
-  base: [git]
-";
+    let policy = "# fixture-sections: git\nversion: 0.6.0\n";
 
     let list = agent_work_json(repo, policy, 2).await;
 
@@ -905,12 +907,7 @@ capabilities:
 // Suppression authority
 // ---------------------------------------------------------------------------
 
-const SUPPRESSION_REQUEST: &str = "\
-version: 1
-suppress:
-  - rule: REPO-LIC-01
-    reason: \"the licence is being chosen\"
-";
+const SUPPRESSION_REQUEST: &str = "version: 0.6.0\nexceptions:\n  REPO-LIC-01: {reason: the licence is being chosen, severity: none}\n";
 
 #[tokio::test(flavor = "multi_thread")]
 async fn an_authorised_suppression_request_is_honoured() {
@@ -920,7 +917,7 @@ async fn an_authorised_suppression_request_is_honoured() {
             "[package]\nname = \"example\"\nlicense = \"Apache-2.0\"\n",
         )
         .with_file(".github/airlock.yml", SUPPRESSION_REQUEST);
-    let policy = format!("{LICENSING_POLICY}suppressions:\n  allow-repo-requests: [REPO-LIC-01]\n");
+    let policy = LICENSING_POLICY.to_owned();
     let report = audit_json(repo, &policy, 0).await;
     let lic01 = finding(&report, "REPO-LIC-01");
     assert_eq!(lic01["status"], Value::Null);
@@ -932,7 +929,7 @@ async fn an_authorised_suppression_request_is_honoured() {
     assert!(lic01["suppression"]["authorized_by"]
         .as_str()
         .unwrap()
-        .contains("allow-repo-requests"));
+        .contains("exceptions"));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -943,7 +940,7 @@ async fn an_unauthorised_suppression_request_changes_nothing() {
             "[package]\nname = \"example\"\nlicense = \"Apache-2.0\"\n",
         )
         .with_file(".github/airlock.yml", SUPPRESSION_REQUEST);
-    let report = audit_json(repo, LICENSING_POLICY, 1).await;
+    let report = audit_json(repo, &format!("{LICENSING_POLICY}exceptions:\n  REPO-LIC-01: {{reason: Organization decision, allow-override: false}}\n"), 1).await;
     assert_eq!(finding(&report, "REPO-LIC-01")["status"], "gap");
     let observations = report["policy_observations"].as_array().unwrap();
     assert_eq!(observations.len(), 1);
@@ -957,10 +954,7 @@ async fn a_policy_suppression_is_recorded_with_its_authority() {
         "Cargo.toml",
         "[package]\nname = \"example\"\nlicense = \"Apache-2.0\"\n",
     );
-    let policy = format!(
-        "{LICENSING_POLICY}suppressions:\n  direct:\n    - rule: REPO-LIC-01\n      repository: \
-         wyrd-company/example\n      reason: \"the licence lands with the first release\"\n"
-    );
+    let policy = format!("{LICENSING_POLICY}exceptions:\n  REPO-LIC-01:\n    reason: Default license policy\n    repositories:\n      wyrd-company/example: {{reason: the licence lands with the first release, severity: none}}\n");
 
     let report = audit_json(repo, &policy, 0).await;
     let lic01 = finding(&report, "REPO-LIC-01");
@@ -992,8 +986,8 @@ async fn the_default_policy_comes_from_the_owners_dot_github_repository() {
             "[package]\nname = \"example\"\nlicense = \"Apache-2.0\"\n",
         )
         .with_file("LICENSE", "Apache");
-    let policy_repo =
-        FakeRepo::new("wyrd-company", ".github").with_file("airlock/policy.yml", LICENSING_POLICY);
+    let policy_repo = FakeRepo::new("wyrd-company", ".github")
+        .with_file(".github/airlock.yml", &fixture_policy(LICENSING_POLICY));
     let server = support::start(&[audited, policy_repo]).await;
     let config = TempDir::new().unwrap();
 
@@ -1005,7 +999,7 @@ async fn the_default_policy_comes_from_the_owners_dot_github_repository() {
     let report = json_output(&assertion.get_output().stdout);
     assert_eq!(
         report["policy"]["source"],
-        "wyrd-company/.github:airlock/policy.yml"
+        "wyrd-company/.github:.github/airlock.yml"
     );
     assert_eq!(report["policy"]["commit"], support::COMMIT);
     assert!(report["policy"]["bundle_digest"]
@@ -1019,7 +1013,7 @@ async fn the_default_policy_comes_from_the_owners_dot_github_repository() {
     assert_eq!(sources[0]["name"], "policy");
     assert_eq!(
         sources[0]["source"],
-        "wyrd-company/.github:airlock/policy.yml"
+        "wyrd-company/.github:.github/airlock.yml"
     );
     assert_eq!(sources[0]["commit"], support::COMMIT);
     assert!(sources[0]["blob_sha"].is_string());
@@ -1049,7 +1043,7 @@ async fn an_unknown_rule_in_the_policy_is_an_operational_error() {
     let config = TempDir::new().unwrap();
     let policies = TempDir::new().unwrap();
 
-    let policy = format!("{LICENSING_POLICY}checks:\n  REPO-NOPE-99:\n    enabled: false\n");
+    let policy = format!("{LICENSING_POLICY}exceptions:\n  REPO-NOPE-99:\n    reason: Unknown rule fixture\n    severity: none\n");
 
     airlock(&server, &config)
         .args([
@@ -1095,22 +1089,16 @@ async fn an_adversarial_policy_is_refused_rather_than_parsed() {
     let config = TempDir::new().unwrap();
 
     let bomb = format!(
-        "version: 1\nname: a\ncapabilities:\n  base: [licensing]\n{}",
+        "# fixture-sections: licensing\nversion: 0.6.0\n{}",
         alias_bomb()
     );
     let cases: &[(&str, &str)] = &[
-        (
-            "duplicate keys",
-            "version: 1\nname: a\nname: b\ncapabilities:\n  base: [licensing]\n",
-        ),
-        (
-            "a custom tag",
-            "version: 1\nname: !surprise a\ncapabilities:\n  base: [licensing]\n",
-        ),
+        ("duplicate keys", "version: 0.6.0\nversion: 0.7.0\n"),
+        ("a custom tag", "version: !surprise 0.6.0\n"),
         ("an alias bomb", &bomb),
         (
             "a non-string key",
-            "version: 1\nname: a\ncapabilities:\n  base: [licensing]\n1: two\n",
+            "# fixture-sections: licensing\nversion: 0.6.0\n1: two\n",
         ),
     ];
 
@@ -1314,16 +1302,15 @@ async fn the_candidate_organisation_policy_compiles_and_resolves_its_reference_d
         .and_then(std::path::Path::parent)
         .expect("the workspace root is two levels above the cli crate")
         .to_path_buf();
-    let policy = repository_root.join("docs/examples/wyrd-policy.yml");
-    let topics = std::fs::read_to_string(repository_root.join("docs/examples/wyrd-topics.yml"))
-        .expect("the candidate topic vocabulary is committed");
+    let policy = repository_root.join("docs/examples/org-airlock.yml");
+    let topics = "artifact-type: [cli]\necosystem: [rust]\n";
 
     let audited = FakeRepo::new("wyrd-company", "example")
         .with_custom_property("release", "false")
         .with_file("LICENSE", "Apache License 2.0")
         .with_file("README.md", "# example");
     let policy_repo =
-        FakeRepo::new("wyrd-company", ".github").with_file("airlock/topics.yml", &topics);
+        FakeRepo::new("wyrd-company", ".github").with_file("airlock/topics.yml", topics);
     let server = support::start(&[audited, policy_repo]).await;
     let config = TempDir::new().unwrap();
 
@@ -1346,7 +1333,7 @@ async fn the_candidate_organisation_policy_compiles_and_resolves_its_reference_d
     );
 
     let report = json_output(&output.stdout);
-    assert_eq!(report["policy"]["name"], "wyrd-company");
+    assert_eq!(report["policy"]["name"], policy.display().to_string());
     // The reference data was pinned into the bundle, not merely mentioned.
     assert!(report["policy"]["bundle_digest"]
         .as_str()
@@ -1364,12 +1351,7 @@ async fn the_candidate_organisation_policy_compiles_and_resolves_its_reference_d
 /// merge-behaviour rules in it are graded `required`, so under this gate they
 /// would stop the run if an unanswered question stopped it regardless of why
 /// it was unanswered.
-const GIT_POLICY: &str = "\
-version: 1
-name: test-policy
-capabilities:
-  base: [git]
-";
+const GIT_POLICY: &str = "# fixture-sections: git\nversion: 0.6.0\n";
 
 /// The shape of every scheduled run: read-only facts, merge settings
 /// undisclosed because GitHub discloses them to write-capable tokens only, and
@@ -1500,12 +1482,7 @@ async fn plan_names_what_requires_admin_access_to_verify() {
 /// A policy over the files section, whose rules include two negative
 /// assertions — "no harness configuration" and "no CODEOWNERS" — that a
 /// partial tree cannot support.
-const FILES_POLICY: &str = "\
-version: 1
-name: test-policy
-capabilities:
-  base: [files]
-";
+const FILES_POLICY: &str = "# fixture-sections: files\nversion: 0.6.0\n";
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_truncated_tree_cannot_produce_a_clean_audit() {
@@ -1523,7 +1500,7 @@ async fn a_truncated_tree_cannot_produce_a_clean_audit() {
         .with_file(".config/lefthook.yml", "pre-commit:\n  jobs: []\n")
         .with_file("AGENTS.md", "guidance")
         .with_file(".devcontainer/devcontainer.json", "{}")
-        .with_file(".github/repo-settings.yml", "description: x\n")
+        .with_file(".github/airlock.yml", "version: 0.6.0\ndescription: x\n")
         .with_file(
             ".github/renovate.json",
             "{\"extends\":[\"github>owner/.github\"]}",
@@ -1580,15 +1557,13 @@ async fn every_policy_reference_is_resolved_and_pinned_into_the_bundle() {
     let filler = "x".repeat(4096);
     let policy_repo = FakeRepo::new("wyrd-company", ".github")
         .with_file(
-            "airlock/policy.yml",
+            ".github/airlock.yml",
             &format!(
-                "{LICENSING_POLICY}reference-data:\n  \
-                 first: wyrd-company/.github:airlock/first.yml\n  \
-                 second: wyrd-company/.github:airlock/second.yml\n"
+                "{LICENSING_POLICY}exceptions:\n  REPO-META-07: {{reason: Vocabulary, topics: wyrd-company/.github:airlock/first.yml}}\n  REPO-META-09: {{reason: Vocabulary, topics: wyrd-company/.github:airlock/second.yml}}\n"
             ),
         )
-        .with_file("airlock/first.yml", &format!("padding: {filler}\n"))
-        .with_file("airlock/second.yml", &format!("padding: {filler}\n"));
+        .with_file("airlock/first.yml", &format!("padding: [{filler}]\n"))
+        .with_file("airlock/second.yml", &format!("padding: [{filler}]\n"));
     let server = support::start(&[audited, policy_repo]).await;
     let config = TempDir::new().unwrap();
 
@@ -1612,8 +1587,7 @@ async fn every_policy_reference_is_resolved_and_pinned_into_the_bundle() {
         .map(|source| source["name"].as_str().unwrap())
         .collect();
     assert!(names.contains(&"policy"));
-    assert!(names.contains(&"first"));
-    assert!(names.contains(&"second"));
+    assert_eq!(names.iter().filter(|name| **name == "topics").count(), 2);
     for source in sources {
         assert!(source["content_digest"]
             .as_str()
@@ -1621,13 +1595,9 @@ async fn every_policy_reference_is_resolved_and_pinned_into_the_bundle() {
             .starts_with("sha256:"));
     }
     // The two references are remote, so they pin to a commit and a blob.
-    for name in ["first", "second"] {
-        let source = sources
-            .iter()
-            .find(|source| source["name"] == name)
-            .unwrap();
+    for source in sources.iter().filter(|source| source["name"] == "topics") {
         assert_eq!(source["commit"], support::COMMIT);
-        assert!(source["blob_sha"].is_string(), "{name}");
+        assert!(source["blob_sha"].is_string());
     }
 }
 
@@ -1638,8 +1608,7 @@ async fn a_truncated_input_remains_a_run_error_without_apply_selection() {
         .and_then(std::path::Path::parent)
         .expect("the workspace root is two levels above the cli crate")
         .to_path_buf();
-    let topics = std::fs::read_to_string(repository_root.join("docs/examples/wyrd-topics.yml"))
-        .expect("the candidate topic vocabulary is committed");
+    let topics = "artifact-type: [cli]\necosystem: [rust]\n";
 
     let audited = FakeRepo::new("wyrd-company", "example")
         .with_null_custom_property("unrelated-null")
@@ -1648,7 +1617,7 @@ async fn a_truncated_input_remains_a_run_error_without_apply_selection() {
         .with_file("LICENSE", "Apache License 2.0")
         .with_file("README.md", "# example");
     let policy_repo =
-        FakeRepo::new("wyrd-company", ".github").with_file("airlock/topics.yml", &topics);
+        FakeRepo::new("wyrd-company", ".github").with_file("airlock/topics.yml", topics);
     let server = support::start(&[audited, policy_repo]).await;
     let config = TempDir::new().unwrap();
 
@@ -1658,7 +1627,7 @@ async fn a_truncated_input_remains_a_run_error_without_apply_selection() {
             "wyrd-company/example",
             "--policy",
             &repository_root
-                .join("docs/examples/wyrd-policy.yml")
+                .join("docs/examples/org-airlock.yml")
                 .display()
                 .to_string(),
             "--format",
@@ -1675,21 +1644,20 @@ async fn a_truncated_input_remains_a_run_error_without_apply_selection() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn declared_properties_do_not_select_rules_before_the_configuration_replacement() {
+async fn declared_properties_do_not_select_rules_through_configuration() {
     let repository_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(std::path::Path::parent)
         .expect("the workspace root is two levels above the cli crate")
         .to_path_buf();
-    let topics = std::fs::read_to_string(repository_root.join("docs/examples/wyrd-topics.yml"))
-        .expect("the candidate topic vocabulary is committed");
+    let topics = "artifact-type: [cli]\necosystem: [rust]\n";
 
     let audited = FakeRepo::new("wyrd-company", "example")
         .with_custom_property("release", "false")
         .with_file("LICENSE", "Apache License 2.0")
         .with_file("README.md", "# example");
     let policy_repo =
-        FakeRepo::new("wyrd-company", ".github").with_file("airlock/topics.yml", &topics);
+        FakeRepo::new("wyrd-company", ".github").with_file("airlock/topics.yml", topics);
     let server = support::start(&[audited, policy_repo]).await;
     let config = TempDir::new().unwrap();
 
@@ -1699,7 +1667,7 @@ async fn declared_properties_do_not_select_rules_before_the_configuration_replac
             "wyrd-company/example",
             "--policy",
             &repository_root
-                .join("docs/examples/wyrd-policy.yml")
+                .join("docs/examples/org-airlock.yml")
                 .display()
                 .to_string(),
             "--format",
@@ -1712,7 +1680,7 @@ async fn declared_properties_do_not_select_rules_before_the_configuration_replac
     assert_eq!(finding(&report, "REPO-REL-01")["status"], "gap");
     assert_eq!(assertion.get_output().status.code(), Some(1));
     assert_eq!(report["summary"]["run_errors"], 0);
-    assert_eq!(report["summary"]["out_of_scope"], 5);
+    assert_eq!(report["summary"]["out_of_scope"], 6);
     let scoped = finding(&report, "REPO-GIT-09");
     assert_eq!(scoped["status"], Value::Null);
     assert_eq!(scoped["routing"]["reason"], "out-of-scope");

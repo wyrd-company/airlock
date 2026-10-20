@@ -382,6 +382,7 @@ mod tests {
         source: Option<&str>,
     ) -> Finding {
         Finding {
+            new: false,
             rule: rule.to_owned(),
             statement: format!("statement for {rule}"),
             severity: severity.to_owned(),

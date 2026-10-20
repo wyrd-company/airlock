@@ -302,6 +302,8 @@ pub struct Suppression {
 /// One rule's result.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Finding {
+    /// Evaluated but not binding until its introduction generation is accepted.
+    pub new: bool,
     /// The rule id.
     pub rule: String,
     /// The rule statement, verbatim.
@@ -393,6 +395,8 @@ pub struct PolicyObservation {
 /// One rule instance in the effective, normalised policy.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct EffectiveRuleRecord {
+    /// Whether the rule is newer than the accepted generation.
+    pub new: bool,
     /// The rule id.
     pub rule: String,
     /// The severity that applies after refinement.
@@ -655,7 +659,7 @@ impl Report {
         let complete = run_errors.is_empty();
         let conformant = !decided
             .iter()
-            .any(|f| f.status == Some(Status::Gap) && f.severity == "blocking");
+            .any(|f| f.status == Some(Status::Gap) && f.severity == "blocking" && !f.new);
 
         let outcome = if !complete {
             AuditResult::Incomplete

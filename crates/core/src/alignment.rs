@@ -527,7 +527,7 @@ fn author_for(
         | "declare-merge-settings"
         | "remove-visibility-field"
         | "remove-custom-property-values" => {
-            yaml_transform_operation(".github/repo-settings.yml", finding, facts, code)
+            yaml_transform_operation(".github/airlock.yml", finding, facts, code)
         }
         "set-include-dirs" | "align-include-namespaces" => {
             yaml_transform_operation("taskfile.yml", finding, facts, code)
@@ -1393,6 +1393,7 @@ mod tests {
             observed
                 .effective_policy
                 .push(crate::findings::EffectiveRuleRecord {
+                    new: false,
                     rule: "REPO-FILE-08".to_owned(),
                     severity: "advisory".to_owned(),
                     params: BTreeMap::new(),
@@ -1419,6 +1420,7 @@ mod tests {
         observed
             .effective_policy
             .push(crate::findings::EffectiveRuleRecord {
+                new: false,
                 rule: "REPO-FILE-08".to_owned(),
                 severity: "advisory".to_owned(),
                 params: BTreeMap::new(),
@@ -1481,6 +1483,7 @@ mod tests {
             Vec::new(),
             Vec::new(),
             vec![Finding {
+                new: false,
                 rule: rule.to_owned(),
                 statement: "fixture".to_owned(),
                 severity: "advisory".to_owned(),
@@ -1614,11 +1617,11 @@ mod tests {
         let directory = repository();
         fs::create_dir_all(directory.path().join(".github")).unwrap();
         fs::write(
-            directory.path().join(".github/repo-settings.yml"),
+            directory.path().join(".github/airlock.yml"),
             "# comments only\n",
         )
         .unwrap();
-        git(directory.path(), &["add", ".github/repo-settings.yml"]);
+        git(directory.path(), &["add", ".github/airlock.yml"]);
         git(directory.path(), &["commit", "-q", "-m", "settings"]);
 
         let result = author(directory.path(), &report("REPO-META-11")).unwrap();
@@ -1699,8 +1702,9 @@ jobs:
                 provenance: "fixture".to_owned(),
             }],
             suppressions: Default::default(),
-            reference_data: Default::default(),
-            capabilities: Vec::new(),
+
+            accepted_version: crate::policy::current_generation(),
+            exceptions: Default::default(),
         };
         let scaffolded = scaffold_files(&policy, "example-org");
         let directory = repository();
@@ -1736,8 +1740,9 @@ jobs:
                 provenance: "fixture".to_owned(),
             }],
             suppressions: Default::default(),
-            reference_data: Default::default(),
-            capabilities: Vec::new(),
+
+            accepted_version: crate::policy::current_generation(),
+            exceptions: Default::default(),
         };
         let preset = |policy: &crate::policy::ResolvedPolicy| {
             let files = scaffold_files(policy, "example-org");

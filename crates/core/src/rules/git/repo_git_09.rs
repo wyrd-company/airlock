@@ -17,6 +17,8 @@ pub(crate) const RULE: RuleDefinition = RuleDefinition {
         "REPO-GIT-09",
         "Closing it means re-tagging published releases — history surgery airlock does not automate.",
     ),
+    since: "0.6.0",
+    allow_override: true,
     lifecycle: Lifecycle::Seeded,
     observation: Observation::Platform,
     api_gate: false,

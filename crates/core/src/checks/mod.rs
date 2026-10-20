@@ -399,8 +399,9 @@ impl Workflow {
 
 /// Everything one audit run gathered, ready for the checks to read.
 pub struct AuditContext<'a> {
-    /// The repository at the audited commit.
+    /// Captured template revisions and ancestry comparisons.
     pub template_revisions: Result<Vec<crate::template_identity::TemplateRevision>, ApiError>,
+    /// The repository at the audited commit.
     pub snapshot: &'a RepoSnapshot,
     /// The policy the audit runs under.
     pub policy: &'a ResolvedPolicy,
@@ -410,7 +411,6 @@ pub struct AuditContext<'a> {
     pub workflows: Vec<Workflow>,
     /// Whether the workflow listing was cut short by a budget.
     pub workflows_truncated: bool,
-    /// Organization-owned custom property values assigned to this repository.
     /// The repository's tags, and whether the listing was complete.
     pub tags: Result<Paged<TagRef>, ApiError>,
     /// Captured release records and matching annotated tag objects.
@@ -463,40 +463,7 @@ impl AuditContext<'_> {
     /// Parse a YAML file from the snapshot.
     #[must_use]
     pub fn yaml(&self, path: &str) -> ParsedFile<'_> {
-        let state = self.snapshot.file(path);
-        match state {
-            FileState::Missing => ParsedFile::Missing,
-            FileState::TreeTruncated => ParsedFile::ReadError(Box::new(Verdict::run_error(
-                "tree_truncated",
-                self.snapshot
-                    .truncation_detail(&format!("whether {path} exists")),
-            ))),
-            FileState::Content { .. } => {
-                let text = state.text().unwrap_or_default();
-                match yaml::parse_mapping(text, self.limits.yaml) {
-                    Ok(document) => ParsedFile::Parsed(document),
-                    Err(error) => ParsedFile::ReadError(Box::new(Verdict::run_error(
-                        "unparseable_yaml",
-                        format!("{path} could not be parsed: {error}"),
-                    ))),
-                }
-            }
-            FileState::OverBudget { size, limit } => {
-                ParsedFile::ReadError(Box::new(Verdict::run_error(
-                    "file_over_budget",
-                    format!(
-                        "{path} is {size} bytes, over the {limit} byte limit, so it was not read"
-                    ),
-                )))
-            }
-            FileState::Unreadable(error) => {
-                ParsedFile::ReadError(Box::new(Verdict::from_api_error(error)))
-            }
-            FileState::LocalUnreadable { detail } => ParsedFile::ReadError(Box::new(
-                Verdict::run_error("local_path_unreadable", detail.clone()),
-            )),
-            FileState::Symlink { .. } | FileState::NotAFile { .. } => ParsedFile::NotAFile(state),
-        }
+        snapshot_yaml(self.snapshot, path, self.limits)
     }
 
     /// The workflow at `.github/workflows/{name}`.
@@ -508,37 +475,78 @@ impl AuditContext<'_> {
     /// Release unit paths, or the declared scope boundary when none are present.
     /// Malformed or unreadable declarations remain run errors.
     pub fn release_units(&self) -> Result<Vec<(String, String)>, Box<Verdict>> {
-        let document = match self.yaml(".intentional/config.yml") {
-            ParsedFile::Missing | ParsedFile::NotAFile(_) => {
-                return Err(Box::new(Verdict::out_of_scope()))
-            }
-            ParsedFile::ReadError(error) => return Err(error),
-            ParsedFile::Parsed(document) => document,
-        };
-        let Some(declared) = document.get("release-units") else {
-            return Err(Box::new(Verdict::out_of_scope()));
-        };
-        let Some(units) = declared.as_map() else {
-            return Err(Box::new(Verdict::run_error(
-                MALFORMED_DECLARATION,
-                "`release-units` must be a mapping",
-            )));
-        };
-        if units.is_empty() {
-            return Err(Box::new(Verdict::out_of_scope()));
+        release_units(self.snapshot)
+    }
+}
+
+/// Shared release-unit scope for input gathering and evaluation.
+pub(crate) fn release_units(
+    snapshot: &RepoSnapshot,
+) -> Result<Vec<(String, String)>, Box<Verdict>> {
+    let document = match snapshot_yaml(snapshot, ".intentional/config.yml", snapshot.limits) {
+        ParsedFile::Missing | ParsedFile::NotAFile(_) => {
+            return Err(Box::new(Verdict::out_of_scope()))
         }
-        Ok(units
-            .iter()
-            .map(|(id, unit)| {
-                let path = unit
-                    .get("path")
-                    .and_then(Yaml::as_str)
-                    .unwrap_or(".")
-                    .trim_end_matches('/')
-                    .to_owned();
-                (id.clone(), path)
-            })
-            .collect())
+        ParsedFile::ReadError(error) => return Err(error),
+        ParsedFile::Parsed(document) => document,
+    };
+    let Some(declared) = document.get("release-units") else {
+        return Err(Box::new(Verdict::out_of_scope()));
+    };
+    let Some(units) = declared.as_map() else {
+        return Err(Box::new(Verdict::run_error(
+            MALFORMED_DECLARATION,
+            "`release-units` must be a mapping",
+        )));
+    };
+    if units.is_empty() {
+        return Err(Box::new(Verdict::out_of_scope()));
+    }
+    Ok(units
+        .iter()
+        .map(|(id, unit)| {
+            let path = unit
+                .get("path")
+                .and_then(Yaml::as_str)
+                .unwrap_or(".")
+                .trim_end_matches('/')
+                .to_owned();
+            (id.clone(), path)
+        })
+        .collect())
+}
+
+fn snapshot_yaml<'a>(snapshot: &'a RepoSnapshot, path: &str, limits: Limits) -> ParsedFile<'a> {
+    let state = snapshot.file(path);
+    match state {
+        FileState::Missing => ParsedFile::Missing,
+        FileState::TreeTruncated => ParsedFile::ReadError(Box::new(Verdict::run_error(
+            "tree_truncated",
+            snapshot.truncation_detail(&format!("whether {path} exists")),
+        ))),
+        FileState::Content { .. } => {
+            let text = state.text().unwrap_or_default();
+            match yaml::parse_mapping(text, limits.yaml) {
+                Ok(document) => ParsedFile::Parsed(document),
+                Err(error) => ParsedFile::ReadError(Box::new(Verdict::run_error(
+                    "unparseable_yaml",
+                    format!("{path} could not be parsed: {error}"),
+                ))),
+            }
+        }
+        FileState::OverBudget { size, limit } => {
+            ParsedFile::ReadError(Box::new(Verdict::run_error(
+                "file_over_budget",
+                format!("{path} is {size} bytes, over the {limit} byte limit, so it was not read"),
+            )))
+        }
+        FileState::Unreadable(error) => {
+            ParsedFile::ReadError(Box::new(Verdict::from_api_error(error)))
+        }
+        FileState::LocalUnreadable { detail } => ParsedFile::ReadError(Box::new(
+            Verdict::run_error("local_path_unreadable", detail.clone()),
+        )),
+        FileState::Symlink { .. } | FileState::NotAFile { .. } => ParsedFile::NotAFile(state),
     }
 }
 
@@ -647,25 +655,25 @@ pub(crate) fn presence(context: &AuditContext, path: &str, subject: &str) -> Ver
 
 /// The declared repository settings file, or the verdict explaining why not.
 pub(crate) fn repo_settings(context: &AuditContext) -> Result<Yaml, Box<Verdict>> {
-    match context.yaml(".github/repo-settings.yml") {
+    match context.yaml(".github/airlock.yml") {
         ParsedFile::Parsed(document) => Ok(document),
         ParsedFile::ReadError(verdict) => Err(verdict),
         ParsedFile::Missing => Err(Box::new(Verdict::fail_at(
             "file_missing",
-            ".github/repo-settings.yml",
+            ".github/airlock.yml",
             "the declared settings file is absent, so nothing is declared",
             Fix::new(
                 FixGroup::ADD_FILE,
-                "Add .github/repo-settings.yml declaring the repository's metadata.",
+                "Add .github/airlock.yml declaring the repository's metadata.",
             ),
         ))),
         ParsedFile::NotAFile(_) => Err(Box::new(Verdict::fail_at(
             "path_is_not_a_file",
-            ".github/repo-settings.yml",
+            ".github/airlock.yml",
             "the declared settings path is not a regular file",
             Fix::new(
                 FixGroup::REPLACE_ENTRY,
-                "Make .github/repo-settings.yml a regular file.",
+                "Make .github/airlock.yml a regular file.",
             ),
         ))),
     }
@@ -792,7 +800,7 @@ pub(crate) fn json_strings(
 ///
 /// `Ok(None)` means no `topics` key at all.
 pub(crate) fn declared_topics(settings: &Yaml) -> Result<Option<Vec<String>>, Box<Verdict>> {
-    yaml_strings(settings, "topics", "`topics` in .github/repo-settings.yml")
+    yaml_strings(settings, "topics", "`topics` in .github/airlock.yml")
 }
 
 pub(crate) fn workflow_signals<'a>(text: &str, signals: &'a [&'a str]) -> Vec<&'a str> {
@@ -947,8 +955,9 @@ pub(crate) mod fixtures {
             sources: Vec::new(),
             rules: Vec::new(),
             suppressions: Default::default(),
-            reference_data: BTreeMap::new(),
-            capabilities: Vec::new(),
+
+            accepted_version: crate::policy::current_generation(),
+            exceptions: Default::default(),
         }
     }
 

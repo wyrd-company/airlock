@@ -4,10 +4,12 @@ AIRLOCK 0.0.0  …dings › policy inspector  no credential stored · theme t ·
 EFFECTIVE POLICY  9 rules · 6 sections                                          
                                                                                 
 RULES DIGEST                                                                    
-digest          sha256:8b8de8523ae967f71b1e3e1c1d79aef9fec1782a328f77e8e89aac191
-                59b1d4f                                                         
+digest          sha256:816e03460158be3ed7bb6a94ec9beb53de9ccc19a6bb10cb3059d4eba
+                e62b8f3                                                         
 computed over   every rule the compiled rules declare: its id, its statement,   
-                its default severity, its section, and its evaluation mode.     
+                its default severity, unbuilt boundary, release-unit scope,     
+                required topic categories, since release and override           
+                permission.                                                     
 means           two runs quoting the same digest asked the same questions.      
 excludes        fix classification. Two binaries that agree on the digest agree 
                 on what every rule means, and may still differ on how they would
@@ -19,11 +21,9 @@ rules           acme-industries/.github:rules.yml @
                 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb ·                      
                 cccccccccccccccccccccccccccccccccccccccc                        
 suppressions    policy · 1 rule(s) · — policy-sourced, not rules                
-                                                                                
-RUN PROVENANCE                                                                  
-— 0 lines above · 19 below · ↑↓ moves the window —                              
+— 0 lines above · 21 below · ↑↓ moves the window —                              
 esc back · ↑↓ move · y copy digest · t theme · ctrl-c exit                      
-rules 0.6.0 · sha256:8b8de852… · 9 rules · 6 sections                           
+rules 0.6.0 · sha256:816e0346… · 9 rules · 6 sections                           
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 ccccccccccccccccddeeeeeeeeeeeeeeeeeeeedddddddddddddddddddddddddddddddddddddddddd
@@ -33,6 +33,8 @@ ggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 ggggggggggggggggeeeeeeeddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 ggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeddd
 ggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeddddd
+ggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeddddddddddd
+ggggggggggggggggeeeeeeeeeeeddddddddddddddddddddddddddddddddddddddddddddddddddddd
 ggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeedddddd
 ggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeed
 ggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
@@ -44,8 +46,6 @@ ggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeddddddddddddddddddddddddddddd
 ggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeedddddddddddddddddddddd
 ggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeedddddddddddddddddddddddd
 ggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeedddddddddddddddd
-dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-ffffffffffffffdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 ggggggggggggggggggggggggggggggggggggggggggggggggggdddddddddddddddddddddddddddddd
 cccdeeeegggccdeeeegggcdeeeeeeeeeeegggcdeeeeegggccccccdeeeedddddddddddddddddddddd
 hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh

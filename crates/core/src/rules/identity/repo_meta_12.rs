@@ -8,7 +8,7 @@ use crate::rules::{Lifecycle, Observation, RuleDefinition, Section, Severity};
 
 pub(crate) const RULE: RuleDefinition = RuleDefinition {
     id: "REPO-META-12",
-    statement: "`.github/repo-settings.yml` declares no `visibility` field",
+    statement: "`.github/airlock.yml` declares no `visibility` field",
     severity: Severity::Blocking,
     section: Section::Identity,
     params: &[],
@@ -17,9 +17,11 @@ pub(crate) const RULE: RuleDefinition = RuleDefinition {
         "remove-visibility-field",
         "REPO-META-12",
         FixKind::Airlock,
-        "Remove the `visibility` field from `.github/repo-settings.yml`.",
+        "Remove the `visibility` field from `.github/airlock.yml`.",
         true,
     ),
+    since: "0.6.0",
+    allow_override: true,
     lifecycle: Lifecycle::Seeded,
     observation: Observation::FileTree,
     api_gate: false,

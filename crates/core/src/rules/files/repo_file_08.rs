@@ -25,6 +25,8 @@ pub(crate) const RULE: RuleDefinition = RuleDefinition {
         "Add `.github/renovate.json` extending the org preset.",
         true,
     ),
+    since: "0.6.0",
+    allow_override: true,
     lifecycle: Lifecycle::Seeded,
     observation: Observation::FileTree,
     api_gate: false,

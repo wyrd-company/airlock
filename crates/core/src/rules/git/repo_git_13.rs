@@ -20,6 +20,8 @@ pub(crate) const RULE: RuleDefinition = RuleDefinition {
         "Rename the GitHub App identity to an `<APP>_APP_ID` variable and its private key to an `<APP>_APP_PRIVATE_KEY` secret.",
         true,
     ),
+    since: "0.6.0",
+    allow_override: true,
     lifecycle: Lifecycle::Seeded,
     observation: Observation::FileTree,
     api_gate: false,

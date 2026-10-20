@@ -649,7 +649,11 @@ fn row(
         statement: drawable(&finding.statement),
         severity,
         status: finding.status,
-        result_label: finding.status_code().to_owned(),
+        result_label: if finding.new {
+            format!("new {}", finding.status_code())
+        } else {
+            finding.status_code().to_owned()
+        },
         section: rules::find(&finding.rule).map_or_else(
             || "not registered".to_owned(),
             |check| check.section.code().to_owned(),
@@ -1509,6 +1513,7 @@ pub mod fixture {
     #[must_use]
     pub fn finding(rule: &str, severity: Severity, status: Option<Status>) -> Finding {
         Finding {
+            new: false,
             rule: rule.to_owned(),
             statement: format!("the condition {rule} states"),
             severity: severity.code().to_owned(),
@@ -1540,6 +1545,7 @@ pub mod fixture {
                 continue;
             }
             effective_policy.push(EffectiveRuleRecord {
+                new: false,
                 rule: finding.rule.clone(),
                 severity: finding.severity.clone(),
                 params: BTreeMap::new(),
@@ -1822,6 +1828,15 @@ mod tests {
     use crate::tui::chrome::{FLOOR_HEIGHT, FLOOR_WIDTH, REFERENCE_HEIGHT, REFERENCE_WIDTH};
     use crate::tui::theme::{ColorMode, Theme};
     use airlock_core::findings::{Evidence, FindingError, FixClass};
+
+    #[test]
+    fn queue_marks_new_rules_while_preserving_their_gap() {
+        let mut item = finding("REPO-LIC-01", Severity::Blocking, Some(Status::Gap));
+        item.new = true;
+        let queue = queue(vec![item]);
+        assert_eq!(queue.rows[0].result_label, "new gap");
+        assert_eq!(queue.rows[0].status, Some(Status::Gap));
+    }
 
     fn styles() -> Styles {
         Styles::new(Theme::Dark, ColorMode::Color)

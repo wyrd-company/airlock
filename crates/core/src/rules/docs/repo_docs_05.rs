@@ -23,6 +23,8 @@ pub(crate) const RULE: RuleDefinition = RuleDefinition {
         "Fix schema-bound YAML artifacts to follow their schema.",
         true,
     ),
+    since: "0.6.0",
+    allow_override: true,
     lifecycle: Lifecycle::Seeded,
     observation: Observation::FileTree,
     api_gate: false,

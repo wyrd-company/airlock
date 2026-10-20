@@ -1,3 +1,4 @@
+version: 0.6.0
 # Declared repository metadata. Applied to GitHub by an operator through
 # Airlock's terminal interface, never by `airlock align-files`.
 #
@@ -11,10 +12,7 @@ description: >-
   Audits a GitHub repository against a declared release-readiness policy and
   reports what would block a release.
 
-# Three to eight. At least one artifact-type and one ecosystem term.
-# The vocabulary is wyrd-company/.github:airlock/topics.yml, which the org
-# policy pins as reference data; docs/examples/wyrd-topics.yml is the copy
-# this repository ships.
+# Topic vocabulary is configured under each organization rule exception.
 topics:
   - cli
   - rust

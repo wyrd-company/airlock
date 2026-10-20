@@ -31,6 +31,8 @@ pub(crate) const RULE: RuleDefinition = RuleDefinition {
         "Add or remove declared topics to land within the required count.",
         true,
     ),
+    since: "0.6.0",
+    allow_override: true,
     lifecycle: Lifecycle::Seeded,
     observation: Observation::FileTree,
     api_gate: false,

@@ -21,6 +21,8 @@ pub(crate) const RULE: RuleDefinition = RuleDefinition {
         "State in the README that the licence covers packaging, not payload.",
         true,
     ),
+    since: "0.6.0",
+    allow_override: true,
     lifecycle: Lifecycle::Seeded,
     observation: Observation::FileTree,
     api_gate: false,

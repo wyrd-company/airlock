@@ -21,6 +21,8 @@ pub(crate) const RULE: RuleDefinition = RuleDefinition {
         "Restrict the CD `workflow_dispatch` to re-delivering an existing tag.",
         true,
     ),
+    since: "0.6.0",
+    allow_override: true,
     lifecycle: Lifecycle::Seeded,
     observation: Observation::FileTree,
     api_gate: false,

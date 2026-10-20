@@ -21,6 +21,8 @@ pub(crate) const RULE: RuleDefinition = RuleDefinition {
         "Supply `secrets.AIRLOCK_TOKEN` to the canonical Airlock audit action as `AIRLOCK_TOKEN`.",
         true,
     ),
+    since: "0.6.0",
+    allow_override: true,
     lifecycle: Lifecycle::Seeded,
     observation: Observation::FileTree,
     api_gate: false,

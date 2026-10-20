@@ -91,8 +91,9 @@ fn full_policy() -> ResolvedPolicy {
             })
             .collect(),
         suppressions: Default::default(),
-        reference_data: BTreeMap::new(),
-        capabilities: Vec::new(),
+
+        accepted_version: airlock_core::policy::current_generation(),
+        exceptions: Default::default(),
     }
 }
 
