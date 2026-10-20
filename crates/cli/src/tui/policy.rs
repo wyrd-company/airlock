@@ -250,6 +250,41 @@ fn regions(styles: Styles, width: usize, inspector: &super::findings::Queue) -> 
     lines.push(Line::default());
     lines.extend(inspector.provenance.lines(styles, width, LABEL_WIDTH));
     lines.push(Line::default());
+    if let Some(maturity) = &inspector.maturity {
+        lines.push(heading(styles, "MATURITY"));
+        if let Some(observed) = &maturity.observed {
+            lines.extend(value(styles, width, "observed rung", observed.rung.code()));
+            for tag in &observed.baseline_tags {
+                lines.extend(value(styles, width, "baseline tag", tag));
+            }
+            for tag in &observed.release_tags {
+                lines.extend(value(styles, width, "release tag", tag));
+            }
+        }
+        if let Some(error) = &maturity.error {
+            lines.extend(value(styles, width, "run error", error));
+        }
+        for transition in &maturity.transitions {
+            lines.extend(value(
+                styles,
+                width,
+                transition.rung.code(),
+                &format!(
+                    "adds {} rules; {} already Met",
+                    transition.adds, transition.already_met
+                ),
+            ));
+            for rule in &transition.rules {
+                lines.extend(value(
+                    styles,
+                    width,
+                    &rule.rule,
+                    &format!("{}{}", rule.outcome, if rule.new { " (new)" } else { "" }),
+                ));
+            }
+        }
+        lines.push(Line::default());
+    }
     lines.extend(table(styles, width, inspector));
     for rule in &inspector.rules {
         if rule.new || !rule.params.is_empty() {

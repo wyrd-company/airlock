@@ -171,7 +171,8 @@ Its `agent_work` contains Gaps classified as `airlock` or `agent`.
 failed observations. `waived`, `routed`,
 `unbuilt`, and `out_of_scope` list rules not evaluated here. These lists
 carry counts, identities, evidence, reasons, and settling surfaces. `met` keeps
-evaluated Met outcomes as handoff context. The `observation`
+evaluated Met outcomes as handoff context. `maturity` retains the observed rung
+and prospective assessments from that audit. The `observation`
 block records whether files came from the API tree or the local working tree.
 
 This check establishes whether the agent work list is clear. It is not an audit

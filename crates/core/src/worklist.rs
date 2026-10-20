@@ -191,6 +191,8 @@ impl<T> WorkGroup<T> {
 /// A fix kind-scoped definition-of-done result derived from one audit.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct AgentWorkList {
+    /// Observed maturity and prospective assessments from this same audit.
+    pub maturity: Option<crate::maturity::MaturityReport>,
     /// The version of this document shape.
     pub schema_version: u32,
     /// A permanent warning against reading this as repository conformance.
@@ -421,6 +423,7 @@ impl AgentWorkList {
                     .cloned()
                     .collect(),
             ),
+            maturity: report.maturity.clone(),
             schema_version: SCHEMA_VERSION,
             scope: "agent_work_only_not_repository_conformance",
             airlock: report.airlock.clone(),
@@ -498,6 +501,42 @@ mod tests {
             Vec::new(),
             findings,
         )
+    }
+
+    #[test]
+    fn maturity_context_survives_without_becoming_agent_work() {
+        let mut source = report(vec![finding(
+            "REPO-LIC-01",
+            Some(Status::Met),
+            "blocking",
+            None,
+        )]);
+        source.maturity = Some(crate::maturity::MaturityReport {
+            observed: Some(crate::maturity::Observed {
+                rung: crate::rules::Lifecycle::Building,
+                baseline_tags: vec!["sample@0.0.0".to_owned()],
+                release_tags: Vec::new(),
+            }),
+            error: None,
+            transitions: vec![crate::maturity::Transition {
+                rung: crate::rules::Lifecycle::Released,
+                adds: 1,
+                already_met: 0,
+                rules: vec![crate::maturity::TransitionRule {
+                    rule: "REPO-LIC-04".to_owned(),
+                    outcome: "gap".to_owned(),
+                    new: true,
+                }],
+            }],
+        });
+        let list = AgentWorkList::from_report(&source);
+        assert_eq!(list.maturity, source.maturity);
+        assert_eq!(
+            serde_json::to_value(&list).unwrap()["maturity"],
+            serde_json::to_value(&source.maturity).unwrap()
+        );
+        assert_eq!(list.agent_work.count, 0);
+        assert_eq!(list.exit_code(), 0);
     }
 
     #[test]

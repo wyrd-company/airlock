@@ -450,6 +450,8 @@ pub struct Verdict {
 /// which server text could reach a cell.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Queue {
+    /// The same audit's maturity context, made safe to draw without truncation.
+    pub maturity: Option<airlock_core::maturity::MaturityReport>,
     /// Effective rules and their configuration provenance, in rule order.
     pub rules: Vec<super::policy::Rule>,
     /// Distinct sections represented by the effective rules.
@@ -506,6 +508,7 @@ impl Queue {
             .collect::<std::collections::BTreeSet<_>>()
             .len();
         Self {
+            maturity: report.maturity.as_ref().map(maturity_view),
             sections,
             sources: super::policy::sources(report),
             rules,
@@ -549,6 +552,47 @@ impl Queue {
         let mut order: Vec<usize> = (0..self.rows.len()).collect();
         order.sort_by(|left, right| self.rows[*left].rule.cmp(&self.rows[*right].rule));
         order
+    }
+}
+
+/// Retain the audit's maturity result; this projection never observes it again.
+fn maturity_view(
+    source: &airlock_core::maturity::MaturityReport,
+) -> airlock_core::maturity::MaturityReport {
+    use airlock_core::maturity::{MaturityReport, Observed, Transition, TransitionRule};
+    MaturityReport {
+        observed: source.observed.as_ref().map(|observed| Observed {
+            rung: observed.rung,
+            baseline_tags: observed
+                .baseline_tags
+                .iter()
+                .map(|tag| drawable(tag))
+                .collect(),
+            release_tags: observed
+                .release_tags
+                .iter()
+                .map(|tag| drawable(tag))
+                .collect(),
+        }),
+        error: source.error.as_ref().map(|error| drawable(error)),
+        transitions: source
+            .transitions
+            .iter()
+            .map(|transition| Transition {
+                rung: transition.rung,
+                adds: transition.adds,
+                already_met: transition.already_met,
+                rules: transition
+                    .rules
+                    .iter()
+                    .map(|rule| TransitionRule {
+                        rule: drawable(&rule.rule),
+                        outcome: drawable(&rule.outcome),
+                        new: rule.new,
+                    })
+                    .collect(),
+            })
+            .collect(),
     }
 }
 
@@ -1821,6 +1865,56 @@ mod tests {
     use crate::tui::chrome::{FLOOR_HEIGHT, FLOOR_WIDTH, REFERENCE_HEIGHT, REFERENCE_WIDTH};
     use crate::tui::theme::{ColorMode, Theme};
     use airlock_core::findings::{Evidence, FindingError, FixClass};
+
+    #[test]
+    fn maturity_context_is_retained_without_terminal_controls() {
+        use airlock_core::maturity::{MaturityReport, Observed, Transition, TransitionRule};
+        let hostile = format!("{}\u{1b}[2J", "a".repeat(900));
+        let mut source = fixture::mixed();
+        source.maturity = Some(MaturityReport {
+            observed: Some(Observed {
+                rung: rules::Lifecycle::Building,
+                baseline_tags: vec![hostile.clone()],
+                release_tags: vec![hostile.clone()],
+            }),
+            error: None,
+            transitions: vec![Transition {
+                rung: rules::Lifecycle::Released,
+                adds: 1,
+                already_met: 0,
+                rules: vec![TransitionRule {
+                    rule: hostile.clone(),
+                    outcome: hostile.clone(),
+                    new: true,
+                }],
+            }],
+        });
+        let queue = Queue::of(&source, &Deliveries::default());
+        let projected = queue.maturity.as_ref().unwrap();
+        let observed = projected.observed.as_ref().unwrap();
+        assert_eq!(observed.rung, rules::Lifecycle::Building);
+        assert_eq!(observed.baseline_tags, vec![drawable(&hostile)]);
+        assert_eq!(observed.release_tags, vec![drawable(&hostile)]);
+        assert_eq!(projected.transitions[0].rules[0].rule, drawable(&hostile));
+        assert_eq!(
+            projected.transitions[0].rules[0].outcome,
+            drawable(&hostile)
+        );
+        assert!(projected.transitions[0].rules[0].new);
+        assert_eq!(projected.transitions[0].adds, 1);
+        assert_eq!(queue.rows.len(), source.entries().count());
+        source.maturity = Some(MaturityReport {
+            observed: None,
+            error: Some(hostile.clone()),
+            transitions: Vec::new(),
+        });
+        let failed = Queue::of(&source, &Deliveries::default());
+        assert_eq!(
+            failed.maturity.as_ref().unwrap().error,
+            Some(drawable(&hostile))
+        );
+        assert!(failed.maturity.as_ref().unwrap().observed.is_none());
+    }
 
     #[test]
     fn a_new_rule_run_error_still_gates_the_tui() {
