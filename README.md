@@ -8,9 +8,11 @@ block a release.
 A rule states a requirement; a check is the compiled procedure that evaluates
 it. A gap is an evaluated rule the repository does not meet. Configuration
 sets parameters and severity through reasoned exceptions; it never selects
-rules. A waiver is an exception with severity `none`, listed with its reason
-without running the check. A fix closes a gap, and its fix kind identifies
-Airlock, an agent, or an operator as the author. See the [glossary](docs/terms/).
+rules. A waiver is a rule with effective severity
+`none`, from a reasoned exception or absent required configuration. The report
+lists its reason and does not run its check. A fix closes a gap, and its fix
+kind identifies Airlock, an agent, or an operator as the author. See the
+[glossary](docs/terms/).
 
 The audit runs checks through the GitHub API and prints a report. Its client
 never writes, and every audit credential is verified read-only before first

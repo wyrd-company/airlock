@@ -56,9 +56,10 @@ is the failure mode that makes an audit tool untrustworthy.
 A rule states a requirement; its check evaluates it. A gap is an evaluated
 rule the repository does not meet. A fix closes a gap; its fix kind identifies
 Airlock, an agent, or an operator as the author. An exception changes a rule's
-parameters or severity with a reason. A waiver is an exception with severity
-`none`; the report lists its reason without running the check. Configuration
-never selects rules. Definitions live in `docs/terms/`.
+parameters or severity with a reason. A waiver is a rule with effective severity
+`none`, from a reasoned exception or absent required configuration. The report
+lists its reason and does not run its check. Configuration never selects rules.
+Definitions live in `docs/terms/`.
 
 ## What not to touch
 
