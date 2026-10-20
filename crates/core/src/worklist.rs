@@ -161,7 +161,7 @@ pub struct AgentWorkList {
     pub observation: ObservationRecord,
     /// The policy identity used by the audit.
     pub policy: PolicyIdentity,
-    /// Outstanding deterministic and judgment file changes.
+    /// Outstanding file changes with the airlock or agent fix kind.
     pub agent_work: WorkGroup<WorkItem>,
     /// Outstanding settings and no-fix failures deferred to a person.
     pub operator_deferred: WorkGroup<OperatorDeferredItem>,

@@ -173,10 +173,10 @@ Its `agent_work` contains Gaps classified as `airlock` or `agent`.
 carry counts, identities, reasons, and settling surfaces. The `observation`
 block records whether files came from the API tree or the local working tree.
 
-This check establishes whether the agent work list is clear. A clear list can
-coexist with operator work,
-unbuilt checks, waivers, routed or out-of-scope rules, and other repository
-gaps; run `airlock audit` for the complete findings authority.
+This check establishes whether the agent work list is clear. It is not an audit
+substitute or a repository conformance claim. A clear list can coexist with
+operator work, unbuilt checks, waivers, routed or out-of-scope rules, and other
+repository gaps; run `airlock audit` for the complete findings authority.
 
 `airlock audit --list-rules` prints the complete rules: every rule id,
 its statement, its severity, its compiled check and declared gates, and what
@@ -393,7 +393,7 @@ airlock skill repository-standards
 ```
 
 The agent authors the repository-specific content and sends it through the
-same draft-pull-request review. Operator-setting findings never enter either
+same draft-pull-request review. Operator fixes never enter either
 file path: they require a person in the terminal interface because GitHub's
 `administration: write` permission is too broad to grant an agent.
 

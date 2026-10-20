@@ -1,8 +1,6 @@
 $schema: https://refinery.systems/ontology/term
 title: Repository config
 description: >-
-  The audited repository's .github/airlock.yml. It holds declarations and exception requests,
-  absorbing repo-settings.yml. Its accepted Airlock version may advance beyond the org config's
-  version but may not lag behind it. The reserved .github repository identifies the organization
-  file by location. Repository config replaces the separate settings and suppression-request
-  files.
+  The audited repository's .github/airlock.yml. It holds declarations and exception requests.
+  Its accepted Airlock version may advance beyond the org config's version but may not lag
+  behind it. The reserved .github repository identifies the organization file by location.

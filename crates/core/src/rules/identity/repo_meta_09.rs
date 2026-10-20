@@ -15,7 +15,7 @@ pub(crate) const RULE: RuleDefinition = RuleDefinition {
     guidance: "Compare against `topics.md`",
     fix: not_fixable(
         "REPO-META-09",
-        "The fix is an edit to the organisation's topic rules, which lives outside the audited repository.",
+        "The fix is an edit to the organisation's topic list, which lives outside the audited repository.",
     ),
     lifecycle: Lifecycle::Seeded,
     observation: Observation::FileTree,

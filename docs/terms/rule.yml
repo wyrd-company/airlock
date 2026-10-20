@@ -7,3 +7,5 @@ description: >-
   predicate. The collection is called the rules. Check names the compiled procedure that
   evaluates a rule and remains a verb for evaluating it. Rule identifiers such as REPO-REL-08 do
   not change.
+  Standard is not an Airlock term because Refinery owns it. Use rule for a requirement and check
+  for its compiled procedure.

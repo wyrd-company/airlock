@@ -69,7 +69,7 @@ macro_rules! fix_groups {
         }
 
         #[cfg(test)]
-        const DECLARED_ACTION_GROUPS: &[(&str, FixGroup)] = &[
+        const DECLARED_FIX_GROUPS: &[(&str, FixGroup)] = &[
             $((stringify!($name), FixGroup::$name)),+
         ];
     };
@@ -327,7 +327,7 @@ mod tests {
         ]
         .join("\n");
 
-        for (constant, fix_group) in DECLARED_ACTION_GROUPS {
+        for (constant, fix_group) in DECLARED_FIX_GROUPS {
             assert!(
                 check_sources.contains(&format!("FixGroup::{constant}")),
                 "{constant} ({fix_group}) is declared but unused"

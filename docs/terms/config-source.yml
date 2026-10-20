@@ -1,6 +1,6 @@
 $schema: https://refinery.systems/ontology/term
 title: Config source
 description: >-
-  An identified file supplying configuration to a run, with its location and resolved commit,
-  blob or content digest as appropriate. Config source replaces policy source and bundle source.
-  Source identity is retained so that the report shows which configuration it used.
+  An identified file supplying configuration to a run, with its location and resolved
+  commit, blob or content digest as appropriate. The report identifies which configuration
+  it used.

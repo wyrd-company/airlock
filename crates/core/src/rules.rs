@@ -179,7 +179,7 @@ impl Observation {
 
 /// A permission a platform credential can carry.
 ///
-/// Declared as typed constants for the same reason action groups are: a grant
+/// Declared as typed constants for the same reason fix groups are: a grant
 /// airlock reasons about must be one it has named, so an undeclared grant is a
 /// compile error rather than a string nobody validated.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]

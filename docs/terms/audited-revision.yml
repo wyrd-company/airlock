@@ -2,7 +2,7 @@ $schema: https://refinery.systems/ontology/term
 title: Audited revision
 description: >-
   The one repository commit an audit reads through the GitHub API or identifies as the
-  working-tree HEAD. API-backed document reads use that captured commit. A working-tree run also
-  reads uncommitted and untracked non-ignored files and identifies them as working-tree
-  evidence, not committed bytes. Platform settings are observed separately and carry their own
-  observation time. Audited revision replaces audited commit as the shared domain term.
+  working-tree HEAD. API-backed document reads use that captured commit. A working-tree run
+  also reads uncommitted and untracked non-ignored files and identifies them as working-tree
+  evidence, not committed bytes. Platform settings are observed separately and carry their
+  own observation time.

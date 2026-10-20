@@ -1,8 +1,7 @@
 $schema: https://refinery.systems/ontology/term
 title: Interview
 description: >-
-  Questions generated from the rules that require declarations. A new repository is asked every
-  required question; an existing repository is asked only what is undeclared when its repository
-  configuration file is absent. The new repository's answers produce repository configuration in
-  its first commit and settings applied from it. Interview replaces scaffolding and the hardcoded
-  scaffold capability list.
+  Questions generated from the rules that require declarations. A new repository is asked
+  every required question; an existing repository is asked only what is undeclared when its
+  repository configuration file is absent. The new repository's answers produce repository
+  configuration in its first commit and settings applied from it.

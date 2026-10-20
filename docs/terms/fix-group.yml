@@ -1,6 +1,5 @@
 $schema: https://refinery.systems/ontology/term
 title: Fix group
 description: >-
-  A named family of related fixes used for display across rules. Each rule still has its own fix
-  identity and fix kind. Fix group replaces fix group; it does not select rules or confer
-  permission.
+  A named family of related fixes used for display across rules. Each rule has its own fix
+  identity and fix kind. A fix group does not select rules or confer permission.

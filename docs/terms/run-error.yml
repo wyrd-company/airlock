@@ -1,10 +1,9 @@
 $schema: https://refinery.systems/ontology/term
 title: Run error
 description: >-
-  A failure that prevents Airlock from completing its job, reported with cause and endpoint or
-  other relevant source and exit code 2. Examples include API failures in credentialed runs,
-  incomplete listings, exhausted read budgets, unresolved configured template refs and missing
-  inputs with no declared gate. A run error is not an outcome, Gap, waiver, routed rule or
-  declared unbuilt result. It replaces circumstantial undecided, inconclusive and error as
-  rule-result categories. Declared unbuilt and out-of-scope boundaries remain visible in their
-  own lists and do not cause a run error.
+  A failure that prevents Airlock from completing its job, reported with cause and endpoint
+  or other relevant source and exit code 2. Examples include API failures in credentialed
+  runs, incomplete listings, exhausted read budgets, unresolved configured template refs and
+  missing inputs with no declared gate. A run error is not an outcome, Gap, waiver, routed
+  rule or declared unbuilt result. Declared unbuilt and out-of-scope boundaries remain
+  visible in their own lists and do not cause a run error.

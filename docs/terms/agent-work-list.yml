@@ -1,7 +1,7 @@
 $schema: https://refinery.systems/ontology/term
 title: Agent work list
 description: >-
-  The audit-derived projection of file work an agent can perform. It keeps operator work, missing
-  declarations, waived, routed, unbuilt and out-of-scope rules, and run errors visible. A clear
-  agent lane does not establish that the repository meets all rules. Agent work list replaces the
-  parallel agent plan vocabulary; the interactive counterpart is the work queue.
+  The audit-derived projection of file work an agent can perform. It keeps operator work,
+  missing declarations, waived, routed, unbuilt and out-of-scope rules, and run errors
+  visible. A clear agent work list does not establish that the repository meets all rules.
+  The interactive counterpart is the work queue.

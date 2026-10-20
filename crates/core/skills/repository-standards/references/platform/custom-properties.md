@@ -9,7 +9,7 @@ Custom properties classify repositories so organization rulesets can target them
 directly. They are how a ruleset knows a repository publishes versioned
 artifacts and therefore needs tag authority.
 
-They are also the machine-readable answer to questions the repository rule
+They are also the machine-readable answer to questions the repository rules
 would otherwise resolve by judgment — _is this a tool?_, _does it publish?_, _is
 this a site?_ Prefer a property over an inference wherever one exists.
 

@@ -1,7 +1,6 @@
 $schema: https://refinery.systems/ontology/term
 title: Config error
 description: >-
-  Invalid configuration that Airlock refuses to run, such as a repository accepted version below
-  its organization's, a malformed rule parameter or a forbidden override. It leaves a diagnostic
-  and exit code 2, not a Met or Gap outcome. Config error replaces policy error and policy
-  observation as names for invalid or unauthorized configuration.
+  Invalid configuration that Airlock refuses to run, such as a repository accepted version
+  below its organization's, a malformed rule parameter or a forbidden override. It leaves a
+  diagnostic and exit code 2, not a Met or Gap outcome.

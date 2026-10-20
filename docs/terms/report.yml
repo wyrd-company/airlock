@@ -3,5 +3,5 @@ title: Report
 description: >-
   The account of one audit, identifying Airlock, the repository and audited revision, effective
   configuration, evidence, evaluated Met and Gap outcomes, waived, routed, unbuilt and
-  out-of-scope rules, and any run errors. Report replaces findings document as the name for the
-  audit document. It must not imply that a waived, routed, unbuilt or out-of-scope rule was met.
+  out-of-scope rules, and any run errors. It must not imply that a waived, routed, unbuilt or
+  out-of-scope rule was met.

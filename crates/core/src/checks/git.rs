@@ -207,7 +207,7 @@ const AUTO_DELETE: BooleanSetting = BooleanSetting {
 
 /// Compare one live boolean setting against what the rule expects.
 ///
-/// An absent value is not a false one. What absence means is the rules's
+/// An absent value is not a false one. What absence means is the rules'
 /// call, not this function's: it reports the field as undisclosed and the
 /// rule's declaration decides whether that is a permanent gate or a run that
 /// fell short.

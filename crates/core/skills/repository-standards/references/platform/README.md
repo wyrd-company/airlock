@@ -2,10 +2,10 @@
 
 > **Do not read this folder while scaffolding or auditing a repository.**
 >
-> The repository rule relies on this configuration but neither validates nor
-> manages it. An agent creating a new repository, or auditing an existing one,
+> The repository rules rely on this configuration but neither validate nor
+> manage it. An agent creating a new repository, or auditing an existing one,
 > has no reason to open these files and should not — the facts it needs are
-> already stated in `SKILL.md` under _What this rule relies on_.
+> already supplied by `SKILL.md` and its generated conformance reference.
 >
 > Read this folder only when **changing** organization platform configuration:
 > creating or altering a GitHub App, a ruleset, a custom property, an
@@ -21,9 +21,9 @@ change at different rates.
 | `SKILL.md`  | What must this repository contain? | Anyone authoring a repository | Constantly |
 | This folder | What exists in the organization?   | The owner, deliberately       | Rarely     |
 
-Mixing them made the rule hard to follow and implied that an auditing agent
-should verify platform state it has neither the permission nor the mandate to
-touch.
+Mixing them made the repository rules hard to follow and implied that an
+auditing agent should verify platform state it has neither the permission nor
+the mandate to touch.
 
 ## Contents
 
@@ -40,7 +40,7 @@ Covers `wyrd-company`, `flapstack`, and `boblangley`.
 
 Every account owns a `.github` repository, so default community health files are
 inherited uniformly. `mmenm` holds lab work, which is private and outside the
-repository rule, but its defaults exist for consistency.
+repository rules, but its defaults exist for consistency.
 
 The same repository also renders the public profile page, from
 `profile/README.md`, for organizations and personal accounts alike. A personal

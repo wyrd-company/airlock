@@ -4,5 +4,4 @@ description: >-
   The organization's .github/airlock.yml in its reserved .github repository. It records the
   accepted Airlock version and reasoned per-rule exceptions, including parameters. Topic
   vocabulary and organization names are parameters under their rules, not special top-level
-  facts. Org config replaces organization policy as the name of this file; it cannot select rules
-  or define predicates.
+  facts. Organization configuration cannot select rules or define predicates.

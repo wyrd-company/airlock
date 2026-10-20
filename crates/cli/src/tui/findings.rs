@@ -34,7 +34,7 @@ use super::theme::{Role, Styles};
 
 /// The most a rule id may be on a line the queue writes for itself.
 ///
-/// The rules's longest is fourteen characters. It bounds the queue's own
+/// The rules' longest is fourteen characters. It bounds the queue's own
 /// prose about a rule — a blocker banner, a repository name — and never the
 /// rule id a row draws, which is bounded by the column it draws it in.
 const RULE_LIMIT: usize = 24;
@@ -1505,7 +1505,7 @@ pub mod fixture {
     use airlock_core::fix::FixGroup;
     use airlock_core::rules::{self, Severity};
 
-    /// One finding, with the rules's own classification joined onto it.
+    /// One finding, with the rules' own classification joined onto it.
     #[must_use]
     pub fn finding(rule: &str, severity: Severity, status: Option<Status>) -> Finding {
         Finding {

@@ -1,7 +1,7 @@
 ---
 name: repository-standards
 description:
-  Apply the public repository rule shipped by Airlock. Use when creating a
+  Apply the public repository rules shipped by Airlock. Use when creating a
   public repository, auditing one for gaps, or preparing a private repository
   for publication. Covers Wyrd Company, Flapstack, and personal repositories;
   excludes forks, private work that will remain private, and archiving.
@@ -9,7 +9,7 @@ description:
 
 # Public Repository Rules
 
-Use this skill for public, non-fork repositories governed by the rule.
+Use this skill for public, non-fork repositories governed by the repository rules.
 Airlock is the durable upstream. A copy in an agent skill directory is an
 installation from an Airlock release, not another authority.
 
@@ -51,7 +51,7 @@ use the procedure for that case instead.
 
 Open `references/conformance.md` before inspecting or changing a repository.
 Use its sections as the work order and its rules version and digest as the
-identity of the rule being applied.
+identity of the rules being applied.
 
 **Always cite a rule by id and statement together.** A rule id alone is not a
 meaningful finding. Copy both from the generated reference or Airlock output;
@@ -71,7 +71,7 @@ For each applicable rule:
 
 - Treat Airlock audit output as evidence, not permission to mutate settings.
 - Keep repository changes reviewable and scoped to the findings being closed.
-- Ask before making judgment calls the rules deliberately leaves to a
+- Ask before making judgment calls the rules deliberately leave to a
   person.
 - Re-run the relevant checks after changes; do not infer that a proposed fix
   worked.
