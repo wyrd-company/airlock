@@ -19,9 +19,6 @@ use workflows::*;
 /// The task verbs every repository must define.
 pub(super) const REQUIRED_TASKS: &[&str] = &["test", "lint", "format", "check"];
 
-/// The default tag pattern a versioned-artifact CD workflow triggers on.
-pub(super) const DEFAULT_TAG_PATTERN: &str = "[0-9]*.[0-9]*.[0-9]*";
-
 pub(crate) fn run(id: &str, rule: &RuleInstance, context: &AuditContext) -> Option<Verdict> {
     Some(match id {
         "REPO-TASK-01" => required_tasks(context),

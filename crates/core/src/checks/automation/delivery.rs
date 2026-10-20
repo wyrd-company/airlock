@@ -32,7 +32,9 @@ pub(super) fn cd_on_tags(rule: &RuleInstance, context: &AuditContext) -> Verdict
     let Some(workflow) = cd(context) else {
         return no_cd_workflow("the tag trigger");
     };
-    let expected = rule.param_str("tag-pattern").unwrap_or(DEFAULT_TAG_PATTERN);
+    let expected = rule
+        .param_str("tag-pattern")
+        .expect("registered string default");
 
     let tags = match workflow.trigger("push") {
         Some(push) => try_verdict!(super::super::yaml_strings(

@@ -130,22 +130,44 @@ pub struct RuleInstance {
 }
 
 impl RuleInstance {
-    /// A parameter as an integer, when the policy set one.
+    /// An integer parameter, falling back to its compiled default.
     #[must_use]
     pub fn param_u64(&self, name: &str) -> Option<u64> {
-        self.params.get(name)?.as_u64()
+        self.params
+            .get(name)
+            .and_then(serde_json::Value::as_u64)
+            .or_else(|| match self.def.parameter_default(name)? {
+                crate::registry::ParameterDefault::Integer(value) => Some(value),
+                _ => None,
+            })
     }
 
-    /// A parameter as a string, when the policy set one.
+    /// A string parameter, falling back to its compiled default.
     #[must_use]
     pub fn param_str(&self, name: &str) -> Option<&str> {
-        self.params.get(name)?.as_str()
+        self.params
+            .get(name)
+            .and_then(serde_json::Value::as_str)
+            .or_else(|| match self.def.parameter_default(name)? {
+                crate::registry::ParameterDefault::String(value) => Some(value),
+                _ => None,
+            })
     }
 
-    /// A parameter as a list of strings, when the policy set one.
+    /// A string parameter with literal owner substitution in the default only.
+    #[must_use]
+    pub fn param_str_for_owner(&self, name: &str, owner: &str) -> Option<String> {
+        if let Some(value) = self.params.get(name).and_then(serde_json::Value::as_str) {
+            return Some(value.to_owned());
+        }
+        self.param_str(name)
+            .map(|value| value.replace("{owner}", owner))
+    }
+
+    /// A list parameter, falling back to its compiled default.
     ///
-    /// `Ok(None)` means the policy set no such parameter. An entry that is not
-    /// a string is a malformed parameter rather than one fewer value: a policy
+    /// `Ok(None)` means neither the policy nor the standard defines it. An entry
+    /// that is not a string is a malformed parameter rather than one fewer value: a policy
     /// declaring `org-names: [wyrd-company, 42]` must not quietly check
     /// against one org name.
     ///
@@ -158,7 +180,12 @@ impl RuleInstance {
         name: &str,
     ) -> std::result::Result<Option<Vec<String>>, MalformedParam> {
         let Some(value) = self.params.get(name) else {
-            return Ok(None);
+            return Ok(match self.def.parameter_default(name) {
+                Some(crate::registry::ParameterDefault::Strings(values)) => {
+                    Some(values.iter().map(|value| (*value).to_owned()).collect())
+                }
+                _ => None,
+            });
         };
         let Some(entries) = value.as_array() else {
             return Err(MalformedParam {
@@ -420,6 +447,94 @@ gate: blocking
 capabilities:
   base: [licensing]
 ";
+
+    #[test]
+    fn compiled_policy_reads_defaults_from_each_standard() {
+        let policy = compile_text("version: 1\nname: test\ngate: blocking\ncapabilities:\n  base: [identity, files, git, automation]\n").unwrap();
+        let rule = |id| policy.rules.iter().find(|rule| rule.def.id == id).unwrap();
+        assert_eq!(rule("REPO-META-06").param_u64("min-topics"), Some(3));
+        assert_eq!(rule("REPO-META-06").param_u64("max-topics"), Some(8));
+        assert_eq!(
+            rule("REPO-META-10").param_strings("org-names").unwrap(),
+            Some(vec![])
+        );
+        assert_eq!(rule("REPO-GIT-10").param_u64("max-commits"), Some(1000));
+        assert_eq!(
+            rule("REPO-CD-02").param_str("tag-pattern"),
+            Some("[0-9]*.[0-9]*.[0-9]*")
+        );
+        assert_eq!(
+            rule("REPO-FILE-08")
+                .param_str_for_owner("renovate-preset", "example-org")
+                .as_deref(),
+            Some("github>example-org/.github")
+        );
+        assert_eq!(
+            rule("REPO-FILE-13")
+                .param_strings("forbidden-paths")
+                .unwrap()
+                .unwrap(),
+            [
+                ".claude",
+                ".cursor",
+                ".windsurf",
+                ".codex",
+                ".aider.conf.yml",
+                ".github/copilot-instructions.md"
+            ]
+        );
+        // Defaults are compiled metadata, not new policy refinements or digest inputs.
+        assert!(policy.rules.iter().all(|rule| rule.params.is_empty()));
+    }
+
+    #[test]
+    fn only_defaults_substitute_the_owner_and_only_as_literal_text() {
+        let policy = compile_text(
+            "version: 1\nname: test\ngate: blocking\ncapabilities:\n  base: [files]\n",
+        )
+        .unwrap();
+        let mut rule = policy
+            .rules
+            .into_iter()
+            .find(|rule| rule.def.id == "REPO-FILE-08")
+            .unwrap();
+        assert_eq!(
+            rule.param_str_for_owner("renovate-preset", "{repo}-$org")
+                .as_deref(),
+            Some("github>{repo}-$org/.github")
+        );
+        rule.params.insert(
+            "renovate-preset".into(),
+            serde_json::json!("github>{owner}/{repo}"),
+        );
+        assert_eq!(
+            rule.param_str_for_owner("renovate-preset", "example-org")
+                .as_deref(),
+            Some("github>{owner}/{repo}")
+        );
+    }
+
+    #[test]
+    fn explicit_empty_lists_override_defaults_and_malformed_lists_are_errors() {
+        let policy = compile_text(
+            "version: 1\nname: test\ngate: blocking\ncapabilities:\n  base: [files]\n",
+        )
+        .unwrap();
+        let mut rule = policy
+            .rules
+            .into_iter()
+            .find(|rule| rule.def.id == "REPO-FILE-13")
+            .unwrap();
+        rule.params
+            .insert("forbidden-paths".into(), serde_json::json!([]));
+        assert_eq!(rule.param_strings("forbidden-paths").unwrap(), Some(vec![]));
+        rule.params
+            .insert("forbidden-paths".into(), serde_json::Value::Null);
+        assert!(rule.param_strings("forbidden-paths").is_err());
+        assert_eq!(rule.param_u64("unknown"), None);
+        assert_eq!(rule.param_str("unknown"), None);
+        assert_eq!(rule.param_strings("unknown").unwrap(), None);
+    }
 
     #[test]
     fn a_minimal_policy_compiles_to_its_section() {

@@ -7,16 +7,6 @@ use crate::ActionGroup;
 
 use super::{presence, AuditContext, Verdict};
 
-/// Agent harness directories and files that must not be committed.
-const DEFAULT_FORBIDDEN_PATHS: &[&str] = &[
-    ".claude",
-    ".cursor",
-    ".windsurf",
-    ".codex",
-    ".aider.conf.yml",
-    ".github/copilot-instructions.md",
-];
-
 /// Every place GitHub honours a CODEOWNERS file.
 const CODEOWNERS_PATHS: &[&str] = &["CODEOWNERS", ".github/CODEOWNERS", "docs/CODEOWNERS"];
 
@@ -170,8 +160,8 @@ fn renovate(rule: &RuleInstance, context: &AuditContext) -> Verdict {
         );
     }
 
-    match rule.param_str("renovate-preset") {
-        Some(expected) if extends.iter().any(|preset| preset == expected) => Verdict::pass_at(
+    match rule.param_str_for_owner("renovate-preset", &context.snapshot.repository.owner) {
+        Some(expected) if extends.iter().any(|preset| preset == &expected) => Verdict::pass_at(
             "renovate_extends_org_preset",
             ".github/renovate.json",
             format!(".github/renovate.json extends `{expected}`"),
@@ -188,14 +178,7 @@ fn renovate(rule: &RuleInstance, context: &AuditContext) -> Verdict {
                 format!("Extend `{expected}` in .github/renovate.json."),
             ),
         ),
-        None => Verdict::manual(
-            "renovate_preset_unspecified",
-            format!(
-                ".github/renovate.json extends {}; the policy sets no `renovate-preset` \
-                 parameter, so whether that is the organisation preset is a judgment call",
-                extends.join(", ")
-            ),
-        ),
+        None => unreachable!("registered string default"),
     }
 }
 
@@ -302,10 +285,7 @@ fn presence_fallback(context: &AuditContext, path: &str, state: &FileState) -> V
 fn no_harness_config(rule: &RuleInstance, context: &AuditContext) -> Verdict {
     let forbidden = match rule.param_strings("forbidden-paths") {
         Ok(Some(paths)) => paths,
-        Ok(None) => DEFAULT_FORBIDDEN_PATHS
-            .iter()
-            .map(|path| (*path).to_owned())
-            .collect(),
+        Ok(None) => unreachable!("registered list default"),
         Err(malformed) => {
             return Verdict::inconclusive(super::MALFORMED_DECLARATION, malformed.to_string())
         }
@@ -530,7 +510,7 @@ mod tests {
         let context = context(&snapshot, &policy, Vec::new());
         assert_eq!(
             evaluate(&rule("REPO-FILE-08"), &context).status,
-            Status::Manual
+            Status::Pass
         );
         let matched = rule_with(
             "REPO-FILE-08",
@@ -542,6 +522,20 @@ mod tests {
             &[("renovate-preset", json!("github>elsewhere/.github"))],
         );
         assert_eq!(evaluate(&mismatched, &context).status, Status::Fail);
+    }
+
+    #[test]
+    fn renovate_default_rejects_another_owners_preset() {
+        assert_eq!(
+            verdict(
+                "REPO-FILE-08",
+                &[(
+                    ".github/renovate.json",
+                    r#"{"extends":["github>another-org/.github"]}"#
+                )]
+            ),
+            Status::Fail
+        );
     }
 
     #[test]

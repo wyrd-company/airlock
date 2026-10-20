@@ -408,8 +408,12 @@ fn multi_unit_tag_shape(context: &AuditContext) -> Verdict {
 }
 
 fn no_merge_commits(rule: &RuleInstance, context: &AuditContext) -> Verdict {
+    // Report the actual run's bound, which may override the compiled default
+    // history limit. A resource budget is run state, not a computed default.
     let budget = rule
-        .param_u64("max-commits")
+        .params
+        .get("max-commits")
+        .and_then(serde_json::Value::as_u64)
         .unwrap_or(context.limits.max_history_commits as u64) as usize;
 
     let history = match &context.history {
@@ -830,6 +834,25 @@ mod tests {
         let verdict = evaluate(&rule("REPO-GIT-10"), &context);
         assert_eq!(verdict.status, Status::Inconclusive);
         assert!(verdict.evidence.unwrap().detail.contains("budget"));
+    }
+
+    #[test]
+    fn history_evidence_uses_the_custom_run_budget_or_explicit_parameter() {
+        let fixture = CheckFixture::new(&[]);
+        let mut context = fixture.context();
+        context.limits.max_history_commits = 17;
+        context.history = Ok(Paged {
+            items: vec![],
+            truncated: true,
+        });
+        let detail = evaluate(&rule("REPO-GIT-10"), &context)
+            .evidence
+            .unwrap()
+            .detail;
+        assert!(detail.contains("17 commit budget"), "{detail}");
+        let configured = rule_with("REPO-GIT-10", &[("max-commits", serde_json::json!(23))]);
+        let detail = evaluate(&configured, &context).evidence.unwrap().detail;
+        assert!(detail.contains("23 commit budget"), "{detail}");
     }
 
     #[test]

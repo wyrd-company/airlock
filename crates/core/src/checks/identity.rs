@@ -156,8 +156,12 @@ fn topics(context: &AuditContext) -> Result<Vec<String>, Box<Verdict>> {
 }
 
 fn topic_count(rule: &RuleInstance, context: &AuditContext) -> Verdict {
-    let minimum = rule.param_u64("min-topics").unwrap_or(3) as usize;
-    let maximum = rule.param_u64("max-topics").unwrap_or(8) as usize;
+    let minimum = rule
+        .param_u64("min-topics")
+        .expect("registered integer default") as usize;
+    let maximum = rule
+        .param_u64("max-topics")
+        .expect("registered integer default") as usize;
 
     let topics = try_verdict!(topics(context));
 
