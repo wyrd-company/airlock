@@ -78,7 +78,8 @@ proposed-design:
     Neither standard reads a snapshot ref. A shared procedure reads snapshot
     refs for standards that need recorded answers; a missing ref or a
     disagreement is a Gap. Both standards report Met or Gap with structured
-    evidence, and neither writes or spawns a subprocess.
+    evidence, are routed in a run without a credential, and neither writes or
+    spawns a subprocess.
 
   standards: >-
     `REPO-TPL-01`, statement "The repository applies each template the
@@ -198,10 +199,9 @@ proposed-design:
     error, not a Gap. An entry at the target whose path is not a regular file,
     such as a symbolic link, is a Gap. A record over the blob byte budget is a
     run error. A record that does not parse is a Gap. In a local working-tree
-    run, records come from the working tree and the template repository's
-    refs still come from the API; a run without a credential reports the
-    standard as not observed, as every API fact is in such a run, and never as
-    Met.
+    run with a credential, records come from the working tree and the
+    template repository's refs still come from the API. A run without a
+    credential is routed, as `met-and-gap-reporting` states.
 
   snapshot-answers-reading: >-
     `REPO-TPL-01` and `REPO-REL-08` read no snapshot ref. A standard that needs
@@ -260,7 +260,7 @@ proposed-design:
     Workspace configuration; `intentional check` reports a stale model.
 
   met-and-gap-reporting: >-
-    Each standard reports one outcome, Met or Gap, and a list of evidence
+    Each evaluated standard reports one outcome, Met or Gap, and a list of evidence
     items, one per expected parent for `REPO-TPL-01` and one per examined
     release for `REPO-REL-08`. A standard is Met when every evidence item is
     Met. `REPO-TPL-01` is Met for a parent when the record at its target holds
@@ -278,8 +278,11 @@ proposed-design:
     skill names the command for each reason. `REPO-REL-08` is Met for a
     release when a published release record has the primary tag's name. Its
     evidence carries the Release Unit id, the primary tag template, the tag
-    name, the tag record's version and target, and the release record's id and
-    URL when present, plus the excluded tags with reasons. Its Gap reasons are
+    name, the tag record's version, the tagged commit (the `object.sha` of the
+    tag object that `GET /repos/{owner}/{repository}/git/tags/{sha}` returns),
+    and the release record's id and URL when present, plus the excluded tags
+    with reasons. The tag record's `target` and `tag-role` are not read,
+    because released tag records do not carry them. Its Gap reasons are
     `release-model-missing`, `release-model-unreadable`, and
     `release-record-missing`. The first two have the fix category agent
     reasoning: an agent runs `intentional model` and commits the result.
@@ -293,7 +296,23 @@ proposed-design:
     errors are a truncated tree, tag listing or release listing; a blob over
     budget; an API failure, including a template repository the token cannot
     read; and a configured `ref` or `minimum` that does not resolve, which is a
-    configuration fault the organization fixes.
+    configuration fault the organization fixes. Both standards declare in
+    their compiled definitions that they read the GitHub API, because
+    template refs, tag objects and releases have no working-tree source. This
+    declaration is the gate for a run without a credential. Airlock knows
+    before the run that such a run cannot read the API, so it does not
+    evaluate either standard and reports each as routed: the report lists the
+    standard id and the reason `needs-github-api`, and names the credentialed
+    audit (the API-tree audit or the Action) as the surface that settles it.
+    A routed standard is not an outcome: it is never Met and never a Gap, it
+    does not change the exit code, and it is listed beside the waived list so
+    that a clean credential-free run is distinguishable from a clean
+    credentialed one. The run's other standards are evaluated and set the
+    exit code as usual, so a local audit without a credential still runs. A
+    standard is evaluated whole or routed whole; a credential-free run does
+    not report the part of `REPO-TPL-01` that the working tree could
+    observe. A run with a credential that fails to read an endpoint has no
+    gate: that is a run error, as above.
 
   shared-document-crates: >-
     `toha-documents` parses `.toha.json` (`applied::AppliedRecord`,
