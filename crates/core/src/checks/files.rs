@@ -135,10 +135,6 @@ fn renovate(rule: &RuleInstance, context: &AuditContext) -> Verdict {
     let Some(text) = context.text(".github/renovate.json") else {
         return presence(context, ".github/renovate.json", ".github/renovate.json");
     };
-    let owner = context.snapshot.repository.owner.as_str();
-    let Some(expected) = rule.param_str_for_owner("renovate-preset", Some(owner)) else {
-        return Verdict::needs_repository_owner();
-    };
     let Ok(document) = serde_json::from_str::<serde_json::Value>(text) else {
         return Verdict::run_error(
             "unparseable_json",
@@ -163,6 +159,11 @@ fn renovate(rule: &RuleInstance, context: &AuditContext) -> Verdict {
             ),
         );
     }
+
+    let owner = context.snapshot.repository.owner.as_str();
+    let Some(expected) = rule.param_str_for_owner("renovate-preset", Some(owner)) else {
+        return Verdict::needs_repository_owner();
+    };
 
     if extends.iter().any(|preset| preset == &expected) {
         Verdict::pass_at(

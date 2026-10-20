@@ -583,50 +583,87 @@ fn local_file_json(command: &str, repository: &TempDir, policy: &str, exit: i32)
 }
 
 #[test]
-fn renovate_without_an_observed_owner_is_manual_and_alignment_writes_nothing() {
-    for contents in [
-        Some("{\"extends\":[\"github>example-org/.github\"]}\n"),
-        None,
-    ] {
-        let repository = renovate_repository(None, contents);
+fn renovate_missing_file_without_owner_stays_a_gap_after_alignment() {
+    for (severity, exit) in [("blocking", 1), ("advisory", 0)] {
+        let repository = renovate_repository(None, None);
         let policies = TempDir::new().unwrap();
-        let policy = policy_path(&policies, &renovate_policy(None));
-        let report = local_file_json(
-            "audit",
-            &repository,
-            &policy,
-            if contents.is_some() { 0 } else { 1 },
+        let policy = policy_path(
+            &policies,
+            &renovate_policy(None).replace("severity: blocking", &format!("severity: {severity}")),
         );
-        let result = finding(&report, "REPO-FILE-08");
-        if contents.is_some() {
+        for command in ["audit", "align-files", "audit"] {
+            let report = local_file_json(
+                command,
+                &repository,
+                &policy,
+                if command == "align-files" { 0 } else { exit },
+            );
+            if command == "align-files" {
+                assert!(report["operations"]["operations"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .all(|operation| operation["outcome"] != "written"));
+            } else {
+                let result = finding(&report, "REPO-FILE-08");
+                assert_eq!(result["status"], "gap");
+                assert_eq!(result["evidence"]["code"], "file_missing");
+                assert!(report["routed"].as_array().unwrap().is_empty());
+            }
+            assert!(!repository.path().join(".github/renovate.json").exists());
+        }
+    }
+}
+
+#[test]
+fn renovate_present_file_without_owner_routes_only_preset_comparison() {
+    let contents = "{\"extends\":[\"github>example-org/.github\"]}\n";
+    let repository = renovate_repository(None, Some(contents));
+    let policies = TempDir::new().unwrap();
+    let policy = policy_path(&policies, &renovate_policy(None));
+    for command in ["audit", "align-files", "audit"] {
+        let report = local_file_json(command, &repository, &policy, 0);
+        if command == "align-files" {
+            assert!(report["operations"]["operations"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|operation| operation["outcome"] != "written"));
+        } else {
+            let result = finding(&report, "REPO-FILE-08");
             assert_eq!(result["status"], Value::Null);
             assert_eq!(result["routing"]["reason"], "needs-repository-owner");
-        } else {
-            assert_eq!(result["status"], "gap");
-            assert_eq!(result["evidence"]["code"], "file_missing");
-        }
-        if contents.is_some() {
             assert_eq!(result["remediation"], Value::Null);
+            assert!(report["findings"].as_array().unwrap().is_empty());
         }
-        let aligned = local_file_json("align-files", &repository, &policy, 0);
-        assert!(aligned["operations"]["operations"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .all(|operation| operation["outcome"] != "written"));
         assert_eq!(
-            std::fs::read_to_string(repository.path().join(".github/renovate.json"))
-                .ok()
-                .as_deref(),
+            std::fs::read_to_string(repository.path().join(".github/renovate.json")).unwrap(),
             contents
         );
-        let status = std::process::Command::new("git")
-            .current_dir(repository.path())
-            .args(["status", "--porcelain"])
-            .output()
-            .unwrap();
-        assert!(status.status.success());
-        assert!(status.stdout.is_empty());
+    }
+    let status = std::process::Command::new("git")
+        .current_dir(repository.path())
+        .args(["status", "--porcelain"])
+        .output()
+        .unwrap();
+    assert!(status.status.success());
+    assert!(status.stdout.is_empty());
+}
+
+#[test]
+fn renovate_without_owner_preserves_json_and_extends_diagnostics() {
+    for (contents, code, exit) in [
+        ("{", "unparseable_json", 2),
+        ("{\"extends\":[42]}", "malformed_declaration", 2),
+        ("{}", "renovate_extends_nothing", 1),
+        ("{\"extends\":[]}", "renovate_extends_nothing", 1),
+    ] {
+        let repository = renovate_repository(None, Some(contents));
+        let policies = TempDir::new().unwrap();
+        let policy = policy_path(&policies, &renovate_policy(None));
+        let report = local_file_json("audit", &repository, &policy, exit);
+        assert_eq!(finding(&report, "REPO-FILE-08")["evidence"]["code"], code);
+        assert!(report["routed"].as_array().unwrap().is_empty());
     }
 }
 
@@ -646,6 +683,12 @@ fn renovate_alignment_and_audit_share_compiled_defaults_and_explicit_parameters(
             "github>example-org/.github",
         ),
         (Some("unknown"), None, None, "github>unknown/.github"),
+        (
+            None,
+            None,
+            Some("github>another-org/custom"),
+            "github>another-org/custom",
+        ),
         (
             None,
             None,

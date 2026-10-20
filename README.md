@@ -218,8 +218,10 @@ Met and Gap results. Separate lists identify work without an outcome:
 - `routed`: a compiled gate sends the standard to another run or surface.
   `needs-github-api` routes the whole standard to a credentialed API-tree audit
   or Action. A disclosure gate names the interactive session. An unobserved
-  repository owner routes the Renovate preset comparison after file presence
-  has been checked.
+  repository owner routes the Renovate preset comparison after file presence,
+  valid JSON, and a nonempty preset list have been checked. The built-binary
+  regression `renovate_without_owner_preserves_json_and_extends_diagnostics`
+  covers these independent diagnostics.
 - `unbuilt`: this evaluation reaches a declared part of the check that Airlock
   has not built. It names the reason and needs a release with that check built.
   Other branches of the same check still decide Met or Gap.

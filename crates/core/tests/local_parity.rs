@@ -704,7 +704,11 @@ fn missing_renovate_file_is_a_gap_before_the_owner_gate() {
     let gap = audit::run_local(&policy, &options(), repo.path()).unwrap();
     assert_eq!(gap.findings[0].status, Some(Status::Gap));
     assert_eq!(gap.exit_code(), 1);
-    std::fs::write(repo.path().join(".github/renovate.json"), "{}").unwrap();
+    std::fs::write(
+        repo.path().join(".github/renovate.json"),
+        "{\"extends\":[\"config:recommended\"]}",
+    )
+    .unwrap();
     let routed = audit::run_local(&policy, &options(), repo.path()).unwrap();
     assert_eq!(routed.exit_code(), 0);
     assert!(routed.findings.is_empty());
