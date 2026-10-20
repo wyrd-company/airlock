@@ -56,7 +56,6 @@ pub(crate) fn report(
         let mut already_met = 0;
         for rule in &context.policy.rules {
             if rule.def.lifecycle <= observed.rung
-                || rule.def.lifecycle > rung
                 || rule.severity == Severity::None
                 || findings
                     .iter()
@@ -131,6 +130,7 @@ mod tests {
             rule.def = Box::leak(Box::new(definition));
             policy.rules.push(rule);
         }
+        policy.rules.push(fixtures::rule("REPO-GIT-01"));
         let mut context = fixtures::context(&snapshot, &policy, Vec::new());
         context.maturity.as_mut().unwrap().rung = Lifecycle::Seeded;
         let forecast = report(&context, &[], true);
