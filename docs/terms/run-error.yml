@@ -6,4 +6,5 @@ description: >-
   incomplete listings, exhausted read budgets, unresolved configured template refs and missing
   inputs with no declared gate. A run error is not an outcome, Gap, waiver, routed standard or declared unbuilt result. It
   replaces circumstantial undecided, inconclusive and error as standard-result categories.
-  A declared unbuilt boundary remains visible in the unbuilt list and does not cause a run error.
+  Declared unbuilt and out-of-scope boundaries remain visible in their own lists and do not cause
+  a run error.

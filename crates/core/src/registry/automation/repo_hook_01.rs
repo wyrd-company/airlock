@@ -24,6 +24,8 @@ pub(crate) const STANDARD: CheckDefinition = CheckDefinition {
     observation: Observation::FileTree,
     api_gate: false,
     owner_gate: false,
+    release_units_gate: false,
+    required_topic_categories: None,
     disclosure_gate: None,
     unbuilt_reason: Some("A remaining requirement has no compiled check yet"),
 };

@@ -540,9 +540,43 @@ async fn decided_outcomes_match_the_integration_base() {
         let report = audit::run(&api, "acme", "widget", &full_policy(), &options(), None)
             .await
             .unwrap();
+        assert_eq!(
+            report.exit_code(),
+            1,
+            "{name}: a previously complete audit must stay complete"
+        );
+        assert!(
+            report.run_errors.is_empty(),
+            "{name}: {:?}",
+            report.run_errors
+        );
         let expected = expected[name].as_object().unwrap();
         assert!(!expected.is_empty());
         for (id, base) in expected {
+            // Absent required configuration is now an authorized waiver, even
+            // when the base checked repository inputs first and reported a Gap.
+            if matches!(id.as_str(), "REPO-META-07" | "REPO-META-09") {
+                assert_eq!(
+                    base["status"], "gap",
+                    "only the ruled absent-configuration Gaps change"
+                );
+                let waiver = report
+                    .waived
+                    .iter()
+                    .find(|entry| &entry.rule == id)
+                    .unwrap();
+                assert!(waiver.status.is_none() && waiver.evidence.is_none());
+                assert_eq!(
+                    waiver
+                        .suppression
+                        .as_ref()
+                        .unwrap()
+                        .policy_reason
+                        .as_deref(),
+                    Some("no reference data configured")
+                );
+                continue;
+            }
             let finding = report
                 .findings
                 .iter()
@@ -599,17 +633,19 @@ fn a_waived_standard_does_not_run_its_check() {
 #[test]
 fn the_api_gate_routes_a_whole_file_tree_standard() {
     let repo = committed_repository();
-    let policy = policy_with_one("REPO-CD-03", airlock_core::registry::Severity::Blocking);
-    assert!(policy.rules[0].def.needs_github_api());
-    let report = audit::run_local(&policy, &options(), repo.path()).unwrap();
-    assert_eq!(report.exit_code(), 0);
-    assert!(report.findings.is_empty());
-    assert!(report.unbuilt.is_empty());
-    assert!(report.run_errors.is_empty());
-    assert_eq!(report.routed.len(), 1);
-    let route = report.routed[0].routing.as_ref().unwrap();
-    assert_eq!(route.reason, "needs-github-api");
-    assert!(route.settling_surface.contains("API-tree"));
+    for id in ["REPO-CD-03", "REPO-REL-07"] {
+        let policy = policy_with_one(id, airlock_core::registry::Severity::Blocking);
+        assert!(policy.rules[0].def.needs_github_api(), "{id}");
+        let report = audit::run_local(&policy, &options(), repo.path()).unwrap();
+        assert_eq!(report.exit_code(), 0);
+        assert!(report.findings.is_empty());
+        assert!(report.unbuilt.is_empty());
+        assert!(report.run_errors.is_empty());
+        assert_eq!(report.routed.len(), 1);
+        let route = report.routed[0].routing.as_ref().unwrap();
+        assert_eq!(route.reason, "needs-github-api");
+        assert!(route.settling_surface.contains("API-tree"));
+    }
 }
 
 #[tokio::test]
@@ -698,4 +734,217 @@ fn severity_alone_controls_the_gap_exit_code() {
             assert!(json[list].as_array().unwrap().is_empty());
         }
     }
+}
+
+#[tokio::test]
+async fn no_release_units_are_listed_out_of_scope_without_run_errors() {
+    let mut api = FakeGitHub::new();
+    api.tree.entries.clear();
+    api.blobs.clear();
+    let report = audit::run(&api, "acme", "widget", &full_policy(), &options(), None)
+        .await
+        .unwrap();
+    let ids: Vec<_> = report
+        .out_of_scope
+        .iter()
+        .map(|entry| entry.rule.as_str())
+        .collect();
+    assert_eq!(
+        ids,
+        [
+            "REPO-GIT-09",
+            "REPO-LIC-04",
+            "REPO-REL-02",
+            "REPO-REL-03",
+            "REPO-TASK-04"
+        ]
+    );
+    assert_eq!(report.exit_code(), 1);
+    assert!(report.complete && report.run_errors.is_empty());
+    assert_eq!(report.summary.out_of_scope, 5);
+    for entry in &report.out_of_scope {
+        assert!(entry.status.is_none() && entry.error.is_none());
+        assert_eq!(entry.status_code(), "out-of-scope");
+        assert_eq!(entry.routing.as_ref().unwrap().reason, "out-of-scope");
+        assert_eq!(
+            entry.evidence.as_ref().unwrap().code,
+            "no_release_units_declared"
+        );
+    }
+    let list = airlock_core::worklist::AgentWorkList::from_report(&report);
+    assert_eq!(list.out_of_scope.count, 5);
+    assert!(list.out_of_scope.items.iter().all(|entry| !entry.gating));
+    let json = serde_json::to_value(&list).unwrap();
+    assert_eq!(json["out_of_scope"]["count"], 5);
+    let text = airlock_core::render::agent_work_list_text(&list);
+    assert!(
+        text.contains("out-of-scope (exit code unchanged) (5)"),
+        "{text}"
+    );
+    let text = airlock_core::render::report_text(&report);
+    assert!(text.contains("out-of-scope: 5"), "{text}");
+    let text = airlock_core::render::plan_text(&report);
+    assert!(text.contains("out-of-scope (5)"), "{text}");
+    assert!(!text.contains("Every standard was evaluated"));
+}
+
+#[test]
+fn release_unit_scope_distinguishes_absence_from_malformed_input() {
+    let repo = committed_repository();
+    for input in [None, Some("release-units: {}\n"), Some("settings: {}\n")] {
+        let path = repo.path().join(".intentional/config.yml");
+        if let Some(text) = input {
+            std::fs::write(&path, text).unwrap();
+        } else {
+            std::fs::remove_file(&path).unwrap();
+        }
+        for id in [
+            "REPO-GIT-09",
+            "REPO-LIC-04",
+            "REPO-REL-02",
+            "REPO-REL-03",
+            "REPO-TASK-04",
+        ] {
+            let policy = policy_with_one(id, airlock_core::registry::Severity::Blocking);
+            let report = audit::run_local(&policy, &options(), repo.path()).unwrap();
+            assert_eq!(report.exit_code(), 0, "{id}: {input:?}");
+            assert_eq!(report.out_of_scope.len(), 1, "{id}: {input:?}");
+            assert!(
+                report.findings.is_empty() && report.routed.is_empty() && report.unbuilt.is_empty()
+            );
+            assert_eq!(report.effective_policy[0].severity, "blocking");
+        }
+    }
+    for input in ["release-units: [sample]\n", "{invalid"] {
+        std::fs::write(repo.path().join(".intentional/config.yml"), input).unwrap();
+        for id in [
+            "REPO-GIT-09",
+            "REPO-LIC-04",
+            "REPO-REL-02",
+            "REPO-REL-03",
+            "REPO-TASK-04",
+        ] {
+            let policy = policy_with_one(id, airlock_core::registry::Severity::Advisory);
+            let report = audit::run_local(&policy, &options(), repo.path()).unwrap();
+            assert_eq!(report.exit_code(), 2, "{id}: {input:?}");
+            assert_eq!(report.run_errors.len(), 1, "{id}");
+            assert!(report.out_of_scope.is_empty(), "{id}");
+        }
+    }
+}
+
+#[test]
+fn include_namespaces_only_reach_the_scope_gate_when_a_comparison_is_needed() {
+    let repo = committed_repository();
+    std::fs::remove_file(repo.path().join(".intentional/config.yml")).unwrap();
+    let policy = policy_with_one("REPO-TASK-06", airlock_core::registry::Severity::Blocking);
+    let report = audit::run_local(&policy, &options(), repo.path()).unwrap();
+    assert_eq!(report.findings[0].status, Some(Status::Met));
+    std::fs::write(
+        repo.path().join("taskfile.yml"),
+        "version: '3'\nincludes:\n  sample: ./sample/taskfile.yml\n",
+    )
+    .unwrap();
+    let report = audit::run_local(&policy, &options(), repo.path()).unwrap();
+    assert_eq!(report.exit_code(), 0);
+    assert_eq!(report.out_of_scope.len(), 1);
+    assert!(report.findings.is_empty());
+}
+
+fn topic_policy() -> ResolvedPolicy {
+    let mut policy = full_policy();
+    policy
+        .rules
+        .retain(|rule| matches!(rule.def.id, "REPO-META-07" | "REPO-META-09"));
+    for rule in &mut policy.rules {
+        rule.severity = airlock_core::registry::Severity::Blocking;
+    }
+    policy
+}
+
+#[test]
+fn absent_topic_configuration_waives_checks_before_reading_repository_inputs() {
+    let repo = committed_repository();
+    std::fs::write(repo.path().join(".github/repo-settings.yml"), "{invalid").unwrap();
+    let policy = topic_policy();
+    let report = audit::run_local(&policy, &options(), repo.path()).unwrap();
+    assert_eq!(report.exit_code(), 0);
+    assert!(report.findings.is_empty() && report.run_errors.is_empty());
+    assert_eq!(report.waived.len(), 2);
+    for entry in &report.waived {
+        assert!(entry.status.is_none() && entry.evidence.is_none());
+        assert_eq!(entry.severity, "none");
+        assert_eq!(
+            entry.suppression.as_ref().unwrap().policy_reason.as_deref(),
+            Some("no reference data configured")
+        );
+    }
+    assert!(report
+        .effective_policy
+        .iter()
+        .all(|rule| rule.severity == "none"));
+}
+
+#[test]
+fn configured_topics_evaluate_and_malformed_configuration_is_a_run_error() {
+    let repo = committed_repository();
+    let mut policy = topic_policy();
+    policy.reference_data.insert(
+        "topics".to_owned(),
+        airlock_core::yaml::parse_mapping(
+            "artifact-type: [cli]\necosystem: [rust-crate]\nother: [widgets]\n",
+            Limits::default().yaml,
+        )
+        .unwrap(),
+    );
+    let met = audit::run_local(&policy, &options(), repo.path()).unwrap();
+    assert_eq!(met.exit_code(), 0);
+    assert_eq!(met.summary.met, 2);
+    assert!(met.waived.is_empty());
+
+    policy.reference_data.insert(
+        "topics".to_owned(),
+        airlock_core::yaml::parse_mapping(
+            "artifact-type: [cli]\necosystem: [other]\n",
+            Limits::default().yaml,
+        )
+        .unwrap(),
+    );
+    let gaps = audit::run_local(&policy, &options(), repo.path()).unwrap();
+    assert_eq!(gaps.exit_code(), 1);
+    assert_eq!(gaps.summary.gap, 2);
+
+    policy.reference_data.insert(
+        "topics".to_owned(),
+        airlock_core::yaml::parse_mapping(
+            "artifact-type: [42]\necosystem: []\n",
+            Limits::default().yaml,
+        )
+        .unwrap(),
+    );
+    let malformed = audit::run_local(&policy, &options(), repo.path()).unwrap();
+    assert_eq!(malformed.exit_code(), 2);
+    assert_eq!(malformed.run_errors.len(), 2);
+    assert!(malformed.waived.is_empty());
+
+    for malformed in [
+        airlock_core::yaml::Yaml::Null,
+        airlock_core::yaml::Yaml::Seq(Vec::new()),
+    ] {
+        policy.reference_data.insert("topics".to_owned(), malformed);
+        let report = audit::run_local(&policy, &options(), repo.path()).unwrap();
+        assert_eq!(report.exit_code(), 2);
+        assert_eq!(report.run_errors.len(), 2);
+        assert!(report.waived.is_empty());
+    }
+
+    policy.reference_data.insert(
+        "topics".to_owned(),
+        airlock_core::yaml::parse_mapping("artifact-type: [cli]\n", Limits::default().yaml)
+            .unwrap(),
+    );
+    let partial = audit::run_local(&policy, &options(), repo.path()).unwrap();
+    assert_eq!(partial.waived.len(), 1);
+    assert_eq!(partial.waived[0].rule, "REPO-META-07");
+    assert_eq!(partial.findings[0].rule, "REPO-META-09");
 }

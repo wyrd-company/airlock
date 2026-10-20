@@ -180,3 +180,19 @@ fn every_checklist_rule_is_registered_exactly_once() {
     }
     assert_eq!(CHECKS.len(), rules.len());
 }
+
+#[test]
+fn report_terms_include_every_declared_non_outcome_category() {
+    for document in [
+        include_str!("../../../docs/terms/report.yml"),
+        include_str!("../../../docs/terms/agent-work-list.yml"),
+    ] {
+        let document = document.split_whitespace().collect::<Vec<_>>().join(" ");
+        for category in ["waived", "routed", "unbuilt", "out-of-scope", "run errors"] {
+            assert!(
+                document.contains(category),
+                "missing {category}: {document}"
+            );
+        }
+    }
+}

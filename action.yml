@@ -25,7 +25,9 @@ inputs:
 
 outputs:
   outcome:
-    description: Binary result (0 conformant, 1 blocking gaps, 2 run error); waived, routed, and unbuilt do not affect it
+    description: >-
+      Binary result (0 conformant, 1 blocking gaps, 2 run error);
+      waived, routed, unbuilt, and out-of-scope do not affect it
     value: ${{ steps.audit.outputs.outcome }}
   complete:
     description: Whether the audit completed without a run error

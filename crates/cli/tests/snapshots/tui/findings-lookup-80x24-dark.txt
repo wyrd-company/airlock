@@ -8,7 +8,7 @@ VERDICT  ? incomplete   ALIGNED 2 of 9
   complete    false  2 run errors prevented completion                          
   conformant  false  1 blocking Gaps                                            
   unanswered  1      routed: no Met or Gap outcome; see the settling surface    
-met 2 · gap 2 · waived 1 · routed 1 · unbuilt 1 · errors 2                      
+met 2 · gap 2 · waived 1 · routed 1 · unbuilt 1 · out-of-scope 0 · errors 2     
 LOOKUP  every finding, ordered by rule id — the predictable address for every r…
 showing       all 9 shown, never narrowed · gate blocking · l returns           
 ▸   ░░░       │   │ REPO-CI-02     waived        the condition REPO-CI-02 states

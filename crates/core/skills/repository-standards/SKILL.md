@@ -102,10 +102,11 @@ exact statement in the evidence. Separate:
 - evaluated Met and Gap outcomes from compiled checks;
 - waived standards with their authorization reasons;
 - routed standards with their declared gates and settling surfaces;
-- unbuilt checks with the reason that prevented an outcome; and
+- unbuilt checks with the reason that prevented an outcome;
+- out-of-scope standards with the declared release-unit boundary; and
 - run errors that prevented Airlock from completing its job.
 
 An agent assessment is advisory evidence. It does not replace a compiled
-check or change Met, Gap, or the exit code. Waived, routed, and unbuilt
+check or change Met, Gap, or the exit code. Waived, routed, unbuilt, and out-of-scope
 standards have no Met or Gap outcome. A completed audit with no blocking
 Gaps does not claim that every standard was evaluated.

@@ -96,6 +96,22 @@ pub struct Verdict {
 }
 
 impl Verdict {
+    pub fn out_of_scope() -> Self {
+        Self {
+            status: None,
+            evidence: Some(Evidence::new(
+                "no_release_units_declared",
+                "The repository declares no release units",
+            )),
+            remediation: None,
+            error: None,
+            routing: Some(crate::findings::Routing {
+                reason: "out-of-scope".to_owned(),
+                settling_surface: "An audit of a repository with declared release units".to_owned(),
+            }),
+        }
+    }
+
     pub fn needs_repository_owner() -> Self {
         Self {
             status: None,
@@ -498,27 +514,40 @@ impl AuditContext<'_> {
         self.workflows.iter().find(|workflow| workflow.name == name)
     }
 
-    /// Release unit paths declared by `.intentional/config.yml`, if it parses.
-    #[must_use]
-    pub fn release_units(&self) -> Option<Vec<(String, String)>> {
-        let ParsedFile::Parsed(document) = self.yaml(".intentional/config.yml") else {
-            return None;
+    /// Release unit paths, or the declared scope boundary when none are present.
+    /// Malformed or unreadable declarations remain run errors.
+    pub fn release_units(&self) -> Result<Vec<(String, String)>, Box<Verdict>> {
+        let document = match self.yaml(".intentional/config.yml") {
+            ParsedFile::Missing | ParsedFile::NotAFile(_) => {
+                return Err(Box::new(Verdict::out_of_scope()))
+            }
+            ParsedFile::ReadError(error) => return Err(error),
+            ParsedFile::Parsed(document) => document,
         };
-        let units = document.get("release-units")?.as_map()?;
-        Some(
-            units
-                .iter()
-                .map(|(id, unit)| {
-                    let path = unit
-                        .get("path")
-                        .and_then(Yaml::as_str)
-                        .unwrap_or(".")
-                        .trim_end_matches('/')
-                        .to_owned();
-                    (id.clone(), path)
-                })
-                .collect(),
-        )
+        let Some(declared) = document.get("release-units") else {
+            return Err(Box::new(Verdict::out_of_scope()));
+        };
+        let Some(units) = declared.as_map() else {
+            return Err(Box::new(Verdict::run_error(
+                MALFORMED_DECLARATION,
+                "`release-units` must be a mapping",
+            )));
+        };
+        if units.is_empty() {
+            return Err(Box::new(Verdict::out_of_scope()));
+        }
+        Ok(units
+            .iter()
+            .map(|(id, unit)| {
+                let path = unit
+                    .get("path")
+                    .and_then(Yaml::as_str)
+                    .unwrap_or(".")
+                    .trim_end_matches('/')
+                    .to_owned();
+                (id.clone(), path)
+            })
+            .collect())
     }
 }
 
@@ -530,6 +559,7 @@ pub fn evaluate(rule: &RuleInstance, context: &AuditContext) -> Verdict {
     if let Some(route) = &verdict.routing {
         let declared = match route.reason.as_str() {
             "unbuilt" => rule.def.unbuilt_reason().is_some(),
+            "out-of-scope" => rule.def.needs_release_units(),
             "needs-repository-owner" => rule.def.needs_repository_owner(),
             reason => rule
                 .def
@@ -1197,6 +1227,23 @@ mod outcome_gate_tests {
         let undeclared_rule = RuleInstance {
             def: Box::leak(Box::new(definition)),
             ..rule("REPO-FILE-03")
+        };
+        let undeclared = evaluate(&undeclared_rule, &fixture.context());
+        assert!(undeclared.routing.is_none());
+        assert!(undeclared.status.is_none());
+        assert_eq!(undeclared.error.unwrap().cause, "undeclared_gate");
+    }
+    #[test]
+    fn an_out_of_scope_boundary_requires_a_compiled_declaration() {
+        let fixture = CheckFixture::new(&[]);
+        let declared = evaluate(&rule("REPO-LIC-04"), &fixture.context());
+        assert_eq!(declared.routing.as_ref().unwrap().reason, "out-of-scope");
+        assert!(declared.status.is_none());
+        let mut definition = *crate::registry::find("REPO-FILE-01").unwrap();
+        definition.id = "REPO-LIC-04";
+        let undeclared_rule = RuleInstance {
+            def: Box::leak(Box::new(definition)),
+            ..rule("REPO-LIC-04")
         };
         let undeclared = evaluate(&undeclared_rule, &fixture.context());
         assert!(undeclared.routing.is_none());

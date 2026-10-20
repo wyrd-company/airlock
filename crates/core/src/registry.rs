@@ -446,6 +446,10 @@ pub struct CheckDefinition {
     unbuilt_reason: Option<&'static str>,
     api_gate: bool,
     owner_gate: bool,
+    /// A check branch can require declared release units before it evaluates.
+    release_units_gate: bool,
+    /// Topic reference data required to enable this standard; an empty slice requires the map only.
+    required_topic_categories: Option<&'static [&'static str]>,
 }
 
 /// Every registered check definition, in conformance document order.
@@ -578,6 +582,16 @@ pub fn in_section(section: Section) -> Vec<&'static CheckDefinition> {
 
 impl CheckDefinition {
     #[must_use]
+    pub fn needs_release_units(&self) -> bool {
+        self.release_units_gate
+    }
+
+    #[must_use]
+    pub fn required_topic_categories(&self) -> Option<&'static [&'static str]> {
+        self.required_topic_categories
+    }
+
+    #[must_use]
     pub fn needs_repository_owner(&self) -> bool {
         self.owner_gate
     }
@@ -635,24 +649,13 @@ impl CheckDefinition {
 
 /// The registry content digest.
 ///
-/// SHA-256 over the sorted `(id, statement, severity, unbuilt reason)` tuples.
-/// Two binaries that agree on the digest agree on those compiled requirements.
+/// SHA-256 over the sorted compiled requirement identities: id, statement,
+/// severity, unbuilt reason, release-unit scope, and required topic categories.
 /// Observation sources and credential boundaries are not part of this digest.
 /// It travels in every audit result.
 #[must_use]
 pub fn digest() -> String {
-    let mut tuples: Vec<String> = CHECKS
-        .iter()
-        .map(|check| {
-            format!(
-                "{}\u{1f}{}\u{1f}{}\u{1f}{}",
-                check.id,
-                check.statement,
-                check.severity.code(),
-                check.unbuilt_reason().unwrap_or_default()
-            )
-        })
-        .collect();
+    let mut tuples: Vec<String> = CHECKS.iter().map(requirement_identity).collect();
     tuples.sort();
 
     let mut hasher = Sha256::new();
@@ -663,10 +666,42 @@ pub fn digest() -> String {
     format!("sha256:{}", hex::encode(hasher.finalize()))
 }
 
+fn requirement_identity(check: &CheckDefinition) -> String {
+    let topics = check
+        .required_topic_categories
+        .map_or("none".to_owned(), |categories| {
+            format!("topics:{}", categories.join(","))
+        });
+    format!(
+        "{}\u{1f}{}\u{1f}{}\u{1f}{}\u{1f}{}\u{1f}{}",
+        check.id,
+        check.statement,
+        check.severity.code(),
+        check.unbuilt_reason().unwrap_or_default(),
+        check.release_units_gate,
+        topics
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::collections::BTreeSet;
+
+    #[test]
+    fn requirement_identity_includes_scope_and_required_configuration() {
+        let mut standard = *find("REPO-LIC-04").unwrap();
+        let before = requirement_identity(&standard);
+        standard.release_units_gate = false;
+        assert_ne!(requirement_identity(&standard), before);
+        let mut standard = *find("REPO-META-07").unwrap();
+        let before = requirement_identity(&standard);
+        standard.required_topic_categories = Some(&[]);
+        let catalogue_only = requirement_identity(&standard);
+        assert_ne!(catalogue_only, before);
+        standard.required_topic_categories = None;
+        assert_ne!(requirement_identity(&standard), catalogue_only);
+    }
 
     #[test]
     fn every_check_definition_id_is_unique() {
@@ -789,13 +824,7 @@ mod tests {
         assert!(CHECKS.iter().any(|check| check.disclosure_gate().is_some()));
         assert_eq!(before, digest());
         for check in CHECKS {
-            let tuple = format!(
-                "{}\u{1f}{}\u{1f}{}\u{1f}{}",
-                check.id,
-                check.statement,
-                check.severity.code(),
-                check.unbuilt_reason().unwrap_or_default()
-            );
+            let tuple = requirement_identity(check);
             if let Some(gate) = check.disclosure_gate() {
                 assert!(
                     !tuple.contains(gate.evidence_code),

@@ -51,10 +51,11 @@ pub fn report_text(report: &Report) -> String {
     );
     let _ = writeln!(
         out,
-        "waived: {}, routed: {}, unbuilt: {}, run errors: {}",
+        "waived: {}, routed: {}, unbuilt: {}, out-of-scope: {}, run errors: {}",
         report.summary.waived,
         report.summary.routed,
         report.summary.unbuilt,
+        report.summary.out_of_scope,
         report.summary.run_errors
     );
     out.push('\n');
@@ -215,6 +216,11 @@ pub fn agent_work_list_text(list: &AgentWorkList) -> String {
     render_unsettled_group(&mut out, "run errors", &list.run_errors);
     render_unsettled_group(&mut out, "routed (exit code unchanged)", &list.routed);
     render_unsettled_group(&mut out, "unbuilt (exit code unchanged)", &list.unbuilt);
+    render_unsettled_group(
+        &mut out,
+        "out-of-scope (exit code unchanged)",
+        &list.out_of_scope,
+    );
     render_attention_group(&mut out, "waived (not evaluated)", &list.waived);
 
     let gating_unsettled = list
@@ -227,8 +233,8 @@ pub fn agent_work_list_text(list: &AgentWorkList) -> String {
     let _ = writeln!(out, "\nunsettled gating questions: {gating_unsettled}");
     let _ = writeln!(
         out,
-        "routed: {}, unbuilt: {}, waived: {}",
-        list.routed.count, list.unbuilt.count, list.waived.count
+        "routed: {}, unbuilt: {}, out-of-scope: {}, waived: {}",
+        list.routed.count, list.unbuilt.count, list.out_of_scope.count, list.waived.count
     );
     let _ = writeln!(
         out,
@@ -255,6 +261,8 @@ fn render_unsettled_group(
                     "run-error"
                 } else if heading.starts_with("unbuilt") {
                     "unbuilt"
+                } else if heading.starts_with("out-of-scope") {
+                    "out-of-scope"
                 } else {
                     "routed"
                 },
@@ -433,11 +441,14 @@ pub fn plan_text(report: &Report) -> String {
             .map_or("not configured", String::as_str);
         let _ = writeln!(out, "  {} — {}", finding.rule, reason);
     }
-    for (heading, unbuilt) in [("routed", false), ("unbuilt", true)] {
+    for heading in ["routed", "unbuilt", "out-of-scope"] {
         let rules: Vec<_> = plan
             .routed
             .iter()
-            .filter(|r| (r.reason == "unbuilt") == unbuilt)
+            .filter(|r| match r.reason {
+                "unbuilt" | "out-of-scope" => r.reason == heading,
+                _ => heading == "routed",
+            })
             .collect();
         let _ = writeln!(
             out,
@@ -477,7 +488,7 @@ pub fn plan_text(report: &Report) -> String {
             "Every standard was evaluated; this names each observed gap."
         );
     } else {
-        let _ = writeln!(out, "No run errors. The waived, routed, and unbuilt standards above have no Met or Gap outcome.");
+        let _ = writeln!(out, "No run errors. The waived, routed, unbuilt, and out-of-scope standards above have no Met or Gap outcome.");
     }
 
     out
@@ -585,6 +596,8 @@ fn check_json(check: &CheckDefinition) -> serde_json::Value {
             "rationale": gate.rationale(),
         })),
         "needs_github_api": check.needs_github_api(),
+        "needs_release_units": check.needs_release_units(),
+        "required_topic_categories": check.required_topic_categories(),
         "params": check.params.iter().map(|parameter| parameter.name).collect::<Vec<_>>(),
     })
 }

@@ -5,9 +5,9 @@ AIRLOCK 0.0.0  sign-in › organizations › repositories › findings   no cred
 VERDICT  ✓ conformant   ALIGNED 2 of 3                                                                                  
   complete    true   no run errors                                                                                      
   conformant  true   no blocking Gaps                                                                                   
-met 2 · gap 0 · waived 0 · routed 0 · unbuilt 1 · errors 0                                                              
+met 2 · gap 0 · waived 0 · routed 0 · unbuilt 1 · out-of-scope 0 · errors 0                                             
 groups        1 settings 0 · 2 agent 0 · 3 decision 0 · 4 judgment 1 · 5 unanswered 0 · 6 routed 0 · 7 authorized 0 · 8 
-              aligned 2                                                                                                 
+              out-of-scope 0 · 9 aligned 2                                                                              
 showing       the whole working set · 3 of 3 shown · gate blocking · f selects one of five sets                         
 ▸  - 1 AIRLOCK CLOSES THIS  0  no failing rule closes by a setting                                                      
    - 2 CLOSES BY PULL REQUEST — AGENT WORK  0  no failing rule closes by a file change                                  
@@ -17,9 +17,9 @@ showing       the whole working set · 3 of 3 shown · gate blocking · f select
   ┃- 5 AIRLOCK COULD NOT ANSWER  0  every rule this run asked was answered                                              
   ┃- 6 ROUTED  0  no rule was withheld by a disclosure gate; this session's credential is write-capable, so gated facts…
    - 7 WAIVED  0  the policy authorized no failure                                                                      
-   + 8 ALIGNED  2  passing rules, and rules skipped because a capability condition does not apply                       
+   - 8 OUT OF SCOPE  0  no standard is outside its declared scope                                                       
+   + 9 ALIGNED  2  standards whose compiled checks decided Met                                                          
 0 above · 0 below · working set 3 of 3 · ↑↓ moves through the rest                                                      
-                                                                                                                        
                                                                                                                         
                                                                                                                         
                                                                                                                         
@@ -48,7 +48,7 @@ ggggggggggggggggggggghhhhhhhhhhhhhgggggggggggggggggggggggggggggggggggggggggggggg
 ggggggggggggggggggggghhhhhhhhhhhhhhhhggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
 gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
 ffffffffffffffhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhg
-ffffffffffffffhhhhhhhhhggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+ffffffffffffffhhhhhhhhhhhhhhhhhhhhhhhhhhhhgggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
 ffffffffffffffhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhggggggggggggggggggggggggg
 ddddddddddddddddddddddddddiiiiifffffffffffffffffffffffffffffffffffgggggggggggggggggggggggggggggggggggggggggggggggggggggg
 ddddddddddddddddddddddddddddddddddddddddddiiiiifffffffffffffffffffffffffffffffffffffffgggggggggggggggggggggggggggggggggg
@@ -58,9 +58,9 @@ jjkggggggggggglggglggggggggggggggggmmmmmmmmmmmmmmfffffffffffffffhhhhhhhhhhhhhhhh
 jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjiiiiiffffffffffffffffffffffffffffffffffffffgggggggggggggggggggggggggggggggggggggggggggggg
 jjjjjjjjjjjjjiiiiiffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 dddddddddddddiiiiiffffffffffffffffffffffffffffffffgggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
-ddddddddddddddiiiiiffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffggggggggggggggggggggggg
+dddddddddddddddddddiiiiifffffffffffffffffffffffffffffffffffffffffggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+ddddddddddddddiiiiifffffffffffffffffffffffffffffffffffffffffffgggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
 nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnngggggggggggggggggggggggggggggggggggggggggggggggggggggg
-gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
 gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
 gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
 gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg

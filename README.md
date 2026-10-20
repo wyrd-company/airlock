@@ -166,17 +166,17 @@ its findings into the agent's file-change lanes:
 airlock agent-work wyrd-company/airlock --working-tree .
 ```
 
-Its `agent_lane` contains Gaps classified as `deterministic-file` or
-`judgment-file`. `operator_deferred` lists operator work. `needs_decision` and
+Its `agent_lane` contains Gaps classified as `deterministic-file` or `judgment-
+file`. `operator_deferred` lists operator work. `needs_decision` and
 `run_errors` name missing inputs and failed observations. `waived`, `routed`,
-and `unbuilt` list standards not evaluated here. These lists carry counts,
-identities, reasons, and settling surfaces. The `observation` block records
-whether files came from the API tree or the local working tree.
+`unbuilt`, and `out_of_scope` list standards not evaluated here. These lists
+carry counts, identities, reasons, and settling surfaces. The `observation`
+block records whether files came from the API tree or the local working tree.
 
 This is a lane-scoped definition-of-done check, not an audit substitute or a
-repository conformance claim. A clear agent lane can coexist with operator
-work, unbuilt checks, waivers, routed standards, and other repository gaps; run
-`airlock audit` for the complete findings authority.
+repository conformance claim. A clear agent lane can coexist with operator work,
+unbuilt checks, waivers, routed or out-of-scope standards, and other repository
+gaps; run `airlock audit` for the complete findings authority.
 
 `airlock audit --list-checks` prints the whole check registry: every rule id,
 its statement, its severity, its compiled check and declared gates, and what
@@ -223,15 +223,22 @@ Met and Gap results. Separate lists identify work without an outcome:
 - `unbuilt`: this evaluation reaches a declared part of the check that Airlock
   has not built. It names the reason and needs a release with that check built.
   Other branches of the same check still decide Met or Gap.
+- `out_of_scope`: a compiled check reached its declared release-unit boundary.
+  Reason `out-of-scope` means no release units are declared. It has no Met or
+  Gap outcome and leaves the exit code unchanged. Malformed declarations are
+  run errors.
 - `run_errors`: a failed read, exhausted budget, truncated input, or missing
   input with no declared gate. Every run error sets exit `2`, at any severity.
   A credentialed endpoint failure is a run error, never routing.
+  Absent required topic reference data defaults to severity `none`, with waiver
+  reason `no reference data configured`. Configured malformed data remains a
+  run error.
 
-Waived, routed, and unbuilt entries have no Met or Gap outcome and do not
-change the exit code. A standard is evaluated whole or routed whole when it
-requires an API-only fact. Other standards continue to run. A clean report
-with waivers or routed work is distinguishable from one where every standard
-was evaluated.
+Waived, routed, unbuilt, and out-of-scope entries have no Met or Gap outcome and
+do not change the exit code. A standard is evaluated whole or routed whole when
+it requires an API-only fact. Other standards continue to run. A clean report
+with waivers, routed, unbuilt, or out-of-scope work is distinguishable from one
+where every standard was evaluated.
 
 The tests `decided_outcomes_match_the_integration_base`,
 `a_waived_standard_does_not_run_its_check`,
@@ -251,7 +258,8 @@ commonly reported by shells as status 141.
 
 `airlock agent-work` asks whether agent file work remains. Its codes are `0`
 for `agent_lane_clear`, `1` for `agent_lane_work_remains`, and `2` for
-`could_not_settle`. It retains waived, routed, unbuilt, and run-error lists.
+`could_not_settle`. It retains waived, routed, unbuilt, out-of-scope, and
+run-error lists.
 Operator work does not turn a clear agent lane into a claim that the repository
 meets every standard.
 

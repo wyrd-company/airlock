@@ -83,15 +83,22 @@ fn json_output(output: &[u8]) -> Value {
 }
 
 fn finding<'a>(report: &'a Value, rule: &str) -> &'a Value {
-    let entries: Vec<_> = ["findings", "waived", "routed", "unbuilt", "run_errors"]
-        .into_iter()
-        .flat_map(|list| {
-            report[list]
-                .as_array()
-                .expect("each result list is an array")
-        })
-        .filter(|entry| entry["rule"] == rule)
-        .collect();
+    let entries: Vec<_> = [
+        "findings",
+        "waived",
+        "routed",
+        "unbuilt",
+        "out_of_scope",
+        "run_errors",
+    ]
+    .into_iter()
+    .flat_map(|list| {
+        report[list]
+            .as_array()
+            .expect("each result list is an array")
+    })
+    .filter(|entry| entry["rule"] == rule)
+    .collect();
     assert_eq!(
         entries.len(),
         1,
@@ -1359,10 +1366,8 @@ async fn a_scheduled_audit_is_not_failed_by_settings_that_require_admin_access()
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_missing_release_input_still_stops_a_run_beside_routed_settings() {
-    // A truncated tree is a run that fell short of what it can normally do:
-    // the capability condition that selects the release rules was never
-    // settled. That is circumstantial, and it still exits 2 — the structural
-    // gaps sitting beside it do not soften it, and it does not gate them.
+    // A truncated tree cannot establish whether a scope declaration is absent.
+    // That failed read stays a run error, beside the declared disclosure gates.
     let mut repo = scheduled_audit_repo().with_truncated_tree();
     repo.files
         .retain(|(path, _)| path != ".intentional/config.yml");
@@ -1376,7 +1381,8 @@ async fn a_missing_release_input_still_stops_a_run_beside_routed_settings() {
     );
     let git09 = finding(&report, "REPO-GIT-09");
     assert_eq!(git09["status"], Value::Null);
-    assert_eq!(git09["evidence"]["code"], "no_release_units_declared");
+    assert_eq!(git09["evidence"]["code"], "tree_truncated");
+    assert_eq!(report["summary"]["out_of_scope"], 0);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1661,8 +1667,10 @@ async fn declared_properties_do_not_select_standards_before_the_configuration_re
     let report = json_output(&assertion.get_output().stdout);
     assert!(report["summary"].get("skipped").is_none());
     assert_eq!(finding(&report, "REPO-REL-01")["status"], "gap");
-    assert_eq!(
-        finding(&report, "REPO-GIT-09")["error"]["cause"],
-        "no_release_units_declared"
-    );
+    assert_eq!(assertion.get_output().status.code(), Some(1));
+    assert_eq!(report["summary"]["run_errors"], 0);
+    assert_eq!(report["summary"]["out_of_scope"], 5);
+    let scoped = finding(&report, "REPO-GIT-09");
+    assert_eq!(scoped["status"], Value::Null);
+    assert_eq!(scoped["routing"]["reason"], "out-of-scope");
 }

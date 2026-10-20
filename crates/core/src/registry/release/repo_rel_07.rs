@@ -22,8 +22,10 @@ pub(crate) const STANDARD: CheckDefinition = CheckDefinition {
     ),
     lifecycle: Lifecycle::Seeded,
     observation: Observation::FileTree,
-    api_gate: false,
+    api_gate: true,
     owner_gate: false,
+    release_units_gate: false,
+    required_topic_categories: None,
     disclosure_gate: None,
     unbuilt_reason: None,
 };

@@ -10,9 +10,9 @@ VERDICT  ? incomplete   ALIGNED 2 of 9
   complete    false  2 run errors prevented completion                                                                  
   conformant  false  1 blocking Gaps                                                                                    
   unanswered  1      routed: no Met or Gap outcome; see the settling surface                                            
-met 2 · gap 2 · waived 1 · routed 1 · unbuilt 1 · errors 2                                                              
+met 2 · gap 2 · waived 1 · routed 1 · unbuilt 1 · out-of-scope 0 · errors 2                                             
 groups        1 settings 1 · 2 agent 1 · 3 decision 1 · 4 judgment 1 · 5 unanswered 1 · 6 routed 1 · 7 authorized 1 · 8 
-              aligned 2                                                                                                 
+              out-of-scope 0 · 9 aligned 2                                                                              
 showing       gating failures · 1 of 9 shown · gate blocking · f selects one of five sets                               
 ▸  - 1 AIRLOCK CLOSES THIS  1  settings-level changes applied from here; confirm rather than study                      
   ▌ ███  ✗    │   │ REPO-GIT-01    gap           git            the condition REPO-GIT-01 states                        
@@ -22,9 +22,9 @@ showing       gating failures · 1 of 9 shown · gate blocking · f selects one 
   ┃- 5 AIRLOCK COULD NOT ANSWER  1  the undecided lane; the remedy often sits outside the repository                    
   ┃- 6 ROUTED  1  standards routed to the settling surface their declared gate names                                    
    - 7 WAIVED  1  standards not evaluated at severity none; their reasons remain visible                                
-   + 8 ALIGNED  2  passing rules, and rules skipped because a capability condition does not apply                       
+   - 8 OUT OF SCOPE  0  no standard is outside its declared scope                                                       
+   + 9 ALIGNED  2  standards whose compiled checks decided Met                                                          
 0 above · 0 below · working set 1 of 9 · ↑↓ moves through the rest                                                      
-                                                                                                                        
                                                                                                                         
                                                                                                                         
                                                                                                                         
@@ -53,7 +53,7 @@ eeeeeeeeeeeeeeeeeeeeegggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 fffffffffffffffffffffgggggggggggggggggggggggggggggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 iiiiiiiiiiiiiiggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggge
-iiiiiiiiiiiiiigggggggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+iiiiiiiiiiiiiiggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 iiiiiiiiiiiiiigggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 hhhhhhhhhhhhhhhhhhhhhhhhhhkkkkkiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiieeeeeeeeeeeeeeeeeeeeee
 llmeeeeemmmeeeneeeneeeeeeeeeeeeeeeemmmmmmmmmmmmmmiiiiiiiiiiiiiiiggggggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeee
@@ -63,9 +63,9 @@ llllllllllllllllllllllllllllllllllllkkkkkiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii
 lllllllllllllllllllllllllllllllkkkkkiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiieeeeeeeeeeeeeeeeeeee
 lllllllllllllkkkkkiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiieeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 hhhhhhhhhhhhhkkkkkiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiieeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-hhhhhhhhhhhhhhkkkkkiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiieeeeeeeeeeeeeeeeeeeeeee
+hhhhhhhhhhhhhhhhhhhkkkkkiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiieeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+hhhhhhhhhhhhhhkkkkkiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiieeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee

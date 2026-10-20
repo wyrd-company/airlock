@@ -67,13 +67,7 @@ fn release_units_declared(context: &AuditContext) -> Verdict {
 }
 
 fn changelog_per_unit(context: &AuditContext) -> Verdict {
-    let Some(units) = context.release_units() else {
-        return Verdict::run_error(
-            "no_release_units_declared",
-            "the repository declares no release units, so per-unit changelogs could not be \
-             checked",
-        );
-    };
+    let units = try_verdict!(context.release_units());
 
     let missing: Vec<String> = units
         .iter()
@@ -110,13 +104,7 @@ fn changelog_path(unit_path: &str) -> String {
 }
 
 fn no_root_aggregate_changelog(context: &AuditContext) -> Verdict {
-    let Some(units) = context.release_units() else {
-        return Verdict::run_error(
-            "no_release_units_declared",
-            "the repository declares no release units, so whether a root changelog aggregates \
-             them could not be established",
-        );
-    };
+    let units = try_verdict!(context.release_units());
 
     if units.len() <= 1 {
         return Verdict::pass(

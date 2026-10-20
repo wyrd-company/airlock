@@ -97,14 +97,14 @@ pub struct Plan<'a> {
     pub unclosable: Vec<UnclosableGap<'a>>,
     /// Run errors are visible and prevent a complete audit.
     pub run_errors: Vec<RunErrorRule<'a>>,
-    /// Declared routing and unbuilt boundaries, with their reasons and destinations.
+    /// Declared routing, unbuilt, and out-of-scope boundaries, with their reasons and destinations.
     pub routed: Vec<RoutedRule<'a>>,
     pub waived: Vec<&'a crate::findings::Finding>,
 }
 
 impl<'a> Plan<'a> {
     /// Derive fixes only from evaluated Gaps. Waivers, routed standards, unbuilt
-    /// checks, and run errors remain visible without proposing an unobserved fix.
+    /// checks, out-of-scope standards, and run errors remain visible without proposing an unobserved fix.
     #[must_use]
     pub fn derive(report: &'a Report) -> Self {
         let mut proposed = Vec::new();

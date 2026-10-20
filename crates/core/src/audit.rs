@@ -491,7 +491,16 @@ fn complete_run(
         let verdict = if waiver.is_some() {
             checks::Verdict::waived()
         } else if gated {
-            checks::Verdict::needs_github_api()
+            // Known file scope precedes the API-source gate. A missing API
+            // credential cannot turn an absent release-unit scope into API work.
+            if rule.def.needs_release_units() {
+                match context.release_units() {
+                    Ok(_) => checks::Verdict::needs_github_api(),
+                    Err(boundary) => *boundary,
+                }
+            } else {
+                checks::Verdict::needs_github_api()
+            }
         } else {
             checks::evaluate(rule, &context)
         };
@@ -696,6 +705,24 @@ fn waiver_for(
                 requested_reason: Some(request.reason.clone()),
                 policy_reason: None,
                 authorized_by: format!("policy `{}` suppressions.allow-repo-requests", policy.name),
+            });
+        }
+    }
+    if let Some(categories) = rule.def.required_topic_categories() {
+        let absent = match policy.reference_data.get("topics") {
+            None => true,
+            Some(crate::yaml::Yaml::Map(entries)) => categories
+                .iter()
+                .any(|category| !entries.iter().any(|(name, _)| name == category)),
+            // Configured but malformed data must reach the compiled check.
+            Some(_) => false,
+        };
+        if absent {
+            return Some(Suppression {
+                source: SuppressionSource::Policy,
+                requested_reason: None,
+                policy_reason: Some("no reference data configured".to_owned()),
+                authorized_by: format!("{} required configuration", rule.def.id),
             });
         }
     }

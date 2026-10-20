@@ -347,14 +347,8 @@ fn tags_have_no_v_prefix(context: &AuditContext) -> Verdict {
 }
 
 fn multi_unit_tag_shape(context: &AuditContext) -> Verdict {
-    // Built-in applicability intercepts this; retain the guard as belt-and-braces defense.
-    let Some(units) = context.release_units() else {
-        return Verdict::run_error(
-            "no_release_units_declared",
-            "the repository declares no release units, so whether its tags should be scoped \
-             could not be established",
-        );
-    };
+    // This branch requires the standard's declared release-unit scope.
+    let units = try_verdict!(context.release_units());
     if units.len() <= 1 {
         return Verdict::pass(
             "single_release_unit",

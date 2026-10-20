@@ -33,7 +33,7 @@ provenance            capability:base/release
 RUN PROVENANCE                                                                                                          
 airlock               0.0.0                                                                                             
 registry              0.5.0                                                                                             
-digest                sha256:57150107b0eb125895831f98843953d413189f50c8454d1f38d533d0fe7f53bd                           
+digest                sha256:f169140f3e10a134a1fcf2d7b1715041fdebee65c8ad1d4484975b9942406bbf                           
 schema                2                                                                                                 
 commit                aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa                                                          
 — 0 lines above · 4 below · ↑↓ moves the window —                                                                       

@@ -173,6 +173,8 @@ pub struct AgentWorkList {
     pub routed: WorkGroup<UnsettledItem>,
     /// Evaluations that reached a declared unbuilt check boundary.
     pub unbuilt: WorkGroup<UnsettledItem>,
+    /// Standards outside the declared release-unit scope.
+    pub out_of_scope: WorkGroup<UnsettledItem>,
     /// Waivers that prevented evaluation, with their authorization reasons.
     pub waived: WorkGroup<AttentionItem>,
     /// The lane-scoped conclusion.
@@ -189,6 +191,7 @@ impl AgentWorkList {
         let mut run_errors = Vec::new();
         let mut routed = Vec::new();
         let mut unbuilt = Vec::new();
+        let mut out_of_scope = Vec::new();
         let mut waived = Vec::new();
         let mut classification_unsettled = false;
 
@@ -235,6 +238,12 @@ impl AgentWorkList {
                         .is_some_and(|route| route.reason == "unbuilt")
                     {
                         unbuilt.push(item);
+                    } else if finding
+                        .routing
+                        .as_ref()
+                        .is_some_and(|route| route.reason == "out-of-scope")
+                    {
+                        out_of_scope.push(item);
                     } else if finding.routing.is_some() {
                         routed.push(item);
                     } else if item.evidence_code.as_deref() == Some("capability_undeclared") {
@@ -323,6 +332,7 @@ impl AgentWorkList {
         run_errors.sort_by(|a, b| a.rule.cmp(&b.rule));
         routed.sort_by(|a, b| a.rule.cmp(&b.rule));
         unbuilt.sort_by(|a, b| a.rule.cmp(&b.rule));
+        out_of_scope.sort_by(|a, b| a.rule.cmp(&b.rule));
         waived.sort_by(|a, b| a.rule.cmp(&b.rule));
 
         let outcome = if !report.complete || classification_unsettled {
@@ -346,6 +356,7 @@ impl AgentWorkList {
             run_errors: WorkGroup::new(run_errors),
             routed: WorkGroup::new(routed),
             unbuilt: WorkGroup::new(unbuilt),
+            out_of_scope: WorkGroup::new(out_of_scope),
             waived: WorkGroup::new(waived),
             outcome,
         }

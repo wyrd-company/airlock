@@ -56,13 +56,8 @@ pub(super) fn required_tasks(context: &AuditContext) -> Verdict {
 }
 
 pub(super) fn per_unit_taskfiles(context: &AuditContext) -> Verdict {
-    // Built-in applicability intercepts this; retain the guard as belt-and-braces defense.
-    let Some(units) = context.release_units() else {
-        return Verdict::run_error(
-            "no_release_units_declared",
-            "the repository declares no release units, so per-unit taskfiles could not be checked",
-        );
-    };
+    // This branch requires the standard's declared release-unit scope.
+    let units = try_verdict!(context.release_units());
     if units.len() <= 1 {
         return Verdict::pass(
             "single_release_unit",
@@ -163,13 +158,7 @@ pub(super) fn include_namespaces(context: &AuditContext) -> Verdict {
         );
     }
 
-    let Some(units) = context.release_units() else {
-        return Verdict::run_error(
-            "no_release_units_declared",
-            "the repository declares no release units, so include namespaces could not be \
-             compared against them",
-        );
-    };
+    let units = try_verdict!(context.release_units());
     let unit_ids: Vec<&String> = units.iter().map(|(id, _)| id).collect();
 
     let unmatched: Vec<&String> = includes

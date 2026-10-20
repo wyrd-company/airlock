@@ -1971,7 +1971,7 @@ impl App {
                 "the owner, repository name, visibility, policy capability declarations, and first-commit files"
             }
             Screen::Findings => {
-                "the verdict, the status summary, and the eight groups of the \
+                "the verdict, the status summary, and the nine groups of the \
                  work queue"
             }
             Screen::FindingDetail => {

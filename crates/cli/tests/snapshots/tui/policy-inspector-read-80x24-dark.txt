@@ -4,8 +4,8 @@ AIRLOCK 0.0.0  …dings › policy inspector  no credential stored · theme t ·
 EFFECTIVE POLICY  9 rules · 6 sections                                          
                                                                                 
 REGISTRY DIGEST                                                                 
-digest          sha256:57150107b0eb125895831f98843953d413189f50c8454d1f38d533d0f
-                e7f53bd                                                         
+digest          sha256:f169140f3e10a134a1fcf2d7b1715041fdebee65c8ad1d4484975b994
+                2406bbf                                                         
 computed over   every rule the compiled registry declares: its id, its          
                 statement, its default severity, its section, and its evaluation
                 mode.                                                           
@@ -23,7 +23,7 @@ suppressions    policy · 1 rule(s) · — policy-sourced, not registry
                                                                                 
 — 0 lines above · 20 below · ↑↓ moves the window —                              
 esc back · ↑↓ move · y copy digest · t theme · ctrl-c exit                      
-registry 0.5.0 · sha256:57150107… · 9 rules · 6 sections                        
+registry 0.5.0 · sha256:f169140f… · 9 rules · 6 sections                        
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 ccccccccccccccccddeeeeeeeeeeeeeeeeeeeedddddddddddddddddddddddddddddddddddddddddd

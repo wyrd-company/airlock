@@ -70,6 +70,8 @@ fn not_dual_licensed(context: &AuditContext) -> Verdict {
 }
 
 fn license_declared_in_metadata(context: &AuditContext) -> Verdict {
+    // Package metadata is governed only inside the declared release-unit scope.
+    try_verdict!(context.release_units());
     let present: Vec<&&str> = MANIFESTS
         .iter()
         .filter(|manifest| context.has_file(manifest))

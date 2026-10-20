@@ -21,6 +21,8 @@ pub(crate) const STANDARD: CheckDefinition = CheckDefinition {
     observation: Observation::Platform,
     api_gate: false,
     owner_gate: false,
+    release_units_gate: false,
+    required_topic_categories: None,
     disclosure_gate: None,
     unbuilt_reason: Some("The compiled check is not built yet"),
 };

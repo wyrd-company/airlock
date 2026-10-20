@@ -21,6 +21,8 @@ pub(crate) const STANDARD: CheckDefinition = CheckDefinition {
     observation: Observation::FileTree,
     api_gate: false,
     owner_gate: false,
+    release_units_gate: false,
+    required_topic_categories: Some(&[]),
     disclosure_gate: None,
     unbuilt_reason: None,
 };

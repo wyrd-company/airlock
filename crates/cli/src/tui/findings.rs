@@ -4,7 +4,7 @@
 //! finding is either aligned or it is not. Nothing is triaged away as
 //! unimportant, because an unimportant rule would not be in the policy. What
 //! differs between findings is how much reading each one needs before it can be
-//! closed, and who can close it — so the queue is ordered by the work, in eight
+//! closed, and who can close it — so the queue is ordered by the work, in nine
 //! groups, and only the last of them is done.
 //!
 //! Grouping layers on top of the three-lane status model and does not replace
@@ -87,7 +87,7 @@ const MARKS: usize = UNFOCUSED.len() + 2 + 4 + LANES_WIDTH + 1;
 /// Everything a row spends before its section, on the line the statement is on.
 const SPENT: usize = MARKS + RULE_WIDTH + STATUS_WIDTH;
 
-/// One of the eight groups the queue is ordered into.
+/// One of the nine groups the queue is ordered into.
 ///
 /// The order is the work: what airlock closes, what an agent closes, what only
 /// a person can close, what nothing can close yet, and what is already done.
@@ -107,13 +107,15 @@ pub enum Group {
     AdminOnly,
     /// Suppressed failures: standing debt.
     Authorized,
-    /// Passing rules, and rules a capability condition did not apply to.
+    /// Standards outside their declared scope.
+    OutOfScope,
+    /// Evaluated Met outcomes.
     Aligned,
 }
 
 impl Group {
     /// Every group, in queue order.
-    pub const ALL: [Group; 8] = [
+    pub const ALL: [Group; 9] = [
         Group::Settings,
         Group::AgentWork,
         Group::Decision,
@@ -121,6 +123,7 @@ impl Group {
         Group::Unanswered,
         Group::AdminOnly,
         Group::Authorized,
+        Group::OutOfScope,
         Group::Aligned,
     ];
 
@@ -135,7 +138,8 @@ impl Group {
             Self::Unanswered => 5,
             Self::AdminOnly => 6,
             Self::Authorized => 7,
-            Self::Aligned => 8,
+            Self::OutOfScope => 8,
+            Self::Aligned => 9,
         }
     }
 
@@ -150,6 +154,7 @@ impl Group {
             Self::Unanswered => "AIRLOCK COULD NOT ANSWER",
             Self::AdminOnly => "ROUTED",
             Self::Authorized => "WAIVED",
+            Self::OutOfScope => "OUT OF SCOPE",
             Self::Aligned => "ALIGNED",
         }
     }
@@ -172,10 +177,8 @@ impl Group {
             Self::Authorized => {
                 "standards not evaluated at severity none; their reasons remain visible"
             }
-            Self::Aligned => {
-                "passing rules, and rules skipped because a capability condition does \
-                 not apply"
-            }
+            Self::OutOfScope => "no declared release units; no Met or Gap outcome",
+            Self::Aligned => "standards whose compiled checks decided Met",
         }
     }
 
@@ -190,6 +193,7 @@ impl Group {
             Self::Unanswered => "unanswered",
             Self::AdminOnly => "routed",
             Self::Authorized => "authorized",
+            Self::OutOfScope => "out-of-scope",
             Self::Aligned => "aligned",
         }
     }
@@ -230,7 +234,8 @@ impl Group {
                  credential is write-capable, so gated facts resolve under it"
             }
             Self::Authorized => "the policy authorized no failure",
-            Self::Aligned => "no rule passed and none was skipped",
+            Self::OutOfScope => "no standard is outside its declared scope",
+            Self::Aligned => "no compiled check decided Met",
         }
     }
 }
@@ -544,10 +549,10 @@ fn group_of(finding: &Finding) -> Group {
         return Group::Authorized;
     }
     if let Some(route) = &finding.routing {
-        return if route.reason == "unbuilt" {
-            Group::Judgment
-        } else {
-            Group::AdminOnly
+        return match route.reason.as_str() {
+            "unbuilt" => Group::Judgment,
+            "out-of-scope" => Group::OutOfScope,
+            _ => Group::AdminOnly,
         };
     }
     if finding
@@ -709,7 +714,7 @@ pub struct State {
     /// Which entry is focused.
     selected: usize,
     /// Which groups are collapsed, indexed by [`Group::number`] minus one.
-    collapsed: [bool; 8],
+    collapsed: [bool; Group::ALL.len()],
     /// The set the filter has selected.
     filter: FilterSet,
     /// Whether the flat lookup view is open.
@@ -718,7 +723,7 @@ pub struct State {
 
 impl Default for State {
     fn default() -> Self {
-        let mut collapsed = [false; 8];
+        let mut collapsed = [false; Group::ALL.len()];
         for group in Group::ALL {
             collapsed[group.number() - 1] = group.starts_collapsed();
         }
@@ -1164,12 +1169,13 @@ fn verdict(styles: Styles, width: usize, queue: &Queue) -> Vec<Line<'static>> {
 fn summary(styles: Styles, width: usize, queue: &Queue, _density: Density) -> Vec<Line<'static>> {
     let summary = &queue.summary;
     let counts = format!(
-        "met {} · gap {} · waived {} · routed {} · unbuilt {} · errors {}",
+        "met {} · gap {} · waived {} · routed {} · unbuilt {} · out-of-scope {} · errors {}",
         summary.met,
         summary.gap,
         summary.waived,
         summary.routed,
         summary.unbuilt,
+        summary.out_of_scope,
         summary.run_errors
     );
     super::chrome::wrap(&counts, width)
@@ -2696,5 +2702,24 @@ mod tests {
         assert!(status.contains("9 rules"), "{status}");
         assert!(status.contains("registry"), "{status}");
         assert!(status.contains("gate blocking"), "{status}");
+    }
+    #[test]
+    fn out_of_scope_standards_have_their_own_non_gating_group() {
+        let mut entry = finding("REPO-LIC-04", Severity::Blocking, None);
+        entry.routing = Some(airlock_core::findings::Routing {
+            reason: "out-of-scope".to_owned(),
+            settling_surface: "An audit with declared release units".to_owned(),
+        });
+        let queue = queue(vec![entry]);
+        assert_eq!(queue.count(Group::OutOfScope), 1);
+        assert_eq!(queue.count(Group::AdminOnly), 0);
+        assert_eq!(queue.count(Group::Aligned), 0);
+        assert_eq!(queue.count(Group::Judgment), 0);
+        assert_eq!(queue.summary.out_of_scope, 1);
+        assert!(!queue.rows[0].gates());
+        assert_eq!(queue.rows[0].result_label, "out-of-scope");
+        let output = rendered(&queue, &State::default(), 120, 60);
+        assert!(output.contains("OUT OF SCOPE"), "{output}");
+        assert!(output.contains("out-of-scope 1"), "{output}");
     }
 }

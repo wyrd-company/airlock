@@ -28,6 +28,7 @@ capabilities:
     - agent
     - docs
     - classification
+  # Compiled release-unit boundaries report out-of-scope when no units are declared.
   registry:
     - release
 

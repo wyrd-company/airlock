@@ -2,7 +2,7 @@
 //!
 //! One audit run produces one findings document: the audited repository, the
 //! resolved policy identity and digest, and one record per selected standard.
-//! Decided findings, waivers, routing, unbuilt checks, and run errors have
+//! Decided findings, waivers, routing, unbuilt, out-of-scope, and run errors have
 //! separate lists and summary counts. Every finding carries its statement and
 //! severity inline, so a reader never has to look up what a bare rule
 //! identifier meant.
@@ -316,6 +316,8 @@ impl Finding {
                 } else if let Some(route) = &self.routing {
                     if route.reason == "unbuilt" {
                         "unbuilt"
+                    } else if route.reason == "out-of-scope" {
+                        "out-of-scope"
                     } else {
                         "routed"
                     }
@@ -456,6 +458,7 @@ pub struct Summary {
     pub waived: usize,
     pub routed: usize,
     pub unbuilt: usize,
+    pub out_of_scope: usize,
     pub run_errors: usize,
 }
 impl Summary {
@@ -545,6 +548,7 @@ pub struct Report {
     pub waived: Vec<Finding>,
     pub routed: Vec<Finding>,
     pub unbuilt: Vec<Finding>,
+    pub out_of_scope: Vec<Finding>,
     pub run_errors: Vec<Finding>,
     /// Counts per status.
     pub summary: Summary,
@@ -563,6 +567,7 @@ impl Report {
             .chain(&self.waived)
             .chain(&self.routed)
             .chain(&self.unbuilt)
+            .chain(&self.out_of_scope)
             .chain(&self.run_errors)
     }
 
@@ -587,6 +592,7 @@ impl Report {
         let mut waived = Vec::new();
         let mut routed = Vec::new();
         let mut unbuilt = Vec::new();
+        let mut out_of_scope = Vec::new();
         let mut run_errors = Vec::new();
         for mut finding in findings {
             if finding.suppression.is_some() || finding.severity == "none" {
@@ -596,6 +602,8 @@ impl Report {
                 finding.status = None;
                 if route.reason == "unbuilt" {
                     unbuilt.push(finding);
+                } else if route.reason == "out-of-scope" {
+                    out_of_scope.push(finding);
                 } else {
                     routed.push(finding);
                 }
@@ -614,6 +622,7 @@ impl Report {
         summary.waived = waived.len();
         summary.routed = routed.len();
         summary.unbuilt = unbuilt.len();
+        summary.out_of_scope = out_of_scope.len();
         summary.run_errors = run_errors.len();
         let complete = run_errors.is_empty();
         let conformant = !decided
@@ -640,6 +649,7 @@ impl Report {
             waived,
             routed,
             unbuilt,
+            out_of_scope,
             run_errors,
             summary,
             complete,

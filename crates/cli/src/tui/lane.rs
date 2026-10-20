@@ -67,7 +67,9 @@ impl Lane {
         match self {
             Self::Gating => "counts toward the verdict",
             Self::Inert => "never gates",
-            Self::Undecided => "no outcome: read the waived, routed, unbuilt, or run-error label",
+            Self::Undecided => {
+                "no outcome: read the waived, routed, unbuilt, out-of-scope, or run-error label"
+            }
         }
     }
 }

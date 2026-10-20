@@ -97,9 +97,11 @@ proposed-design:
 
   classification-and-scope: >-
     In the capability configuration, `REPO-TPL-01` belongs to the `registry`
-    group alongside `release`, never `base`. The existing org example applies
-    `registry` only to repositories declared to release versioned output.
-    In the classification model, capability and apply selectors disappear;
+    group alongside `release`, never `base`. Capability groups select sections;
+    the org example includes the release section. Compiled release-unit boundaries
+    list standards as out-of-scope when no release units are declared, without an
+    outcome or exit effect. Scope is a declared boundary, not a policy predicate.
+    In the classification model, capability selectors disappear;
     compiled standards use the org-owned audience, family and category that
     identify repositories with a versioned release process. This is the same
     release-process scope, with maturity observed separately. A repository
