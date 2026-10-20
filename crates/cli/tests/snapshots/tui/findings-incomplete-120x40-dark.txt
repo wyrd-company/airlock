@@ -5,16 +5,16 @@ AIRLOCK 0.0.0  sign-in › organizations › repositories › findings   no cred
 RUN INCOMPLETE  complete is false, and no verdict below it can be certified                                             
   ? REPO-GIT-09    run-error     permission on GET /repos/{owner}/{repo}/rulesets                                       
                                                                                                                         
-VERDICT  ? incomplete   ALIGNED 1 of 4                                                                                  
+VERDICT  ? incomplete   MET 1 of 4                                                                                      
   complete    false  1 run errors prevented completion                                                                  
   conformant  false  1 blocking Gaps                                                                                    
 met 1 · gap 1 · waived 0 · routed 0 · unbuilt 1 · out-of-scope 0 · errors 1                                             
 groups        1 settings 1 · 2 agent 0 · 3 operator 0 · 4 unbuilt 1 · 5 run-errors 1 · 6 routed 0 · 7 waived 0 · 8      
               out-of-scope 0 · 9 met 1                                                                                  
 showing       the whole working set · 4 of 4 shown · gate blocking · f selects one of five sets                         
-▸  - 1 AIRLOCK CLOSES THIS  1  settings-level changes applied from here; confirm rather than study                      
+▸  - 1 OPERATOR WORK  1  settings-level changes applied from here; confirm rather than study                            
   ▌ ███  ✗    │   │ REPO-GIT-01    gap           git            the condition REPO-GIT-01 states                        
-   - 2 CLOSES BY PULL REQUEST — AGENT WORK  0  no failing rule closes by a file change                                  
+   - 2 AGENT WORK — FILE FIXES  0  no failing rule closes by a file change                                              
   ┃- 3 OPERATOR DEFERRED  0  no gap is deferred without a declared fix                                                  
   ┃- 4 UNBUILT  1  rules whose reached check branch is not built                                                        
     ███       │   │ REPO-CI-02     unbuilt       automation     unbuilt — A release with the compiled check implemented 
@@ -46,16 +46,16 @@ cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 ddddddddddddddddeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 fffffffffffffffffffffffffffffffffggggggggggggggggggggggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-hhhhhhhhhddddddddddddiiijjjjjjjjjjjjjjeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+hhhhhhhhhddddddddddddiiijjjjjjjjjjeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeegggggggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeegggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 iiiiiiiiiiiiiiggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggeeeeee
 iiiiiiiiiiiiiiggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 iiiiiiiiiiiiiigggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeee
-hhhhhhhhhhhhhhhhhhhhhhhhhhkkkkkiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiieeeeeeeeeeeeeeeeeeeeee
+hhhhhhhhhhhhhhhhhhhhkkkkkiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiieeeeeeeeeeeeeeeeeeeeeeeeeeee
 llmeeeeemmmeeeneeeneeeeeeeeeeeeeeeemmmmmmmmmmmmmmiiiiiiiiiiiiiiiggggggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeee
-hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhkkkkkiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiieeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhkkkkkiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiieeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 llllllllllllllllllllllllkkkkkiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiieeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 llllllllllllllkkkkkiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiieeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 llmeeeeeeeeeeeneeeneeeeeeeeeeeeeeeeffffffffffffffiiiiiiiiiiiiiiiggggggggggggggggggggggggggggggggggggggggggggggggggggggge

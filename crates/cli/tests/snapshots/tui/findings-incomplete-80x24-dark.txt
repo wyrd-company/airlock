@@ -3,16 +3,16 @@ findings-incomplete-80x24-dark · 80x24 · theme dark · colour
 AIRLOCK 0.0.0  … repositories › findings  no credential stored · theme t · dark 
 RUN INCOMPLETE  complete is false, and no verdict below it can be certified     
   ? REPO-GIT-09    run-error     permission on GET /repos/{owner}/{repo}/rulese…
-VERDICT  ? incomplete   ALIGNED 1 of 4                                          
+VERDICT  ? incomplete   MET 1 of 4                                              
   complete    false  1 run errors prevented completion                          
   conformant  false  1 blocking Gaps                                            
 met 1 · gap 1 · waived 0 · routed 0 · unbuilt 1 · out-of-scope 0 · errors 1     
 groups        1:1 · 2:0 · 3:0 · 4:1 · 5:1 · 6:0 · 7:0 · 8:0 · 9:1               
 showing       the whole working set · 4 of 4 · gate blocking · f                
-▸  - 1 AIRLOCK CLOSES THIS  1  settings-level changes applied from here; confir…
+▸  - 1 OPERATOR WORK  1  settings-level changes applied from here; confirm rath…
   ▌ ███  ✗    │   │ REPO-GIT-01    gap           the condition REPO-GIT-01 stat…
                     git                                                         
-   - 2 CLOSES BY PULL REQUEST — AGENT WORK  0  no failing rule closes by a file…
+   - 2 AGENT WORK — FILE FIXES  0  no failing rule closes by a file change      
   ┃- 3 OPERATOR DEFERRED  0  no gap is deferred without a declared fix          
   ┃- 4 UNBUILT  1  rules whose reached check branch is not built                
     ███       │   │ REPO-CI-02     unbuilt       the condition REPO-CI-02 states
@@ -28,16 +28,16 @@ incomplete · complete false · 4 rules · rules 0.6.0 · gate blocking
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 ccccccccccccccccdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeefffffffffffffffffffffffffffffffffffffffffffffff
-gggggggggcccccccccccchhhiiiiiiiiiiiiiidddddddddddddddddddddddddddddddddddddddddd
+gggggggggcccccccccccchhhiiiiiiiiiidddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddfffffffffffffffffffffffffffffffffdddddddddddddddddddddddddd
 dddddddddddddddddddddfffffffffffffffdddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 hhhhhhhhhhhhhhfffffffffffffffffffffffffffffffffffffffffffffffffffddddddddddddddd
 hhhhhhhhhhhhhhffffffffffffffffffffffffffffffffffffffffffffffffffdddddddddddddddd
-ggggggggggggggggggggggggggjjjjjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh
+ggggggggggggggggggggjjjjjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh
 kkldddddllldddmdddmddddddddddddddddllllllllllllllfffffffffffffffffffffffffffffff
 hhhhhhhhhhhhhhhhhhhhhhhddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-ggggggggggggggggggggggggggggggggggggggggggjjjjjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh
+ggggggggggggggggggggggggggggggjjjjjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhdddddd
 kkkkkkkkkkkkkkkkkkkkkkkkjjjjjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhdddddddddd
 kkkkkkkkkkkkkkjjjjjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhdddddddddddddddd
 kkldddddddddddmdddmddddddddddddddddeeeeeeeeeeeeeefffffffffffffffffffffffffffffff

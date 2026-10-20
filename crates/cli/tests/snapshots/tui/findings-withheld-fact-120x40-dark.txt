@@ -2,15 +2,15 @@ findings-withheld-fact-120x40-dark · 120x40 · theme dark · colour
 --- text ---
 AIRLOCK 0.0.0  sign-in › organizations › repositories › findings   no credential stored · tty required · theme t · dark 
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-VERDICT  ✓ conformant   ALIGNED 1 of 2                                                                                  
+VERDICT  ✓ conformant   MET 1 of 2                                                                                      
   complete    true   no run errors                                                                                      
   conformant  true   no blocking Gaps                                                                                   
 met 1 · gap 1 · waived 0 · routed 0 · unbuilt 0 · out-of-scope 0 · errors 0                                             
 groups        1 settings 0 · 2 agent 0 · 3 operator 1 · 4 unbuilt 0 · 5 run-errors 0 · 6 routed 0 · 7 waived 0 · 8      
               out-of-scope 0 · 9 met 1                                                                                  
 showing       the whole working set · 2 of 2 shown · gate blocking · f selects one of five sets                         
-▸  - 1 AIRLOCK CLOSES THIS  0  no failing rule closes by a setting                                                      
-   - 2 CLOSES BY PULL REQUEST — AGENT WORK  0  no failing rule closes by a file change                                  
+▸  - 1 OPERATOR WORK  0  no failing rule closes by a setting                                                            
+   - 2 AGENT WORK — FILE FIXES  0  no failing rule closes by a file change                                              
   ┃- 3 OPERATOR DEFERRED  1  gaps with no declared fix; the operator decides how to close them                          
     ██░  ✗    │   │ REPO-DOCS-05   gap           the condition REPO-DOCS-05 states                                      
                     docs · no fix: the choice of licence is the maintainer's, and airlock will not make it for them     
@@ -43,15 +43,15 @@ conformant · complete true · 2 rules · rules 0.6.0 · gate blocking
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-dddddddddeeeeeeeeeeeefffeeeeeeeeeeeeeegggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+dddddddddeeeeeeeeeeeefffeeeeeeeeeegggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
 ggggggggggggggggggggghhhhhhhhhhhhhgggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
 ggggggggggggggggggggghhhhhhhhhhhhhhhhggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
 gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
 ffffffffffffffhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhgggggg
 ffffffffffffffhhhhhhhhhhhhhhhhhhhhhhhhgggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
 ffffffffffffffhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhggggggggggggggggggggggggg
-ddddddddddddddddddddddddddiiiiifffffffffffffffffffffffffffffffffffgggggggggggggggggggggggggggggggggggggggggggggggggggggg
-ddddddddddddddddddddddddddddddddddddddddddiiiiifffffffffffffffffffffffffffffffffffffffgggggggggggggggggggggggggggggggggg
+ddddddddddddddddddddiiiiifffffffffffffffffffffffffffffffffffgggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+ddddddddddddddddddddddddddddddiiiiifffffffffffffffffffffffffffffffffffffffgggggggggggggggggggggggggggggggggggggggggggggg
 jjjjjjjjjjjjjjjjjjjjjjjjiiiiifffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffgggggggggggggggggggggggggg
 jjkgggggkkkggglggglggggggggggggggggkkkkkkkkkkkkkkhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhgggggggggggggggggggggggggggggggggggggg
 fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffggggg

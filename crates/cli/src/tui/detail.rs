@@ -117,7 +117,7 @@ impl Error {
             }
         };
         format!(
-            "{separation} This is error and not fail: airlock did not observe the \
+            "{separation} This is a run error and not a Gap: airlock did not observe the \
              condition to be unmet, it failed to look, and reporting that as a failure \
              would attribute a tooling limit to the repository."
         )
@@ -895,7 +895,10 @@ mod tests {
     fn an_error_is_never_rendered_as_a_failure() {
         let rendered = whole(&fixture::incomplete(), "REPO-GIT-09", REFERENCE_WIDTH);
         assert!(rendered.contains("error"), "{rendered}");
-        assert!(rendered.contains("error not fail") || rendered.contains("error and not fail"));
+        assert!(
+            rendered.contains("run error, not Gap")
+                || rendered.contains("a run error and not a Gap")
+        );
         assert!(rendered.contains("failed to look"), "{rendered}");
         assert!(rendered.contains("Exit 2"), "{rendered}");
     }
@@ -923,7 +926,7 @@ mod tests {
         assert_ne!(permission.reads_as(), plan.reads_as());
         // Neither is ever a failure, and both say so in the same words.
         for error in [&permission, &plan] {
-            assert!(error.reads_as().contains("error and not fail"));
+            assert!(error.reads_as().contains("a run error and not a Gap"));
         }
     }
 

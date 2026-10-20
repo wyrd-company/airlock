@@ -19,8 +19,8 @@ accepted_permissions  administration:read
 documentation_url     null                                                      
 reads as              the grant was insufficient. accepted_permissions lists    
                       what would have sufficed, so widening the grant and       
-                      re-observing can answer this. This is error and not fail: 
-                      airlock did not observe the condition to be unmet, it     
+                      re-observing can answer this. This is a run error and not 
+                      a Gap: airlock did not observe the condition to be unmet, 
 — 0 lines above · 25 below · ↑↓ moves the window —                              
 esc back · a fix transcript · o re-observe this rule · 3 more…                  
 not evaluated · run error; complete: false                                      
@@ -45,7 +45,7 @@ jjjjjjjjjjjjjjjjjjjjjjhhhhdddddddddddddddddddddddddddddddddddddddddddddddddddddd
 jjjjjjjjjjjjjjjjjjjjjjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhdddd
 jjjjjjjjjjjjjjjjjjjjjjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhddddddd
 jjjjjjjjjjjjjjjjjjjjjjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhd
-jjjjjjjjjjjjjjjjjjjjjjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhddddd
+jjjjjjjjjjjjjjjjjjjjjjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhd
 jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjdddddddddddddddddddddddddddddd
 eeedhhhhjjjedhhhhhhhhhhhhhhjjjedhhhhhhhhhhhhhhhhhhhhjjjkkkkkkkdddddddddddddddddd
 llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll

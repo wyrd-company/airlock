@@ -1,14 +1,14 @@
 findings-aligned-80x24-dark · 80x24 · theme dark · colour
 --- text ---
 AIRLOCK 0.0.0  … repositories › findings  no credential stored · theme t · dark 
-VERDICT  ✓ conformant   ALIGNED 2 of 3                                          
+VERDICT  ✓ conformant   MET 2 of 3                                              
   complete    true   no run errors                                              
   conformant  true   no blocking Gaps                                           
 met 2 · gap 0 · waived 0 · routed 0 · unbuilt 1 · out-of-scope 0 · errors 0     
 groups        1:0 · 2:0 · 3:0 · 4:1 · 5:0 · 6:0 · 7:0 · 8:0 · 9:2               
 showing       the whole working set · 3 of 3 · gate blocking · f                
-▸  - 1 AIRLOCK CLOSES THIS  0  no failing rule closes by a setting              
-   - 2 CLOSES BY PULL REQUEST — AGENT WORK  0  no failing rule closes by a file…
+▸  - 1 OPERATOR WORK  0  no failing rule closes by a setting                    
+   - 2 AGENT WORK — FILE FIXES  0  no failing rule closes by a file change      
   ┃- 3 OPERATOR DEFERRED  0  no gap is deferred without a declared fix          
   ┃- 4 UNBUILT  1  rules whose reached check branch is not built                
     ██░       │   │ REPO-REL-04    unbuilt       the condition REPO-REL-04 stat…
@@ -26,14 +26,14 @@ showing       the whole working set · 3 of 3 · gate blocking · f
 conformant · complete true · 3 rules · rules 0.6.0 · gate blocking              
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-cccccccccddddddddddddeeeddddddddddddddffffffffffffffffffffffffffffffffffffffffff
+cccccccccddddddddddddeeeddddddddddffffffffffffffffffffffffffffffffffffffffffffff
 fffffffffffffffffffffgggggggggggggffffffffffffffffffffffffffffffffffffffffffffff
 fffffffffffffffffffffggggggggggggggggfffffffffffffffffffffffffffffffffffffffffff
 ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 eeeeeeeeeeeeeegggggggggggggggggggggggggggggggggggggggggggggggggggfffffffffffffff
 eeeeeeeeeeeeeeggggggggggggggggggggggggggggggggggggggggggggggggggffffffffffffffff
-cccccccccccccccccccccccccchhhhheeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeffffffffffffff
-cccccccccccccccccccccccccccccccccccccccccchhhhheeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+cccccccccccccccccccchhhhheeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeffffffffffffffffffff
+cccccccccccccccccccccccccccccchhhhheeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeffffff
 iiiiiiiiiiiiiiiiiiiiiiiihhhhheeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeffffffffff
 iiiiiiiiiiiiiihhhhheeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeffffffffffffffff
 iijfffffffffffkfffkffffffffffffffffllllllllllllllggggggggggggggggggggggggggggggg

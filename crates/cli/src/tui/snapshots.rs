@@ -1,3 +1,9 @@
+// ---
+// relationships:
+//   implements: terminal-interface
+//   references: release-process-conformance
+// ---
+
 //! Snapshot proof of the rendering.
 //!
 //! Every case draws the whole interface into a buffer and records two grids:

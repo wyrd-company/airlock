@@ -6,9 +6,8 @@
 
 //! The findings screen: the whole rule as a work queue.
 //!
-//! Every rule the policy enables produces exactly one finding, and every
-//! finding is either aligned or it is not. Nothing is triaged away as
-//! unimportant, because an unimportant rule would not be in the policy. What
+//! Every governed rule has a result. Evaluated results are Met or Gap; waivers,
+//! declared gates and run errors retain their own labels and reasons. What
 //! differs between findings is how much reading each one needs before it can be
 //! closed, and who can close it — so the queue is ordered by the work, in nine
 //! groups, and only the last of them is done.
@@ -153,8 +152,8 @@ impl Group {
     #[must_use]
     pub const fn heading(self) -> &'static str {
         match self {
-            Self::Settings => "AIRLOCK CLOSES THIS",
-            Self::AgentWork => "CLOSES BY PULL REQUEST \u{2014} AGENT WORK",
+            Self::Settings => "OPERATOR WORK",
+            Self::AgentWork => "AGENT WORK \u{2014} FILE FIXES",
             Self::OperatorDeferred => "OPERATOR DEFERRED",
             Self::Unbuilt => "UNBUILT",
             Self::RunErrors => "RUN ERRORS",
@@ -218,7 +217,7 @@ impl Group {
 
     /// Whether the group opens collapsed.
     ///
-    /// Collapsing is screen space and never a judgment. Only the aligned group
+    /// Collapsing is screen space and never a judgment. Only the Met group
     /// starts collapsed, because it is the one group that needs no action.
     #[must_use]
     pub const fn starts_collapsed(self) -> bool {
@@ -336,7 +335,7 @@ impl FilterSet {
             Self::GatingFailures => "gating failures",
             Self::NotEvaluated => "not evaluated",
             Self::AllFailures => "all failures",
-            Self::Inert => "inert",
+            Self::Inert => "waived and declared gates",
         }
     }
 
@@ -1088,12 +1087,12 @@ fn verdict(styles: Styles, width: usize, queue: &Queue) -> Vec<Line<'static>> {
         ),
         Span::styled("   ", styles.of(Role::Faint)),
         Span::styled(
-            format!("ALIGNED {aligned} of {total}"),
+            format!("MET {aligned} of {total}"),
             styles.bold(Role::Status(Some(Status::Met))),
         ),
         Span::styled(
             if aligned == total && total > 0 {
-                "  the repository is aligned".to_owned()
+                "  all rules are Met".to_owned()
             } else {
                 String::new()
             },
@@ -1136,9 +1135,9 @@ fn verdict(styles: Styles, width: usize, queue: &Queue) -> Vec<Line<'static>> {
         ]));
     }
     // A conformant verdict is never read as every rule having been decided.
-    let unanswered = queue.summary.routed;
-    if unanswered > 0 {
-        let prefix = format!("  {:<12}{unanswered:<7}", "unanswered");
+    let routed = queue.summary.routed;
+    if routed > 0 {
+        let prefix = format!("  {:<12}{routed:<7}", "routed");
         let room = width.saturating_sub(prefix.chars().count());
         lines.push(Line::from(vec![
             Span::styled(prefix, styles.of(Role::Status(None))),
@@ -2205,7 +2204,7 @@ mod tests {
                     "{group:?} count is not in view: {reading}"
                 );
             }
-            assert!(reading.contains("ALIGNED 2 of 9"), "{reading}");
+            assert!(reading.contains("MET 2 of 9"), "{reading}");
         }
     }
 
@@ -2237,8 +2236,8 @@ mod tests {
             &Deliveries::default(),
         );
         let rendered = rendered(&queue, &State::default(), 120, 40);
-        assert!(rendered.contains("ALIGNED 2 of 2"), "{rendered}");
-        assert!(rendered.contains("the repository is aligned"), "{rendered}");
+        assert!(rendered.contains("MET 2 of 2"), "{rendered}");
+        assert!(rendered.contains("all rules are Met"), "{rendered}");
         assert!(rendered.contains("conformant"), "{rendered}");
         // Every empty group still states what would have populated it.
         assert!(rendered.contains(Group::Settings.emptiness()), "{rendered}");
@@ -2291,7 +2290,7 @@ mod tests {
         assert!(queue.verdict.complete);
         let rendered = rendered(&queue, &State::default(), 120, 40);
         assert!(!rendered.contains("RUN INCOMPLETE"), "{rendered}");
-        assert!(rendered.contains("unanswered"), "{rendered}");
+        assert!(rendered.contains("routed"), "{rendered}");
         assert!(rendered.contains("routed"), "{rendered}");
     }
 

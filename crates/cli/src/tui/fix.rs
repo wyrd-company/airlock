@@ -1,3 +1,9 @@
+// ---
+// relationships:
+//   implements: terminal-interface
+//   references: release-process-conformance
+// ---
+
 //! The confirmation and transcript screen for one settings fix.
 
 use ratatui::text::{Line, Span};

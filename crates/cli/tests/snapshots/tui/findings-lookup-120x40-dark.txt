@@ -6,10 +6,10 @@ RUN INCOMPLETE  complete is false, and no verdict below it can be certified
   ? REPO-GIT-09    run-error     permission on GET /repos/{owner}/{repo}/rulesets                                       
   ? REPO-REL-04    run-error     required_input_missing: a required input is missing                                    
                                                                                                                         
-VERDICT  ? incomplete   ALIGNED 2 of 9                                                                                  
+VERDICT  ? incomplete   MET 2 of 9                                                                                      
   complete    false  2 run errors prevented completion                                                                  
   conformant  false  1 blocking Gaps                                                                                    
-  unanswered  1      routed: no Met or Gap outcome; see the settling surface                                            
+  routed      1      routed: no Met or Gap outcome; see the settling surface                                            
 met 2 · gap 2 · waived 1 · routed 1 · unbuilt 1 · out-of-scope 0 · errors 2                                             
 LOOKUP  every finding, ordered by rule id — the predictable address for every rule                                      
 showing       lookup · every finding ordered by rule id · all 9 shown, never narrowed · gate blocking · l returns to the
@@ -47,7 +47,7 @@ ddddddddddddddddeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 fffffffffffffffffffffffffffffffffggggggggggggggggggggggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 fffffffffffffffffffffffffffffffffgggggggggggggggggggggggggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-hhhhhhhhhddddddddddddiiijjjjjjjjjjjjjjeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+hhhhhhhhhddddddddddddiiijjjjjjjjjjeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeegggggggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeegggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 fffffffffffffffffffffgggggggggggggggggggggggggggggggggggggggggggggggggggggggeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
