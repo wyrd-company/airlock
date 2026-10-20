@@ -743,19 +743,26 @@ fn waiver_for(
         }
     }
     if let Some(categories) = rule.def.required_topic_categories() {
-        let absent = match policy.reference_data.get("topics") {
-            None => true,
-            Some(crate::yaml::Yaml::Map(entries)) => categories
-                .iter()
-                .any(|category| !entries.iter().any(|(name, _)| name == category)),
+        let reason = match policy.reference_data.get("topics") {
+            None => Some("no reference data configured".to_owned()),
+            Some(crate::yaml::Yaml::Map(entries)) => {
+                let mut missing: Vec<_> = categories
+                    .iter()
+                    .filter(|category| !entries.iter().any(|(name, _)| name == **category))
+                    .copied()
+                    .collect();
+                missing.sort_unstable();
+                (!missing.is_empty())
+                    .then(|| format!("missing required topic categories: {}", missing.join(", ")))
+            }
             // Configured but malformed data must reach the compiled check.
-            Some(_) => false,
+            Some(_) => None,
         };
-        if absent {
+        if let Some(reason) = reason {
             return Some(Suppression {
                 source: SuppressionSource::Policy,
                 requested_reason: None,
-                policy_reason: Some("no reference data configured".to_owned()),
+                policy_reason: Some(reason),
                 authorized_by: format!("{} required configuration", rule.def.id),
             });
         }

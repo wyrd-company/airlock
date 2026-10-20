@@ -233,8 +233,12 @@ Met and Gap results. Separate lists identify work without an outcome:
   input with no declared gate. Every run error sets exit `2`, at any severity.
   A credentialed endpoint failure is a run error, never routing.
   Absent required topic reference data defaults to severity `none`, with waiver
-  reason `no reference data configured`. Configured malformed data remains a
-  run error.
+  reason `no reference data configured` when the topic map is absent. A partial
+  map names its missing required topic categories in alphabetical order.
+  Configured malformed data remains a run error. The regressions
+  `absent_topic_configuration_waives_checks_before_reading_repository_inputs` and
+  `partial_topic_configuration_names_missing_categories_before_reading_repository_inputs`
+  exercise both waiver reasons.
 
 Waived, routed, unbuilt, and out-of-scope entries have no Met or Gap outcome and
 do not change the exit code. A standard is evaluated whole or routed whole when

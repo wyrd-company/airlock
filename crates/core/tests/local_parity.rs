@@ -890,6 +890,50 @@ fn absent_topic_configuration_waives_checks_before_reading_repository_inputs() {
 }
 
 #[test]
+fn partial_topic_configuration_names_missing_categories_before_reading_repository_inputs() {
+    let repo = committed_repository();
+    std::fs::write(repo.path().join(".github/repo-settings.yml"), "{invalid").unwrap();
+    for (topics, reason) in [
+        (
+            "artifact-type: [cli]\n",
+            "missing required topic categories: ecosystem",
+        ),
+        (
+            "ecosystem: [rust-crate]\n",
+            "missing required topic categories: artifact-type",
+        ),
+        (
+            "other: [widgets]\n",
+            "missing required topic categories: artifact-type, ecosystem",
+        ),
+        (
+            "{}",
+            "missing required topic categories: artifact-type, ecosystem",
+        ),
+    ] {
+        let mut policy = topic_policy();
+        policy.rules.retain(|rule| rule.def.id == "REPO-META-07");
+        policy.reference_data.insert(
+            "topics".to_owned(),
+            airlock_core::yaml::parse_mapping(topics, Limits::default().yaml).unwrap(),
+        );
+        let report = audit::run_local(&policy, &options(), repo.path()).unwrap();
+        assert_eq!(report.exit_code(), 0, "{topics}");
+        assert!(report.findings.is_empty() && report.run_errors.is_empty());
+        assert_eq!(report.waived.len(), 1);
+        let entry = &report.waived[0];
+        assert_eq!(entry.rule, "REPO-META-07");
+        assert!(entry.status.is_none() && entry.evidence.is_none());
+        assert_eq!(entry.severity, "none");
+        assert_eq!(
+            entry.suppression.as_ref().unwrap().policy_reason.as_deref(),
+            Some(reason)
+        );
+        assert_eq!(report.effective_policy[0].severity, "none");
+    }
+}
+
+#[test]
 fn configured_topics_evaluate_and_malformed_configuration_is_a_run_error() {
     let repo = committed_repository();
     let mut policy = topic_policy();
