@@ -30,8 +30,9 @@ pub struct ScaffoldFile {
 ///
 /// Repository-specific and destructive transformations are deliberately not
 /// expressible here. They remain ordinary audit gaps after the first commit.
+/// The repository owner resolves placeholders in compiled parameter defaults.
 #[must_use]
-pub fn scaffold_files(policy: &crate::policy::ResolvedPolicy) -> Vec<ScaffoldFile> {
+pub fn scaffold_files(policy: &crate::policy::ResolvedPolicy, owner: &str) -> Vec<ScaffoldFile> {
     let mut files = BTreeMap::new();
     for rule in policy
         .rules
@@ -44,7 +45,8 @@ pub fn scaffold_files(policy: &crate::policy::ResolvedPolicy) -> Vec<ScaffoldFil
         else {
             continue;
         };
-        match deterministic_author(definition.code, rule.param_str("renovate-preset"), None)
+        let renovate_preset = rule.param_str_for_owner("renovate-preset", owner);
+        match deterministic_author(definition.code, renovate_preset.as_deref(), None)
             .unwrap_or_else(|| {
                 panic!(
                     "deterministic remediation `{}` has no scaffold author dispatch",
@@ -1384,7 +1386,7 @@ mod tests {
             reference_data: Default::default(),
             capabilities: Vec::new(),
         };
-        let files = scaffold_files(&policy);
+        let files = scaffold_files(&policy, "example-org");
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].path, "LICENSE");
         assert_eq!(files[0].contents, APACHE_2_LICENSE.as_bytes());
@@ -1411,7 +1413,7 @@ mod tests {
             reference_data: Default::default(),
             capabilities: Vec::new(),
         };
-        let scaffolded = scaffold_files(&policy);
+        let scaffolded = scaffold_files(&policy, "example-org");
         let directory = repository();
         let facts = worktree::read_facts(directory.path()).unwrap();
         let authored = report("REPO-FILE-08");
@@ -1423,6 +1425,48 @@ mod tests {
 
         assert_eq!(scaffolded[0].path, operations[0].path);
         assert_eq!(&scaffolded[0].contents, expected);
+    }
+
+    #[test]
+    fn scaffold_renovate_substitutes_the_owner_only_in_the_default() {
+        let mut policy = crate::policy::ResolvedPolicy {
+            name: "fixture".to_owned(),
+            source: "fixture".to_owned(),
+            commit: None,
+            bundle_digest: "digest".to_owned(),
+            sources: Vec::new(),
+            gate: Gate::Blocking,
+            rules: vec![crate::policy::RuleInstance {
+                def: crate::registry::find("REPO-FILE-08").unwrap(),
+                severity: crate::registry::Severity::Required,
+                params: BTreeMap::new(),
+                provenance: "fixture".to_owned(),
+                condition: crate::policy::Condition::Always,
+            }],
+            suppressions: Default::default(),
+            reference_data: Default::default(),
+            capabilities: Vec::new(),
+        };
+        let preset = |policy: &crate::policy::ResolvedPolicy| {
+            let files = scaffold_files(policy, "example-org");
+            let file = files
+                .iter()
+                .find(|file| file.path == ".github/renovate.json")
+                .unwrap();
+            serde_json::from_slice::<serde_json::Value>(&file.contents).unwrap()["extends"].clone()
+        };
+        assert_eq!(
+            preset(&policy),
+            serde_json::json!(["github>example-org/.github"])
+        );
+        policy.rules[0].params.insert(
+            "renovate-preset".to_owned(),
+            serde_json::json!("github>{owner}/custom"),
+        );
+        assert_eq!(
+            preset(&policy),
+            serde_json::json!(["github>{owner}/custom"])
+        );
     }
 
     fn git(root: &Path, args: &[&str]) {

@@ -1526,7 +1526,7 @@ impl Session {
             &Limits::default(),
         )
         .await?;
-        let files = airlock_core::alignment::scaffold_files(&policy);
+        let files = airlock_core::alignment::scaffold_files(&policy, owner);
         let capabilities = policy
             .capabilities
             .iter()
