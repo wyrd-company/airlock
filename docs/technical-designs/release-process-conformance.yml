@@ -11,22 +11,19 @@ objective: >-
   release process stays the organization's after each repository adopts it.
 background:
   current-design: >-
-    Toha writes the applied record `.toha.json` at the root of each target it
-    applies to. Each entry, keyed by parent source, names the snapshot of the
-    last apply and the formal name, source, Git commit and optional content
-    digest of the parent and of every child. The record is part of the
-    project's tree, so a revision holds only the compositions it holds.
-    Snapshots are parentless commits under `refs/toha/snapshots/<id>` and hold
-    the answers and rendered bytes of one apply. Intentional writes the Release
-    Model `.intentional/release-model.json`, which lists each Release Unit with
-    its `release_record` policy (`required` or `none`) and its tag streams,
-    including the primary tag template with `{id}` and `{version}`. Every tag
-    Intentional creates is an annotated tag whose message is a tag record,
-    with fields including `tag-id`, `version` and `baseline`. Airlock reads one
+    Toha commits one applied record per repository, `.toha.json` by default,
+    with applications keyed by target and source. Its template-composition design
+    owns the applied-record, application-entry, record-answers, record-context,
+    record-paths, record-schema and part-selection sections. Each application
+    records its parent template revision, selected parts, accepted answers,
+    render context and path ownership. Intentional commits the Release Model at
+    `.intentional/release-model.json`, including each Release Unit's
+    `release_record` policy and primary tag template. Intentional tags have
+    annotated messages defined by its tag-record specification. Airlock reads an
     audited revision through the GitHub REST API: it resolves the commit, lists
-    its recursive tree and reads blobs within byte budgets, and it reads tag
-    refs through the matching-refs endpoint. Organization configuration selects
-    compiled standards and supplies their parameters.
+    its recursive tree and reads blobs within byte budgets. Organization
+    configuration supplies parameters and exceptions to compiled standards.
+
   problems:
     - >-
       No standard states which templates an organization expects a repository
@@ -46,14 +43,18 @@ design-challenges:
     The applied record carries a commit, not a version. The acceptance rule must
     be expressible as parameters and decidable from commits and refs, without a
     predicate in configuration.
-  open-publication-shape: >-
-    Publication targets are either child templates of the release process
-    parent or optional parts inside the parent. The configuration and the
-    acceptance rule must hold under both.
-  answers-are-optional: >-
-    Snapshot refs reach the remote only by a path that is still undecided, and
-    may not reach it at all. A standard that does not need answers must not
-    depend on them.
+  accepted-parts: >-
+    Publication targets are optional parts inside one parent release template.
+    The organization accepts a set of parts; each repository selects a subset.
+    Identity acceptance must reject an unlisted part without requiring every
+    listed part. Parts use the parent's revision.
+
+  answers-at-the-audited-revision: >-
+    The applied record holds the answers used to render the process, including
+    the Release Model document. A standard reads these answers and the committed
+    model at the same audited revision. Missing answers are evidence for the
+    standard that requires them, not a reason to consult another revision.
+
   baseline-is-not-a-release: >-
     A baseline tag matches the primary tag template like a release tag does.
     The release-record standard must tell them apart by a recorded signal, not
@@ -64,170 +65,194 @@ design-challenges:
     in full, never inferred from a truncated or unread one.
 proposed-design:
   high-level-overview: >-
-    Two compiled standards. `REPO-TPL-01` states that the repository applies
-    each template the organization expects, at an accepted revision. Its
-    parameter `templates` lists expected parent templates, each with a source,
-    a target, an accepted ref and an optional minimum, and the child templates
-    the organization accepts under it. The standard reads every `.toha.json` in
-    the audited revision's tree and decides acceptance with the compare endpoint
-    of the template's repository. `REPO-REL-08` states that every release of a
-    Release Unit with `release_record: required` has a release record on its
-    primary tag. It reads the Release Model at the audited revision, selects
-    the unit's primary tags by template and by tag record, excludes baseline
-    tag records, and looks each tag up in the repository's published releases.
-    Neither standard reads a snapshot ref. A shared procedure reads snapshot
-    refs for standards that need recorded answers; a missing ref or a
-    disagreement is a Gap. Both standards report Met or Gap with structured
-    evidence, are routed in a run without a credential, and neither writes or
-    spawns a subprocess.
+    Two compiled standards read JSON documents validated against vendored
+    schemas. `REPO-TPL-01` requires each expected parent at an accepted revision
+    and accepts only the parts the organization lists. `REPO-REL-08` requires a
+    published GitHub Release on each primary tag of a Release Unit whose policy
+    is `required`, excluding baseline tag records. Recorded answers come from
+    the applied record at the configured path. Release and delivery standards
+    inspect the fixed `.github/workflows/release.yml`, dispatched on a source
+    commit with delivery inside it. Evaluations report Met or Gap with structured
+    evidence; API-dependent standards are routed in a credential-free run.
+    Airlock never writes and never spawns a subprocess.
 
   standards: >-
     `REPO-TPL-01`, statement "The repository applies each template the
-    organization expects, at an accepted revision". Default severity
-    `blocking`, because the release process template carries release controls.
-    `allow-override` is `false`: a repository cannot change which templates it
-    is expected to apply. Its only parameter is `templates`, default the empty
-    list. With the empty list the standard has no required configuration and
-    its severity is `none`. It governs repositories at the `building` rung and
-    above. `REPO-REL-08`, statement "Every release of a Release Unit whose
-    release-record policy is `required` has a release record on its primary
-    tag". Default severity `advisory`. `allow-override` is `true`, because the
-    repository already declares the policy in its own Release Model. It has no
-    parameters and governs repositories at the `released` rung and above.
-    Rule ids, statements, default severities, `allow-override` and the
-    parameter definitions are compiled into the standards.
+    organization expects, at an accepted revision and with only accepted parts".
+    Default severity is compiled `blocking`. Organization policy may lower it,
+    including `advisory` during rollout. `allow-override` is `false`: a repository
+    cannot change expected templates, accepted parts, the expected record path or
+    severity. Parameters are `templates` (default empty list) and `record-path`
+    (default `.toha.json`). An empty `templates` list is absent required
+    configuration: effective severity is `none`, visibly not configured. Each
+    listed parent is required on every governed repository; a nonempty list uses
+    the compiled severity unless the organization sets an exception. The standard
+    governs the `building` rung and above in the release-process scope described
+    by classification-and-scope. `REPO-REL-08`, statement "Every release of a
+    Release Unit whose release-record policy is required has a release record on
+    its primary tag". Default severity is `advisory`, `allow-override` is `true`,
+    and there are no parameters. It governs the `released` rung and above in the
+    same scope. Identities, statements, default severities, override rules,
+    parameter definitions and evaluation categories are compiled.
+
+  classification-and-scope: >-
+    In the capability configuration, `REPO-TPL-01` belongs to the `registry`
+    group alongside `release`, never `base`. The existing org example applies
+    `registry` only to repositories declared to release versioned output.
+    In the classification model, capability and apply selectors disappear;
+    compiled standards use the org-owned audience, family and category that
+    identify repositories with a versioned release process. This is the same
+    release-process scope, with maturity observed separately. A repository
+    outside that scope is not governed by template identity, even when the
+    organization lists templates. A repository in scope cannot evade the
+    standard by deleting its model, record or workflow: these are evidence,
+    not classification inputs. Unclassified repositories are undeclared work,
+    not Met and not Gap. The two-file configuration carries exceptions only;
+    it does not reintroduce a capability selector.
 
   expected-template-configuration: |-
-    The organization lists expected templates as the `templates` parameter of
-    `REPO-TPL-01`, under that standard's id in the organization configuration in
-    its `.github` repository. The parameter value is one YAML list and has the
-    same shape in the `checks:` grammar of `airlock/policy.yml` and in the
-    `exceptions:` grammar of the organization `.github/airlock.yml`. The
-    repository `.github/airlock.yml` cannot carry this parameter, because
-    `allow-override` is `false`; Airlock reports a repository request for it as
-    it reports every refused request.
+    The organization supplies both `record-path` and `templates` under
+    `exceptions.REPO-TPL-01` in its `.github/airlock.yml`. A `reason` is required
+    as for every exception. Both are standard parameters, not top-level org
+    settings. The repository file cannot supply either parameter. In the
+    capability-based configuration, the same values are under
+    `checks.REPO-TPL-01.params`; the classification configuration uses only the
+    org exception form. There is one shape for each value.
 
-    Each list item is one expected parent:
+    `record-path` names one file relative to the repository root, with `/`
+    separators; default `.toha.json`. It is independent of each item's `target`:
+    `target` selects an application in the file, not a directory in which to look
+    for a record. Toha's `TOHA_RECORD` override (applied-record in its design) is
+    on the Toha side only. The organization sets `record-path` to the same value;
+    Airlock never reads an ambient `TOHA_RECORD`.
 
-    - `source` (required): the Toha source, a formal name without its
-      `@reference`, in the `gh:<owner>/<repository>` form with an optional
-      `#<path>`. Airlock speaks only to GitHub, so another prefix is a
-      configuration error.
-    - `target` (optional, default `.`): the folder, relative to the repository
-      root, whose `.toha.json` must hold the application.
-    - `ref` (required): a branch, tag or commit in the template's repository.
-      An accepted revision is reachable from it.
-    - `minimum` (optional): a branch, tag or commit in the template's
-      repository. When present, an accepted revision is it or a descendant of
-      it.
-    - `children` (optional, default empty): the child templates the
-      organization accepts under this parent. Each item has `source`, `ref` and
-      optional `minimum` with the meanings above.
+    Each `templates` item is one required parent:
 
-    Two items with the same `source` and `target`, two children with the same
-    `source` under one parent, an unknown key, or a missing required key is a
-    configuration error, and Airlock refuses to run. The configuration names no
-    snapshot, no answer and no predicate.
+    - `source` (required): a Toha source without `@reference`, in the
+      `gh:<owner>/<repository>` form with optional `#<path>`. Other providers
+      are configuration errors for this GitHub auditor.
+    - `target` (optional, default `.`): the application's repository-relative
+      target, matching `application-entry.target` in the Toha design.
+    - `ref` (required): a branch, tag or commit in the template repository from
+      which an accepted revision is reachable.
+    - `minimum` (optional): a branch, tag or commit which the accepted revision
+      equals or descends from.
+    - `parts` (optional, default empty): distinct part names the organization
+      accepts, as literal strings matching Toha's part-declaration names. Each
+      part shares the parent's revision and has no `ref` or `minimum`.
 
-    Example, in the organization `.github/airlock.yml`:
+    Duplicate source/target pairs, duplicate part names, unknown or missing keys,
+    or invalid paths are configuration errors and Airlock refuses to run. Paths
+    use `.` for a root target; absolute paths, empty paths and `..` components
+    are invalid, as are symbolic links along a document path. This follows
+    Toha's repository-relative record and target contract.
 
-      exceptions:
-        REPO-TPL-01:
-          reason: >-
-            Every repository renders its release process from the
-            organization's templates.
-          templates:
-            - source: gh:example-org/.github#release
-              ref: main
-              minimum: release@2.0.0
-              children:
-                - source: gh:example-org/.github#publish-crates
-                  ref: main
-                - source: gh:example-org/.github#publish-npm
-                  ref: main
-                  minimum: publish-npm@1.1.0
+    Example in the organization `.github/airlock.yml`:
 
-    `ref` equal to `minimum` accepts exactly one commit, so an organization can
-    pin a template without another key.
+    ```yaml
+    exceptions:
+      REPO-TPL-01:
+        reason: All governed repositories use the accepted release process.
+        record-path: .toha.json
+        templates:
+          - source: gh:example-org/.github#release
+            target: .
+            ref: main
+            minimum: release@2.0.0
+            parts: [crates-io, npm]
+    ```
+
+    The compiled default is blocking; an organization may add `severity: advisory`
+    to this exception during rollout. `ref` equal to `minimum` pins one commit.
 
   accepted-revision: >-
-    A member's recorded revision is accepted when the member records a 40-hex
-    Git `commit`, that commit is reachable from the configured `ref`, and, when
-    `minimum` is configured, that commit is `minimum` or a descendant of it.
-    Airlock resolves `ref` and `minimum` with `GET
-    /repos/{owner}/{repository}/commits/{ref}` in the template's repository,
-    where owner and repository come from the source. It decides reachability
-    with `GET /repos/{owner}/{repository}/compare/{base}...{head}?per_page=1`
-    and reads only `status`: `identical` or `ahead` means `base` is an ancestor
-    of `head` or equal to it, and `behind` or `diverged` means it is not.
-    Reachability from `ref` compares the recorded commit as `base` with the
-    resolved `ref` as `head`. The minimum compares the resolved `minimum` as
-    `base` with the recorded commit as `head`. A member that records a content
-    digest and no commit is a non-Git template, and its revision is never
-    accepted, because the GitHub API cannot relate a content digest to a ref.
-    The content digest is not compared. Acceptance is decided at audit time
-    against the refs as they are then, and the evidence records the commit each
-    ref resolved to, so a later reader can see what the decision used. The
-    parent and every child follow the same rule, each with its own `ref` and
-    `minimum`. With publication targets as child templates, each publication
-    target is a child: a child whose source the parent item lists must be at an
-    accepted revision, a child whose source the parent item does not list is a
-    Gap, and a listed child that is absent is not a Gap, because which targets
-    a repository publishes to is the repository's choice. With publication
-    targets as optional parts inside the parent, the parent item lists no
-    children, any child in the record is a Gap, and the selected targets are
-    answers this standard does not read. The configuration shape and the rule
-    are the same under both options; only the content of `children` differs.
+    A parent's recorded revision is accepted when the matched application's
+    `commit` (Toha's application-entry) is a 40-hex Git commit reachable from the configured `ref` and, when present,
+    it equals or descends from `minimum`. Airlock resolves both with `GET
+    /repos/{owner}/{repository}/commits/{ref}` in the template repository. `GET
+    /repos/{owner}/{repository}/compare/{base}...{head}?per_page=1` supplies
+    `status`: `identical` or `ahead` establishes that base is an ancestor of or
+    equal to head. Reachability uses recorded commit as base and resolved ref
+    as head; the minimum uses resolved minimum as base and recorded commit as
+    head. `behind` or `diverged` fails the respective comparison. A null commit,
+    including a content-digest-only template, is a Gap (`revision-not-git`);
+    Airlock does not compare the content digest. Evidence records each resolved
+    commit and compare status. Acceptance uses refs at audit time.
+
+    `parts` on the matched application is the selected-parts array, as Toha's
+    part-selection and application-entry define it. Every recorded part must
+    occur in the parent's configured `parts`; an unlisted part is a Gap
+    (`part-not-accepted`). A listed part absent from the application is accepted.
+    Parts have no independent identity or revision. Each configured parent must
+    have its own matching application; one parent cannot satisfy another.
 
   applied-record-reading: >-
-    The standard reads `.toha.json` from the audited revision's recursive tree,
-    which Airlock already lists with `GET
-    /repos/{owner}/{repository}/git/trees/{commit}?recursive=1`. Every blob
-    entry whose path is `.toha.json` or ends in `/.toha.json` is an applied
-    record, and its folder is the target. Airlock reads every record with `GET
-    /repos/{owner}/{repository}/git/blobs/{sha}` and parses it with
-    `toha_documents::applied::AppliedRecord::from_json`. A record at a target
-    no expected parent names is used only to name other targets in the
-    evidence, and a parse failure there is listed in the evidence and is not a
-    Gap. For each expected
-    parent, the record at its `target` must exist, parse, and hold an entry
-    keyed by the parent's `source`. An entry for the same source at another
-    target does not satisfy it and is named in the evidence. No record at the
-    target means that no composition is current there; it is a Gap, never a
-    reason to look in snapshot refs. When GitHub truncated the tree, the
-    absence of a record was never established, so a missing record is a run
-    error, not a Gap. An entry at the target whose path is not a regular file,
-    such as a symbolic link, is a Gap. A record over the blob byte budget is a
-    run error. A record that does not parse is a Gap. In a local working-tree
-    run with a credential, records come from the working tree and the
-    template repository's refs still come from the API. A run without a
-    credential is routed, as `met-and-gap-reporting` states.
+    Airlock reads exactly the configured `record-path` from the audited
+    revision, using the recursive tree returned by `GET
+    /repos/{owner}/{repository}/git/trees/{commit}?recursive=1` and `GET
+    /repos/{owner}/{repository}/git/blobs/{sha}`. It parses plain JSON and
+    validates it as vendored-document-schemas states. It finds the application
+    by the pair `target` and `source` in `applications`, as Toha's applied-record
+    and application-entry define them. Duplicate pairs are invalid. An entry at
+    another target does not satisfy the expectation and is named in evidence.
+    Other applications do not satisfy or invalidate an expected parent; the whole
+    record must still validate. There is no scan for record files under targets.
 
-  snapshot-answers-reading: >-
-    `REPO-TPL-01` and `REPO-REL-08` read no snapshot ref. A standard that needs
-    a composition's recorded answers, such as a gate location or a workflow
-    name, reads them for one application found in an applied record, as
-    follows. `GET /repos/{owner}/{repository}/git/ref/toha/snapshots/{id}`
-    with the entry's `snapshot` id gives the ref's object; it must be a commit.
-    `GET /repos/{owner}/{repository}/git/commits/{sha}` gives the commit,
-    which must have no parents, and its tree. `GET
-    /repos/{owner}/{repository}/git/trees/{tree}?recursive=1` lists the tree
-    for `SnapshotDocument::check_tree`, and `GET
-    /repos/{owner}/{repository}/git/blobs/{sha}` reads `snapshot.json` for
-    `SnapshotDocument::from_json`. `Application::agrees_with` then checks the
-    parsed snapshot and the record's target against the entry. A 404 for the
-    ref is a Gap that names the snapshot id. A ref that is not a commit, a
-    commit with parents, a tree or document that fails validation, or a
-    disagreement is a Gap that names the snapshot id and the failed condition.
-    The reader never falls back to another snapshot, to the latest snapshot of
-    the source, or to the local clone. When snapshot refs never reach the
-    remote, every standard that needs answers reports this Gap, and the two
-    standards in this design are unaffected.
+    A missing record is a Gap once absence is established; a non-regular file or
+    symbolic link in its path is a Gap. Invalid JSON, an unsupported schema
+    identity, or schema failure is a Gap. A truncated tree that cannot establish
+    absence and a blob over the audit byte budget are run errors. All tree reads
+    for the record and Release Model use the same captured audited commit. In a
+    credentialed local working-tree run, both documents come from that working
+    tree and are identified as working-tree evidence; template refs, tags and
+    releases still come from the API. A credential-free run is routed as
+    met-and-gap-reporting states.
+
+  recorded-answers-reading: >-
+    A standard that needs recorded answers reads `answers.<question id>` in
+    the matched application of the validated applied record, as Toha's
+    record-answers defines. The release template records the document at
+    `answers.release_model`; the part question is absent from `answers` and its
+    selection is in `parts`. `context` holds referenced host and environment
+    values (record-context), and `paths` holds ownership and `blob` identities
+    (record-paths); neither is an alternative answers source. Answers contain
+    names and choices, never secret values; credential answers are names only.
+    The consumer names the question it needs and reports a missing or invalid
+    answer as a Gap for that standard. `ci_workflow` names the CI workflow for
+    REPO-REL-06; the release workflow path itself is fixed and needs no answer.
+    A standard comparing the rendered model with the committed model compares
+    `answers.release_model` with `.intentional/release-model.json` at the same
+    audited commit (Toha's release-model-agreement). REPO-REL-08 uses the committed
+    model's policy and does not make that comparison. Airlock never renders a
+    merge base, runs hooks or uses ownership blobs as document sources; Toha's
+    update-merge-base owns those rules.
+
+  tag-record-reading: >-
+    Airlock decodes annotated tag messages itself against Intentional's
+    docs/specifications/tag-record.yml and tag-record.schema.yml; the message
+    is a line protocol, not JSON. Require the fixed header
+    `intentional release record`, a blank line, ordered scalar `key: value`
+    fields occurring once, and lexically sorted, unique prerequisite tag ids.
+    Project fields and prerequisite lines into a JSON value and validate against
+    the vendored `crates/core/schemas/intentional/tag-record.schema.yml`, with
+    its referenced config and release-plan definitions in the embedded catalog.
+    That schema's provenance and byte-equality agreement test follow
+    vendored-document-schemas. Decode required contract, generator, plan-digest,
+    tag-id, version and boolean baseline fields; accept the specification's
+    optional tag-role, target and prerequisites fields without requiring them
+    on older records. An unknown interpretation contract or malformed field
+    fails decoding. Evidence names why a candidate tag was excluded, including
+    malformed record, unsupported contract or unit/version mismatch. The
+    release selector uses tag-id, version and baseline; it takes the tagged
+    commit from the Git tag object's object.sha, not an optional message field.
+    It does not verify plan digests, tagger identity or prerequisite objects;
+    Intentional verify owns those integrity checks. No producer crate or CLI
+    is called, and the decoder never reads the tag message as a release model.
 
   release-record-check: >-
     `REPO-REL-08` reads `.intentional/release-model.json` from the audited
-    revision's tree and parses it with
-    `intentional_release_model::parse_release_model`. For each entry in
+    revision's tree as plain JSON and validates it against the vendored Release
+    Model schema, as vendored-document-schemas states. For each entry in
     `release_units` with `release_record` equal to `required`, whatever its
     `disposition`, it takes the tag whose `role` is `primary` and its
     `template`. It renders the template into a matcher: the literal text, with
@@ -236,8 +261,8 @@ proposed-design:
     `GET /repos/{owner}/{repository}/git/matching-refs/tags/?per_page=100`,
     following every page, and keeps the tags whose names the matcher accepts.
     For each kept tag whose ref object is an annotated tag, it reads `GET
-    /repos/{owner}/{repository}/git/tags/{sha}` and parses the message as a
-    tag record. The tag is a release of the unit when the record parses, its
+    /repos/{owner}/{repository}/git/tags/{sha}` and reads the message with
+    tag-record-reading. The tag is a release of the unit when the record parses, its
     `tag-id` is `release-unit/<unit-id>/<primary-tag-key>`, its `version` equals the
     version the name matched, and `baseline` is `false`. A tag record with
     `baseline: true` is a baseline tag record and is excluded. A lightweight
@@ -254,126 +279,213 @@ proposed-design:
     or that exceeds Airlock's page budget, is a run error, because the absence
     of a release record was never established. A missing Release Model at the
     `released` rung is a Gap, because the repository has releases and no
-    declared policy. A Release Model that fails to parse, including one whose
-    `$schema` is not `https://intentional.foo/schemas/release-model/1`, is a
-    Gap. Airlock does not compare the committed model with the Release
-    Workspace configuration; `intentional check` reports a stale model.
+    declared policy. A Release Model with invalid JSON or schema content is a
+    Gap; a different `$schema` is the distinct unsupported-schema Gap defined in
+    vendored-document-schemas. A non-regular model path is a Gap too. Airlock
+    does not compare the committed model with Release Workspace configuration;
+    `intentional check` reports a stale model.
 
   met-and-gap-reporting: >-
-    Each evaluated standard reports one outcome, Met or Gap, and a list of evidence
-    items, one per expected parent for `REPO-TPL-01` and one per examined
-    release for `REPO-REL-08`. A standard is Met when every evidence item is
-    Met. `REPO-TPL-01` is Met for a parent when the record at its target holds
-    an entry for its source, the parent and every recorded child are at
-    accepted revisions, and every recorded child is listed. Its evidence
-    carries, per member, the expected source, target, `ref` and `minimum` with
-    the commit each resolved to, and the found formal name, source, commit or
-    content digest, and snapshot id. Its Gap reasons are `record-missing`,
-    `record-not-a-file`, `record-unreadable` (the record fails to parse),
-    `application-missing` (with any other target that holds the source),
-    `revision-not-accepted` (with the compare `status` for `ref` and for
-    `minimum`), `revision-not-git`, and `child-not-accepted`. Every
-    `REPO-TPL-01` Gap has the fix category agent reasoning: an agent applies or
-    updates the composition with Toha and commits the result, and the embedded
-    skill names the command for each reason. `REPO-REL-08` is Met for a
-    release when a published release record has the primary tag's name. Its
-    evidence carries the Release Unit id, the primary tag template, the tag
-    name, the tag record's version, the tagged commit (the `object.sha` of the
-    tag object that `GET /repos/{owner}/{repository}/git/tags/{sha}` returns),
-    and the release record's id and URL when present, plus the excluded tags
-    with reasons. The tag record's `target` and `tag-role` are not read,
-    because released tag records do not carry them. Its Gap reasons are
-    `release-model-missing`, `release-model-unreadable`, and
-    `release-record-missing`. The first two have the fix category agent
-    reasoning: an agent runs `intentional model` and commits the result.
-    `release-record-missing` has the fix category operator: creating a release
-    record is a repository write outside a commit, which the release workflow
-    or an operator performs. The severity of every Gap is the standard's
-    effective severity, `blocking` or `advisory`. With `none` the standard is
-    not evaluated, and the report lists it as waived with its reason or as not
-    configured. A run error
-    is not an outcome: Airlock exits `2` and names the endpoint and cause. Run
-    errors are a truncated tree, tag listing or release listing; a blob over
-    budget; an API failure, including a template repository the token cannot
-    read; and a configured `ref` or `minimum` that does not resolve, which is a
-    configuration fault the organization fixes. Both standards declare in
-    their compiled definitions that they read the GitHub API, because
-    template refs, tag objects and releases have no working-tree source. This
-    declaration is the gate for a run without a credential. Airlock knows
-    before the run that such a run cannot read the API, so it does not
-    evaluate either standard and reports each as routed: the report lists the
-    standard id and the reason `needs-github-api`, and names the credentialed
-    audit (the API-tree audit or the Action) as the surface that settles it.
-    A routed standard is not an outcome: it is never Met and never a Gap, it
-    does not change the exit code, and it is listed beside the waived list so
-    that a clean credential-free run is distinguishable from a clean
-    credentialed one. The run's other standards are evaluated and set the
-    exit code as usual, so a local audit without a credential still runs. A
-    standard is evaluated whole or routed whole; a credential-free run does
-    not report the part of `REPO-TPL-01` that the working tree could
-    observe. A run with a credential that fails to read an endpoint has no
-    gate: that is a run error, as above.
+    Each evaluated standard reports one outcome, Met or Gap, and structured
+    evidence. `REPO-TPL-01` has one item per expected parent and is Met when every
+    item is Met: a validated record holds the matching source/target application,
+    its parent revision is accepted, and all its selected parts are listed.
+    Evidence includes record path, audited commit or working-tree source,
+    expected source, target, accepted parts, ref/minimum and resolved commits,
+    found template, source, commit or content digest, selected parts and compare
+    statuses. Gap reasons are `record-missing`, `record-not-a-file`,
+    `record-unreadable`, `record-schema-not-supported`, `application-missing`
+    (with other targets holding the source), `revision-not-accepted`,
+    `revision-not-git`, and `part-not-accepted`. Their fix category is agent
+    reasoning: apply, update or baseline with Toha, select accepted parts, and
+    commit the result. Toha's baseline section defines adoption; repositories
+    with old private-ref records re-baseline, and Airlock reads no legacy refs.
 
-  shared-document-crates: >-
-    `toha-documents` parses `.toha.json` (`applied::AppliedRecord`,
-    `Application`, `Application::agrees_with`) and snapshots
-    (`snapshot::SnapshotDocument::from_json`, `check_tree`, `SnapshotRef`,
-    `SNAPSHOT_REF_PREFIX`). `intentional-release-model` parses the Release
-    Model (`parse_release_model`, `ReleaseModel`, `ReleaseUnitEntry`,
-    `ReleaseUnitTagEntry`, `ReleaseRecordPolicy`) and the tag record message.
-    Airlock parses neither document itself and adds no Git dependency to read
-    them.
+    `REPO-REL-08` has one item per examined release and is Met when every release
+    has a published record on its primary tag. Evidence includes unit id,
+    primary tag template, tag name, tag-record version, tagged commit from the
+    tag object's `object.sha`, and release id and URL when present. Excluded
+    tags carry reasons. Gap reasons are `release-model-missing`,
+    `release-model-not-a-file`, `release-model-unreadable`,
+    `release-model-schema-not-supported`, and `release-record-missing`. Model
+    Gaps have the fix category agent reasoning: run `intentional model` with a
+    supported producer and commit the result. Missing release records have the
+    fix category operator: a release workflow or operator performs that write.
+    A missing or invalid model is a Gap before any vacuous all-releases Met.
+    An empty set of qualifying releases after a valid model is Met.
+
+    Each Gap has the standard's effective severity, `blocking` or `advisory`.
+    Severity `none` prevents evaluation and is listed with its waiver reason or
+    as not configured. A run error is not an outcome: exit `2` names endpoint
+    and cause. API failures, truncated listings, byte/page-budget exhaustion,
+    and configured template refs that cannot resolve are run errors, not Gaps.
+
+    Both new standards declare a GitHub API requirement in compiled metadata.
+    With no credential each is routed whole, with reason `needs-github-api` and
+    the credentialed API-tree audit or Action named as the settling surface.
+    Routed is neither Met nor Gap, does not affect exit status, and is listed
+    beside waivers. Other standards still evaluate and set the exit code. A
+    credentialed endpoint failure is a run error, never routing.
+
+  vendored-document-schemas: >-
+    Airlock uses its own JSON reader and JSON Schema validator. The vendored
+    schema files are `crates/core/schemas/toha/applied-record-1.schema.yml`
+    (from Toha's `docs/specifications/applied-record-1.schema.yml`, record-schema)
+    and `crates/core/schemas/intentional/release-model-1.schema.yml` (from
+    Intentional's `docs/specifications/release-model.schema.yml`,
+    schema-identity-and-versioning). Their `$id` values are respectively
+    `https://wyrd.foo/toha/schemas/applied-record/1` and
+    `https://intentional.foo/schemas/release-model/1`. Airlock embeds the schemas;
+    audit document parsing is JSON only. Schema source files may be YAML.
+
+    Each vendored copy has provenance recording producer repository, released tag,
+    resolved commit, source path, `$id` and SHA-256 of source bytes. The tests
+    `vendored_toha_record_schema_matches_release` and
+    `vendored_release_model_schema_matches_release` compare bytes with the source
+    at that exact producer release, supplied as a pinned source checkout in CI,
+    and assert its commit and `$id`. A missing source or unresolved release fails
+    the agreement test; skipping is not a pass. A deliberate schema update
+    changes provenance and copy together. The reader never downloads a schema
+    from a repository document's URI, and schema reference resolution is confined
+    to the embedded catalog; any transitive references are vendored with the same
+    provenance and equality check. Published URIs are immutable; changed contracts
+    get a new URI and an explicitly supported vendored copy.
+
+    A document's `$schema` must equal the corresponding vendored `$id`, by exact
+    string equality. Missing, non-string or different identity is a Gap, with
+    `record-schema-not-supported` or `release-model-schema-not-supported`, path,
+    expected identity and found identity. Syntax and other schema failures are
+    `record-unreadable` or `release-model-unreadable`, with the failed JSON
+    pointer and validation keyword. The auditor never guesses a line, falls back
+    to another schema or fetches one. Hosted schema URIs do not resolve until
+    hosting exists; the vendored files support audits independently of hosting.
+    Toha's document-questions and schema-resolution instead define template
+    resolution: `schema` is a URI, `input` names the default file, template
+    `schemas` names a YAML/JSON directory indexed by `$id`, resolution is vendored
+    first then URI fetch, and fetch failure is a run error on the Toha side.
 
   api-surface: >-
-    The standards call only these endpoints, all with `GET`. In the audited
-    repository: `/repos/{owner}/{repository}/commits/{ref}`,
+    The document and release readers call only `GET`. In the audited repository:
+    `/repos/{owner}/{repository}/commits/{ref}`,
     `/repos/{owner}/{repository}/git/trees/{sha}?recursive=1`,
     `/repos/{owner}/{repository}/git/blobs/{sha}`,
     `/repos/{owner}/{repository}/git/matching-refs/tags/`,
     `/repos/{owner}/{repository}/git/tags/{sha}`, and
-    `/repos/{owner}/{repository}/releases`; and, for the snapshot reader,
-    `/repos/{owner}/{repository}/git/ref/toha/snapshots/{id}` and
-    `/repos/{owner}/{repository}/git/commits/{sha}`. In each template
-    repository: `/repos/{owner}/{repository}/commits/{ref}` and
-    `/repos/{owner}/{repository}/compare/{base}...{head}?per_page=1`. The
-    standards never write, hold no mutating endpoint, and never spawn a
-    subprocess. They read with the audit's read-only credential, which must
-    also read each template repository the configuration names.
+    `/repos/{owner}/{repository}/releases`. In a template repository:
+    `/repos/{owner}/{repository}/commits/{ref}` and
+    `/repos/{owner}/{repository}/compare/{base}...{head}?per_page=1`.
+    REPO-REL-05 also resolves the audited repository's default branch head;
+    REPO-REL-06 reads `/repos/{owner}/{repository}/actions/workflows/{workflow_id}/runs`
+    with head_sha and event filters to settle CI-run evidence. These reads use
+    the audit's existing read-only credential. There are no mutating endpoints,
+    no schema-URI fetch during an audit and no subprocess. The credential must
+    read every configured template repository.
 
-  open-decision-dependence: >-
-    Publication targets as child templates or as optional parts: neither
-    standard depends on the choice. The configuration shape and the acceptance
-    rule are the same, and only the content of `children` differs, as
-    `accepted-revision` states. How snapshot refs reach the remote: neither
-    standard depends on it, because neither reads a snapshot ref. Under every
-    option the snapshot reader reports a missing ref as a Gap. When the operator
-    pushes the refs, a template hook configures the push, or a repository
-    pre-push hook pushes them, the Gap's fix category is agent reasoning: an
-    agent pushes the refs with the refspec Toha documents. When template updates run in continuous integration, it is
-    operator: the update workflow is dispatched again. When Airlock needs no
-    answers from snapshots, no standard reads snapshot refs and the Gap does not
-    arise.
+  delivery-standard-alignment: >-
+    The delivery workflow is `.github/workflows/release.yml`, with delivery
+    jobs in the dispatched release run. No `cd.yml` is rendered or required for
+    this process. The statements below govern the release-process scope from
+    classification-and-scope; they do not forbid a separate continuous deployment
+    workflow for a site or service.
+
+    `REPO-CD-01`: "A repository with a versioned release process has
+    .github/workflows/release.yml with its configured delivery jobs".
+    Evaluation: Airlock checks a regular, parseable workflow at that fixed path;
+    an agent checks that jobs for the recorded selected parts exist and are
+    reachable in its job graph. With no selected publication part, no publication
+    job is required. This replaces the file-presence assumption with the parent
+    workflow that actually owns delivery.
+
+    `REPO-CD-02` is merged into `REPO-REL-04` for this scope and its tag-pattern
+    parameter is retired. Statement at the surviving standard: "release.yml runs
+    only by workflow_dispatch on a pinned source commit". Evaluation: Airlock
+    checks the sole trigger is workflow_dispatch, a required source-sha input,
+    and checkout of that input; an agent verifies source-sha validation and its
+    use through the job graph. Tag pushes start no delivery workflow for this
+    process. A tag-name pattern is not its release gate.
+
+    `REPO-CD-03` is retained for continuous deployment classification: "A
+    repository deploying a site or service continuously triggers its deployment
+    workflow on push to the default branch". Evaluation: Airlock finds a parsed
+    workflow with that push trigger using the API default branch name, without
+    requiring a cd.yml filename. It does not govern versioned release delivery
+    alone. A repository classified for both continuous deployment and versioned
+    release satisfies both contracts with their respective workflows.
+
+    `REPO-CD-04`: "Release delivery sets a repository-wide concurrency group
+    with cancel-in-progress: false". Evaluation: Airlock checks workflow-level
+    `concurrency.group: release` and literal `cancel-in-progress: false` in
+    release.yml. The site's continuous deployment variant checks its deployment
+    workflow's non-cancelling group. Delivery cannot cancel an in-flight run.
+
+    `REPO-CD-05`: "A dispatched release delivers only non-baseline releases
+    identified by Intentional tag records at its pinned source commit".
+    Evaluation: agent reasoning checks the resolve job reads annotated tag
+    records, checks target commit agreement, excludes baseline records, rejects
+    an empty release set, and gates build, release-record and publication jobs on
+    the resolved set. A GitHub Release may be created for a required unit in the
+    same run; this standard does not prohibit it. It guards release selection,
+    not workflow separation.
+
+    `REPO-CD-06`: "Every credential declared by selected publication parts is
+    checked for presence before build, release-record or publication work".
+    Evaluation: agent reasoning compares the declared credential names, including
+    environment scopes, to the parent preflight jobs and checks that all work
+    depends on successful preflight. Trusted publishing omits a secret credential
+    when the selected part declares that mode. Airlock reads names and job
+    structure, never credential values; no credential declaration requires no
+    secret-presence assertion.
+
+    `REPO-CD-07` is retired for versioned release delivery: its requirement for
+    separate release and delivery workflows contradicts the single dispatched
+    workflow. Release selection and safe job ordering are evaluated under
+    REPO-CD-05 and REPO-CD-06 instead.
+
+    `REPO-REL-04` has the statement and evaluation above after absorbing
+    REPO-CD-02. `REPO-REL-05`: "release.yml asserts that source-sha, github.sha
+    and the current default branch head are the same commit, and dispatch uses
+    the default branch". Agent evaluation checks all four guards before work;
+    Airlock can read the default branch head, but audit-time equality does not
+    prove run-time guarding. `REPO-REL-06`: "release.yml requires a successful
+    push-event run of the recorded CI workflow for exactly source-sha before
+    work". Agent evaluation checks the gate and failure path; Airlock reads
+    `answers.ci_workflow` from the applied record and the Actions runs API for
+    same-SHA push-success evidence. A successful run from another workflow,
+    commit or event cannot satisfy it. These standards use the default branch
+    from repository metadata, not a hard-coded main branch, and check the fixed
+    release workflow rather than cd.yml. Agent evaluation remains agent
+    reasoning, never a Met inferred from a command substring. Airlock's checks
+    and the agent assessment report their own evidence through the re-alignment's
+    evaluation categories; no Manual outcome is introduced.
+
+    Compiled severities and override rules of retained CD and release standards
+    stay as defined; the re-alignment maps their required severity to advisory.
+    Registry statements, dispatch logic, guidance and the generated conformance
+    reference must be changed together when these standards are implemented.
+    This design changes no registry or check code.
 
   alternatives-considered: >-
-    A list of accepted commits is exact but needs an organization edit for
-    every template change, so a reachable-from-ref rule with an optional
-    minimum is chosen; a pin stays expressible as `ref` equal to `minimum`.
-    Accepting a content digest is rejected, because Airlock cannot compute a
-    Toha content digest from the GitHub API. Reading identity from the newest
-    snapshot ref of a source is rejected, because snapshot refs include
-    branches that never merged and outlive their targets, so no order over
-    them tells what a revision holds. Matching primary tags by template alone
-    is rejected, because a baseline tag matches the same template; the tag
-    record's `baseline` field is the recorded signal. Excluding the version
-    `0.0.0` is rejected, because a baseline can name any version. Looking up
-    each tag with `GET /repos/{owner}/{repository}/releases/tags/{tag}` costs
-    one request per release, so the paged listing is chosen. Letting a
-    repository list its own expected templates is rejected, because the
-    standard guards the release controls the organization owns.
+    A list of accepted commits requires an organization edit for every template
+    change; reachable-from-ref with optional minimum retains an exact pin as
+    ref equal to minimum. Content digests cannot be related to GitHub commit
+    ancestry, so acceptance requires a Git commit. A record per target would
+    require tree discovery and a second path convention; the repository record
+    with application target keys follows Toha's applied-record contract. Part
+    revisions would duplicate parent identity; an allow-list of names describes
+    the accepted subset. A runtime schema download would make audits depend on
+    hosting and let repository input choose a network destination; embedded
+    vendored schemas make the accepted contract explicit. Parsing with producer
+    libraries would couple tool releases beyond the schema contract, so Airlock
+    reads plain JSON. Primary tag names alone include baselines; the decoded
+    baseline field separates them. Per-tag release lookup costs one request per
+    release, so paged release listing is used. Repository-owned expectations
+    would let a repository remove its own release controls, so only the
+    organization configures them.
 
   out-of-scope: >-
-    Rendered-file drift, which Toha computes. Which publication targets a
-    repository needs. The staleness of the Release Model. Tag record
-    conformance beyond the three fields this design reads, which Intentional
-    verifies. The content of release notes. Standards that read snapshot
-    answers.
+    Rendered-file drift and merge-base reconstruction, which Toha owns.
+    Selecting the publication targets a repository needs. Release Model
+    staleness against Intentional configuration. Tag record integrity beyond
+    syntax, schema validity and the release-selection fields, which Intentional
+    verify owns. Release note contents. Registry, reader, schema and template
+    implementation. No migration reader for private Toha refs.
