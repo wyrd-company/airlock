@@ -115,13 +115,18 @@ proposed-design:
     | waived | Effective severity none; no check ran | Waived, id and reason |
     | routed | Declared gate names another settling surface | Routed, reason and destination |
     | unbuilt | Reached a declared unbuilt check branch | Unbuilt and branch reason |
-    | out-of-scope | Reached a declared release-unit boundary | Out-of-scope and reason |
+    | out-of-scope | Below earliest maturity rung, or no release units at a declared boundary | Out-of-scope, reason and evidence code |
     | Run error | Run could not establish required evidence | Error banner and diagnostic |
 
     Only Met and Gap are evaluated outcomes. Waived comes from effective severity
     `none`, never from the check. The waiver names the exception reason or says
     "not configured" when required configuration is absent. Routed, unbuilt
     and out-of-scope do not assert Met or Gap and do not change the exit code.
+    Both out-of-scope boundaries use reason `out-of-scope`. Evidence code
+    `maturity_out_of_scope` identifies the rung boundary; `no_release_units_declared`
+    identifies the release-unit boundary. A known earlier rung is settled before
+    later-rule inputs are read. Malformed or unreadable release-unit declarations
+    are run errors when their boundary is reached.
     A credentialed endpoint failure or missing input without a declared gate
     is a run error. Advisory agent evidence cannot settle a compiled outcome.
 

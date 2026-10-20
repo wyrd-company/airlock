@@ -173,7 +173,7 @@ pub struct AgentWorkList {
     pub routed: WorkGroup<UnsettledItem>,
     /// Evaluations that reached a declared unbuilt check boundary.
     pub unbuilt: WorkGroup<UnsettledItem>,
-    /// Rules outside the declared release-unit scope.
+    /// Rules below their earliest maturity rung or outside declared release-unit scope.
     pub out_of_scope: WorkGroup<UnsettledItem>,
     /// Waivers that prevented evaluation, with their authorization reasons.
     pub waived: WorkGroup<AttentionItem>,

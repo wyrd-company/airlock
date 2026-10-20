@@ -581,6 +581,19 @@ pub fn evaluate(rule: &EffectiveRule, context: &AuditContext) -> Verdict {
     verdict
 }
 
+/// Whether the captured API source or credential leaves this rule routed.
+/// File scope and maturity are settled separately before this gate.
+pub(crate) fn api_gated(
+    rule: &EffectiveRule,
+    credential: CredentialCapability,
+    api_observed: bool,
+) -> bool {
+    rule.def.needs_github_api()
+        && (!api_observed
+            || (rule.def.id == "REPO-TPL-01"
+                && credential == CredentialCapability::Unauthenticated))
+}
+
 /// Shared scope boundary for evaluation and API routing. Classification/config
 /// selection remains outside this function.
 pub fn applicability(rule: &EffectiveRule, context: &AuditContext) -> Result<(), Box<Verdict>> {
@@ -1062,6 +1075,34 @@ pub(crate) mod fixtures {
 mod tests {
     use super::fixtures::*;
     use super::*;
+
+    #[test]
+    fn api_gate_preserves_public_observation_and_template_credentials() {
+        for (id, credential, observed, expected) in [
+            ("REPO-REL-08", CredentialCapability::ReadOnly, false, true),
+            (
+                "REPO-REL-08",
+                CredentialCapability::Unauthenticated,
+                true,
+                false,
+            ),
+            ("REPO-TPL-01", CredentialCapability::ReadOnly, true, false),
+            (
+                "REPO-TPL-01",
+                CredentialCapability::Unauthenticated,
+                true,
+                true,
+            ),
+            (
+                "REPO-FILE-01",
+                CredentialCapability::Unauthenticated,
+                false,
+                false,
+            ),
+        ] {
+            assert_eq!(api_gated(&rule(id), credential, observed), expected, "{id}");
+        }
+    }
 
     #[test]
     fn seeded_rules_report_later_rungs_as_out_of_scope_without_outcomes() {

@@ -80,6 +80,23 @@ proposed-design:
     same captured inputs, report added rules and observed passes, and do not
     affect the current audit's exit code. REPO-GIT-15 reports Seeded and explains
     how to establish the baseline with intentional tag --baseline.
+  maturity-capture-cost: >-
+    API audits capture each distinct annotated tag object once, shared with
+    release-record conformance. Lightweight refs require no object read. For N
+    distinct annotated object SHAs in a complete listing, capture makes at most
+    N object requests and stops on the first failed read. The existing default
+    transport bounds are 20 pages per listing, 32 MiB per response and a shared
+    300-second audit budget, with 10-second connection and 30-second request
+    budgets. A page can contain more than 100 matching refs; these limits do not
+    establish a 2,000-tag cap or an independent total-request allowance.
+    Maturity record identity comes from the tag message, not its name. The current
+    Release Model can be absent or use different templates from historical tags,
+    so its primary-tag candidates cannot select all maturity evidence. Capture
+    cost grows with the number of annotated objects. A failed unrelated annotated
+    object read leaves the shared capture unavailable, including to release-record
+    conformance when it requires a candidate object. Reducing request cost and
+    this failure coupling must preserve historical tag-record recognition and
+    explicit incomplete-evidence diagnostics.
   high-level-overview: >-
     Two compiled rules read JSON documents validated against vendored
     schemas. `REPO-TPL-01` requires each expected parent at an accepted revision

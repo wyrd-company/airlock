@@ -6,7 +6,7 @@
 use super::Observed;
 use crate::checks::{self, AuditContext};
 use crate::findings::{Finding, Status};
-use crate::rules::{CredentialCapability, Lifecycle, Severity};
+use crate::rules::{Lifecycle, Severity};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct MaturityReport {
@@ -73,13 +73,7 @@ pub(crate) fn report(
                     continue
                 }
                 Err(boundary) => *boundary,
-                Ok(())
-                    if rule.def.needs_github_api()
-                        && (!api_observed
-                            || (rule.def.id == "REPO-TPL-01"
-                                && context.credential
-                                    == CredentialCapability::Unauthenticated)) =>
-                {
+                Ok(()) if checks::api_gated(rule, context.credential, api_observed) => {
                     checks::Verdict::needs_github_api()
                 }
                 Ok(()) => checks::evaluate(rule, &future),

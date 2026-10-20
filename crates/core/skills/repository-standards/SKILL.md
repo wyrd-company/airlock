@@ -106,7 +106,10 @@ exact statement in the evidence. Separate:
 - waived rules with their authorization reasons;
 - routed rules with their declared gates and settling surfaces;
 - unbuilt checks with the reason that prevented an outcome;
-- out-of-scope rules with the declared release-unit boundary; and
+- out-of-scope rules below their earliest maturity rung or at a declared
+  release-unit boundary with no release units; evidence code
+  `maturity_out_of_scope` names the rung boundary and `no_release_units_declared`
+  names the release-unit boundary; and
 - run errors that prevented Airlock from completing its job.
 
 An agent assessment is advisory evidence. It does not replace a compiled

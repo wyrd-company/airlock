@@ -608,10 +608,7 @@ fn complete_run(
         });
 
         // Waivers are authorization and prevent the check from executing.
-        let gated = (platform_unobserved
-            || (rule.def.id == "REPO-TPL-01"
-                && credential == CredentialCapability::Unauthenticated))
-            && rule.def.needs_github_api();
+        let gated = checks::api_gated(rule, context.credential, !platform_unobserved);
         let verdict = if waiver.is_some() {
             checks::Verdict {
                 status: None,

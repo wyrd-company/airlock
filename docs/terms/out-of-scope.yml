@@ -1,8 +1,10 @@
 $schema: https://refinery.systems/ontology/term
 title: Out of scope
 description: >-
-  The outcome when an evaluation reaches a declared boundary because the repository has no
-  release units. The rule is listed in out-of-scope beside waived, routed and unbuilt rules, with
-  its reason. Out-of-scope is neither Met nor Gap and leaves the exit code unchanged. A malformed
-  or unreadable release-unit declaration remains a run error. Classification and observed
-  maturity determine which rules govern a repository.
+  The result when observed maturity is below a rule's earliest rung, or an evaluation reaches
+  its declared release-unit boundary with no release units declared. Both use reason
+  out-of-scope. Evidence code maturity_out_of_scope identifies the rung boundary;
+  no_release_units_declared identifies the release-unit boundary. The rule is listed beside
+  waived, routed and unbuilt rules. Out-of-scope is neither Met nor Gap and leaves the exit
+  code unchanged. A known earlier rung is settled before reading later-rule inputs. A malformed
+  or unreadable release-unit declaration remains a run error when that boundary is reached.

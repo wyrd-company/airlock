@@ -177,7 +177,9 @@ impl Group {
             Self::Authorized => {
                 "rules not evaluated at severity none; their reasons remain visible"
             }
-            Self::OutOfScope => "no declared release units; no Met or Gap outcome",
+            Self::OutOfScope => {
+                "outside release-unit scope or below earliest maturity; no Met or Gap outcome"
+            }
             Self::Aligned => "rules whose compiled checks decided Met",
         }
     }

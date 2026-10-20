@@ -225,10 +225,14 @@ Met and Gap results. Separate lists identify work without an outcome:
 - `unbuilt`: this evaluation reaches a declared part of the check that Airlock
   has not built. It names the reason and needs a release with that check built.
   Other branches of the same check still decide Met or Gap.
-- `out_of_scope`: a compiled check reached its declared release-unit boundary.
-  Reason `out-of-scope` means no release units are declared. It has no Met or
-  Gap outcome and leaves the exit code unchanged. Malformed declarations are
-  run errors.
+- `out_of_scope`: a rule is below its earliest observed maturity rung, or a
+  compiled check reached its declared boundary with no release units declared.
+  Both use reason `out-of-scope`. Evidence code `maturity_out_of_scope` identifies
+  the rung boundary; `no_release_units_declared` identifies the release-unit
+  boundary. Neither has a Met or Gap outcome or changes the exit code. A known
+  earlier rung is settled before later-rule inputs are read. Malformed or
+  unreadable release-unit declarations remain run errors when that boundary is
+  reached.
 - `run_errors`: a failed read, exhausted budget, truncated input, or missing
   input with no declared gate. Every run error sets exit `2`, at any severity.
   A credentialed endpoint failure is a run error, never routing.

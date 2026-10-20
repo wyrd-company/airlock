@@ -165,10 +165,33 @@ fn local_audit_applies_maturity_before_missing_api_routing() {
     assert_eq!(building.out_of_scope.len(), 1);
     assert_eq!(building.out_of_scope[0].rule, "REPO-REL-08");
     assert_eq!(building.routed[0].rule, "REPO-TPL-01");
-    assert_eq!(
-        building.maturity.unwrap().observed.unwrap().rung,
-        Lifecycle::Building
-    );
+    let forecast = building.maturity.unwrap();
+    assert_eq!(forecast.observed.unwrap().rung, Lifecycle::Building);
+    let released = forecast
+        .transitions
+        .iter()
+        .find(|transition| transition.rung == Lifecycle::Released)
+        .unwrap();
+    let release_record = released
+        .rules
+        .iter()
+        .find(|rule| rule.rule == "REPO-REL-08")
+        .unwrap();
+    assert_eq!(release_record.outcome, "needs-github-api");
+    assert_eq!(released.already_met, 0);
+
+    git(dir.path(), &["commit", "--allow-empty", "-qm", "release"]);
+    tag(dir.path(), "sample@0.1.0", "0.1.0", false);
+    let released = audit::run_local(&policy, &options, dir.path()).unwrap();
+    assert!(released.out_of_scope.is_empty() && released.run_errors.is_empty());
+    let mut routed: Vec<_> = released
+        .routed
+        .iter()
+        .map(|finding| finding.rule.as_str())
+        .collect();
+    routed.sort_unstable();
+    assert_eq!(routed, ["REPO-REL-08", "REPO-TPL-01"]);
+    assert_eq!(released.exit_code(), 0);
 }
 
 #[test]
@@ -280,6 +303,110 @@ async fn captured_api_objects_and_local_git_observe_the_same_maturity() {
         Lifecycle::Stable
     );
     assert_eq!(api.findings[0].status, local.findings[0].status);
+}
+
+async fn audit_rest_baseline_object(object: serde_json::Value) -> airlock_core::findings::Report {
+    use airlock_core::github::{RestClient, RestClientConfig};
+    use serde_json::json;
+    use wiremock::{
+        matchers::{method, path},
+        Mock, MockServer, ResponseTemplate,
+    };
+
+    let server = MockServer::start().await;
+    let head = "a".repeat(40);
+    let tag_sha = "b".repeat(40);
+    for (route, body) in [
+        (
+            "/repos/owner/name".to_owned(),
+            json!({"id":1,"name":"name","full_name":"owner/name","default_branch":"main"}),
+        ),
+        (
+            "/repos/owner/name/commits/main".to_owned(),
+            json!({"sha":head}),
+        ),
+        ("/repos/owner/name/topics".to_owned(), json!({"names":[]})),
+        (
+            format!("/repos/owner/name/git/trees/{head}"),
+            json!({"tree":[],"truncated":false}),
+        ),
+        (
+            "/repos/owner/name/commits".to_owned(),
+            json!([{"sha":head,"parents":[]}]),
+        ),
+        (
+            "/repos/owner/name/git/matching-refs/tags/".to_owned(),
+            json!([{"ref":"refs/tags/sample@0.0.0","object":{"type":"tag","sha":tag_sha}}]),
+        ),
+    ] {
+        Mock::given(method("GET"))
+            .and(path(route))
+            .respond_with(ResponseTemplate::new(200).set_body_json(body))
+            .mount(&server)
+            .await;
+    }
+    Mock::given(method("GET"))
+        .and(path(format!("/repos/owner/name/git/tags/{tag_sha}")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(object))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let client = RestClient::new(
+        "fixture",
+        RestClientConfig {
+            base_url: server.uri(),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    audit::run(
+        &client,
+        "owner",
+        "name",
+        &policy(&["REPO-GIT-15"]),
+        &audit::AuditOptions::default(),
+        None,
+    )
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn rest_baseline_without_tagger_stays_seeded() {
+    let report = audit_rest_baseline_object(serde_json::json!({
+        "message": message("0.0.0", true),
+        "object": {"type":"commit", "sha":"a".repeat(40)},
+    }))
+    .await;
+    assert_eq!(
+        report.maturity.unwrap().observed.unwrap().rung,
+        Lifecycle::Seeded
+    );
+    assert_eq!(
+        report.findings[0].status,
+        Some(airlock_core::findings::Status::Gap)
+    );
+    assert!(report.run_errors.is_empty());
+}
+
+#[tokio::test]
+async fn rest_baseline_with_non_commit_target_stays_seeded() {
+    // Keep the SHA reachable to isolate target-kind decoding from ancestry.
+    let report = audit_rest_baseline_object(serde_json::json!({
+        "message": message("0.0.0", true),
+        "tagger": {"name":"fixture", "email":"fixture@example.invalid"},
+        "object": {"type":"tag", "sha":"a".repeat(40)},
+    }))
+    .await;
+    assert_eq!(
+        report.maturity.unwrap().observed.unwrap().rung,
+        Lifecycle::Seeded
+    );
+    assert_eq!(
+        report.findings[0].status,
+        Some(airlock_core::findings::Status::Gap)
+    );
+    assert!(report.run_errors.is_empty());
 }
 
 #[tokio::test]
