@@ -32,6 +32,8 @@ struct Fixture {
     reachability: &'static str,
     minimum: &'static str,
     record_path: &'static str,
+    release_config: &'static str,
+    organization_waiver: bool,
 }
 impl Fixture {
     async fn new() -> Self {
@@ -48,10 +50,12 @@ impl Fixture {
             reachability: "ahead",
             minimum: "ahead",
             record_path: ".toha.json",
+            release_config: "release-units: {sample: {path: .}}",
+            organization_waiver: false,
         }
     }
     async fn run(&self, credential: bool) -> airlock_core::findings::Report {
-        let config = "release-units: {sample: {path: .}}";
+        let config = self.release_config;
         let mut entries = vec![
             json!({"path":".intentional/config.yml","mode":"100644","sha":"config-blob","size":config.len()}),
         ];
@@ -133,7 +137,12 @@ impl Fixture {
         .unwrap();
         let dir = tempfile::tempdir().unwrap();
         let policy_path = dir.path().join("policy.yml");
-        std::fs::write(&policy_path,format!("version: 1\nname: sample\ncapabilities: {{rules: [release]}}\nexceptions:\n  REPO-TPL-01:\n    reason: Expected process\n    record-path: {}\n    templates: [{{source: '{}', ref: accepted/branch, minimum: start, parts: [alpha, beta]}}]\n",self.record_path,SOURCE)).unwrap();
+        let waiver = if self.organization_waiver {
+            "suppressions:\n  direct:\n    - rule: REPO-TPL-01\n      repository: owner/name\n      reason: Organization waiver\n"
+        } else {
+            ""
+        };
+        std::fs::write(&policy_path,format!("version: 1\nname: sample\ncapabilities: {{rules: [release]}}\nexceptions:\n  REPO-TPL-01:\n    reason: Expected process\n    record-path: {}\n    templates: [{{source: '{}', ref: accepted/branch, minimum: start, parts: [alpha, beta]}}]\n{waiver}",self.record_path,SOURCE)).unwrap();
         let mut policy = policy::resolve(
             &client,
             &policy::PolicySource::Local(policy_path),
@@ -199,6 +208,73 @@ async fn template_audit_reads_configured_record_at_captured_commit_and_compares_
     );
     assert!(requests.iter().all(|r| r.method.as_str() == "GET"));
     assert!(!requests.iter().any(|r| r.url.path().contains("snapshot")));
+}
+
+#[tokio::test]
+async fn template_audit_without_release_units_makes_no_template_repository_requests() {
+    let mut fixture = Fixture::new().await;
+    fixture.release_config = "release-units: {}";
+    let report = fixture.run(true).await;
+    assert_no_template_repository_requests(&fixture).await;
+    assert_eq!(report.exit_code(), 0);
+    assert!(
+        report.findings.is_empty(),
+        "no Met or Gap for an out-of-scope rule"
+    );
+    assert!(report.run_errors.is_empty());
+    assert!(report.waived.is_empty());
+    assert!(report.routed.is_empty());
+    assert!(report.unbuilt.is_empty());
+    assert_eq!(report.out_of_scope.len(), 1);
+    assert_eq!(report.out_of_scope[0].rule, "REPO-TPL-01");
+    assert_eq!(report.out_of_scope[0].status_code(), "out-of-scope");
+}
+
+#[tokio::test]
+async fn template_audit_with_organization_waiver_makes_no_template_repository_requests() {
+    let mut fixture = Fixture::new().await;
+    fixture.organization_waiver = true;
+    let report = fixture.run(true).await;
+    assert_no_template_repository_requests(&fixture).await;
+    assert_eq!(report.exit_code(), 0);
+    assert!(
+        report.findings.is_empty(),
+        "no Met or Gap for a waived rule"
+    );
+    assert!(report.run_errors.is_empty());
+    assert!(report.out_of_scope.is_empty());
+    assert!(report.routed.is_empty());
+    assert!(report.unbuilt.is_empty());
+    assert_eq!(report.waived.len(), 1);
+    assert_eq!(report.waived[0].rule, "REPO-TPL-01");
+    assert_eq!(report.waived[0].status_code(), "waived");
+    assert_eq!(
+        report.waived[0]
+            .suppression
+            .as_ref()
+            .unwrap()
+            .policy_reason
+            .as_deref(),
+        Some("Organization waiver")
+    );
+}
+
+async fn assert_no_template_repository_requests(fixture: &Fixture) {
+    // Observe every attempt at this repository, including ref/minimum resolution
+    // and both ancestry comparisons, independently of mock matches or outcomes.
+    let requests = fixture.server.received_requests().await.unwrap();
+    let forbidden: Vec<_> = requests
+        .iter()
+        .filter(|request| {
+            let path = request.url.path();
+            path == "/repos/example-org/catalog" || path.starts_with("/repos/example-org/catalog/")
+        })
+        .map(|request| format!("{} {}", request.method, request.url.path()))
+        .collect();
+    assert!(
+        forbidden.is_empty(),
+        "forbidden template repository requests: {forbidden:?}"
+    );
 }
 
 #[tokio::test]
