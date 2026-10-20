@@ -32,3 +32,14 @@ features:
   wiki: false
   projects: false
   discussions: false
+
+exceptions:
+  REPO-FILE-08:
+    reason: This repository uses the organization's named Renovate configuration
+    renovate-preset: github>wyrd-company/.github:renovate-config
+  REPO-META-09:
+    reason: Repository discovery includes GitHub release automation and DevOps
+    topics:
+      artifact-type: [cli, library, application]
+      ecosystem: [rust, node, go]
+      purpose: [github, release-automation, devops]
