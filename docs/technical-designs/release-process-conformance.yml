@@ -114,10 +114,8 @@ proposed-design:
     The organization supplies both `record-path` and `templates` under
     `exceptions.REPO-TPL-01` in its `.github/airlock.yml`. A `reason` is required
     as for every exception. Both are standard parameters, not top-level org
-    settings. The repository file cannot supply either parameter. In the
-    capability-based configuration, the same values are under
-    `checks.REPO-TPL-01.params`; the classification configuration uses only the
-    org exception form. There is one shape for each value.
+    settings. The repository file cannot supply either parameter. The
+    organization exception is the configuration location for these values.
 
     `record-path` names one file relative to the repository root, with `/`
     separators; default `.toha.json`. It is independent of each item's `target`:
@@ -167,8 +165,9 @@ proposed-design:
 
   accepted-revision: >-
     A parent's recorded revision is accepted when the matched application's
-    `commit` (Toha's application-entry) is a 40-hex Git commit reachable from the configured `ref` and, when present,
-    it equals or descends from `minimum`. Airlock resolves both with `GET
+    `commit` (Toha's application-entry) is a 40-hex Git commit reachable from
+    the configured `ref` and, when present, equals or descends from `minimum`.
+    Airlock resolves both with `GET
     /repos/{owner}/{repository}/commits/{ref}` in the template repository. `GET
     /repos/{owner}/{repository}/compare/{base}...{head}?per_page=1` supplies
     `status`: `identical` or `ahead` establishes that base is an ancestor of or
@@ -236,7 +235,10 @@ proposed-design:
     Project fields and prerequisite lines into a JSON value and validate against
     the vendored `crates/core/schemas/intentional/tag-record.schema.yml`, with
     its referenced config and release-plan definitions in the embedded catalog.
-    That schema's provenance and byte-equality agreement test follow
+    `vendored_tag_record_schemas_match_release` compares the tag-record schema
+    and every transitively referenced config and release-plan schema copy with
+    their sources at the named Intentional release. It checks each copy's
+    commit, `$id` and source bytes with the provenance and failure rules in
     vendored-document-schemas. Decode required contract, generator, plan-digest,
     tag-id, version and boolean baseline fields; accept the specification's
     optional tag-role, target and prerequisites fields without requiring them
@@ -286,9 +288,14 @@ proposed-design:
     `intentional check` reports a stale model.
 
   met-and-gap-reporting: >-
-    Each evaluated standard reports one outcome, Met or Gap, and structured
-    evidence. `REPO-TPL-01` has one item per expected parent and is Met when every
-    item is Met: a validated record holds the matching source/target application,
+    Each evaluated standard reports one outcome, Met or Gap, decided only by
+    its compiled check. An agent assessment attaches as advisory evidence;
+    it never changes that outcome or the exit code. A compiled Met remains
+    Met when the agent disagrees or has not assessed it. A compiled Gap
+    remains Gap when an agent disagrees. The report identifies the compiled
+    result separately from any advisory assessment. `REPO-TPL-01` has one
+    item per expected parent and is Met when every item is Met: a validated
+    record holds the matching source/target application,
     its parent revision is accepted, and all its selected parts are listed.
     Evidence includes record path, audited commit or working-tree source,
     expected source, target, accepted parts, ref/minimum and resolved commits,
@@ -320,12 +327,20 @@ proposed-design:
     and cause. API failures, truncated listings, byte/page-budget exhaustion,
     and configured template refs that cannot resolve are run errors, not Gaps.
 
-    Both new standards declare a GitHub API requirement in compiled metadata.
-    With no credential each is routed whole, with reason `needs-github-api` and
+    Every standard whose compiled evaluation reads a GitHub-API-only fact
+    declares that requirement in compiled metadata. This includes
+    `REPO-TPL-01` for template ancestry, `REPO-REL-08` for tags and releases,
+    and `REPO-CD-03` for the API default branch name. Without a credential,
+    each such standard is routed whole with reason `needs-github-api` and
     the credentialed API-tree audit or Action named as the settling surface.
-    Routed is neither Met nor Gap, does not affect exit status, and is listed
-    beside waivers. Other standards still evaluate and set the exit code. A
-    credentialed endpoint failure is a run error, never routing.
+    A tree-based standard can use local files without this gate when it needs
+    no API-only fact; `REPO-REL-05` and `REPO-REL-06` evaluate the workflow
+    evidence described in delivery-standard-alignment and query no live head
+    or Actions runs. Reading the same files through the API-tree audit does
+    not make their facts API-only. Routed is neither Met nor Gap, does not
+    affect exit status, and is listed beside waivers. Other standards still
+    evaluate and set the exit code. A credentialed endpoint failure is a run
+    error, never routing.
 
   vendored-document-schemas: >-
     Airlock uses its own JSON reader and JSON Schema validator. The vendored
@@ -374,11 +389,14 @@ proposed-design:
     `/repos/{owner}/{repository}/releases`. In a template repository:
     `/repos/{owner}/{repository}/commits/{ref}` and
     `/repos/{owner}/{repository}/compare/{base}...{head}?per_page=1`.
-    REPO-REL-05 also resolves the audited repository's default branch head;
-    REPO-REL-06 reads `/repos/{owner}/{repository}/actions/workflows/{workflow_id}/runs`
-    with head_sha and event filters to settle CI-run evidence. These reads use
-    the audit's existing read-only credential. There are no mutating endpoints,
-    no schema-URI fetch during an audit and no subprocess. The credential must
+    `REPO-CD-03` reads `/repos/{owner}/{repository}` for `default_branch`,
+    which it uses to match the deployment workflow's push trigger. No audit
+    read of the live default branch head or Actions runs is made for
+    `REPO-REL-05` or `REPO-REL-06`: those standards inspect workflow evidence.
+    These reads use the audit's existing read-only credential. Every standard
+    that requires an API-only fact declares the gate in met-and-gap-reporting.
+    There are no mutating endpoints, no schema-URI fetch during an audit and
+    no subprocess. The credential must
     read every configured template repository.
 
   delivery-standard-alignment: >-
@@ -390,19 +408,21 @@ proposed-design:
 
     `REPO-CD-01`: "A repository with a versioned release process has
     .github/workflows/release.yml with its configured delivery jobs".
-    Evaluation: Airlock checks a regular, parseable workflow at that fixed path;
-    an agent checks that jobs for the recorded selected parts exist and are
-    reachable in its job graph. With no selected publication part, no publication
-    job is required. This replaces the file-presence assumption with the parent
+    Evaluation: the compiled check requires a regular, parseable workflow at
+    that fixed path and jobs for the recorded selected parts reachable in its
+    job graph. An agent may attach an advisory assessment of that graph.
+    With no selected publication part, no publication job is required. This
+    replaces the file-presence assumption with the parent
     workflow that actually owns delivery.
 
     `REPO-CD-02` is merged into `REPO-REL-04` for this scope and its tag-pattern
     parameter is retired. Statement at the surviving standard: "release.yml runs
     only by workflow_dispatch on a pinned source commit". Evaluation: Airlock
     checks the sole trigger is workflow_dispatch, a required source-sha input,
-    and checkout of that input; an agent verifies source-sha validation and its
-    use through the job graph. Tag pushes start no delivery workflow for this
-    process. A tag-name pattern is not its release gate.
+    and checkout of that input. An agent's review of source-sha validation and
+    its use through the job graph is advisory evidence. Tag pushes start no
+    delivery workflow for this process. A tag-name pattern is not its release
+    gate.
 
     `REPO-CD-03` is retained for continuous deployment classification: "A
     repository deploying a site or service continuously triggers its deployment
@@ -420,19 +440,21 @@ proposed-design:
 
     `REPO-CD-05`: "A dispatched release delivers only non-baseline releases
     identified by Intentional tag records at its pinned source commit".
-    Evaluation: agent reasoning checks the resolve job reads annotated tag
-    records, checks target commit agreement, excludes baseline records, rejects
-    an empty release set, and gates build, release-record and publication jobs on
-    the resolved set. A GitHub Release may be created for a required unit in the
-    same run; this standard does not prohibit it. It guards release selection,
+    Evaluation: the compiled check requires the workflow's resolve job to
+    read annotated tag records, check target commit agreement, exclude
+    baseline records, reject an empty release set, and gate build,
+    release-record and publication jobs on the resolved set. An agent may
+    attach an advisory assessment of those controls. A GitHub Release may be
+    created for a required unit in the same run; this standard permits it. It guards release selection,
     not workflow separation.
 
     `REPO-CD-06`: "Every credential declared by selected publication parts is
     checked for presence before build, release-record or publication work".
-    Evaluation: agent reasoning compares the declared credential names, including
-    environment scopes, to the parent preflight jobs and checks that all work
-    depends on successful preflight. Trusted publishing omits a secret credential
-    when the selected part declares that mode. Airlock reads names and job
+    Evaluation: the compiled check compares declared credential names,
+    including environment scopes, to the parent preflight jobs and checks that
+    all work depends on successful preflight. An agent may attach an advisory
+    assessment of credential coverage and job dependencies. Trusted publishing
+    omits a secret credential when the selected part declares that mode. Airlock reads names and job
     structure, never credential values; no credential declaration requires no
     secret-presence assertion.
 
@@ -444,19 +466,25 @@ proposed-design:
     `REPO-REL-04` has the statement and evaluation above after absorbing
     REPO-CD-02. `REPO-REL-05`: "release.yml asserts that source-sha, github.sha
     and the current default branch head are the same commit, and dispatch uses
-    the default branch". Agent evaluation checks all four guards before work;
-    Airlock can read the default branch head, but audit-time equality does not
-    prove run-time guarding. `REPO-REL-06`: "release.yml requires a successful
-    push-event run of the recorded CI workflow for exactly source-sha before
-    work". Agent evaluation checks the gate and failure path; Airlock reads
-    `answers.ci_workflow` from the applied record and the Actions runs API for
-    same-SHA push-success evidence. A successful run from another workflow,
-    commit or event cannot satisfy it. These standards use the default branch
-    from repository metadata, not a hard-coded main branch, and check the fixed
-    release workflow rather than cd.yml. Agent evaluation remains agent
-    reasoning, never a Met inferred from a command substring. Airlock's checks
-    and the agent assessment report their own evidence through the re-alignment's
-    evaluation categories; no Manual outcome is introduced.
+    the default branch". The compiled check inspects the workflow's four
+    guards and their ordering before work; it does not compare an audit-time
+    branch head. The guards must use the run's repository default branch,
+    not a hard-coded main branch. `REPO-REL-06`: "release.yml requires a
+    successful push-event run of the recorded CI workflow for exactly
+    source-sha before work". The compiled check reads `answers.ci_workflow`
+    from the applied record and inspects the workflow's CI-run gate and
+    failure path: workflow identity, head_sha equal to the dispatched
+    source-sha, event push, successful conclusion, and refusal before work
+    when no matching successful run exists. Airlock does not query Actions
+    runs at audit time; the workflow queries them at run time for its input
+    source-sha. Thus an audit has no live-run presence requirement. A run from
+    another workflow, commit or event cannot satisfy the workflow gate. An
+    agent may attach an advisory assessment of these guards and failure
+    paths. Both standards inspect the fixed release workflow rather than
+    cd.yml. For every standard described here, only the compiled check
+    decides Met or Gap; no missing or conflicting agent assessment changes
+    that outcome. The agent's advisory evidence remains separate, as
+    met-and-gap-reporting states. No Manual outcome is introduced.
 
     Compiled severities and override rules of retained CD and release standards
     stay as defined; the re-alignment maps their required severity to advisory.
