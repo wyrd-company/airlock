@@ -546,6 +546,12 @@ mod tests {
             crate::FixGroup::CORRECT_MERGE_SETTINGS,
             "context for this gap",
         ));
+        let mut operator = finding("REPO-NAME-01", Some(Status::Gap), "advisory", Some("api"));
+        operator.fix = Some(crate::findings::Fix::new(
+            crate::FixGroup::RENAME_REPOSITORY,
+            "Rename Sample_Repository to sample-repository to use lower-kebab-case.",
+        ));
+        let expected_operator = operator.clone();
         let mut outside = finding("REPO-LIC-04", None, "blocking", None);
         outside.routing = Some(crate::findings::Routing {
             reason: "out-of-scope".to_owned(),
@@ -564,7 +570,7 @@ mod tests {
         });
         let mut entries = vec![
             agent,
-            finding("REPO-NAME-01", Some(Status::Gap), "advisory", Some("api")),
+            operator,
             finding("REPO-GIT-08", Some(Status::Gap), "advisory", Some("api")),
             finding("REPO-FILE-01", Some(Status::Met), "blocking", Some("api")),
             crate::findings::fixtures::waived(finding("REPO-FILE-02", None, "none", None)),
@@ -620,6 +626,25 @@ mod tests {
         );
         assert_eq!(list.agent_work.items[0].reversible, Some(false));
         assert_eq!(list.operator_deferred.count, 2);
+        let operator_row = value["operator_deferred"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| {
+                row["rule"] == expected_operator.rule
+                    && row["fix_code"] == "rename-repository-kebab"
+            })
+            .expect("the operator settings-fix must be emitted");
+        assert_eq!(
+            operator_row["reversible"],
+            expected_operator.fix_class.reversible.unwrap(),
+            "operator settings-fix reversible must survive report-to-work-list projection"
+        );
+        assert_eq!(
+            operator_row["fix_detail"],
+            expected_operator.fix.as_ref().unwrap().detail,
+            "operator settings-fix fix_detail must survive report-to-work-list projection"
+        );
         assert_eq!(list.routed.count, 1);
         assert_eq!(list.unbuilt.count, 1);
         assert_eq!(list.out_of_scope.count, 1);
