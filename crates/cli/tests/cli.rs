@@ -201,8 +201,8 @@ fn skill_emits_the_complete_offline_tree_and_refuses_existing_targets() {
         .assert()
         .success()
         .stdout(contains("Cite every rule by id and statement together"))
-        .stdout(contains(airlock_core::registry::REGISTRY_VERSION))
-        .stdout(contains(airlock_core::registry::digest()));
+        .stdout(contains(airlock_core::rules::RULES_VERSION))
+        .stdout(contains(airlock_core::rules::digest()));
 
     let conformance = std::fs::read_to_string(target.join("references/conformance.md")).unwrap();
     assert!(conformance.contains("REPO-CI-02"));
@@ -243,31 +243,31 @@ fn repository_commands_without_a_target_are_usage_errors() {
 }
 
 #[test]
-fn list_checks_reports_the_whole_registry_without_a_target() {
+fn list_rules_reports_all_rules_without_a_target() {
     let assertion = offline()
-        .args(["audit", "--list-checks", "--format", "json"])
+        .args(["audit", "--list-rules", "--format", "json"])
         .assert()
         .success();
     let listing = json_output(&assertion.get_output().stdout);
-    let checks = listing["checks"].as_array().unwrap();
+    let checks = listing["rules"].as_array().unwrap();
     assert!(checks.len() >= 109);
     for id in ["REPO-FILE-01", "REPO-CI-09", "REPO-PROP-04"] {
         assert!(checks.iter().any(|check| check["id"] == id), "{id}");
     }
-    assert!(listing["registry_digest"]
+    assert!(listing["rules_digest"]
         .as_str()
         .unwrap()
         .starts_with("sha256:"));
 }
 
 #[test]
-fn list_checks_reports_evaluation_modes_and_no_unimplemented_rules() {
+fn list_rules_reports_evaluation_modes_and_no_unimplemented_rules() {
     let assertion = offline()
-        .args(["audit", "--list-checks", "--format", "json"])
+        .args(["audit", "--list-rules", "--format", "json"])
         .assert()
         .success();
     let listing = json_output(&assertion.get_output().stdout);
-    let checks = listing["checks"].as_array().unwrap();
+    let checks = listing["rules"].as_array().unwrap();
     let unimplemented: Vec<&str> = checks
         .iter()
         .filter(|check| check["evaluation"] == "unimplemented")
@@ -298,7 +298,7 @@ fn a_closed_output_pipe_terminates_silently_with_sigpipe() {
     let writer: OwnedFd = writer.into();
 
     let output = std::process::Command::new(assert_cmd::cargo::cargo_bin!("airlock"))
-        .args(["audit", "--list-checks", "--format", "json"])
+        .args(["audit", "--list-rules", "--format", "json"])
         .stdout(Stdio::from(writer))
         .stderr(Stdio::piped())
         .spawn()
@@ -343,13 +343,13 @@ async fn a_blocking_failure_exits_one() {
     let lic01 = finding(&report, "REPO-LIC-01");
     assert_eq!(lic01["status"], "gap");
     assert_eq!(lic01["evidence"]["code"], "file_missing");
-    assert_eq!(lic01["remediation"]["action_group"], "add_file");
-    assert!(lic01["remediation"].get("code").is_none());
+    assert_eq!(lic01["fix"]["fix_group"], "add_file");
+    assert!(lic01["fix"].get("code").is_none());
     assert_eq!(
-        lic01["remediation_class"]["code"], "add-license-file",
-        "consumers join on the per-rule remediation class"
+        lic01["fix_class"]["code"], "add-license-file",
+        "consumers join on the per-rule fix class"
     );
-    assert!(lic01["remediation"]["detail"].is_string());
+    assert!(lic01["fix"]["detail"].is_string());
 }
 
 // ---------------------------------------------------------------------------
@@ -389,9 +389,9 @@ async fn plan_prints_the_change_each_open_gap_calls_for() {
     assert!(text.contains("REPO-LIC-01"), "{text}");
     assert!(
         text.contains("add-license-file"),
-        "the plan joins on the per-rule remediation code: {text}"
+        "the plan joins on the per-rule fix code: {text}"
     );
-    assert!(text.contains("deterministic-file"), "{text}");
+    assert!(text.contains("airlock"), "{text}");
     assert!(
         text.contains("not reversible"),
         "adding a licence cannot be undone by changing your mind: {text}"
@@ -459,22 +459,22 @@ async fn agent_work_is_json_by_default_and_reports_file_work() {
 
     let list = agent_work_json(repo, LICENSING_POLICY, 1).await;
 
-    assert_eq!(list["outcome"], "agent_lane_work_remains");
-    assert_eq!(list["scope"], "agent_lane_only_not_repository_conformance");
+    assert_eq!(list["outcome"], "agent_work_remains");
+    assert_eq!(list["scope"], "agent_work_only_not_repository_conformance");
     assert!(list.get("conformant").is_none());
-    assert_eq!(list["agent_lane"]["count"], 1);
-    assert_eq!(list["agent_lane"]["items"][0]["rule"], "REPO-LIC-01");
+    assert_eq!(list["agent_work"]["count"], 1);
+    assert_eq!(list["agent_work"]["items"][0]["rule"], "REPO-LIC-01");
     assert_eq!(
-        list["agent_lane"]["items"][0]["remediation_code"],
+        list["agent_work"]["items"][0]["fix_code"],
         "add-license-file"
     );
-    assert_eq!(list["agent_lane"]["items"][0]["lane"], "deterministic-file");
-    assert_eq!(list["agent_lane"]["items"][0]["source"], "api");
+    assert_eq!(list["agent_work"]["items"][0]["fix_kind"], "airlock");
+    assert_eq!(list["agent_work"]["items"][0]["source"], "api");
     assert_eq!(list["operator_deferred"]["count"], 0);
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_clear_agent_lane_is_not_a_repository_conformance_claim() {
+async fn a_clear_agent_work_is_not_a_repository_conformance_claim() {
     let repo = FakeRepo::new("wyrd-company", "example")
         .with_file("LICENSE", "Apache License 2.0")
         .with_file(
@@ -484,8 +484,8 @@ async fn a_clear_agent_lane_is_not_a_repository_conformance_claim() {
 
     let list = agent_work_json(repo, LICENSING_POLICY, 0).await;
 
-    assert_eq!(list["outcome"], "agent_lane_clear");
-    assert_eq!(list["agent_lane"]["count"], 0);
+    assert_eq!(list["outcome"], "agent_work_clear");
+    assert_eq!(list["agent_work"]["count"], 0);
     assert!(list.get("conformant").is_none());
 }
 
@@ -522,7 +522,7 @@ fn agent_work_reports_an_uncommitted_working_tree_as_its_source() {
         list["observation"]["working_tree"]["includes_uncommitted"],
         true
     );
-    assert_eq!(list["agent_lane"]["items"][0]["source"], "working-tree");
+    assert_eq!(list["agent_work"]["items"][0]["source"], "working-tree");
 }
 
 fn renovate_repository(owner: Option<&str>, contents: Option<&str>) -> TempDir {
@@ -551,9 +551,9 @@ fn renovate_repository(owner: Option<&str>, contents: Option<&str>) -> TempDir {
 
 fn renovate_policy(preset: Option<&str>) -> String {
     let mut policy = format!("{FILES_POLICY}checks:\n");
-    for standard in airlock_core::registry::in_section(airlock_core::registry::Section::Files) {
-        if standard.id != "REPO-FILE-08" {
-            policy.push_str(&format!("  {}: {{enabled: false}}\n", standard.id));
+    for rule in airlock_core::rules::in_section(airlock_core::rules::Section::Files) {
+        if rule.id != "REPO-FILE-08" {
+            policy.push_str(&format!("  {}: {{enabled: false}}\n", rule.id));
         }
     }
     policy.push_str("  REPO-FILE-08:\n    severity: blocking\n");
@@ -633,7 +633,7 @@ fn renovate_present_file_without_owner_routes_only_preset_comparison() {
             let result = finding(&report, "REPO-FILE-08");
             assert_eq!(result["status"], Value::Null);
             assert_eq!(result["routing"]["reason"], "needs-repository-owner");
-            assert_eq!(result["remediation"], Value::Null);
+            assert_eq!(result["fix"], Value::Null);
             assert!(report["findings"].as_array().unwrap().is_empty());
         }
         assert_eq!(
@@ -755,7 +755,7 @@ fn align_files_writes_then_reobserves_and_is_idempotent() {
     assert_eq!(output["operations"]["dirty_after"], true);
     assert_eq!(output["operations"]["operations"][0]["path"], "LICENSE");
     assert_eq!(
-        output["operations"]["operations"][0]["remediation_code"],
+        output["operations"]["operations"][0]["fix_code"],
         "add-license-file"
     );
     assert_eq!(output["operations"]["operations"][0]["outcome"], "written");
@@ -872,7 +872,7 @@ capabilities:
     assert_eq!(git02["error"]["cause"], "plan_limitation");
     assert_eq!(git02["error"]["status"], 403);
     assert_eq!(git02["error"]["request_id"], "FIXT:0001");
-    assert_eq!(git02["remediation"]["action_group"], "plan_gate");
+    assert_eq!(git02["fix"]["fix_group"], "plan_gate");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1066,12 +1066,12 @@ async fn an_unknown_rule_in_the_policy_is_an_operational_error() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn an_incompatible_registry_requirement_is_an_operational_error() {
+async fn an_incompatible_rules_requirement_is_an_operational_error() {
     let server = support::start(&[FakeRepo::new("wyrd-company", "example")]).await;
     let config = TempDir::new().unwrap();
     let policies = TempDir::new().unwrap();
 
-    let policy = format!("{LICENSING_POLICY}requires-registry: \">=9.0\"\n");
+    let policy = format!("{LICENSING_POLICY}requires-rules: \">=9.0\"\n");
 
     airlock(&server, &config)
         .args([
@@ -1082,7 +1082,7 @@ async fn an_incompatible_registry_requirement_is_an_operational_error() {
         ])
         .assert()
         .code(2)
-        .stderr(contains("requires-registry"));
+        .stderr(contains("requires-rules"));
 }
 
 // ---------------------------------------------------------------------------
@@ -1305,7 +1305,7 @@ async fn text_output_renders_the_same_conclusion_as_json() {
 
 /// The policy in `docs/examples/` is the one the operator will move into
 /// `wyrd-company/.github`. If it stops compiling against this binary's
-/// registry, dogfooding breaks the moment it is moved — so it is compiled
+/// rules, dogfooding breaks the moment it is moved — so it is compiled
 /// here, against the fixture GitHub that serves its reference data.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_candidate_organisation_policy_compiles_and_resolves_its_reference_data() {
@@ -1360,7 +1360,7 @@ async fn the_candidate_organisation_policy_compiles_and_resolves_its_reference_d
 // What requires admin access to verify
 // ---------------------------------------------------------------------------
 
-/// The git section under the gate the standards policy declares. The three
+/// The git section under the gate the rules policy declares. The three
 /// merge-behaviour rules in it are graded `required`, so under this gate they
 /// would stop the run if an unanswered question stopped it regardless of why
 /// it was unanswered.
@@ -1446,7 +1446,7 @@ async fn a_transient_api_failure_still_stops_a_run_whose_other_gaps_are_admin_on
 async fn agent_work_names_admin_only_gaps_as_their_own_group_without_gating_on_them() {
     let list = agent_work_json(scheduled_audit_repo(), GIT_POLICY, 0).await;
 
-    assert_eq!(list["outcome"], "agent_lane_clear");
+    assert_eq!(list["outcome"], "agent_work_clear");
     assert_eq!(list["routed"]["count"], 3);
     assert_eq!(
         list["run_errors"]["count"], 0,
@@ -1459,7 +1459,7 @@ async fn agent_work_names_admin_only_gaps_as_their_own_group_without_gating_on_t
         assert_eq!(item["evidence_code"], "merge_settings_unavailable");
         assert_eq!(
             item["verified_by"], "interactive-session",
-            "the group carries where the answer is taken, from the registry declaration"
+            "the group carries where the answer is taken, from the rules declaration"
         );
     }
 }
@@ -1472,9 +1472,9 @@ async fn plan_names_what_requires_admin_access_to_verify() {
     for rule in ["REPO-GIT-04", "REPO-GIT-05", "REPO-GIT-06"] {
         assert!(text.contains(rule), "{rule} must be named: {text}");
     }
-    // The guidance is the registry declaration's sentence, not one this test
+    // The guidance is the rules declaration's sentence, not one this test
     // or the renderer wrote.
-    let surface = airlock_core::registry::MERGE_SETTINGS_DISCLOSURE.verified_by;
+    let surface = airlock_core::rules::MERGE_SETTINGS_DISCLOSURE.verified_by;
     assert!(text.contains(surface.code()), "{text}");
     assert!(
         text.contains(surface.guidance()),
@@ -1488,7 +1488,7 @@ async fn plan_names_what_requires_admin_access_to_verify() {
         "no circumstantial question was left open: {text}"
     );
     assert!(
-        !text.contains("Every standard was evaluated"),
+        !text.contains("Every rule was evaluated"),
         "three rules remain undecided, so the plan must not claim otherwise: {text}"
     );
 }
@@ -1675,7 +1675,7 @@ async fn a_truncated_input_remains_a_run_error_without_apply_selection() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn declared_properties_do_not_select_standards_before_the_configuration_replacement() {
+async fn declared_properties_do_not_select_rules_before_the_configuration_replacement() {
     let repository_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(std::path::Path::parent)

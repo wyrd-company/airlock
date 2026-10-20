@@ -3,7 +3,7 @@ findings-120x40-dark · 120x40 · theme dark · colour
 AIRLOCK 0.0.0  sign-in › organizations › repositories › findings   no credential stored · tty required · theme t · dark 
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 FINDINGS                                                                                                                
-Present the whole standard as a work queue, ordered by what closing each gap takes and who can close it.                
+Present the whole rule as a work queue, ordered by what closing each gap takes and who can close it.                    
                                                                                                                         
 STATUS VOCABULARY                                                                                                       
 DECIDED · GATING  counts toward the verdict                                                                             

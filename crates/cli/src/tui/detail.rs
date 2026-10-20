@@ -14,7 +14,7 @@
 //! * a **suppression** is a failure the policy authorized, not a failure that
 //!   is absent, so the authorization is printed — a suppression that cannot be
 //!   read is indistinguishable from a rule that was never run, and the
-//!   remediation is retained because authorizing a failure does not delete the
+//!   fix is retained because authorizing a failure does not delete the
 //!   fix for it;
 //! * an **error** is undecided, and what it reports is why airlock did not
 //!   look. It is never rendered as a failure, at any severity, for any cause.
@@ -28,8 +28,8 @@
 
 use ratatui::text::{Line, Span};
 
-use airlock_core::findings::{EffectiveRule, Finding, Status};
-use airlock_core::registry;
+use airlock_core::findings::{EffectiveRuleRecord, Finding, Status};
+use airlock_core::rules;
 
 use crate::admin::text::drawable;
 
@@ -134,34 +134,34 @@ pub struct Suppression {
 /// What closing the gap would take.
 ///
 /// Two vocabularies live here and are never merged: the contextual
-/// `remediation` says what this failure needs, and the declared
-/// `remediation_class` says what the rule's gap always takes and who can do it.
+/// `fix` says what this failure needs, and the declared
+/// `fix_class` says what the rule's gap always takes and who can do it.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Remediation {
-    /// The contextual action group, where the run offered one.
+pub struct Fix {
+    /// The contextual fix group, where the run offered one.
     pub code: Option<String>,
     /// What the contextual remedy says to do.
     pub detail: Option<String>,
     /// The rule's declared join key.
     pub class_code: Option<String>,
-    /// What the declared remediation would change.
+    /// What the declared fix would change.
     pub class_change: Option<String>,
-    /// The lane the declared remediation travels in.
-    pub class_lane: Option<String>,
+    /// The lane the declared fix travels in.
+    pub class_fix_kind: Option<String>,
     /// Whether the declared change can be undone.
     pub class_reversible: Option<bool>,
-    /// Why no remediation is declared, when none is.
+    /// Why no fix is declared, when none is.
     pub class_none_reason: Option<String>,
 }
 
-impl Remediation {
+impl Fix {
     /// Whether anything at all is on offer for this rule.
     ///
     /// Either vocabulary will do: the region is drawn where there is something
     /// to say about closing the gap, whichever of the two said it.
     #[must_use]
     pub const fn offered(&self) -> bool {
-        self.class_lane.is_some() || self.code.is_some()
+        self.class_fix_kind.is_some() || self.code.is_some()
     }
 }
 
@@ -177,7 +177,7 @@ pub struct Detail {
     /// the run: a manual rule reports its judgment mode every time.
     pub evaluation: Option<&'static str>,
     /// Why a non-mechanical evaluation is the honest boundary, where the
-    /// registry declares a reason.
+    /// rules declare a reason.
     pub evaluation_reason: Option<&'static str>,
     /// The run's own record of where the rule came from, formatted
     /// `capability:{capability}/{section}`.
@@ -189,17 +189,17 @@ pub struct Detail {
     /// The authorization, where the failure was suppressed.
     pub suppression: Option<Suppression>,
     /// What closing the gap would take.
-    pub remediation: Remediation,
+    pub fix: Fix,
 }
 
 impl Detail {
     /// Take everything off one finding, sanitizing as it goes.
     #[must_use]
-    pub fn of(finding: &Finding, effective_policy: &[EffectiveRule]) -> Self {
-        let definition = registry::find(&finding.rule);
+    pub fn of(finding: &Finding, effective_policy: &[EffectiveRuleRecord]) -> Self {
+        let definition = rules::find(&finding.rule);
         Self {
             evaluation: definition.map(|_| "compiled"),
-            evaluation_reason: definition.and_then(registry::CheckDefinition::unbuilt_reason),
+            evaluation_reason: definition.and_then(rules::RuleDefinition::unbuilt_reason),
             policy_provenance: effective_policy
                 .iter()
                 .find(|rule| rule.rule == finding.rule)
@@ -236,33 +236,26 @@ impl Detail {
                     .map(|reason| drawable(reason)),
                 authorized_by: drawable(&suppression.authorized_by),
             }),
-            remediation: Remediation {
+            fix: Fix {
                 code: finding
-                    .remediation
+                    .fix
                     .as_ref()
-                    .map(|remediation| remediation.action_group.code().to_owned()),
-                detail: finding
-                    .remediation
-                    .as_ref()
-                    .map(|remediation| drawable(&remediation.detail)),
-                class_code: finding
-                    .remediation_class
-                    .code
-                    .as_ref()
-                    .map(|code| drawable(code)),
+                    .map(|fix| fix.fix_group.code().to_owned()),
+                detail: finding.fix.as_ref().map(|fix| drawable(&fix.detail)),
+                class_code: finding.fix_class.code.as_ref().map(|code| drawable(code)),
                 class_change: finding
-                    .remediation_class
+                    .fix_class
                     .change
                     .as_ref()
                     .map(|change| drawable(change)),
-                class_lane: finding
-                    .remediation_class
-                    .lane
+                class_fix_kind: finding
+                    .fix_class
+                    .fix_kind
                     .as_ref()
                     .map(|lane| drawable(lane)),
-                class_reversible: finding.remediation_class.reversible,
+                class_reversible: finding.fix_class.reversible,
                 class_none_reason: finding
-                    .remediation_class
+                    .fix_class
                     .none_reason
                     .as_ref()
                     .map(|reason| drawable(reason)),
@@ -321,7 +314,7 @@ fn regions(
         lines.extend(suppression_region(styles, width, suppression));
     }
     lines.push(Line::default());
-    lines.extend(remediation_region(styles, width, row));
+    lines.extend(fix_region(styles, width, row));
     lines.push(Line::default());
     lines.extend(why_region(styles, width, row, provenance));
     lines.push(Line::default());
@@ -488,38 +481,34 @@ fn suppression_region(
 }
 
 /// What closing the gap would take, under both of its two names.
-fn remediation_region(
-    styles: Styles,
-    width: usize,
-    row: &super::findings::Row,
-) -> Vec<Line<'static>> {
-    let remediation = &row.detail.remediation;
-    let mut lines = vec![heading(styles, "REMEDIATION")];
-    if row.group == super::findings::Group::Authorized && remediation.offered() {
+fn fix_region(styles: Styles, width: usize, row: &super::findings::Row) -> Vec<Line<'static>> {
+    let fix = &row.detail.fix;
+    let mut lines = vec![heading(styles, "FIX")];
+    if row.group == super::findings::Group::Authorized && fix.offered() {
         lines.extend(value(
             styles,
             width,
             "retained",
-            "The standard is waived. Its declared fix is reference guidance; no gap was evaluated.",
+            "The rule is waived. Its declared fix is reference guidance; no gap was evaluated.",
         ));
     }
-    if let Some(code) = remediation.code.as_ref() {
-        lines.extend(value(styles, width, "remediation.code", code));
+    if let Some(code) = fix.code.as_ref() {
+        lines.extend(value(styles, width, "fix.code", code));
     }
-    if let Some(detail) = remediation.detail.as_ref() {
-        lines.extend(value(styles, width, "remediation.detail", detail));
+    if let Some(detail) = fix.detail.as_ref() {
+        lines.extend(value(styles, width, "fix.detail", detail));
     }
-    match remediation.class_lane.as_ref() {
+    match fix.class_fix_kind.as_ref() {
         Some(lane) => {
-            lines.push(nested_heading(styles, "remediation_class"));
-            lines.extend(nested(styles, width, "code", &remediation.class_code));
-            lines.extend(nested(styles, width, "change", &remediation.class_change));
-            lines.extend(nested(styles, width, "lane", &Some(lane.clone())));
+            lines.push(nested_heading(styles, "fix_class"));
+            lines.extend(nested(styles, width, "code", &fix.class_code));
+            lines.extend(nested(styles, width, "change", &fix.class_change));
+            lines.extend(nested(styles, width, "fix kind", &Some(lane.clone())));
             lines.extend(nested(
                 styles,
                 width,
                 "reversible",
-                &Some(match remediation.class_reversible {
+                &Some(match fix.class_reversible {
                     Some(true) => "yes".to_owned(),
                     Some(false) => "no".to_owned(),
                     None => format!("{NULL} \u{2014} the classification does not say"),
@@ -527,17 +516,17 @@ fn remediation_region(
             ));
         }
         // Exactly one of a lane and a declared reason is set. Where neither is,
-        // the registry does not classify the rule at all, and saying so is a
+        // the rules do not classify the rule at all, and saying so is a
         // different fact from a declared refusal to remediate.
         None => {
-            lines.push(nested_heading(styles, "remediation_class"));
+            lines.push(nested_heading(styles, "fix_class"));
             lines.extend(nested(
                 styles,
                 width,
                 "none_reason",
-                &Some(remediation.class_none_reason.clone().unwrap_or_else(|| {
+                &Some(fix.class_none_reason.clone().unwrap_or_else(|| {
                     format!(
-                        "{NULL} \u{2014} airlock declares no remediation classification \
+                        "{NULL} \u{2014} airlock declares no fix classification \
                          for this rule at all, which is not the same as declaring that \
                          none is possible"
                     )
@@ -603,7 +592,7 @@ fn effect_region(styles: Styles, width: usize, row: &super::findings::Row) -> Ve
 fn effect(row: &super::findings::Row) -> String {
     match row.status {
         Some(Status::Met) => "Met: the compiled requirement holds.".to_owned(),
-        Some(Status::Gap) if row.severity == registry::Severity::Blocking => {
+        Some(Status::Gap) if row.severity == rules::Severity::Blocking => {
             "Blocking Gap: Exit 1 when no run error is present.".to_owned()
         }
         Some(Status::Gap) => "Advisory Gap: the exit code is unchanged.".to_owned(),
@@ -723,7 +712,7 @@ pub fn nothing_selected(styles: Styles, width: usize) -> Vec<Line<'static>> {
         (
             "would show",
             "one rule in full: its statement, its evidence, any error or \
-             suppression, the remediation on offer, why the rule applies, and what \
+             suppression, the fix on offer, why the rule applies, and what \
              this status at this severity does to the run.",
         ),
         (
@@ -820,7 +809,7 @@ mod tests {
         assert!(rendered.contains("Exit 1"), "{rendered}");
         assert!(rendered.contains("audit exits 1"), "{rendered}");
         assert!(rendered.contains("branch_unprotected"), "{rendered}");
-        assert!(rendered.contains("REMEDIATION"), "{rendered}");
+        assert!(rendered.contains("FIX"), "{rendered}");
     }
 
     #[test]
@@ -834,13 +823,13 @@ mod tests {
     }
 
     #[test]
-    fn a_suppression_retains_its_remediation() {
+    fn a_suppression_retains_its_fix() {
         let report = only(fixture::suppressed());
         let queue = queue(&report);
         let row = row_for(&queue, "REPO-CI-02");
         assert_eq!(row.status, None);
-        let rendered = text(&remediation_region(styles(), 120, row));
-        assert!(rendered.contains("REMEDIATION"), "{rendered}");
+        let rendered = text(&fix_region(styles(), 120, row));
+        assert!(rendered.contains("FIX"), "{rendered}");
         assert!(
             rendered.contains("no gap was evaluated"),
             "authorizing a failure does not delete the fix for it: {rendered}"
@@ -939,7 +928,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------
-    // Evidence, remediation, provenance
+    // Evidence, fix, provenance
     // -----------------------------------------------------------------
 
     #[test]
@@ -955,20 +944,20 @@ mod tests {
     }
 
     #[test]
-    fn the_two_remediation_vocabularies_are_never_merged() {
+    fn the_two_fix_vocabularies_are_never_merged() {
         let mut finding = fixture::settings_failure();
-        finding.remediation = Some(airlock_core::findings::Remediation::new(
-            airlock_core::remediation::ActionGroup::TIGHTEN_RULESET,
+        finding.fix = Some(airlock_core::findings::Fix::new(
+            airlock_core::fix::FixGroup::TIGHTEN_RULESET,
             "Protect the default branch.",
         ));
         let report = fixture::report(vec![finding]);
         let rendered = whole(&report, "REPO-GIT-01", REFERENCE_WIDTH);
-        assert!(rendered.contains("remediation.code"), "{rendered}");
-        assert!(rendered.contains("remediation_class"), "{rendered}");
+        assert!(rendered.contains("fix.code"), "{rendered}");
+        assert!(rendered.contains("fix_class"), "{rendered}");
     }
 
     #[test]
-    fn a_rule_with_no_declared_remediation_prints_the_declared_reason() {
+    fn a_rule_with_no_declared_fix_prints_the_declared_reason() {
         let rendered = whole(&fixture::long_fact(), "REPO-DOCS-05", REFERENCE_WIDTH);
         assert!(rendered.contains("none_reason"), "{rendered}");
         assert!(rendered.contains("the maintainer's"), "{rendered}");
@@ -1140,12 +1129,12 @@ mod tests {
             values.extend(suppression.policy_reason.clone());
             values.push(suppression.authorized_by.clone());
         }
-        if let Some(remediation) = finding.remediation.as_ref() {
-            values.push(remediation.detail.clone());
+        if let Some(fix) = finding.fix.as_ref() {
+            values.push(fix.detail.clone());
         }
-        values.extend(finding.remediation_class.code.clone());
-        values.extend(finding.remediation_class.change.clone());
-        values.extend(finding.remediation_class.none_reason.clone());
+        values.extend(finding.fix_class.code.clone());
+        values.extend(finding.fix_class.change.clone());
+        values.extend(finding.fix_class.none_reason.clone());
         values
     }
 

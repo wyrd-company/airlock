@@ -8,7 +8,7 @@ pub(crate) mod config;
 use crate::document::{self, DocumentError};
 use crate::github::{ApiError, ErrorCause, GitHub};
 use crate::policy::ResolvedPolicy;
-use crate::registry::Severity;
+use crate::rules::Severity;
 use crate::snapshot::{FileState, RepoSnapshot};
 use config::{ExpectedTemplate, RULE};
 use serde::{Deserialize, Serialize};

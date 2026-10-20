@@ -22,7 +22,7 @@ reads as              the grant was insufficient. accepted_permissions lists
                       re-observing can answer this. This is error and not fail: 
                       airlock did not observe the condition to be unmet, it     
 — 0 lines above · 25 below · ↑↓ moves the window —                              
-esc back · a remediation transcript · o re-observe this rule · 3 more…          
+esc back · a fix transcript · o re-observe this rule · 3 more…                  
 not evaluated · run error; complete: false                                      
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
@@ -47,7 +47,7 @@ jjjjjjjjjjjjjjjjjjjjjjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhddddddd
 jjjjjjjjjjjjjjjjjjjjjjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhd
 jjjjjjjjjjjjjjjjjjjjjjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhddddd
 jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjdddddddddddddddddddddddddddddd
-eeedhhhhjjjedhhhhhhhhhhhhhhhhhhhhhhjjjedhhhhhhhhhhhhhhhhhhhhjjjkkkkkkkdddddddddd
+eeedhhhhjjjedhhhhhhhhhhhhhhjjjedhhhhhhhhhhhhhhhhhhhhjjjkkkkkkkdddddddddddddddddd
 llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
 --- legend ---
 a fg=#CBD3DD bg=#14181D BOLD

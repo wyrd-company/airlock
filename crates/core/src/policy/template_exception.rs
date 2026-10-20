@@ -8,7 +8,7 @@ use crate::template_identity::config::{self, RULE};
 
 pub(super) fn apply(
     document: &Yaml,
-    rules: &mut BTreeMap<&'static str, RuleInstance>,
+    rules: &mut BTreeMap<&'static str, EffectiveRule>,
 ) -> Result<()> {
     if let Some(exceptions) = document.get("exceptions") {
         let entries = exceptions
@@ -22,12 +22,12 @@ pub(super) fn apply(
             }
             let rule = rules.get_mut(RULE).ok_or_else(|| {
                 Error::Policy(format!(
-                    "{RULE} requires the release section in capability registry"
+                    "{RULE} requires the release section in capability rules"
                 ))
             })?;
-            if !rule.provenance.starts_with("capability:registry/") {
+            if !rule.provenance.starts_with("capability:rules/") {
                 return Err(Error::Policy(format!(
-                    "{RULE} belongs to capability registry, never base"
+                    "{RULE} belongs to capability rules, never base"
                 )));
             }
             if value.as_map().is_none() {
@@ -77,8 +77,7 @@ mod tests {
     use super::*;
 
     fn compile(extra: &str) -> Result<ResolvedPolicy> {
-        let text =
-            format!("version: 1\nname: sample\ncapabilities:\n  registry: [release]\n{extra}");
+        let text = format!("version: 1\nname: sample\ncapabilities:\n  rules: [release]\n{extra}");
         let document = yaml::parse_mapping(&text, Limits::default().yaml).unwrap();
         super::super::compilation::compile(
             &PolicySource::Local("policy.yml".into()),
@@ -95,7 +94,7 @@ mod tests {
         let rule = policy.rule(RULE).unwrap();
         assert_eq!(rule.severity, Severity::Blocking);
         assert!(!rule.def.allow_override());
-        assert_eq!(rule.def.lifecycle, registry::Lifecycle::Building);
+        assert_eq!(rule.def.lifecycle, rules::Lifecycle::Building);
         assert!(rule.def.needs_github_api());
         assert_eq!(config::record_path(rule), ".toha.json");
         assert_eq!(config::expected(rule).unwrap()[0].target, ".");

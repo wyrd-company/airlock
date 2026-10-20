@@ -29,16 +29,16 @@ mod release;
 mod release_record;
 mod template_identity;
 
-use crate::findings::{Evidence, FindingError, Remediation, Status};
+use crate::findings::{Evidence, FindingError, Fix, Status};
 use crate::github::{
     ApiError, BranchRule, CommitSummary, Paged, Repository, Ruleset, TagRef, MESSAGE_HINTS_VERSION,
 };
 use crate::limits::Limits;
-use crate::policy::{ResolvedPolicy, RuleInstance};
-use crate::registry::{CheckDefinition, CredentialCapability, DisclosureGate};
+use crate::policy::{EffectiveRule, ResolvedPolicy};
+use crate::rules::{CredentialCapability, DisclosureGate, RuleDefinition};
 use crate::snapshot::{FileState, RepoSnapshot};
 use crate::yaml::{self, Yaml};
-use crate::ActionGroup;
+use crate::FixGroup;
 
 pub(crate) struct MergeSetting {
     pub(crate) declared: &'static str,
@@ -91,7 +91,7 @@ pub struct Verdict {
     /// What was observed.
     pub evidence: Option<Evidence>,
     /// What to do about it.
-    pub remediation: Option<Remediation>,
+    pub fix: Option<Fix>,
     /// What stopped the evaluation.
     pub error: Option<FindingError>,
     pub routing: Option<crate::findings::Routing>,
@@ -105,7 +105,7 @@ impl Verdict {
                 "no_release_units_declared",
                 "The repository declares no release units",
             )),
-            remediation: None,
+            fix: None,
             error: None,
             routing: Some(crate::findings::Routing {
                 reason: "out-of-scope".to_owned(),
@@ -121,7 +121,7 @@ impl Verdict {
                 "repository_owner_unobserved",
                 "The repository owner is needed to resolve the preset",
             )),
-            remediation: None,
+            fix: None,
             error: None,
             routing: Some(crate::findings::Routing {
                 reason: "needs-repository-owner".to_owned(),
@@ -130,20 +130,11 @@ impl Verdict {
         }
     }
 
-    pub fn waived() -> Self {
-        Self {
-            status: None,
-            evidence: None,
-            remediation: None,
-            error: None,
-            routing: None,
-        }
-    }
     pub fn needs_github_api() -> Self {
         Self {
             status: None,
             evidence: None,
-            remediation: None,
+            fix: None,
             error: None,
             routing: Some(crate::findings::Routing {
                 reason: "needs-github-api".to_owned(),
@@ -158,7 +149,7 @@ impl Verdict {
         Self {
             status: Some(Status::Met),
             evidence: Some(Evidence::new(code, detail)),
-            remediation: None,
+            fix: None,
             error: None,
             routing: None,
         }
@@ -170,7 +161,7 @@ impl Verdict {
         Self {
             status: Some(Status::Met),
             evidence: Some(Evidence::at(code, path, detail)),
-            remediation: None,
+            fix: None,
             error: None,
             routing: None,
         }
@@ -178,11 +169,11 @@ impl Verdict {
 
     /// The assertion does not hold.
     #[must_use]
-    pub fn fail(code: &str, detail: impl Into<String>, remediation: Remediation) -> Self {
+    pub fn fail(code: &str, detail: impl Into<String>, fix: Fix) -> Self {
         Self {
             status: Some(Status::Gap),
             evidence: Some(Evidence::new(code, detail)),
-            remediation: Some(remediation),
+            fix: Some(fix),
             error: None,
             routing: None,
         }
@@ -190,16 +181,11 @@ impl Verdict {
 
     /// The assertion does not hold, and the evidence is about one path.
     #[must_use]
-    pub fn fail_at(
-        code: &str,
-        path: &str,
-        detail: impl Into<String>,
-        remediation: Remediation,
-    ) -> Self {
+    pub fn fail_at(code: &str, path: &str, detail: impl Into<String>, fix: Fix) -> Self {
         Self {
             status: Some(Status::Gap),
             evidence: Some(Evidence::at(code, path, detail)),
-            remediation: Some(remediation),
+            fix: Some(fix),
             error: None,
             routing: None,
         }
@@ -211,7 +197,7 @@ impl Verdict {
         Self {
             status: None,
             evidence: Some(Evidence::new(code, detail)),
-            remediation: None,
+            fix: None,
             error: None,
             routing: Some(crate::findings::Routing {
                 reason: "unbuilt".to_owned(),
@@ -228,7 +214,7 @@ impl Verdict {
         Self {
             status: None,
             evidence: Some(Evidence::new(code, &detail)),
-            remediation: None,
+            fix: None,
             error: Some(FindingError {
                 cause: code.to_owned(),
                 endpoint: "audit-input".to_owned(),
@@ -265,7 +251,7 @@ impl Verdict {
                     gate.rationale()
                 ),
             )),
-            remediation: None,
+            fix: None,
             error: None,
         }
     }
@@ -273,9 +259,9 @@ impl Verdict {
     /// An API failure prevented the evaluation.
     #[must_use]
     pub fn from_api_error(error: &ApiError) -> Self {
-        let remediation = match error.cause {
-            crate::github::ErrorCause::Permission => Some(Remediation::new(
-                ActionGroup::GRANT_PERMISSION,
+        let fix = match error.cause {
+            crate::github::ErrorCause::Permission => Some(Fix::new(
+                FixGroup::GRANT_PERMISSION,
                 match &error.accepted_permissions {
                     Some(permissions) => format!(
                         "The credential lacks the permission {permissions} that {} requires.",
@@ -284,8 +270,8 @@ impl Verdict {
                     None => format!("The credential cannot read {}.", error.endpoint),
                 },
             )),
-            crate::github::ErrorCause::PlanLimitation => Some(Remediation::new(
-                ActionGroup::PLAN_GATE,
+            crate::github::ErrorCause::PlanLimitation => Some(Fix::new(
+                FixGroup::PLAN_GATE,
                 format!(
                     "{} is gated by the account's GitHub plan, so airlock cannot read it.",
                     error.endpoint
@@ -296,7 +282,7 @@ impl Verdict {
         Self {
             status: None,
             evidence: None,
-            remediation,
+            fix,
             routing: None,
             error: Some(FindingError {
                 cause: error.cause.code().to_owned(),
@@ -559,7 +545,7 @@ impl AuditContext<'_> {
 /// Evaluate the compiled check. Every non-outcome requires a declared gate;
 /// an undeclared boundary is a run error.
 #[must_use]
-pub fn evaluate(rule: &RuleInstance, context: &AuditContext) -> Verdict {
+pub fn evaluate(rule: &EffectiveRule, context: &AuditContext) -> Verdict {
     let mut verdict = run(rule, context);
     if let Some(route) = &verdict.routing {
         let declared = match route.reason.as_str() {
@@ -574,14 +560,14 @@ pub fn evaluate(rule: &RuleInstance, context: &AuditContext) -> Verdict {
         if !declared {
             verdict = Verdict::run_error(
                 "undeclared_gate",
-                "The check reached a gate its compiled standard does not declare",
+                "The check reached a gate its compiled rule does not declare",
             );
         }
     }
     verdict
 }
 
-fn run(rule: &RuleInstance, context: &AuditContext) -> Verdict {
+fn run(rule: &EffectiveRule, context: &AuditContext) -> Verdict {
     let id = rule.def.id;
     (id == "REPO-TPL-01")
         .then(|| template_identity::run(rule, context))
@@ -628,14 +614,14 @@ pub(crate) fn presence(context: &AuditContext, path: &str, subject: &str) -> Ver
             "file_missing",
             path,
             format!("{subject} is absent"),
-            Remediation::new(ActionGroup::ADD_FILE, format!("Add {path}.")),
+            Fix::new(FixGroup::ADD_FILE, format!("Add {path}.")),
         ),
         FileState::Symlink { target } => Verdict::fail_at(
             "file_is_a_symlink",
             path,
             format!("{path} is a symlink to `{target}` rather than a file"),
-            Remediation::new(
-                ActionGroup::REPLACE_SYMLINK,
+            Fix::new(
+                FixGroup::REPLACE_SYMLINK,
                 format!("Make {path} a regular file."),
             ),
         ),
@@ -643,8 +629,8 @@ pub(crate) fn presence(context: &AuditContext, path: &str, subject: &str) -> Ver
             "path_is_not_a_file",
             path,
             format!("{path} is a {kind:?} (mode {mode}) rather than a file"),
-            Remediation::new(
-                ActionGroup::REPLACE_ENTRY,
+            Fix::new(
+                FixGroup::REPLACE_ENTRY,
                 format!("Make {path} a regular file."),
             ),
         ),
@@ -668,8 +654,8 @@ pub(crate) fn repo_settings(context: &AuditContext) -> Result<Yaml, Box<Verdict>
             "file_missing",
             ".github/repo-settings.yml",
             "the declared settings file is absent, so nothing is declared",
-            Remediation::new(
-                ActionGroup::ADD_FILE,
+            Fix::new(
+                FixGroup::ADD_FILE,
                 "Add .github/repo-settings.yml declaring the repository's metadata.",
             ),
         ))),
@@ -677,8 +663,8 @@ pub(crate) fn repo_settings(context: &AuditContext) -> Result<Yaml, Box<Verdict>
             "path_is_not_a_file",
             ".github/repo-settings.yml",
             "the declared settings path is not a regular file",
-            Remediation::new(
-                ActionGroup::REPLACE_ENTRY,
+            Fix::new(
+                FixGroup::REPLACE_ENTRY,
                 "Make .github/repo-settings.yml a regular file.",
             ),
         ))),
@@ -692,13 +678,13 @@ pub(crate) const MALFORMED_DECLARATION: &str = "malformed_declaration";
 /// The verdict for a field the credential did not disclose.
 ///
 /// The check reports the observation — "the platform did not give me this
-/// field" — and the registry decides what that means. A rule the registry
+/// field" — and the rules decide what that means. A rule the rules
 /// declares gated is structurally undecided: no retry on this surface can
 /// answer it, and the declaration names the surface that can. A rule with no
 /// declaration is a run that fell short of what it can normally do, so it stays
 /// circumstantially undecided and keeps blocking. A check cannot promote itself
-/// out of that by knowing something the registry does not.
-pub(crate) fn undisclosed(def: &CheckDefinition, context: &AuditContext, subject: &str) -> Verdict {
+/// out of that by knowing something the rules do not.
+pub(crate) fn undisclosed(def: &RuleDefinition, context: &AuditContext, subject: &str) -> Verdict {
     match def.disclosure_gate() {
         Some(gate) if gate.withholds_from(context.credential) => Verdict::withheld(gate, subject),
         // Either the rule declares no gate, or it declares one this run's
@@ -848,7 +834,7 @@ pub(crate) mod fixtures {
 
     use super::*;
     use crate::github::{EntryKind, Repository, Tree, TreeEntry};
-    use crate::registry;
+    use crate::rules;
     use std::collections::BTreeMap;
 
     /// Owned inputs for repeatedly evaluating checks in one test.
@@ -967,9 +953,9 @@ pub(crate) mod fixtures {
     }
 
     /// A rule instance for `id` at its registered severity.
-    pub fn rule(id: &str) -> RuleInstance {
-        let def = registry::find(id).expect("the rule is registered");
-        RuleInstance {
+    pub fn rule(id: &str) -> EffectiveRule {
+        let def = rules::find(id).expect("the rule is registered");
+        EffectiveRule {
             def,
             severity: def.severity,
             params: BTreeMap::new(),
@@ -978,7 +964,7 @@ pub(crate) mod fixtures {
     }
 
     /// A rule instance with parameters.
-    pub fn rule_with(id: &str, params: &[(&str, serde_json::Value)]) -> RuleInstance {
+    pub fn rule_with(id: &str, params: &[(&str, serde_json::Value)]) -> EffectiveRule {
         let mut rule = rule(id);
         rule.params = params
             .iter()
@@ -1018,9 +1004,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_withheld_field_is_structural_only_where_the_registry_declares_a_gate() {
+    fn a_withheld_field_is_structural_only_where_the_rules_declares_a_gate() {
         // The check reports one observation — the platform did not give me
-        // this field — and the registry decides what it means. A rule that
+        // this field — and the rules decide what it means. A rule that
         // declares a gate can only be settled with admin access, so it is
         // structural. A rule that declares no gate is a run that fell short,
         // so it stays circumstantial and keeps blocking. No check can promote
@@ -1029,24 +1015,24 @@ mod tests {
         let policy = policy();
         let read_only = context(&snapshot, &policy, Vec::new());
 
-        let declared = crate::registry::find("REPO-GIT-04").expect("registered");
+        let declared = crate::rules::find("REPO-GIT-04").expect("registered");
         let verdict = undisclosed(declared, &read_only, "the merge-commit setting");
         assert_eq!(verdict.status, None);
         assert!(verdict.routing.is_some());
         let evidence = verdict.evidence.expect("evidence");
         assert_eq!(
             evidence.code,
-            crate::registry::MERGE_SETTINGS_DISCLOSURE.evidence_code
+            crate::rules::MERGE_SETTINGS_DISCLOSURE.evidence_code
         );
         assert!(
             evidence
                 .detail
-                .contains(crate::registry::Grant::CONTENTS_WRITE.code()),
+                .contains(crate::rules::Grant::CONTENTS_WRITE.code()),
             "the detail is built from the declaration: {}",
             evidence.detail
         );
 
-        let undeclared = crate::registry::find("REPO-GIT-01").expect("registered");
+        let undeclared = crate::rules::find("REPO-GIT-01").expect("registered");
         assert!(undeclared.disclosure_gate().is_none());
         let verdict = undisclosed(undeclared, &read_only, "the default branch");
         assert!(verdict.status.is_none() && verdict.routing.is_none() && verdict.error.is_some());
@@ -1068,7 +1054,7 @@ mod tests {
         let mut write_capable = context(&snapshot, &policy, Vec::new());
         write_capable.credential = CredentialCapability::WriteCapable;
 
-        let declared = crate::registry::find("REPO-GIT-04").expect("registered");
+        let declared = crate::rules::find("REPO-GIT-04").expect("registered");
         let verdict = undisclosed(declared, &write_capable, "the merge-commit setting");
 
         assert_eq!(verdict.status, None);
@@ -1125,7 +1111,7 @@ mod tests {
         let snapshot = snapshot(&[]);
         let policy = policy();
         let context = context(&snapshot, &policy, Vec::new());
-        for def in crate::registry::CHECKS {
+        for def in crate::rules::RULES {
             if def.unbuilt_reason().is_some() {
                 continue;
             }
@@ -1232,9 +1218,9 @@ mod outcome_gate_tests {
         assert!(declared.status.is_none());
 
         // Invoke the same check through a definition with no unbuilt gate.
-        let mut definition = *crate::registry::find("REPO-FILE-01").unwrap();
+        let mut definition = *crate::rules::find("REPO-FILE-01").unwrap();
         definition.id = "REPO-FILE-03";
-        let undeclared_rule = RuleInstance {
+        let undeclared_rule = EffectiveRule {
             def: Box::leak(Box::new(definition)),
             ..rule("REPO-FILE-03")
         };
@@ -1249,9 +1235,9 @@ mod outcome_gate_tests {
         let declared = evaluate(&rule("REPO-LIC-04"), &fixture.context());
         assert_eq!(declared.routing.as_ref().unwrap().reason, "out-of-scope");
         assert!(declared.status.is_none());
-        let mut definition = *crate::registry::find("REPO-FILE-01").unwrap();
+        let mut definition = *crate::rules::find("REPO-FILE-01").unwrap();
         definition.id = "REPO-LIC-04";
-        let undeclared_rule = RuleInstance {
+        let undeclared_rule = EffectiveRule {
             def: Box::leak(Box::new(definition)),
             ..rule("REPO-LIC-04")
         };

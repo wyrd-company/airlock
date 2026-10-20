@@ -5,10 +5,10 @@
 
 use std::fmt::Write as _;
 
-use crate::findings::{RemediationClass, Report, Status};
+use crate::findings::{FixClass, Report, Status};
+use crate::fix::{self, FixAvailability};
 use crate::plan::{self, Plan};
-use crate::registry::{self, CheckDefinition};
-use crate::remediation::{self, Classification};
+use crate::rules::{self, RuleDefinition};
 use crate::worklist::AgentWorkList;
 
 /// Render an audit report for a terminal.
@@ -45,9 +45,9 @@ pub fn report_text(report: &Report) -> String {
     }
     let _ = writeln!(
         out,
-        "registry {} ({})",
-        report.airlock.registry_version,
-        short_digest(&report.airlock.registry_digest)
+        "rules {} ({})",
+        report.airlock.rules_version,
+        short_digest(&report.airlock.rules_digest)
     );
     let _ = writeln!(
         out,
@@ -105,8 +105,8 @@ pub fn report_text(report: &Report) -> String {
             );
         }
         if finding.status == Some(Status::Gap) {
-            if let Some(remediation) = &finding.remediation {
-                let _ = writeln!(out, "              → {}", remediation.detail);
+            if let Some(fix) = &finding.fix {
+                let _ = writeln!(out, "              → {}", fix.detail);
             }
         }
     }
@@ -140,7 +140,7 @@ pub fn report_text(report: &Report) -> String {
     let admin_only = report
         .routed
         .iter()
-        .filter(|f| registry::find(&f.rule).is_some_and(|d| d.disclosure_gate().is_some()))
+        .filter(|f| rules::find(&f.rule).is_some_and(|d| d.disclosure_gate().is_some()))
         .count();
     if admin_only > 0 {
         let _ = writeln!(
@@ -156,13 +156,13 @@ pub fn report_text(report: &Report) -> String {
     out
 }
 
-/// Render the agent-lane definition-of-done result for a terminal.
+/// Render the agent-work definition-of-done result for a terminal.
 #[must_use]
 pub fn agent_work_list_text(list: &AgentWorkList) -> String {
     let mut out = String::new();
     let _ = writeln!(
         out,
-        "{} at {} — agent lane only; not repository conformance",
+        "{} at {} — agent work only; not repository conformance",
         list.repository.full_name,
         short(&list.repository.audited_commit)
     );
@@ -188,14 +188,14 @@ pub fn agent_work_list_text(list: &AgentWorkList) -> String {
         );
     }
 
-    render_work_group(&mut out, "agent work", &list.agent_lane);
+    render_work_group(&mut out, "agent work", &list.agent_work);
     let _ = writeln!(
         out,
         "\noperator deferred (never gates) ({})",
         list.operator_deferred.count
     );
     for item in &list.operator_deferred.items {
-        let work = match (&item.remediation_code, &item.change) {
+        let work = match (&item.fix_code, &item.change) {
             (Some(code), Some(change)) => format!("{code} — {change}"),
             _ => item
                 .none_reason
@@ -206,7 +206,7 @@ pub fn agent_work_list_text(list: &AgentWorkList) -> String {
             out,
             "  {} [{}] {} (source: {})",
             item.rule,
-            item.lane.as_deref().unwrap_or("needs-judgment"),
+            item.fix_kind.as_deref().unwrap_or("needs-judgment"),
             work,
             item.source.as_deref().unwrap_or("not observed")
         );
@@ -272,13 +272,13 @@ fn render_unsettled_group(
             item.evidence_code.as_deref().unwrap_or("none"),
             item.source.as_deref().unwrap_or("not observed")
         );
-        // Where the answer is taken, when the registry named a surface that
+        // Where the answer is taken, when the rules named a surface that
         // can take it. The wording is the declaration's, not this renderer's.
         if let Some(reason) = &item.reason {
             let _ = writeln!(out, "      reason: {reason}");
         }
         if let Some(surface) = item.verified_by.as_deref() {
-            let guidance = registry::VerificationSurface::ALL
+            let guidance = rules::VerificationSurface::ALL
                 .iter()
                 .find(|declared| declared.code() == surface)
                 .map(|declared| declared.guidance());
@@ -326,8 +326,8 @@ fn render_work_group(
             out,
             "  {} [{}] {} — {} (source: {})",
             item.rule,
-            item.lane,
-            item.remediation_code,
+            item.fix_kind,
+            item.fix_code,
             item.change,
             item.source.as_deref().unwrap_or("not observed")
         );
@@ -360,9 +360,9 @@ pub fn plan_text(report: &Report) -> String {
     );
     let _ = writeln!(
         out,
-        "registry {} ({})",
-        report.airlock.registry_version,
-        short_digest(&report.airlock.registry_digest)
+        "rules {} ({})",
+        report.airlock.rules_version,
+        short_digest(&report.airlock.rules_digest)
     );
     out.push('\n');
     let _ = writeln!(
@@ -374,11 +374,11 @@ pub fn plan_text(report: &Report) -> String {
 
     if plan.is_empty() {
         out.push('\n');
-        let _ = writeln!(out, "No change is proposed for the evaluated standards.");
+        let _ = writeln!(out, "No change is proposed for the evaluated rules.");
     }
 
-    for lane in plan::DISPLAY_ORDER {
-        let changes: Vec<_> = plan.in_lane(*lane).collect();
+    for fix_kind in plan::DISPLAY_ORDER {
+        let changes: Vec<_> = plan.of_kind(*fix_kind).collect();
         if changes.is_empty() {
             continue;
         }
@@ -386,9 +386,9 @@ pub fn plan_text(report: &Report) -> String {
         let _ = writeln!(
             out,
             "{} ({}) — {}",
-            lane.code(),
+            fix_kind.code(),
             changes.len(),
-            plan::lane_gloss(*lane)
+            plan::kind_gloss(*fix_kind)
         );
         for change in changes {
             let _ = writeln!(
@@ -416,7 +416,7 @@ pub fn plan_text(report: &Report) -> String {
         out.push('\n');
         let _ = writeln!(
             out,
-            "no remediation ({}) — airlock offers none; the only move left is a \
+            "no fix ({}) — airlock offers none; the only move left is a \
              person's",
             plan.unclosable.len()
         );
@@ -485,29 +485,24 @@ pub fn plan_text(report: &Report) -> String {
     } else if plan.routed.is_empty() && plan.waived.is_empty() {
         let _ = writeln!(
             out,
-            "Every standard was evaluated; this names each observed gap."
+            "Every rule was evaluated; this names each observed gap."
         );
     } else {
-        let _ = writeln!(out, "No run errors. The waived, routed, unbuilt, and out-of-scope standards above have no Met or Gap outcome.");
+        let _ = writeln!(out, "No run errors. The waived, routed, unbuilt, and out-of-scope rules above have no Met or Gap outcome.");
     }
 
     out
 }
 
-/// Render the check registry for a terminal.
+/// Render the rules for a terminal.
 #[must_use]
-pub fn list_checks_text() -> String {
+pub fn list_rules_text() -> String {
     let mut out = String::new();
-    let _ = writeln!(
-        out,
-        "registry {} ({})",
-        registry::REGISTRY_VERSION,
-        registry::digest()
-    );
+    let _ = writeln!(out, "rules {} ({})", rules::RULES_VERSION, rules::digest());
     let _ = writeln!(out);
-    for section in registry::Section::ALL {
+    for section in rules::Section::ALL {
         let _ = writeln!(out, "[{section}]");
-        for check in registry::in_section(*section) {
+        for check in rules::in_section(*section) {
             let _ = writeln!(
                 out,
                 "  {:<16} {:<12} {:<14} {}",
@@ -520,19 +515,19 @@ pub fn list_checks_text() -> String {
                 },
                 check.statement
             );
-            // The declared remediation is printed with the rule so an adopter
+            // The declared fix is printed with the rule so an adopter
             // can read what airlock would do to their repository before
             // running it against one. It is read from the same table the
             // findings document quotes, so the catalogue cannot drift from
             // what a run reports.
-            match remediation::classify(check.id) {
-                Some(Classification::Remediation(definition)) => {
+            match fix::classify(check.id) {
+                Some(FixAvailability::Fix(definition)) => {
                     let _ = writeln!(
                         out,
                         "  {:<16} → {} [{}, {}] {}",
                         "",
                         definition.code,
-                        definition.lane.code(),
+                        definition.fix_kind.code(),
                         if definition.reversible {
                             "reversible"
                         } else {
@@ -541,8 +536,8 @@ pub fn list_checks_text() -> String {
                         definition.change
                     );
                 }
-                Some(Classification::NotRemediable { reason, .. }) => {
-                    let _ = writeln!(out, "  {:<16} → no remediation: {reason}", "");
+                Some(FixAvailability::NotFixable { reason, .. }) => {
+                    let _ = writeln!(out, "  {:<16} → no fix: {reason}", "");
                 }
                 None => {}
             }
@@ -564,23 +559,23 @@ pub fn list_checks_text() -> String {
     out
 }
 
-/// Render the check registry as JSON.
+/// Render the rules as JSON.
 #[must_use]
-pub fn list_checks_json() -> serde_json::Value {
+pub fn list_rules_json() -> serde_json::Value {
     serde_json::json!({
-        "registry_version": registry::REGISTRY_VERSION,
-        "registry_digest": registry::digest(),
-        "checks": registry::CHECKS.iter().map(check_json).collect::<Vec<_>>(),
+        "rules_version": rules::RULES_VERSION,
+        "rules_digest": rules::digest(),
+        "rules": rules::RULES.iter().map(check_json).collect::<Vec<_>>(),
     })
 }
 
-fn check_json(check: &CheckDefinition) -> serde_json::Value {
+fn check_json(check: &RuleDefinition) -> serde_json::Value {
     serde_json::json!({
         "id": check.id,
         "statement": check.statement,
         "severity": check.severity.code(),
         "section": check.section.code(),
-        "remediation_class": RemediationClass::for_rule(check.id),
+        "fix_class": FixClass::for_rule(check.id),
         "evaluation": if check.unbuilt_reason().is_some() { "unbuilt gate" } else { "compiled" },
         "unbuilt_reason": check.unbuilt_reason(),
         "disclosure_gate": check.disclosure_gate().map(|gate| serde_json::json!({
@@ -607,15 +602,15 @@ fn check_json(check: &CheckDefinition) -> serde_json::Value {
 ///
 /// Read from the gate each rule declares, so no renderer writes the guidance
 /// sentence itself.
-fn verification_surfaces(report: &Report) -> Vec<registry::VerificationSurface> {
-    registry::VerificationSurface::ALL
+fn verification_surfaces(report: &Report) -> Vec<rules::VerificationSurface> {
+    rules::VerificationSurface::ALL
         .iter()
         .copied()
         .filter(|surface| {
             report.entries().any(|finding| {
                 finding.routing.is_some()
-                    && registry::find(&finding.rule)
-                        .and_then(registry::CheckDefinition::disclosure_gate)
+                    && rules::find(&finding.rule)
+                        .and_then(rules::RuleDefinition::disclosure_gate)
                         .is_some_and(|gate| gate.verified_by == *surface)
             })
         })
@@ -637,10 +632,10 @@ fn short_digest(digest: &str) -> String {
 mod tests {
     use super::*;
     use crate::findings::{
-        AirlockIdentity, AuditedRepository, Evidence, Finding, ObservationRecord, PolicyIdentity,
-        Remediation, RemediationClass,
+        AirlockIdentity, AuditedRepository, Evidence, Finding, Fix, FixClass, ObservationRecord,
+        PolicyIdentity,
     };
-    use crate::ActionGroup;
+    use crate::FixGroup;
 
     fn report() -> Report {
         Report::assemble(
@@ -674,8 +669,8 @@ mod tests {
                 severity: "blocking".to_owned(),
                 status: Some(Status::Gap),
                 evidence: Some(Evidence::at("file_missing", "LICENSE", "LICENSE is absent")),
-                remediation: Some(Remediation::new(ActionGroup::ADD_FILE, "Add LICENSE.")),
-                remediation_class: RemediationClass::for_rule("REPO-LIC-01"),
+                fix: Some(Fix::new(FixGroup::ADD_FILE, "Add LICENSE.")),
+                fix_class: FixClass::for_rule("REPO-LIC-01"),
                 suppression: None,
                 source: Some("api".to_owned()),
                 error: None,
@@ -728,7 +723,7 @@ mod tests {
         assert!(text.contains("add-license-file"));
         assert!(text.contains("Add a `LICENSE` file"));
         assert!(text.contains("not reversible"));
-        assert!(text.contains("deterministic-file (1)"));
+        assert!(text.contains("airlock (1)"));
     }
 
     #[test]
@@ -742,7 +737,7 @@ mod tests {
     #[test]
     fn the_plan_reports_the_completeness_of_the_observation_it_came_from() {
         let text = plan_text(&report());
-        assert!(text.contains("Every standard was evaluated"));
+        assert!(text.contains("Every rule was evaluated"));
     }
 
     #[test]
@@ -762,7 +757,7 @@ mod tests {
 
         let text = plan_text(&admin_only);
         assert!(
-            !text.contains("Every standard was evaluated"),
+            !text.contains("Every rule was evaluated"),
             "one rule is undecided, and the plan has just said so: {text}"
         );
         assert!(text.contains("No run errors"), "{text}");
@@ -784,7 +779,7 @@ mod tests {
 
     #[test]
     fn the_report_and_plan_both_name_a_rule_that_requires_admin_access() {
-        // A rule the registry declares gated, so the guidance the surfaces
+        // A rule the rules declare gated, so the guidance the surfaces
         // print has a declaration to come from.
         let mut source = report();
         source.findings[0].rule = "REPO-GIT-04".to_owned();
@@ -798,7 +793,7 @@ mod tests {
             Vec::new(),
             source.findings.clone(),
         );
-        let surface = registry::MERGE_SETTINGS_DISCLOSURE.verified_by;
+        let surface = rules::MERGE_SETTINGS_DISCLOSURE.verified_by;
 
         assert!(
             admin_only.complete,
@@ -846,13 +841,13 @@ mod tests {
             source.findings.clone(),
         );
 
-        assert!(registry::find("REPO-LIC-01")
-            .and_then(registry::CheckDefinition::disclosure_gate)
+        assert!(rules::find("REPO-LIC-01")
+            .and_then(rules::RuleDefinition::disclosure_gate)
             .is_none());
         let text = report_text(&undeclared);
         assert!(text.contains("run errors: 1"), "{text}");
         assert!(
-            !text.contains(registry::VerificationSurface::InteractiveSession.guidance()),
+            !text.contains(rules::VerificationSurface::InteractiveSession.guidance()),
             "no surface was declared, so none is promised: {text}"
         );
         assert!(
@@ -864,7 +859,7 @@ mod tests {
         assert!(plan.contains("run-error"), "{plan}");
         assert!(plan.contains("REPO-LIC-01"), "{plan}");
         assert!(
-            !plan.contains(registry::VerificationSurface::InteractiveSession.code()),
+            !plan.contains(rules::VerificationSurface::InteractiveSession.code()),
             "{plan}"
         );
         assert!(
@@ -876,20 +871,20 @@ mod tests {
 
     #[test]
     fn the_check_listing_publishes_every_declared_disclosure_gate() {
-        let text = list_checks_text();
-        let json = list_checks_json();
-        let gate = &registry::MERGE_SETTINGS_DISCLOSURE;
+        let text = list_rules_text();
+        let json = list_rules_json();
+        let gate = &rules::MERGE_SETTINGS_DISCLOSURE;
 
         // A policy author reads this before pointing airlock at anything, so
         // which rules require admin access has to be in it.
         assert!(text.contains(gate.requires.code()), "{text}");
         assert!(text.contains(gate.verified_by.code()), "{text}");
         assert!(
-            text.contains(registry::Grant::ADMINISTRATION_READ.code()),
+            text.contains(rules::Grant::ADMINISTRATION_READ.code()),
             "the grant that looks sufficient and is not must be named: {text}"
         );
 
-        let checks = json["checks"].as_array().expect("checks are an array");
+        let checks = json["rules"].as_array().expect("checks are an array");
         let git04 = checks
             .iter()
             .find(|check| check["id"] == "REPO-GIT-04")
@@ -932,33 +927,33 @@ mod tests {
 
     #[test]
     fn every_registered_check_appears_in_the_listing() {
-        let text = list_checks_text();
-        for check in registry::CHECKS {
+        let text = list_rules_text();
+        for check in rules::RULES {
             assert!(text.contains(check.id), "{} is missing", check.id);
         }
     }
 
     #[test]
     fn the_listing_says_what_closing_every_rule_would_take() {
-        let text = list_checks_text();
-        for classification in crate::remediation::CLASSIFICATIONS {
+        let text = list_rules_text();
+        for classification in crate::fix::CLASSIFICATIONS {
             match classification {
-                Classification::Remediation(definition) => {
+                FixAvailability::Fix(definition) => {
                     assert!(
                         text.contains(definition.code),
-                        "{} is listed without its remediation code",
+                        "{} is listed without its fix code",
                         definition.rule
                     );
                     assert!(
-                        text.contains(definition.lane.code()),
-                        "{} is listed without its lane",
+                        text.contains(definition.fix_kind.code()),
+                        "{} is listed without its fix kind",
                         definition.rule
                     );
                 }
-                Classification::NotRemediable { rule, reason } => {
+                FixAvailability::NotFixable { rule, reason } => {
                     assert!(
                         text.contains(reason),
-                        "{rule} is listed without the reason airlock offers no remediation"
+                        "{rule} is listed without the reason airlock offers no fix"
                     );
                 }
             }
@@ -966,35 +961,35 @@ mod tests {
     }
 
     #[test]
-    fn the_json_listing_publishes_the_remediation_model_verbatim() {
+    fn the_json_listing_publishes_the_fix_model_verbatim() {
         // Compared against the model itself, not against the helper the
         // listing is built with — comparing the listing to a second call of
         // its own builder would pass even if both stopped saying anything.
         // That the listing agrees with a real *run* is proved in
-        // `tests/remediation_catalogue.rs`, which audits a repository.
-        let json = list_checks_json();
-        let listed: std::collections::BTreeMap<&str, &serde_json::Value> = json["checks"]
+        // `tests/fix_catalogue.rs`, which audits a repository.
+        let json = list_rules_json();
+        let listed: std::collections::BTreeMap<&str, &serde_json::Value> = json["rules"]
             .as_array()
             .unwrap()
             .iter()
-            .map(|check| (check["id"].as_str().unwrap(), &check["remediation_class"]))
+            .map(|check| (check["id"].as_str().unwrap(), &check["fix_class"]))
             .collect();
 
-        assert_eq!(listed.len(), crate::remediation::CLASSIFICATIONS.len());
-        for classification in crate::remediation::CLASSIFICATIONS {
+        assert_eq!(listed.len(), crate::fix::CLASSIFICATIONS.len());
+        for classification in crate::fix::CLASSIFICATIONS {
             let rule = classification.rule();
             let entry = listed
                 .get(rule)
                 .unwrap_or_else(|| panic!("{rule} is missing from the listing"));
             match classification {
-                Classification::Remediation(definition) => {
+                FixAvailability::Fix(definition) => {
                     assert_eq!(entry["code"], definition.code, "{rule}");
-                    assert_eq!(entry["lane"], definition.lane.code(), "{rule}");
+                    assert_eq!(entry["fix_kind"], definition.fix_kind.code(), "{rule}");
                     assert_eq!(entry["change"], definition.change, "{rule}");
                     assert_eq!(entry["reversible"], definition.reversible, "{rule}");
                     assert!(entry["none_reason"].is_null(), "{rule}");
                 }
-                Classification::NotRemediable { reason, .. } => {
+                FixAvailability::NotFixable { reason, .. } => {
                     assert_eq!(entry["none_reason"], *reason, "{rule}");
                     assert!(entry["code"].is_null(), "{rule}");
                 }
@@ -1004,16 +999,16 @@ mod tests {
 
     #[test]
     fn the_json_listing_marks_unimplemented_checks() {
-        let json = list_checks_json();
-        let checks = json["checks"].as_array().unwrap();
-        assert_eq!(checks.len(), registry::CHECKS.len());
+        let json = list_rules_json();
+        let checks = json["rules"].as_array().unwrap();
+        assert_eq!(checks.len(), rules::RULES.len());
         let unimplemented = checks
             .iter()
             .filter(|check| check["unbuilt_reason"].is_string())
             .count();
         assert_eq!(
             unimplemented,
-            registry::CHECKS
+            rules::RULES
                 .iter()
                 .filter(|check| check.unbuilt_reason().is_some())
                 .count()

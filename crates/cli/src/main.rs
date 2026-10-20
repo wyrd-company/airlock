@@ -66,7 +66,7 @@ enum Command {
     /// gap calls for. Nothing reads its output back: aligning re-observes
     /// every rule before it acts, so there is no stored plan to apply.
     Plan(PlanArgs),
-    /// Author deterministic file remediations in a local working tree.
+    /// Author deterministic file fixes in a local working tree.
     AlignFiles(AlignFilesArgs),
     /// Manage the read-only credential airlock uses.
     Auth(AuthArgs),
@@ -137,15 +137,15 @@ impl AlignFilesArgs {
 #[derive(Debug, Args)]
 struct AuditArgs {
     /// Repository to audit, as `owner/repo`.
-    #[arg(required_unless_present_any = ["list_checks", "working_tree"])]
+    #[arg(required_unless_present_any = ["list_rules", "working_tree"])]
     target: Option<String>,
 
     #[command(flatten)]
     repository: RepositoryArgs,
 
-    /// Print the check registry and exit, without auditing anything.
+    /// Print the rules and exit, without auditing anything.
     #[arg(long)]
-    list_checks: bool,
+    list_rules: bool,
 }
 
 #[derive(Debug, Args)]
@@ -165,7 +165,7 @@ struct AgentWorkArgs {
 /// form: a JSON plan would invite a pipeline to consume it, and a consumed
 /// plan is a remembered observation. Machine consumers read the audit's
 /// findings document, or `airlock agent-work` for the agent lane — both carry
-/// the same `remediation_class` a plan is derived from.
+/// the same `fix_class` a plan is derived from.
 #[derive(Debug, Args)]
 struct PlanArgs {
     /// Repository to plan for, as `owner/repo`.
@@ -403,10 +403,10 @@ fn skill_command(args: &SkillArgs) -> Result<u8> {
     airlock_core::skill::emit(&args.target, args.force)
         .with_context(|| format!("cannot write skill to {}", args.target.display()))?;
     println!(
-        "Wrote repository-standards skill from registry {} ({}) to {}.\n\
+        "Wrote repository-standards skill from rules {} ({}) to {}.\n\
          Cite every rule by id and statement together; a rule id alone is not meaningful.",
-        airlock_core::registry::REGISTRY_VERSION,
-        airlock_core::registry::digest(),
+        airlock_core::rules::RULES_VERSION,
+        airlock_core::rules::digest(),
         args.target.display()
     );
     Ok(0)
@@ -531,7 +531,7 @@ fn render_alignment_text(output: &AlignFilesOutput) {
             operation.outcome,
             operation.path,
             operation.rule,
-            operation.remediation_code,
+            operation.fix_code,
             operation
                 .reason
                 .as_ref()
@@ -558,7 +558,7 @@ fn render_alignment_text(output: &AlignFilesOutput) {
     println!("{}", output.default_branch_observation);
     if !output.operations.judgment_findings.is_empty() {
         println!(
-            "judgment lane: {} finding(s); emit the repository-standards skill and hand them to an agent.",
+            "agent fixes: {} finding(s); emit the repository-standards skill and hand them to an agent.",
             output.operations.judgment_findings.len()
         );
     }
@@ -645,13 +645,13 @@ fn resolved_format(requested: Option<Format>, interactive: bool) -> Format {
 async fn audit_command(args: AuditArgs, interactive: bool) -> Result<u8> {
     let format = resolved_format(args.repository.format, interactive);
 
-    if args.list_checks {
+    if args.list_rules {
         match format {
-            Format::Text => print!("{}", render::list_checks_text()),
+            Format::Text => print!("{}", render::list_rules_text()),
             Format::Json => println!(
                 "{}",
-                serde_json::to_string_pretty(&render::list_checks_json())
-                    .context("cannot render the check registry")?
+                serde_json::to_string_pretty(&render::list_rules_json())
+                    .context("cannot render the rules")?
             ),
         }
         return Ok(0);
@@ -1050,12 +1050,12 @@ mod tests {
     }
 
     #[test]
-    fn list_checks_needs_no_target() {
-        let cli = Cli::parse_from(["airlock", "audit", "--list-checks"]);
+    fn list_rules_needs_no_target() {
+        let cli = Cli::parse_from(["airlock", "audit", "--list-rules"]);
         let Some(Command::Audit(args)) = cli.command else {
             panic!("expected the audit command");
         };
-        assert!(args.list_checks);
+        assert!(args.list_rules);
         assert!(args.target.is_none());
     }
 

@@ -1,9 +1,9 @@
 //! Release: release units, changelogs, and the release workflow.
 
-use crate::findings::Remediation;
-use crate::policy::RuleInstance;
+use crate::findings::Fix;
+use crate::policy::EffectiveRule;
 use crate::yaml::Yaml;
-use crate::ActionGroup;
+use crate::FixGroup;
 
 use super::{AuditContext, ParsedFile, Verdict};
 
@@ -16,7 +16,7 @@ const PUBLICATION_SIGNALS: &[&str] = &[
     "twine upload",
 ];
 
-pub(crate) fn run(id: &str, _rule: &RuleInstance, context: &AuditContext) -> Option<Verdict> {
+pub(crate) fn run(id: &str, _rule: &EffectiveRule, context: &AuditContext) -> Option<Verdict> {
     Some(match id {
         "REPO-REL-01" => release_units_declared(context),
         "REPO-REL-02" => changelog_per_unit(context),
@@ -34,8 +34,8 @@ fn release_units_declared(context: &AuditContext) -> Verdict {
             "file_missing",
             ".intentional/config.yml",
             ".intentional/config.yml is absent, so no release units are declared",
-            Remediation::new(
-                ActionGroup::DECLARE_RELEASE_UNITS,
+            Fix::new(
+                FixGroup::DECLARE_RELEASE_UNITS,
                 "Add .intentional/config.yml declaring the repository's release units.",
             ),
         ),
@@ -50,8 +50,8 @@ fn release_units_declared(context: &AuditContext) -> Verdict {
                     "no_release_units",
                     ".intentional/config.yml",
                     ".intentional/config.yml declares no release units",
-                    Remediation::new(
-                        ActionGroup::DECLARE_RELEASE_UNITS,
+                    Fix::new(
+                        FixGroup::DECLARE_RELEASE_UNITS,
                         "Declare at least one release unit.",
                     ),
                 )
@@ -87,8 +87,8 @@ fn changelog_per_unit(context: &AuditContext) -> Verdict {
         Verdict::fail(
             "changelog_missing",
             format!("{} absent", missing.join(", ")),
-            Remediation::new(
-                ActionGroup::ADD_CHANGELOG,
+            Fix::new(
+                FixGroup::ADD_CHANGELOG,
                 "Add a CHANGELOG.md at each release unit's declared path.",
             ),
         )
@@ -119,8 +119,8 @@ fn no_root_aggregate_changelog(context: &AuditContext) -> Verdict {
             "root_unit_in_multi_unit_repository",
             "a multi-unit repository declares a release unit at the root, so its root \
              CHANGELOG.md cannot be anything but an aggregate",
-            Remediation::new(
-                ActionGroup::MOVE_ROOT_UNIT,
+            Fix::new(
+                FixGroup::MOVE_ROOT_UNIT,
                 "Give every release unit its own path below the root.",
             ),
         );
@@ -134,8 +134,8 @@ fn no_root_aggregate_changelog(context: &AuditContext) -> Verdict {
                 "a root CHANGELOG.md exists in a {}-unit repository where no unit lives at the root",
                 units.len()
             ),
-            Remediation::new(
-                ActionGroup::REMOVE_ROOT_CHANGELOG,
+            Fix::new(
+                FixGroup::REMOVE_ROOT_CHANGELOG,
                 "Remove the root CHANGELOG.md; each release unit keeps its own.",
             ),
         )
@@ -194,8 +194,8 @@ fn release_is_dispatched(context: &AuditContext) -> Verdict {
             "release_trigger_wrong",
             &workflow.path,
             gaps.join("; "),
-            Remediation::new(
-                ActionGroup::DISPATCH_ON_PINNED_SHA,
+            Fix::new(
+                FixGroup::DISPATCH_ON_PINNED_SHA,
                 "Make release a workflow_dispatch taking the source sha as an input.",
             ),
         )
@@ -248,8 +248,8 @@ fn no_publish_on_merge(context: &AuditContext) -> Verdict {
         Verdict::fail(
             "publishes_on_merge",
             offenders.join("; "),
-            Remediation::new(
-                ActionGroup::DISPATCH_PUBLICATION,
+            Fix::new(
+                FixGroup::DISPATCH_PUBLICATION,
                 "Publish from a dispatched workflow, never automatically on merge.",
             ),
         )

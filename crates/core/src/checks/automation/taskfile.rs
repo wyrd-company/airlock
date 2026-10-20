@@ -1,5 +1,5 @@
 use super::*;
-use crate::ActionGroup;
+use crate::FixGroup;
 
 pub(super) fn parse_taskfile(context: &AuditContext) -> Result<Yaml, Box<Verdict>> {
     match context.yaml("taskfile.yml") {
@@ -9,8 +9,8 @@ pub(super) fn parse_taskfile(context: &AuditContext) -> Result<Yaml, Box<Verdict
             "file_missing",
             "taskfile.yml",
             "there is no taskfile.yml to read tasks from",
-            Remediation::new(
-                ActionGroup::ADD_TASKFILE,
+            Fix::new(
+                FixGroup::ADD_TASKFILE,
                 "Add a taskfile.yml at the repository root.",
             ),
         ))),
@@ -47,8 +47,8 @@ pub(super) fn required_tasks(context: &AuditContext) -> Verdict {
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
-            Remediation::new(
-                ActionGroup::DEFINE_TASKS,
+            Fix::new(
+                FixGroup::DEFINE_TASKS,
                 "Define test, lint, format, and check in taskfile.yml.",
             ),
         )
@@ -56,7 +56,7 @@ pub(super) fn required_tasks(context: &AuditContext) -> Verdict {
 }
 
 pub(super) fn per_unit_taskfiles(context: &AuditContext) -> Verdict {
-    // This branch requires the standard's declared release-unit scope.
+    // This branch requires the rule's declared release-unit scope.
     let units = try_verdict!(context.release_units());
     if units.len() <= 1 {
         return Verdict::pass(
@@ -89,8 +89,8 @@ pub(super) fn per_unit_taskfiles(context: &AuditContext) -> Verdict {
         Verdict::fail(
             "per_unit_taskfile_missing",
             format!("{} absent", missing.join(", ")),
-            Remediation::new(
-                ActionGroup::ADD_UNIT_TASKFILE,
+            Fix::new(
+                FixGroup::ADD_UNIT_TASKFILE,
                 "Add a taskfile.yml at each release unit's declared path.",
             ),
         )
@@ -140,8 +140,8 @@ pub(super) fn includes_set_dir(context: &AuditContext) -> Verdict {
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
-            Remediation::new(
-                ActionGroup::SET_INCLUDE_DIR,
+            Fix::new(
+                FixGroup::SET_INCLUDE_DIR,
                 "Set `dir:` on every taskfile include.",
             ),
         )
@@ -185,8 +185,8 @@ pub(super) fn include_namespaces(context: &AuditContext) -> Verdict {
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
-            Remediation::new(
-                ActionGroup::ALIGN_INCLUDE_NAMESPACES,
+            Fix::new(
+                FixGroup::ALIGN_INCLUDE_NAMESPACES,
                 "Name each include after the release unit id it covers.",
             ),
         )

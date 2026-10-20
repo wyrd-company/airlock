@@ -1,5 +1,5 @@
 use super::*;
-use crate::ActionGroup;
+use crate::FixGroup;
 
 pub(super) fn cd<'a>(context: &'a AuditContext<'_>) -> Option<&'a Workflow> {
     context.workflow("cd.yml")
@@ -28,7 +28,7 @@ pub(super) fn cd_present(context: &AuditContext) -> Verdict {
     }
 }
 
-pub(super) fn cd_on_tags(rule: &RuleInstance, context: &AuditContext) -> Verdict {
+pub(super) fn cd_on_tags(rule: &EffectiveRule, context: &AuditContext) -> Verdict {
     let Some(workflow) = cd(context) else {
         return no_cd_workflow("the tag trigger");
     };
@@ -67,8 +67,8 @@ pub(super) fn cd_on_tags(rule: &RuleInstance, context: &AuditContext) -> Verdict
                 "cd.yml triggers on tags {} rather than `{expected}`",
                 tags.join(", ")
             ),
-            Remediation::new(
-                ActionGroup::CORRECT_TAG_PATTERN,
+            Fix::new(
+                FixGroup::CORRECT_TAG_PATTERN,
                 format!("Trigger CD on tags matching `{expected}`."),
             ),
         )
@@ -123,8 +123,8 @@ pub(super) fn cd_concurrency(context: &AuditContext) -> Verdict {
             "cd_concurrency_cancels",
             &workflow.path,
             "cd.yml sets cancel-in-progress: true, so a delivery can be killed mid-flight",
-            Remediation::new(
-                ActionGroup::DO_NOT_CANCEL_DELIVERY,
+            Fix::new(
+                FixGroup::DO_NOT_CANCEL_DELIVERY,
                 "Set cancel-in-progress: false on the CD concurrency group.",
             ),
         ),
@@ -132,8 +132,8 @@ pub(super) fn cd_concurrency(context: &AuditContext) -> Verdict {
             "cd_concurrency_missing",
             &workflow.path,
             "cd.yml declares no concurrency group with cancel-in-progress",
-            Remediation::new(
-                ActionGroup::ADD_CD_CONCURRENCY,
+            Fix::new(
+                FixGroup::ADD_CD_CONCURRENCY,
                 "Add a concurrency group with cancel-in-progress: false.",
             ),
         ),
@@ -174,8 +174,8 @@ pub(super) fn release_and_delivery_separate(context: &AuditContext) -> Verdict {
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
-            Remediation::new(
-                ActionGroup::SPLIT_RELEASE_FROM_DELIVERY,
+            Fix::new(
+                FixGroup::SPLIT_RELEASE_FROM_DELIVERY,
                 "Create the release in its own workflow and let CD deliver an existing tag.",
             ),
         )

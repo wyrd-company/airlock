@@ -24,12 +24,12 @@ showing       the whole working set · 9 of 9 shown · gate blocking · f select
     ██░       │   │ REPO-README-04 unbuilt       readme         unbuilt — A release with the compiled check implemented 
   ┃- 5 AIRLOCK COULD NOT ANSWER  1  the undecided lane; the remedy often sits outside the repository                    
   ▌ ███       │   │ REPO-GIT-09    run-error     git            run error: blocks completeness at every severity · the …
-  ┃- 6 ROUTED  1  standards routed to the settling surface their declared gate names                                    
+  ┃- 6 ROUTED  1  rules routed to the settling surface their declared gate names                                        
     ██░       │   │ REPO-GIT-04    routed        git            grant contents:write · verified by interactive-session  
-   - 7 WAIVED  1  standards not evaluated at severity none; their reasons remain visible                                
+   - 7 WAIVED  1  rules not evaluated at severity none; their reasons remain visible                                    
     ░░░       │   │ REPO-CI-02     waived        automation   still on offer: Set workflow-level `permissions:` to `{}`.
-   - 8 OUT OF SCOPE  0  no standard is outside its declared scope                                                       
-   + 9 ALIGNED  2  standards whose compiled checks decided Met                                                          
+   - 8 OUT OF SCOPE  0  no rule is outside its declared scope                                                           
+   + 9 ALIGNED  2  rules whose compiled checks decided Met                                                              
 0 above · 0 below · working set 9 of 9 · ↑↓ moves through the rest                                                      
                                                                                                                         
                                                                                                                         
@@ -39,7 +39,7 @@ showing       the whole working set · 9 of 9 shown · gate blocking · f select
                                                                                                                         
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 ↑↓/j/k move · space collapse or expand · ↵ finding detail · f filter · a apply · A bulk apply · l flat list · 5 more…   
-incomplete · complete false · 9 rules · registry 0.6.0 · gate blocking                                                  
+incomplete · complete false · 9 rules · rules 0.6.0 · gate blocking                                                     
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb

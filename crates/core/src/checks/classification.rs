@@ -1,8 +1,8 @@
 //! Classification: custom properties stay an organisation concern.
 
-use crate::findings::Remediation;
-use crate::policy::RuleInstance;
-use crate::ActionGroup;
+use crate::findings::Fix;
+use crate::policy::EffectiveRule;
+use crate::FixGroup;
 
 use super::{repo_settings, AuditContext, Verdict};
 
@@ -13,7 +13,7 @@ const PROPERTY_WRITE_SIGNALS: &[&str] = &[
     "/orgs/{org}/properties",
 ];
 
-pub(crate) fn run(id: &str, _rule: &RuleInstance, context: &AuditContext) -> Option<Verdict> {
+pub(crate) fn run(id: &str, _rule: &EffectiveRule, context: &AuditContext) -> Option<Verdict> {
     Some(match id {
         "REPO-PROP-03" => no_declared_custom_properties(context),
         "REPO-PROP-04" => no_workflow_writes_properties(context),
@@ -40,8 +40,8 @@ fn no_declared_custom_properties(context: &AuditContext) -> Verdict {
             "custom_properties_declared",
             ".github/repo-settings.yml",
             format!("the declared settings file carries {}", declared.join(", ")),
-            Remediation::new(
-                ActionGroup::REMOVE_CUSTOM_PROPERTIES,
+            Fix::new(
+                FixGroup::REMOVE_CUSTOM_PROPERTIES,
                 "Remove custom property values. Classification is set on the organisation, not \
                  claimed by the repository.",
             ),
@@ -88,8 +88,8 @@ fn no_workflow_writes_properties(context: &AuditContext) -> Verdict {
         Verdict::fail(
             "workflow_writes_properties",
             offenders.join("; "),
-            Remediation::new(
-                ActionGroup::REMOVE_PROPERTY_WRITES,
+            Fix::new(
+                FixGroup::REMOVE_PROPERTY_WRITES,
                 "Set organisation custom properties from the organisation, not from a repository \
                  workflow.",
             ),

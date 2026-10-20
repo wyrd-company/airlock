@@ -1,7 +1,7 @@
 //! The repository-standards skill carried by the Airlock binary.
 //!
 //! Hand-written workflow guidance and templates are embedded verbatim. Inspection
-//! guidance and conformance are rendered from the compiled registry so rule identity can
+//! guidance and conformance are rendered from the compiled rules so rule identity can
 //! never drift from the questions this binary asks.
 
 use std::fmt::Write as _;
@@ -10,7 +10,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::registry::{self, Section};
+use crate::rules::{self, Section};
 
 const EMISSION_MARKER_PATH: &str = ".airlock-skill";
 const EMISSION_MARKER: &str = "airlock:repository-standards\n";
@@ -185,13 +185,13 @@ fn remove_path(path: &Path) -> io::Result<()> {
     }
 }
 
-/// Render the registry-owned conformance reference.
+/// Render the rules-owned conformance reference.
 pub fn conformance() -> io::Result<String> {
     let mut output = format!(
         "# Conformance Checklist\n\n\
-         This reference is generated from Airlock check registry **{}**\n\
+         This reference is generated from Airlock rules **{}**\n\
          (`{}`).\n\
-         The registry is authoritative for every rule id, statement, default\n\
+         The rules are authoritative for every rule id, statement, default\n\
          severity, section, and declared gates in this document.\n\n\
          **Always cite a rule by id and statement together.** A rule id alone\n\
          is not a meaningful finding.\n\n\
@@ -201,8 +201,8 @@ pub fn conformance() -> io::Result<String> {
          | **Blocking** | Evaluate, report Gaps, and fail the Action on a Gap |\n\
          | **Advisory** | Evaluate and report Gaps without failing the Action |\n\
          | **None** | Do not evaluate; list the waiver and its reason |\n",
-        registry::REGISTRY_VERSION,
-        registry::digest()
+        rules::RULES_VERSION,
+        rules::digest()
     );
 
     for section in Section::ALL {
@@ -212,7 +212,7 @@ pub fn conformance() -> io::Result<String> {
              | --- | --- | --- | --- | --- |\n",
             section_title(*section)
         );
-        for check in registry::in_section(*section) {
+        for check in rules::in_section(*section) {
             let _ = writeln!(
                 output,
                 "| `{}` | {} | {} | {} | {} |",
@@ -251,7 +251,7 @@ fn severity_title(code: &str) -> &'static str {
         "blocking" => "Blocking",
         "advisory" => "Advisory",
         "none" => "None",
-        _ => unreachable!("all registry severities are known"),
+        _ => unreachable!("all rules severities are known"),
     }
 }
 
@@ -262,10 +262,10 @@ fn escape_table(value: &str) -> String {
 fn check_guidance() -> String {
     let mut output = String::from(
         "# Check Guidance\n\n\
-         This reference is generated from the compiled Airlock registry.\n\n\
+         This reference is generated from the compiled Airlock rules.\n\n\
          | Id | Guidance |\n| --- | --- |\n",
     );
-    for check in registry::CHECKS {
+    for check in rules::RULES {
         let _ = writeln!(
             output,
             "| `{}` | {} |",
@@ -284,11 +284,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn generated_conformance_carries_registry_identity_and_every_rule_once() {
+    fn generated_conformance_carries_rules_identity_and_every_rule_once() {
         let document = conformance().unwrap();
-        assert!(document.contains(registry::REGISTRY_VERSION));
-        assert!(document.contains(&registry::digest()));
-        for check in registry::CHECKS {
+        assert!(document.contains(rules::RULES_VERSION));
+        assert!(document.contains(&rules::digest()));
+        for check in rules::RULES {
             assert_eq!(
                 document.matches(&format!("| `{}` |", check.id)).count(),
                 1,
@@ -326,13 +326,10 @@ mod tests {
     /// mechanically decidable; the "Authority and ownership" section in
     /// `SKILL.md` is the control that forbids hand-written rule summaries.
     #[test]
-    fn hand_written_skill_files_do_not_restate_registry_rules() {
+    fn hand_written_skill_files_do_not_restate_rules_requirements() {
         for (path, contents) in FILES {
-            assert!(
-                !contents.contains("REPO-"),
-                "{path} contains a registry rule id"
-            );
-            for check in registry::CHECKS {
+            assert!(!contents.contains("REPO-"), "{path} contains a rule id");
+            for check in rules::RULES {
                 assert!(
                     !contents.contains(check.statement),
                     "{path} restates {}",
@@ -343,9 +340,9 @@ mod tests {
     }
 
     #[test]
-    fn generated_guidance_names_every_standard_once() {
+    fn generated_guidance_names_every_rule_once() {
         let document = check_guidance();
-        for check in registry::CHECKS {
+        for check in rules::RULES {
             assert!(!check.guidance.trim().is_empty(), "{}", check.id);
             assert_eq!(document.matches(&format!("| `{}` |", check.id)).count(), 1);
             assert!(document.contains(&escape_table(check.guidance)));

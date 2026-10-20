@@ -1,7 +1,7 @@
 # Working in this repository
 
-Airlock is a read-only auditor. Two crates: `airlock-core` holds the check
-registry, policy resolution, findings model, and GitHub client; `airlock-cli` is
+Airlock is a read-only auditor. Two crates: `airlock-core` holds the compiled
+rules, policy resolution, findings model, and GitHub client; `airlock-cli` is
 a thin front end that parses arguments and renders. Logic belongs in core —
 if a command handler grows a decision, that decision is in the wrong crate.
 
@@ -12,7 +12,7 @@ Run `task check` before pushing; it is what CI runs. Everything else is in
 
 **The audit never writes.** `airlock audit` and every audit surface hold no
 mutating endpoint and refuse any credential that could write. The interactive
-align session alone may apply settings-level remediations — under an
+align session alone may apply settings-level fixes — under an
 operator's device-flow grant held only in memory — and it never writes files.
 `airlock skill` only emits the embedded skill to an explicitly selected local
 directory; it never touches a repository or uses a credential.
@@ -34,8 +34,8 @@ not a warning path. Adding a token prefix means adding the introspection that
 proves it read-only, or refusing it.
 
 **Check identity is compiled in.** Rule ids, statements, and default severities
-live in per-standard modules under `crates/core/src/registry/`, assembled by
-`crates/core/src/registry.rs`, not in policy files. A
+live in per-rule modules under `crates/core/src/rules/`, assembled by
+`crates/core/src/rules.rs`, not in policy files. A
 policy selects, parameterises, and re-grades; it cannot define a check or
 express a predicate. If a policy needs to say something the checks cannot, the
 answer is a new check.
@@ -60,9 +60,9 @@ Do not replace a pin with a tag.
 
 ## Where things live
 
-The per-standard modules under `crates/core/src/registry/` are the source of
+The per-rule modules under `crates/core/src/rules/` are the source of
 truth for rule ids, statements, severities, sections, evaluation modes,
-parameter defaults, fix lanes, lifecycle metadata, and inspection guidance.
+parameter defaults, fix kinds, lifecycle metadata, and inspection guidance.
 `airlock skill` generates both `references/conformance.md` and
 `references/check-guidance.md` from those modules. The embedded skill's
 workflow guidance and supporting material are hand-written.
@@ -70,7 +70,7 @@ workflow guidance and supporting material are hand-written.
 `docs/examples/` holds candidate copies of files that belong elsewhere — the
 organisation policy and its topic vocabulary live in `wyrd-company/.github`
 once an operator moves them. An integration test compiles the candidate policy
-against the compiled registry, so it cannot rot in place.
+against the compiled rules, so it cannot rot in place.
 
 `action.yml` defines the adopter-facing composite Action.
 `scripts/run-action.sh` adapts the CLI exit and findings contracts to GitHub

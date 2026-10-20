@@ -23,7 +23,7 @@ showing       the whole working set · 9 of 9 · gate blocking · f
                     unbuilt — A release with the compiled check implemented     
 0 above · 8 below · working set 9 of 9 · ↑↓ moves through the rest              
 ↑↓/j/k move · space collapse or expand · ↵ finding detail · f filter · 8 more…  
-incomplete · complete false · 9 rules · registry 0.6.0 · gate blocking          
+incomplete · complete false · 9 rules · rules 0.6.0 · gate blocking             
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 ccccccccccccccccdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd

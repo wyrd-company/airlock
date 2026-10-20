@@ -5,14 +5,14 @@
 
 use super::{AuditContext, Verdict};
 use crate::document::{self, DocumentError};
-use crate::findings::Remediation;
+use crate::findings::Fix;
 use crate::github::{ApiError, ErrorCause};
 use crate::release_records::{complete, matched_version, MODEL_PATH};
 use crate::snapshot::FileState;
-use crate::ActionGroup;
+use crate::FixGroup;
 
 fn model_gap(reason: &str, detail: impl Into<String>) -> Verdict {
-    Verdict::fail_at(reason, MODEL_PATH, detail, Remediation::new(ActionGroup::DECLARE_RELEASE_UNITS,
+    Verdict::fail_at(reason, MODEL_PATH, detail, Fix::new(FixGroup::DECLARE_RELEASE_UNITS,
         "Run intentional model with a supported producer and commit .intentional/release-model.json (agent reasoning)."))
 }
 
@@ -145,7 +145,7 @@ pub(super) fn run(context: &AuditContext) -> Verdict {
     }
     let detail = serde_json::json!({"releases": items, "excluded_tags": excluded}).to_string();
     if missing {
-        Verdict::fail("release-record-missing", detail, Remediation::new(ActionGroup::DISPATCH_PUBLICATION,
+        Verdict::fail("release-record-missing", detail, Fix::new(FixGroup::DISPATCH_PUBLICATION,
         "A release workflow or operator must publish a GitHub Release on each missing primary tag (operator)."))
     } else {
         Verdict::pass("release-records-present", detail)

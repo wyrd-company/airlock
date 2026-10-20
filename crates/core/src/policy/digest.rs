@@ -1,6 +1,6 @@
 use super::*;
 
-pub(super) fn bundle_digest(sources: &[BundleSource], rules: &[RuleInstance]) -> String {
+pub(super) fn bundle_digest(sources: &[BundleSource], rules: &[EffectiveRule]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(b"airlock-policy-bundle-1\x1e");
     for source in sources {

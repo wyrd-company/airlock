@@ -133,7 +133,7 @@ impl Fixture {
         .unwrap();
         let dir = tempfile::tempdir().unwrap();
         let policy_path = dir.path().join("policy.yml");
-        std::fs::write(&policy_path,format!("version: 1\nname: sample\ncapabilities: {{registry: [release]}}\nexceptions:\n  REPO-TPL-01:\n    reason: Expected process\n    record-path: {}\n    templates: [{{source: '{}', ref: accepted/branch, minimum: start, parts: [alpha, beta]}}]\n",self.record_path,SOURCE)).unwrap();
+        std::fs::write(&policy_path,format!("version: 1\nname: sample\ncapabilities: {{rules: [release]}}\nexceptions:\n  REPO-TPL-01:\n    reason: Expected process\n    record-path: {}\n    templates: [{{source: '{}', ref: accepted/branch, minimum: start, parts: [alpha, beta]}}]\n",self.record_path,SOURCE)).unwrap();
         let mut policy = policy::resolve(
             &client,
             &policy::PolicySource::Local(policy_path),
@@ -262,10 +262,7 @@ async fn template_audit_missing_record_is_blocking_gap_with_agent_fix() {
     assert_eq!(report.exit_code(), 1);
     let finding = &report.findings[0];
     assert_eq!(finding.evidence.as_ref().unwrap().code, "record-missing");
-    assert_eq!(
-        finding.remediation_class.lane.as_deref(),
-        Some("judgment-file")
-    );
+    assert_eq!(finding.fix_class.fix_kind.as_deref(), Some("agent"));
 }
 
 #[tokio::test]

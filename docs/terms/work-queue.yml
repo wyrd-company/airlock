@@ -3,4 +3,4 @@ title: Work queue
 description: >-
   The interactive view of the work remaining, centered on gaps and their fixes. Met and waived
   rules are counts with selectable views; routed rules retain their named destination. Work queue
-  replaces the findings screen's competing status and remediation vocabularies.
+  replaces the findings screen's competing status and fix vocabularies.

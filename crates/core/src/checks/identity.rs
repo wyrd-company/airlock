@@ -1,14 +1,14 @@
 //! Identity: naming and declared metadata.
 
-use crate::findings::Remediation;
-use crate::policy::RuleInstance;
-use crate::registry::CheckDefinition;
+use crate::findings::Fix;
+use crate::policy::EffectiveRule;
+use crate::rules::RuleDefinition;
 use crate::yaml::Yaml;
-use crate::ActionGroup;
+use crate::FixGroup;
 
 use super::{declared_topics, repo_settings, AuditContext, Verdict};
 
-pub(crate) fn run(id: &str, rule: &RuleInstance, context: &AuditContext) -> Option<Verdict> {
+pub(crate) fn run(id: &str, rule: &EffectiveRule, context: &AuditContext) -> Option<Verdict> {
     Some(match id {
         "REPO-NAME-01" => name_is_lower_kebab(context),
         "REPO-META-01" => description_declared(context),
@@ -52,8 +52,8 @@ fn name_is_lower_kebab(context: &AuditContext) -> Verdict {
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
-            Remediation::new(
-                ActionGroup::RENAME_REPOSITORY,
+            Fix::new(
+                FixGroup::RENAME_REPOSITORY,
                 format!("Rename the repository to lower-kebab-case; `{name}` is not."),
             ),
         )
@@ -70,8 +70,8 @@ fn description(context: &AuditContext) -> Result<String, Box<Verdict>> {
             "description_not_declared",
             ".github/repo-settings.yml",
             "the declared settings file has no non-empty `description`",
-            Remediation::new(
-                ActionGroup::DECLARE_DESCRIPTION,
+            Fix::new(
+                FixGroup::DECLARE_DESCRIPTION,
                 "Add a one-sentence `description:` to .github/repo-settings.yml.",
             ),
         ))),
@@ -107,8 +107,8 @@ fn description_shape(context: &AuditContext) -> Verdict {
             "description_too_long",
             ".github/repo-settings.yml",
             format!("the description is {length} characters, over the {MAX_CHARS} limit"),
-            Remediation::new(
-                ActionGroup::SHORTEN_DESCRIPTION,
+            Fix::new(
+                FixGroup::SHORTEN_DESCRIPTION,
                 format!("Cut the description to {MAX_CHARS} characters or fewer."),
             ),
         );
@@ -124,8 +124,8 @@ fn description_shape(context: &AuditContext) -> Verdict {
             "description_is_multiple_sentences",
             ".github/repo-settings.yml",
             format!("the description reads as {sentences} sentences"),
-            Remediation::new(
-                ActionGroup::SINGLE_SENTENCE_DESCRIPTION,
+            Fix::new(
+                FixGroup::SINGLE_SENTENCE_DESCRIPTION,
                 "Reduce the description to one sentence.",
             ),
         );
@@ -147,15 +147,15 @@ fn topics(context: &AuditContext) -> Result<Vec<String>, Box<Verdict>> {
             "topics_not_declared",
             ".github/repo-settings.yml",
             "the declared settings file has no `topics` list",
-            Remediation::new(
-                ActionGroup::DECLARE_TOPICS,
+            Fix::new(
+                FixGroup::DECLARE_TOPICS,
                 "Add a `topics:` list to .github/repo-settings.yml.",
             ),
         ))
     })
 }
 
-fn topic_count(rule: &RuleInstance, context: &AuditContext) -> Verdict {
+fn topic_count(rule: &EffectiveRule, context: &AuditContext) -> Verdict {
     let minimum = rule
         .param_u64("min-topics")
         .expect("registered integer default") as usize;
@@ -173,8 +173,8 @@ fn topic_count(rule: &RuleInstance, context: &AuditContext) -> Verdict {
                 "{} topics are declared; the policy expects between {minimum} and {maximum}",
                 topics.len()
             ),
-            Remediation::new(
-                ActionGroup::ADJUST_TOPICS,
+            Fix::new(
+                FixGroup::ADJUST_TOPICS,
                 format!("Declare between {minimum} and {maximum} topics."),
             ),
         )
@@ -238,8 +238,8 @@ fn topic_vocabulary(context: &AuditContext) -> Verdict {
             "topic_category_missing",
             ".github/repo-settings.yml",
             format!("no declared topic is {}", missing.join(" or ")),
-            Remediation::new(
-                ActionGroup::ADD_TOPIC,
+            Fix::new(
+                FixGroup::ADD_TOPIC,
                 format!("Add a topic from the {} vocabulary.", missing.join(" and ")),
             ),
         )
@@ -295,15 +295,15 @@ fn topics_are_catalogued(context: &AuditContext) -> Verdict {
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
-            Remediation::new(
-                ActionGroup::CATALOGUE_TOPIC,
+            Fix::new(
+                FixGroup::CATALOGUE_TOPIC,
                 "Add the topic to the reference vocabulary, or use one already there.",
             ),
         )
     }
 }
 
-fn no_org_topic(rule: &RuleInstance, context: &AuditContext) -> Verdict {
+fn no_org_topic(rule: &EffectiveRule, context: &AuditContext) -> Verdict {
     let topics = try_verdict!(topics(context));
     let mut org_names = match rule.param_strings("org-names") {
         Ok(Some(names)) => names,
@@ -341,8 +341,8 @@ fn no_org_topic(rule: &RuleInstance, context: &AuditContext) -> Verdict {
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
-            Remediation::new(
-                ActionGroup::REMOVE_ORG_TOPIC,
+            Fix::new(
+                FixGroup::REMOVE_ORG_TOPIC,
                 "Remove the organisation-name topic.",
             ),
         )
@@ -356,8 +356,8 @@ fn merge_settings_declared(context: &AuditContext) -> Verdict {
             "merge_settings_not_declared",
             ".github/repo-settings.yml",
             "the declared settings file has no `merge` block",
-            Remediation::new(
-                ActionGroup::DECLARE_MERGE_SETTINGS,
+            Fix::new(
+                FixGroup::DECLARE_MERGE_SETTINGS,
                 "Declare squash and rebase enabled, merge commits disabled, and head branches \
                  auto-deleted.",
             ),
@@ -389,8 +389,8 @@ fn merge_settings_declared(context: &AuditContext) -> Verdict {
             "merge_settings_wrong",
             ".github/repo-settings.yml",
             wrong.join("; "),
-            Remediation::new(
-                ActionGroup::CORRECT_MERGE_SETTINGS,
+            Fix::new(
+                FixGroup::CORRECT_MERGE_SETTINGS,
                 "Declare squash and rebase enabled, merge commits disabled, and head branches \
                  auto-deleted.",
             ),
@@ -405,8 +405,8 @@ fn no_visibility_declared(context: &AuditContext) -> Verdict {
             "visibility_declared",
             ".github/repo-settings.yml",
             "the declared settings file carries a `visibility` field",
-            Remediation::new(
-                ActionGroup::REMOVE_VISIBILITY,
+            Fix::new(
+                FixGroup::REMOVE_VISIBILITY,
                 "Remove `visibility` from .github/repo-settings.yml. Publishing a repository is \
                  unrecoverable and stays a deliberate manual act.",
             ),
@@ -420,7 +420,7 @@ fn no_visibility_declared(context: &AuditContext) -> Verdict {
     }
 }
 
-fn live_matches_declared(def: &CheckDefinition, context: &AuditContext) -> Verdict {
+fn live_matches_declared(def: &RuleDefinition, context: &AuditContext) -> Verdict {
     let settings = try_verdict!(repo_settings(context));
     let live = &context.snapshot.repository;
 
@@ -491,8 +491,8 @@ fn live_matches_declared(def: &CheckDefinition, context: &AuditContext) -> Verdi
                 "live metadata differs from the declared file in {}",
                 drift.join(", ")
             ),
-            Remediation::new(
-                ActionGroup::RUN_ALIGN,
+            Fix::new(
+                FixGroup::RUN_ALIGN,
                 "Use Airlock's operator terminal interface, or fix the declared file. Drift means \
                  the declared and live settings have not been aligned; `airlock align-files` \
                  cannot write repository settings.",
@@ -565,7 +565,7 @@ features:
         assert_eq!(verdict.status, None);
         assert_eq!(
             verdict.evidence.expect("admin-only evidence").code,
-            crate::registry::MERGE_SETTINGS_DISCLOSURE.evidence_code
+            crate::rules::MERGE_SETTINGS_DISCLOSURE.evidence_code
         );
     }
 

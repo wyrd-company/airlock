@@ -1,0 +1,31 @@
+//! REPO-FILE-09.
+//
+// relationships:
+//   references: rules
+
+use crate::fix::{fix, FixKind};
+use crate::rules::{Lifecycle, Observation, RuleDefinition, Section, Severity};
+
+pub(crate) const RULE: RuleDefinition = RuleDefinition {
+    id: "REPO-FILE-09",
+    statement: "`.config/lefthook.yml` exists",
+    severity: Severity::Advisory,
+    section: Section::Files,
+    params: &[],
+    guidance: "File presence",
+    fix: fix(
+        "add-lefthook-config",
+        "REPO-FILE-09",
+        FixKind::Airlock,
+        "Add the `.config/lefthook.yml` required by the rule.",
+        true,
+    ),
+    lifecycle: Lifecycle::Seeded,
+    observation: Observation::FileTree,
+    api_gate: false,
+    owner_gate: false,
+    release_units_gate: false,
+    required_topic_categories: None,
+    disclosure_gate: None,
+    unbuilt_reason: None,
+};

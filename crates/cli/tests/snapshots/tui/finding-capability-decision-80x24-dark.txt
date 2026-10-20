@@ -16,13 +16,13 @@ evidence.capability   declared below
   property            release                                                   
   value               true                                                      
                                                                                 
-REMEDIATION                                                                     
-remediation_class                                                               
+FIX                                                                             
+fix_class                                                                       
   code                redesign-release-trigger                                  
   change              Make release a `workflow_dispatch` on a pinned source SHA.
-  lane                judgment-file                                             
+  fix kind            agent                                                     
 — 0 lines above · 21 below · ↑↓ moves the window —                              
-esc back · a remediation transcript · o re-observe this rule · 3 more…          
+esc back · a fix transcript · o re-observe this rule · 3 more…                  
 not evaluated · run error; complete: false                                      
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
@@ -41,13 +41,13 @@ jjjjjjjjjjjjjjjjjjjjjjhhhhhhhhhhhhhhdddddddddddddddddddddddddddddddddddddddddddd
 jjjjjjjjjjjjjjjjjjjjjjhhhhhhhddddddddddddddddddddddddddddddddddddddddddddddddddd
 jjjjjjjjjjjjjjjjjjjjjjhhhhdddddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-iiiiiiiiiiiddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-jjjjjjjjjjjjjjjjjddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+iiiddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+jjjjjjjjjddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 jjjjjjjjjjjjjjjjjjjjjjhhhhhhhhhhhhhhhhhhhhhhhhdddddddddddddddddddddddddddddddddd
 jjjjjjjjjjjjjjjjjjjjjjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh
-jjjjjjjjjjjjjjjjjjjjjjhhhhhhhhhhhhhddddddddddddddddddddddddddddddddddddddddddddd
+jjjjjjjjjjjjjjjjjjjjjjhhhhhddddddddddddddddddddddddddddddddddddddddddddddddddddd
 jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjdddddddddddddddddddddddddddddd
-eeedhhhhjjjedhhhhhhhhhhhhhhhhhhhhhhjjjedhhhhhhhhhhhhhhhhhhhhjjjkkkkkkkdddddddddd
+eeedhhhhjjjedhhhhhhhhhhhhhhjjjedhhhhhhhhhhhhhhhhhhhhjjjkkkkkkkdddddddddddddddddd
 llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
 --- legend ---
 a fg=#CBD3DD bg=#14181D BOLD

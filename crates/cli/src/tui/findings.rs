@@ -1,4 +1,4 @@
-//! The findings screen: the whole standard as a work queue.
+//! The findings screen: the whole rule as a work queue.
 //!
 //! Every rule the policy enables produces exactly one finding, and every
 //! finding is either aligned or it is not. Nothing is triaged away as
@@ -20,8 +20,8 @@
 use ratatui::style::Modifier;
 use ratatui::text::{Line, Span};
 
-use airlock_core::findings::{Finding, Outcome, Report, Status, Summary};
-use airlock_core::registry::{self, Severity};
+use airlock_core::findings::{AuditResult, Finding, Report, Status, Summary};
+use airlock_core::rules::{self, Severity};
 
 use crate::admin::sign_in::Density;
 use crate::admin::text::{drawable, sanitize};
@@ -34,7 +34,7 @@ use super::theme::{Role, Styles};
 
 /// The most a rule id may be on a line the queue writes for itself.
 ///
-/// The registry's longest is fourteen characters. It bounds the queue's own
+/// The rules's longest is fourteen characters. It bounds the queue's own
 /// prose about a rule — a blocker banner, a repository name — and never the
 /// rule id a row draws, which is bounded by the column it draws it in.
 const RULE_LIMIT: usize = 24;
@@ -103,11 +103,11 @@ pub enum Group {
     Judgment,
     /// The undecided lane.
     Unanswered,
-    /// Facts the registry declares behind a disclosure gate.
+    /// Facts the rules declare behind a disclosure gate.
     AdminOnly,
     /// Suppressed failures: standing debt.
     Authorized,
-    /// Standards outside their declared scope.
+    /// Rules outside their declared scope.
     OutOfScope,
     /// Evaluated Met outcomes.
     Aligned,
@@ -173,12 +173,12 @@ impl Group {
             }
             Self::Judgment => "unbuilt checks and gaps that need agent reasoning",
             Self::Unanswered => "the undecided lane; the remedy often sits outside the repository",
-            Self::AdminOnly => "standards routed to the settling surface their declared gate names",
+            Self::AdminOnly => "rules routed to the settling surface their declared gate names",
             Self::Authorized => {
-                "standards not evaluated at severity none; their reasons remain visible"
+                "rules not evaluated at severity none; their reasons remain visible"
             }
             Self::OutOfScope => "no declared release units; no Met or Gap outcome",
-            Self::Aligned => "standards whose compiled checks decided Met",
+            Self::Aligned => "rules whose compiled checks decided Met",
         }
     }
 
@@ -234,7 +234,7 @@ impl Group {
                  credential is write-capable, so gated facts resolve under it"
             }
             Self::Authorized => "the policy authorized no failure",
-            Self::OutOfScope => "no standard is outside its declared scope",
+            Self::OutOfScope => "no rule is outside its declared scope",
             Self::Aligned => "no compiled check decided Met",
         }
     }
@@ -300,7 +300,7 @@ impl Deliveries {
 /// A choice among named sets rather than a text entry: nothing here types, so
 /// no key is captured and both chrome surfaces keep offering everything they
 /// offer. The whole working set is the default, because a default that narrowed
-/// what the operator saw first would hide part of the standard.
+/// what the operator saw first would hide part of the rule.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum FilterSet {
     /// Every finding, which is what the screen opens on.
@@ -380,7 +380,7 @@ pub struct Row {
     /// What the audit concluded.
     pub status: Option<Status>,
     pub result_label: String,
-    /// The section the registry gives the rule.
+    /// The section the rules gives the rule.
     pub section: String,
     /// The group this row takes.
     pub group: Group,
@@ -396,9 +396,9 @@ pub struct Row {
     /// together, and no second path exists by which a server-supplied string
     /// could reach a cell.
     pub detail: Detail,
-    /// The compiled remediation code, when one is declared.
-    pub remediation: Option<String>,
-    /// What the compiled remediation would change.
+    /// The compiled fix code, when one is declared.
+    pub fix: Option<String>,
+    /// What the compiled fix would change.
     pub change: Option<String>,
     /// Whether a later operation can reverse it.
     pub reversible: Option<bool>,
@@ -435,7 +435,7 @@ pub struct Blocker {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Verdict {
     /// The overall conclusion.
-    pub outcome: Outcome,
+    pub outcome: AuditResult,
     /// Whether every rule at a gating severity was decided.
     pub complete: bool,
     /// Whether the gate is satisfied.
@@ -461,8 +461,8 @@ pub struct Queue {
     /// Every finding, ordered by group and then by rule id.
     pub rows: Vec<Row>,
     /// The gate the effective policy declared.
-    /// The registry version the run attests to.
-    pub registry_version: String,
+    /// The rules version the run attests to.
+    pub rules_version: String,
     /// What produced the reading, and what it was of.
     pub provenance: Provenance,
 }
@@ -503,7 +503,7 @@ impl Queue {
             summary: report.summary.clone(),
             blockers,
             rows,
-            registry_version: sanitize(&report.airlock.registry_version, RULE_LIMIT),
+            rules_version: sanitize(&report.airlock.rules_version, RULE_LIMIT),
             provenance: Provenance::of(report),
         }
     }
@@ -565,9 +565,9 @@ fn group_of(finding: &Finding) -> Group {
     match finding.status {
         None => Group::Unanswered,
         Some(Status::Met) => Group::Aligned,
-        Some(Status::Gap) => match finding.remediation_class.lane.as_deref() {
-            Some("operator-setting") => Group::Settings,
-            Some("deterministic-file" | "judgment-file") => Group::AgentWork,
+        Some(Status::Gap) => match finding.fix_class.fix_kind.as_deref() {
+            Some("operator") => Group::Settings,
+            Some("airlock" | "agent") => Group::AgentWork,
             _ => Group::Judgment,
         },
     }
@@ -576,8 +576,8 @@ fn group_of(finding: &Finding) -> Group {
 /// What the row says beyond its statement, where its group requires something.
 fn note_of(finding: &Finding, group: Group, _severity: Severity) -> Option<String> {
     if let Some(route) = &finding.routing {
-        let grant = registry::find(&finding.rule)
-            .and_then(registry::CheckDefinition::disclosure_gate)
+        let grant = rules::find(&finding.rule)
+            .and_then(rules::RuleDefinition::disclosure_gate)
             .map_or(String::new(), |gate| {
                 format!("grant {} · ", gate.requires.code())
             });
@@ -597,9 +597,9 @@ fn note_of(finding: &Finding, group: Group, _severity: Severity) -> Option<Strin
 
     match group {
         // The grant the fact requires and the surface the gate names, both read
-        // from the registry declaration rather than composed here.
-        Group::AdminOnly => registry::find(&finding.rule)
-            .and_then(registry::CheckDefinition::disclosure_gate)
+        // from the rules declaration rather than composed here.
+        Group::AdminOnly => rules::find(&finding.rule)
+            .and_then(rules::RuleDefinition::disclosure_gate)
             .map(|declared| {
                 format!(
                     "grant {} \u{b7} verified by {}",
@@ -613,15 +613,15 @@ fn note_of(finding: &Finding, group: Group, _severity: Severity) -> Option<Strin
         // The only remaining move is a person's, so the declared reason is what
         // says why airlock is not the one making it.
         Group::Judgment if finding.status == Some(Status::Gap) => {
-            Some(finding.remediation_class.none_reason.as_ref().map_or_else(
-                || "airlock declares no remediation classification for this rule".to_owned(),
-                |reason| format!("no remediation: {}", sanitize(reason, REASON_LIMIT)),
+            Some(finding.fix_class.none_reason.as_ref().map_or_else(
+                || "airlock declares no fix classification for this rule".to_owned(),
+                |reason| format!("no fix: {}", sanitize(reason, REASON_LIMIT)),
             ))
         }
-        // Standing debt keeps its remediation: authorizing a failure does not
+        // Standing debt keeps its fix: authorizing a failure does not
         // delete the fix for it.
         Group::Authorized => finding
-            .remediation_class
+            .fix_class
             .change
             .as_ref()
             .map(|change| format!("still on offer: {}", sanitize(change, REASON_LIMIT))),
@@ -632,7 +632,7 @@ fn note_of(finding: &Finding, group: Group, _severity: Severity) -> Option<Strin
 fn row(
     finding: &Finding,
     deliveries: &Deliveries,
-    effective_policy: &[airlock_core::findings::EffectiveRule],
+    effective_policy: &[airlock_core::findings::EffectiveRuleRecord],
 ) -> Row {
     let severity = Severity::parse(&finding.severity).unwrap_or(Severity::Advisory);
     let group = group_of(finding);
@@ -650,7 +650,7 @@ fn row(
         severity,
         status: finding.status,
         result_label: finding.status_code().to_owned(),
-        section: registry::find(&finding.rule).map_or_else(
+        section: rules::find(&finding.rule).map_or_else(
             || "not registered".to_owned(),
             |check| check.section.code().to_owned(),
         ),
@@ -658,20 +658,14 @@ fn row(
         delivery: deliveries.get(&finding.rule),
         note: note_of(finding, group, severity),
         detail: Detail::of(finding, effective_policy),
-        remediation: declaration.map_or_else(
-            || {
-                finding
-                    .remediation_class
-                    .code
-                    .as_ref()
-                    .map(|value| drawable(value))
-            },
+        fix: declaration.map_or_else(
+            || finding.fix_class.code.as_ref().map(|value| drawable(value)),
             |_| Some("declare-capability-property".to_owned()),
         ),
         change: declaration.map_or_else(
             || {
                 finding
-                    .remediation_class
+                    .fix_class
                     .change
                     .as_ref()
                     .map(|value| sanitize(value, REASON_LIMIT))
@@ -684,7 +678,7 @@ fn row(
                 ))
             },
         ),
-        reversible: declaration.map_or(finding.remediation_class.reversible, |_| Some(false)),
+        reversible: declaration.map_or(finding.fix_class.reversible, |_| Some(false)),
         capability: declaration.map(|value| (value.property.clone(), value.value.clone())),
     }
 }
@@ -821,7 +815,7 @@ pub enum Entry {
 /// The entries the queue draws, in order.
 ///
 /// Every group heading is present whatever the filter and whatever is
-/// collapsed, so the whole standard is always addressable and every count is
+/// collapsed, so the whole rule is always addressable and every count is
 /// always in view.
 #[must_use]
 pub fn entries(queue: &Queue, state: &State) -> Vec<Entry> {
@@ -876,15 +870,15 @@ pub fn focused_row<'a>(queue: &'a Queue, entries: &[Entry], selected: usize) -> 
 }
 
 /// The status line: the verdict, `complete` as its own boolean, the rule count,
-/// the registry version, and the gate in force.
+/// the rules version, and the gate in force.
 #[must_use]
 pub fn status(queue: &Queue) -> String {
     format!(
-        "{} \u{b7} complete {} \u{b7} {} rules \u{b7} registry {} \u{b7} gate {}",
+        "{} \u{b7} complete {} \u{b7} {} rules \u{b7} rules {} \u{b7} gate {}",
         queue.verdict.outcome.code(),
         queue.verdict.complete,
         queue.rows.len(),
-        queue.registry_version,
+        queue.rules_version,
         "blocking"
     )
 }
@@ -1085,9 +1079,9 @@ fn blockers(styles: Styles, width: usize, queue: &Queue, density: Density) -> Ve
 fn verdict(styles: Styles, width: usize, queue: &Queue) -> Vec<Line<'static>> {
     let outcome = queue.verdict.outcome;
     let glyph = match outcome {
-        Outcome::Conformant => Some(Status::Met),
-        Outcome::Nonconformant => Some(Status::Gap),
-        Outcome::Incomplete => None,
+        AuditResult::Conformant => Some(Status::Met),
+        AuditResult::Nonconformant => Some(Status::Gap),
+        AuditResult::Incomplete => None,
     };
     let aligned = queue.count(Group::Aligned);
     let total = queue.rows.len();
@@ -1332,7 +1326,7 @@ fn row_lines(
     let room = width.saturating_sub(SPENT);
     if one_line(row, width, density) {
         // The fact is allocated out of everything the row has left, before the
-        // section takes its column: the section is bounded registry vocabulary
+        // section takes its column: the section is bounded rules vocabulary
         // and elides the way every bounded field here does, and the fact is
         // what the group exists to carry.
         let fact = fact(row, room);
@@ -1366,7 +1360,7 @@ fn row_lines(
             let left = room.saturating_sub(fact.chars().count() + 3);
             // A section cut to a character and an ellipsis tells a reader
             // nothing and reads as a fault, so below that it gives way
-            // altogether. It is bounded registry vocabulary and the finding
+            // altogether. It is bounded rules vocabulary and the finding
             // detail carries it; the fact is what the row cannot lose.
             if left < SECTION_STUB {
                 fact
@@ -1389,7 +1383,7 @@ fn row_lines(
 /// The fact arrives already allocated, because which of the two is allocated
 /// first is the whole question: the fact is what the group exists to carry —
 /// the delivery state of a file-level gap, the grant an admin-only fact
-/// requires, or why airlock declares no remediation. A statement the width
+/// requires, or why airlock declares no fix. A statement the width
 /// cannot hold is shortened; a fact is never shortened to make room for one.
 fn detail(fact: Option<String>, statement: &str, room: usize) -> String {
     let Some(fact) = fact else {
@@ -1504,14 +1498,14 @@ pub mod fixture {
 
     use super::{Deliveries, Delivery};
     use airlock_core::findings::{
-        AirlockIdentity, AuditedRepository, EffectiveRule, Evidence, Finding, FindingError,
-        ObservationRecord, PolicyIdentity, PolicySourceIdentity, Remediation, RemediationClass,
-        Report, Status, Suppression, SuppressionSource,
+        AirlockIdentity, AuditedRepository, EffectiveRuleRecord, Evidence, Finding, FindingError,
+        Fix, FixClass, ObservationRecord, PolicyIdentity, PolicySourceIdentity, Report, Status,
+        Suppression, SuppressionSource,
     };
-    use airlock_core::registry::{self, Severity};
-    use airlock_core::remediation::ActionGroup;
+    use airlock_core::fix::FixGroup;
+    use airlock_core::rules::{self, Severity};
 
-    /// One finding, with the registry's own classification joined onto it.
+    /// One finding, with the rules's own classification joined onto it.
     #[must_use]
     pub fn finding(rule: &str, severity: Severity, status: Option<Status>) -> Finding {
         Finding {
@@ -1520,8 +1514,8 @@ pub mod fixture {
             severity: severity.code().to_owned(),
             status,
             evidence: None,
-            remediation: None,
-            remediation_class: RemediationClass::for_rule(rule),
+            fix: None,
+            fix_class: FixClass::for_rule(rule),
             suppression: None,
             source: Some("api".to_owned()),
             error: None,
@@ -1537,7 +1531,7 @@ pub mod fixture {
     /// would make every screen that reads it look emptier than any run is.
     #[must_use]
     pub fn report(findings: Vec<Finding>) -> Report {
-        let mut effective_policy: Vec<EffectiveRule> = Vec::new();
+        let mut effective_policy: Vec<EffectiveRuleRecord> = Vec::new();
         for finding in &findings {
             if effective_policy
                 .iter()
@@ -1545,14 +1539,13 @@ pub mod fixture {
             {
                 continue;
             }
-            effective_policy.push(EffectiveRule {
+            effective_policy.push(EffectiveRuleRecord {
                 rule: finding.rule.clone(),
                 severity: finding.severity.clone(),
                 params: BTreeMap::new(),
                 provenance: format!(
                     "capability:base/{}",
-                    registry::find(&finding.rule)
-                        .map_or("unregistered", |check| check.section.code())
+                    rules::find(&finding.rule).map_or("unregistered", |check| check.section.code())
                 ),
             });
         }
@@ -1571,8 +1564,8 @@ pub mod fixture {
                 source: "./policy.yml".to_owned(),
                 commit: None,
                 sources: vec![PolicySourceIdentity {
-                    name: "standards".to_owned(),
-                    source: "acme-industries/.github:standards.yml".to_owned(),
+                    name: "rules".to_owned(),
+                    source: "acme-industries/.github:rules.yml".to_owned(),
                     commit: Some("b".repeat(40)),
                     blob_sha: Some("c".repeat(40)),
                     content_digest: "sha256:2".to_owned(),
@@ -1587,16 +1580,16 @@ pub mod fixture {
 
     /// A failure whose declared lane is a setting: airlock closes it.
     ///
-    /// It carries a contextual remediation as well as the rule's declared
+    /// It carries a contextual fix as well as the rule's declared
     /// classification, because a real failing rule does: the classification
-    /// says what the rule's gap always takes, and the remediation is what this
+    /// says what the rule's gap always takes, and the fix is what this
     /// run produced to carry out.
     #[must_use]
     pub fn settings_failure() -> Finding {
         let mut finding = finding("REPO-GIT-01", Severity::Blocking, Some(Status::Gap));
         finding.evidence = Some(Evidence::new("branch_unprotected", "no ruleset applies"));
-        finding.remediation = Some(Remediation::new(
-            ActionGroup::TIGHTEN_RULESET,
+        finding.fix = Some(Fix::new(
+            FixGroup::TIGHTEN_RULESET,
             "Protect the default branch with a ruleset that requires a pull request.",
         ));
         finding
@@ -1604,14 +1597,14 @@ pub mod fixture {
 
     /// A settings-level failure this run produced no remedy for.
     ///
-    /// The rule is classified `operator-setting` and the run offered nothing to
+    /// The rule is classified `operator` and the run offered nothing to
     /// carry out. The two facts live on different fields and a surface that
     /// reads only the classification cannot tell this apart from the case
     /// above — which is the whole reason it is a fixture.
     #[must_use]
     pub fn settings_failure_without_a_remedy() -> Finding {
         let mut finding = settings_failure();
-        finding.remediation = None;
+        finding.fix = None;
         finding
     }
 
@@ -1700,9 +1693,9 @@ pub mod fixture {
     /// takes one away.
     #[must_use]
     pub fn long_fact() -> Report {
-        let mut unremediable = finding("REPO-DOCS-05", Severity::Advisory, Some(Status::Gap));
-        unremediable.remediation_class = RemediationClass {
-            lane: None,
+        let mut unfixable = finding("REPO-DOCS-05", Severity::Advisory, Some(Status::Gap));
+        unfixable.fix_class = FixClass {
+            fix_kind: None,
             code: None,
             change: None,
             reversible: None,
@@ -1713,7 +1706,7 @@ pub mod fixture {
             ),
         };
         report(vec![
-            unremediable,
+            unfixable,
             finding("REPO-META-01", Severity::Blocking, Some(Status::Met)),
         ])
     }
@@ -1739,12 +1732,9 @@ pub mod fixture {
             long("evidence-path"),
             long("evidence-detail"),
         ));
-        failed.remediation = Some(Remediation::new(
-            ActionGroup::TIGHTEN_RULESET,
-            long("remediation-detail"),
-        ));
-        failed.remediation_class = RemediationClass {
-            lane: Some("operator-setting".to_owned()),
+        failed.fix = Some(Fix::new(FixGroup::TIGHTEN_RULESET, long("fix-detail")));
+        failed.fix_class = FixClass {
+            fix_kind: Some("operator".to_owned()),
             code: Some(long("class-code")),
             change: Some(long("class-change")),
             reversible: Some(true),
@@ -1752,12 +1742,12 @@ pub mod fixture {
         };
         let mut errored = finding("REPO-GIT-09", Severity::Blocking, None);
         errored.statement = long("error-statement");
-        errored.remediation_class = RemediationClass {
-            lane: None,
+        errored.fix_class = FixClass {
+            fix_kind: None,
             code: None,
             change: None,
             reversible: None,
-            none_reason: Some(long("no-remediation-reason")),
+            none_reason: Some(long("no-fix-reason")),
         };
         errored.error = Some(FindingError {
             cause: long("cause"),
@@ -1772,8 +1762,8 @@ pub mod fixture {
         let mut suppressed =
             crate::tui::findings::fixture::waived(finding("REPO-CI-02", Severity::Blocking, None));
         suppressed.statement = long("suppressed-statement");
-        suppressed.remediation_class = RemediationClass {
-            lane: Some("deterministic-file".to_owned()),
+        suppressed.fix_class = FixClass {
+            fix_kind: Some("airlock".to_owned()),
             code: Some(long("suppressed-class-code")),
             change: Some(long("suppressed-class-change")),
             reversible: Some(false),
@@ -1794,8 +1784,8 @@ pub mod fixture {
         // here so a bound reintroduced anywhere on that path is caught by the
         // same fixture rather than by the next review.
         report.airlock.version = long("airlock-version");
-        report.airlock.registry_version = long("registry-version");
-        report.airlock.registry_digest = long("registry-digest");
+        report.airlock.rules_version = long("rules-version");
+        report.airlock.rules_digest = long("rules-digest");
         report.repository.audited_commit = long("audited-commit");
         report.repository.settings_observed_at = Some(long("settings-observed"));
         report.repository.full_name = long("repository-name");
@@ -1831,7 +1821,7 @@ mod tests {
     use super::*;
     use crate::tui::chrome::{FLOOR_HEIGHT, FLOOR_WIDTH, REFERENCE_HEIGHT, REFERENCE_WIDTH};
     use crate::tui::theme::{ColorMode, Theme};
-    use airlock_core::findings::{Evidence, FindingError, RemediationClass};
+    use airlock_core::findings::{Evidence, FindingError, FixClass};
 
     fn styles() -> Styles {
         Styles::new(Theme::Dark, ColorMode::Color)
@@ -1917,10 +1907,10 @@ mod tests {
     }
 
     #[test]
-    fn a_failure_with_no_declared_remediation_stands_with_the_judgments_and_says_why() {
+    fn a_failure_with_no_declared_fix_stands_with_the_judgments_and_says_why() {
         let mut finding = finding("REPO-XX-99", Severity::Blocking, Some(Status::Gap));
-        finding.remediation_class = RemediationClass {
-            lane: None,
+        finding.fix_class = FixClass {
+            fix_kind: None,
             code: None,
             change: None,
             reversible: None,
@@ -1936,20 +1926,17 @@ mod tests {
     }
 
     #[test]
-    fn a_long_remediation_code_round_trips_through_the_queue_row() {
+    fn a_long_fix_code_round_trips_through_the_queue_row() {
         let finding = finding("REPO-GIT-06", Severity::Blocking, Some(Status::Gap));
         let expected = finding
-            .remediation_class
+            .fix_class
             .code
             .clone()
-            .expect("REPO-GIT-06 has a remediation code");
+            .expect("REPO-GIT-06 has a fix code");
 
         let queue = queue(vec![finding]);
 
-        assert_eq!(
-            queue.rows[0].remediation.as_deref(),
-            Some(expected.as_str())
-        );
+        assert_eq!(queue.rows[0].fix.as_deref(), Some(expected.as_str()));
     }
 
     #[test]
@@ -2064,7 +2051,7 @@ mod tests {
     }
 
     #[test]
-    fn an_admin_only_row_states_the_grant_and_the_surface_the_registry_declares() {
+    fn an_admin_only_row_states_the_grant_and_the_surface_the_rules_declares() {
         let queue = queue(vec![crate::tui::findings::fixture::routed(finding(
             "REPO-GIT-04",
             Severity::Advisory,
@@ -2543,7 +2530,7 @@ mod tests {
             .rows
             .iter()
             .find(|row| row.group == Group::Judgment)
-            .expect("the failure with no declared remediation");
+            .expect("the failure with no declared fix");
         let reason = row.note.clone().expect("the declared reason");
 
         // The floor has no reading of it to give, so it says so and prints no
@@ -2582,7 +2569,7 @@ mod tests {
                 &finding("REPO-DOCS-05", Severity::Advisory, Some(Status::Gap)),
                 &[],
             ),
-            remediation: None,
+            fix: None,
             change: None,
             reversible: None,
             capability: None,
@@ -2700,11 +2687,11 @@ mod tests {
         let status = status(&queue);
         assert!(status.contains("complete"), "{status}");
         assert!(status.contains("9 rules"), "{status}");
-        assert!(status.contains("registry"), "{status}");
+        assert!(status.contains("rules"), "{status}");
         assert!(status.contains("gate blocking"), "{status}");
     }
     #[test]
-    fn out_of_scope_standards_have_their_own_non_gating_group() {
+    fn out_of_scope_rules_have_their_own_non_gating_group() {
         let mut entry = finding("REPO-LIC-04", Severity::Blocking, None);
         entry.routing = Some(airlock_core::findings::Routing {
             reason: "out-of-scope".to_owned(),

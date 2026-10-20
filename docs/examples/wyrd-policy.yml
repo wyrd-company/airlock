@@ -10,10 +10,10 @@
 version: 1
 name: wyrd-company
 
-# Refuse to run against a binary whose check registry predates this policy.
-# The registry version moves when a rule, statement, severity, or declared
+# Refuse to run against a binary whose rules predate this policy.
+# The rules version moves when a rule, statement, severity, or declared
 # gate changes, so an upgrade cannot quietly change the audit.
-requires-registry: ">=0.6, <0.7"
+requires-rules: ">=0.6, <0.7"
 
 # Blocking Gaps fail the audit; advisory Gaps are reported.
 
@@ -29,7 +29,7 @@ capabilities:
     - docs
     - classification
   # Compiled release-unit boundaries report out-of-scope when no units are declared.
-  registry:
+  rules:
     - release
 
 checks:

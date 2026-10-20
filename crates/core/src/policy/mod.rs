@@ -22,7 +22,7 @@ use sha2::{Digest, Sha256};
 
 use crate::github::GitHub;
 use crate::limits::Limits;
-use crate::registry::{self, CheckDefinition, Section, Severity, REGISTRY_VERSION};
+use crate::rules::{self, RuleDefinition, Section, Severity, RULES_VERSION};
 use crate::snapshot::read_file_at;
 use crate::yaml::{self, Yaml};
 use crate::{Error, Result};
@@ -72,9 +72,9 @@ pub enum PolicySource {
 
 /// One rule instance in the effective, normalised policy.
 #[derive(Debug, Clone, PartialEq)]
-pub struct RuleInstance {
-    /// The registry definition.
-    pub def: &'static CheckDefinition,
+pub struct EffectiveRule {
+    /// The rules definition.
+    pub def: &'static RuleDefinition,
     /// The severity after refinement.
     pub severity: Severity,
     /// The parameters after refinement.
@@ -83,7 +83,7 @@ pub struct RuleInstance {
     pub provenance: String,
 }
 
-impl RuleInstance {
+impl EffectiveRule {
     /// An integer parameter, falling back to its compiled default.
     #[must_use]
     pub fn param_u64(&self, name: &str) -> Option<u64> {
@@ -91,7 +91,7 @@ impl RuleInstance {
             .get(name)
             .and_then(serde_json::Value::as_u64)
             .or_else(|| match self.def.parameter_default(name)? {
-                crate::registry::ParameterDefault::Integer(value) => Some(value),
+                crate::rules::ParameterDefault::Integer(value) => Some(value),
                 _ => None,
             })
     }
@@ -103,7 +103,7 @@ impl RuleInstance {
             .get(name)
             .and_then(serde_json::Value::as_str)
             .or_else(|| match self.def.parameter_default(name)? {
-                crate::registry::ParameterDefault::String(value) => Some(value),
+                crate::rules::ParameterDefault::String(value) => Some(value),
                 _ => None,
             })
     }
@@ -117,7 +117,7 @@ impl RuleInstance {
 
     /// A list parameter, falling back to its compiled default.
     ///
-    /// `Ok(None)` means neither the policy nor the standard defines it. An entry
+    /// `Ok(None)` means neither the policy nor the rule defines it. An entry
     /// that is not a string is a malformed parameter rather than one fewer value: a policy
     /// declaring `org-names: [wyrd-company, 42]` must not quietly check
     /// against one org name.
@@ -132,7 +132,7 @@ impl RuleInstance {
     ) -> std::result::Result<Option<Vec<String>>, MalformedParam> {
         let Some(value) = self.params.get(name) else {
             return Ok(match self.def.parameter_default(name) {
-                Some(crate::registry::ParameterDefault::Strings(values)) => {
+                Some(crate::rules::ParameterDefault::Strings(values)) => {
                     Some(values.iter().map(|value| (*value).to_owned()).collect())
                 }
                 _ => None,
@@ -162,7 +162,7 @@ impl RuleInstance {
 
 /// Resolve the same string parameter for evaluation and file authoring.
 pub(crate) fn resolve_string_parameter(
-    definition: &CheckDefinition,
+    definition: &RuleDefinition,
     params: &BTreeMap<String, serde_json::Value>,
     name: &str,
     owner: Option<&str>,
@@ -170,7 +170,7 @@ pub(crate) fn resolve_string_parameter(
     if let Some(value) = params.get(name).and_then(serde_json::Value::as_str) {
         return Some(value.to_owned());
     }
-    let registry::ParameterDefault::String(value) = definition.parameter_default(name)? else {
+    let rules::ParameterDefault::String(value) = definition.parameter_default(name)? else {
         return None;
     };
     if value.contains("{owner}") {
@@ -290,7 +290,7 @@ pub struct ResolvedPolicy {
     /// Every source in the bundle, in resolution order.
     pub sources: Vec<BundleSource>,
     /// The effective rule instances, ordered by rule id.
-    pub rules: Vec<RuleInstance>,
+    pub rules: Vec<EffectiveRule>,
     /// Who may suppress what.
     pub suppressions: SuppressionAuthority,
     /// Reference data, by name.
@@ -308,7 +308,7 @@ pub struct Capability {
 impl ResolvedPolicy {
     /// The rule instance for `id`, if the policy enabled it.
     #[must_use]
-    pub fn rule(&self, id: &str) -> Option<&RuleInstance> {
+    pub fn rule(&self, id: &str) -> Option<&EffectiveRule> {
         self.rules.iter().find(|rule| rule.def.id == id)
     }
 }
@@ -316,7 +316,7 @@ impl ResolvedPolicy {
 const KNOWN_TOP_LEVEL_KEYS: &[&str] = &[
     "version",
     "name",
-    "requires-registry",
+    "requires-rules",
     "capabilities",
     "checks",
     "suppressions",
@@ -392,7 +392,7 @@ capabilities:
 ";
 
     #[test]
-    fn compiled_policy_reads_defaults_from_each_standard() {
+    fn compiled_policy_reads_defaults_from_each_rule() {
         let policy = compile_text(
             "version: 1\nname: test\ncapabilities:\n  base: [identity, files, git, automation]\n",
         )
@@ -496,7 +496,7 @@ capabilities:
         assert_eq!(policy.name, "test");
         assert_eq!(
             policy.rules.len(),
-            registry::in_section(Section::Licensing).len()
+            rules::in_section(Section::Licensing).len()
         );
         assert_eq!(policy.rules[0].provenance, "capability:base/licensing");
     }
@@ -620,14 +620,14 @@ capabilities:
     }
 
     #[test]
-    fn an_incompatible_registry_requirement_is_a_policy_error() {
-        let error = compile_text(&format!("{MINIMAL}requires-registry: \">=9.0\"\n")).unwrap_err();
-        assert!(error.to_string().contains("requires-registry"));
+    fn an_incompatible_rules_requirement_is_a_policy_error() {
+        let error = compile_text(&format!("{MINIMAL}requires-rules: \">=9.0\"\n")).unwrap_err();
+        assert!(error.to_string().contains("requires-rules"));
     }
 
     #[test]
-    fn a_satisfied_registry_requirement_compiles() {
-        assert!(compile_text(&format!("{MINIMAL}requires-registry: \">=0.1\"\n")).is_ok());
+    fn a_satisfied_rules_requirement_compiles() {
+        assert!(compile_text(&format!("{MINIMAL}requires-rules: \">=0.1\"\n")).is_ok());
     }
 
     #[test]

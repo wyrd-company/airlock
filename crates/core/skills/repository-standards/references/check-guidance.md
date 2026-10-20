@@ -1,6 +1,6 @@
 # Check Guidance
 
-This reference is generated from the compiled Airlock registry.
+This reference is generated from the compiled Airlock rules.
 
 | Id | Guidance |
 | --- | --- |

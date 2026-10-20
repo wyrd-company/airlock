@@ -22,21 +22,21 @@ background:
     annotated messages defined by its tag-record specification. Airlock reads an
     audited revision through the GitHub REST API: it resolves the commit, lists
     its recursive tree and reads blobs within byte budgets. Organization
-    configuration supplies parameters and exceptions to compiled standards.
+    configuration supplies parameters and exceptions to compiled rules.
 
   problems:
     - >-
-      No standard states which templates an organization expects a repository
+      No rule states which templates an organization expects a repository
       to have applied, and no configuration can name them.
     - >-
       Toha records a template's source and commit, not a version, so an
       organization has no stated rule for which recorded revisions it accepts.
     - >-
       The Release Model declares a release-record policy per Release Unit, and
-      no standard verifies it.
+      no rule verifies it.
 design-challenges:
   identity-without-checkout: >-
-    Airlock never clones and never runs Git. Every fact the two standards use
+    Airlock never clones and never runs Git. Every fact the two rules use
     must come from REST endpoints, including the ancestry of a template commit
     in a repository other than the audited one.
   revision-not-version: >-
@@ -51,32 +51,32 @@ design-challenges:
 
   answers-at-the-audited-revision: >-
     The applied record holds the answers used to render the process, including
-    the Release Model document. A standard reads these answers and the committed
+    the Release Model document. A rule reads these answers and the committed
     model at the same audited revision. Missing answers are evidence for the
-    standard that requires them, not a reason to consult another revision.
+    rule that requires them, not a reason to consult another revision.
 
   baseline-is-not-a-release: >-
     A baseline tag matches the primary tag template like a release tag does.
-    The release-record standard must tell them apart by a recorded signal, not
+    The release-record rule must tell them apart by a recorded signal, not
     by the version number.
   absence-is-a-claim: >-
-    Both standards report Gaps for things that are absent: a record, an entry,
+    Both rules report Gaps for things that are absent: a record, an entry,
     a release record. An absence must be established from a listing Airlock saw
     in full, never inferred from a truncated or unread one.
 proposed-design:
   high-level-overview: >-
-    Two compiled standards read JSON documents validated against vendored
+    Two compiled rules read JSON documents validated against vendored
     schemas. `REPO-TPL-01` requires each expected parent at an accepted revision
     and accepts only the parts the organization lists. `REPO-REL-08` requires a
     published GitHub Release on each primary tag of a Release Unit whose policy
     is `required`, excluding baseline tag records. Recorded answers come from
-    the applied record at the configured path. Release and delivery standards
+    the applied record at the configured path. Release and delivery rules
     inspect the fixed `.github/workflows/release.yml`, dispatched on a source
     commit with delivery inside it. Evaluations report Met or Gap with structured
-    evidence; API-dependent standards are routed in a credential-free run.
+    evidence; API-dependent rules are routed in a credential-free run.
     Airlock never writes and never spawns a subprocess.
 
-  standards: >-
+  rules: >-
     `REPO-TPL-01`, statement "The repository applies each template the
     organization expects, at an accepted revision and with only accepted parts".
     Default severity is compiled `blocking`. Organization policy may lower it,
@@ -86,7 +86,7 @@ proposed-design:
     (default `.toha.json`). An empty `templates` list is absent required
     configuration: effective severity is `none`, visibly not configured. Each
     listed parent is required on every governed repository; a nonempty list uses
-    the compiled severity unless the organization sets an exception. The standard
+    the compiled severity unless the organization sets an exception. The rule
     governs the `building` rung and above in the release-process scope described
     by classification-and-scope. `REPO-REL-08`, statement "Every release of a
     Release Unit whose release-record policy is required has a release record on
@@ -96,18 +96,18 @@ proposed-design:
     parameter definitions and evaluation categories are compiled.
 
   classification-and-scope: >-
-    In the capability configuration, `REPO-TPL-01` belongs to the `registry`
+    In the capability configuration, `REPO-TPL-01` belongs to the `rules`
     group alongside `release`, never `base`. Capability groups select sections;
     the org example includes the release section. Compiled release-unit boundaries
-    list standards as out-of-scope when no release units are declared, without an
+    list rules as out-of-scope when no release units are declared, without an
     outcome or exit effect. Scope is a declared boundary, not a policy predicate.
     In the classification model, capability selectors disappear;
-    compiled standards use the org-owned audience, family and category that
+    compiled rules use the org-owned audience, family and category that
     identify repositories with a versioned release process. This is the same
     release-process scope, with maturity observed separately. A repository
     outside that scope is not governed by template identity, even when the
     organization lists templates. A repository in scope cannot evade the
-    standard by deleting its model, record or workflow: these are evidence,
+    rule by deleting its model, record or workflow: these are evidence,
     not classification inputs. Unclassified repositories are undeclared work,
     not Met and not Gap. The two-file configuration carries exceptions only;
     it does not reintroduce a capability selector.
@@ -115,7 +115,7 @@ proposed-design:
   expected-template-configuration: |-
     The organization supplies both `record-path` and `templates` under
     `exceptions.REPO-TPL-01` in its `.github/airlock.yml`. A `reason` is required
-    as for every exception. Both are standard parameters, not top-level org
+    as for every exception. Both are rule parameters, not top-level org
     settings. The repository file cannot supply either parameter. The
     organization exception is the configuration location for these values.
 
@@ -210,7 +210,7 @@ proposed-design:
     met-and-gap-reporting states.
 
   recorded-answers-reading: >-
-    A standard that needs recorded answers reads `answers.<question id>` in
+    A rule that needs recorded answers reads `answers.<question id>` in
     the matched application of the validated applied record, as Toha's
     record-answers defines. The release template records the document at
     `answers.release_model`; the part question is absent from `answers` and its
@@ -219,9 +219,9 @@ proposed-design:
     (record-paths); neither is an alternative answers source. Answers contain
     names and choices, never secret values; credential answers are names only.
     The consumer names the question it needs and reports a missing or invalid
-    answer as a Gap for that standard. `ci_workflow` names the CI workflow for
+    answer as a Gap for that rule. `ci_workflow` names the CI workflow for
     REPO-REL-06; the release workflow path itself is fixed and needs no answer.
-    A standard comparing the rendered model with the committed model compares
+    A rule comparing the rendered model with the committed model compares
     `answers.release_model` with `.intentional/release-model.json` at the same
     audited commit (Toha's release-model-agreement). REPO-REL-08 uses the committed
     model's policy and does not make that comparison. Airlock never renders a
@@ -272,13 +272,13 @@ proposed-design:
     `baseline: true` is a baseline tag record and is excluded. A lightweight
     tag, or an annotated tag whose message is not a tag record, is not a
     release Intentional made and is excluded. Every excluded tag is listed in
-    the evidence with its reason. The standard lists releases with `GET
+    the evidence with its reason. The rule lists releases with `GET
     /repos/{owner}/{repository}/releases?per_page=100`, following every page,
     and indexes the published ones by `tag_name`; a draft is not a release
     record. A release of the unit is Met when a published release has its tag
     name, and a Gap otherwise. A prerelease is a release record. A unit with
     `release_record: none` is not examined, and a release record on its tags
-    is neither required nor reported. The standard examines every release in
+    is neither required nor reported. The rule examines every release in
     the repository's history. A tag or release listing that GitHub truncated,
     or that exceeds Airlock's page budget, is a run error, because the absence
     of a release record was never established. A missing Release Model at the
@@ -290,7 +290,7 @@ proposed-design:
     `intentional check` reports a stale model.
 
   met-and-gap-reporting: >-
-    Each evaluated standard reports one outcome, Met or Gap, decided only by
+    Each evaluated rule reports one outcome, Met or Gap, decided only by
     its compiled check. An agent assessment attaches as advisory evidence;
     it never changes that outcome or the exit code. A compiled Met remains
     Met when the agent disagrees or has not assessed it. A compiled Gap
@@ -323,24 +323,24 @@ proposed-design:
     A missing or invalid model is a Gap before any vacuous all-releases Met.
     An empty set of qualifying releases after a valid model is Met.
 
-    Each Gap has the standard's effective severity, `blocking` or `advisory`.
+    Each Gap has the rule's effective severity, `blocking` or `advisory`.
     Severity `none` prevents evaluation and is listed with its waiver reason or
     as not configured. A run error is not an outcome: exit `2` names endpoint
     and cause. API failures, truncated listings, byte/page-budget exhaustion,
     and configured template refs that cannot resolve are run errors, not Gaps.
 
-    Every standard whose compiled evaluation reads a GitHub-API-only fact
+    Every rule whose compiled evaluation reads a GitHub-API-only fact
     declares that requirement in compiled metadata. This includes
     `REPO-TPL-01` for template ancestry, `REPO-REL-08` for tags and releases,
     and `REPO-CD-03` for the API default branch name. Without a credential,
-    each such standard is routed whole with reason `needs-github-api` and
+    each such rule is routed whole with reason `needs-github-api` and
     the credentialed API-tree audit or Action named as the settling surface.
-    A tree-based standard can use local files without this gate when it needs
+    A tree-based rule can use local files without this gate when it needs
     no API-only fact; `REPO-REL-05` and `REPO-REL-06` evaluate the workflow
-    evidence described in delivery-standard-alignment and query no live head
+    evidence described in delivery-rule-alignment and query no live head
     or Actions runs. Reading the same files through the API-tree audit does
     not make their facts API-only. Routed is neither Met nor Gap, does not
-    affect exit status, and is listed beside waivers. Other standards still
+    affect exit status, and is listed beside waivers. Other rules still
     evaluate and set the exit code. A credentialed endpoint failure is a run
     error, never routing.
 
@@ -394,14 +394,14 @@ proposed-design:
     `REPO-CD-03` reads `/repos/{owner}/{repository}` for `default_branch`,
     which it uses to match the deployment workflow's push trigger. No audit
     read of the live default branch head or Actions runs is made for
-    `REPO-REL-05` or `REPO-REL-06`: those standards inspect workflow evidence.
-    These reads use the audit's existing read-only credential. Every standard
+    `REPO-REL-05` or `REPO-REL-06`: those rules inspect workflow evidence.
+    These reads use the audit's existing read-only credential. Every rule
     that requires an API-only fact declares the gate in met-and-gap-reporting.
     There are no mutating endpoints, no schema-URI fetch during an audit and
     no subprocess. The credential must
     read every configured template repository.
 
-  delivery-standard-alignment: >-
+  delivery-rule-alignment: >-
     The delivery workflow is `.github/workflows/release.yml`, with delivery
     jobs in the dispatched release run. No `cd.yml` is rendered or required for
     this process. The statements below govern the release-process scope from
@@ -418,7 +418,7 @@ proposed-design:
     workflow that actually owns delivery.
 
     `REPO-CD-02` is merged into `REPO-REL-04` for this scope and its tag-pattern
-    parameter is retired. Statement at the surviving standard: "release.yml runs
+    parameter is retired. Statement at the surviving rule: "release.yml runs
     only by workflow_dispatch on a pinned source commit". Evaluation: Airlock
     checks the sole trigger is workflow_dispatch, a required source-sha input,
     and checkout of that input. An agent's review of source-sha validation and
@@ -447,7 +447,7 @@ proposed-design:
     baseline records, reject an empty release set, and gate build,
     release-record and publication jobs on the resolved set. An agent may
     attach an advisory assessment of those controls. A GitHub Release may be
-    created for a required unit in the same run; this standard permits it. It guards release selection,
+    created for a required unit in the same run; this rule permits it. It guards release selection,
     not workflow separation.
 
     `REPO-CD-06`: "Every credential declared by selected publication parts is
@@ -482,17 +482,17 @@ proposed-design:
     source-sha. Thus an audit has no live-run presence requirement. A run from
     another workflow, commit or event cannot satisfy the workflow gate. An
     agent may attach an advisory assessment of these guards and failure
-    paths. Both standards inspect the fixed release workflow rather than
-    cd.yml. For every standard described here, only the compiled check
+    paths. Both rules inspect the fixed release workflow rather than
+    cd.yml. For every rule described here, only the compiled check
     decides Met or Gap; no missing or conflicting agent assessment changes
     that outcome. The agent's advisory evidence remains separate, as
     met-and-gap-reporting states. No Manual outcome is introduced.
 
-    Compiled severities and override rules of retained CD and release standards
+    Compiled severities and override rules of retained CD and release rules
     stay as defined; the re-alignment maps their required severity to advisory.
-    Registry statements, dispatch logic, guidance and the generated conformance
-    reference must be changed together when these standards are implemented.
-    This design changes no registry or check code.
+    Rule statements, dispatch logic, guidance and the generated conformance
+    reference must be changed together when these rules are implemented.
+    This design changes no rules or check code.
 
   alternatives-considered: >-
     A list of accepted commits requires an organization edit for every template
@@ -517,5 +517,5 @@ proposed-design:
     Selecting the publication targets a repository needs. Release Model
     staleness against Intentional configuration. Tag record integrity beyond
     syntax, schema validity and the release-selection fields, which Intentional
-    verify owns. Release note contents. Registry, reader, schema and template
+    verify owns. Release note contents. Rules, reader, schema and template
     implementation. No migration reader for private Toha refs.

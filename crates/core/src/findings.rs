@@ -1,7 +1,7 @@
 //! The audit result document.
 //!
 //! One audit run produces one findings document: the audited repository, the
-//! resolved policy identity and digest, and one record per selected standard.
+//! resolved policy identity and digest, and one record per selected rule.
 //! Decided findings, waivers, routing, unbuilt, out-of-scope, and run errors have
 //! separate lists and summary counts. Every finding carries its statement and
 //! severity inline, so a reader never has to look up what a bare rule
@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 
 use serde::Serialize;
 
-use crate::{registry::REGISTRY_VERSION, ActionGroup};
+use crate::{rules::RULES_VERSION, FixGroup};
 
 /// The version of the JSON document shape.
 pub const SCHEMA_VERSION: u32 = 2;
@@ -38,7 +38,7 @@ impl Status {
     pub const ALL: &'static [Self] = &[Self::Met, Self::Gap];
 }
 
-/// A declared gate left this standard to another run or surface.
+/// A declared gate left this rule to another run or surface.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Routing {
     pub reason: String,
@@ -48,7 +48,7 @@ pub struct Routing {
 /// What the audit concluded overall.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub enum Outcome {
+pub enum AuditResult {
     /// The run completed with no blocking Gaps.
     Conformant,
     /// The run completed with at least one blocking Gap.
@@ -57,14 +57,14 @@ pub enum Outcome {
     Incomplete,
 }
 
-impl Outcome {
+impl AuditResult {
     /// The process exit code carrying this outcome.
     #[must_use]
     pub fn exit_code(self) -> u8 {
         match self {
-            Outcome::Conformant => 0,
-            Outcome::Nonconformant => 1,
-            Outcome::Incomplete => 2,
+            AuditResult::Conformant => 0,
+            AuditResult::Nonconformant => 1,
+            AuditResult::Incomplete => 2,
         }
     }
 
@@ -72,9 +72,9 @@ impl Outcome {
     #[must_use]
     pub fn code(self) -> &'static str {
         match self {
-            Outcome::Conformant => "conformant",
-            Outcome::Nonconformant => "nonconformant",
-            Outcome::Incomplete => "incomplete",
+            AuditResult::Conformant => "conformant",
+            AuditResult::Nonconformant => "nonconformant",
+            AuditResult::Incomplete => "incomplete",
         }
     }
 }
@@ -145,49 +145,49 @@ impl Evidence {
 
 /// What to do about a failure.
 ///
-/// The action group supports display and cross-rule grouping. The rule-level
-/// join key and delivery lane live on [`RemediationClass`].
+/// The fix group supports display and cross-rule grouping. The rule-level
+/// join key and delivery fix kind live on [`FixClass`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct Remediation {
+pub struct Fix {
     /// The declared family of actions this contextual remedy belongs to.
-    pub action_group: ActionGroup,
+    pub fix_group: FixGroup,
     /// Human-readable detail.
     pub detail: String,
 }
 
-impl Remediation {
-    /// Build a remediation.
+impl Fix {
+    /// Build a fix.
     #[must_use]
-    pub fn new(action_group: ActionGroup, detail: impl Into<String>) -> Self {
+    pub fn new(fix_group: FixGroup, detail: impl Into<String>) -> Self {
         Self {
-            action_group,
+            fix_group,
             detail: detail.into(),
         }
     }
 }
 
-/// The rule's declared remediation classification, from the remediation
+/// The rule's declared fix classification, from the fix
 /// model.
 ///
-/// Registry defaults are joined onto every finding. A compiled Gap reason
+/// Rules defaults are joined onto every finding. A compiled Gap reason
 /// can refine the default when the rule has fixes requiring different actors.
-/// Exactly one of `lane` and `none_reason` is set. The contextual
-/// [`Remediation`] says what to do here; this says who can do it.
+/// Exactly one of `fix_kind` and `none_reason` is set. The contextual
+/// [`Fix`] says what to do here; this says who can do it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct RemediationClass {
-    /// The lane the remediation travels in, when there is one.
-    pub lane: Option<String>,
+pub struct FixClass {
+    /// The fix kind the fix travels in, when there is one.
+    pub fix_kind: Option<String>,
     /// The per-rule consumer join key, when there is one.
     pub code: Option<String>,
-    /// What the remediation would change, when there is one.
+    /// What the fix would change, when there is one.
     pub change: Option<String>,
-    /// Whether the change can be undone, when there is a remediation.
+    /// Whether the change can be undone, when there is a fix.
     pub reversible: Option<bool>,
-    /// Why no remediation is offered, when none is.
+    /// Why no fix is offered, when none is.
     pub none_reason: Option<String>,
 }
 
-impl RemediationClass {
+impl FixClass {
     /// Classify a release-record observation without changing rule-level defaults.
     #[must_use]
     pub fn for_observation(rule: &str, evidence: Option<&Evidence>) -> Self {
@@ -203,7 +203,7 @@ impl RemediationClass {
                 )
             })
         {
-            class.lane = Some(crate::remediation::Lane::JudgmentFile.code().to_owned());
+            class.fix_kind = Some(crate::fix::FixKind::Agent.code().to_owned());
             class.code = Some("regenerate-release-model".to_owned());
             class.change =
                 Some("Run intentional model and commit the supported Release Model.".to_owned());
@@ -213,30 +213,30 @@ impl RemediationClass {
 
     /// The declared classification for a rule.
     ///
-    /// A rule the registry does not know yields the shape with all five
-    /// fields null — distinguishable from a declared no-remediation, which
-    /// always carries `none_reason`. The remediation model's coverage test
+    /// A rule the rules do not know yields the shape with all five
+    /// fields null — distinguishable from a declared no-fix, which
+    /// always carries `none_reason`. The fix model's coverage test
     /// keeps that shape unreachable for registered rules; synthetic rule ids
     /// in tests are the only place it appears.
     #[must_use]
     pub fn for_rule(rule: &str) -> Self {
-        match crate::remediation::classify(rule) {
-            Some(crate::remediation::Classification::Remediation(definition)) => Self {
-                lane: Some(definition.lane.code().to_owned()),
+        match crate::fix::classify(rule) {
+            Some(crate::fix::FixAvailability::Fix(definition)) => Self {
+                fix_kind: Some(definition.fix_kind.code().to_owned()),
                 code: Some(definition.code.to_owned()),
                 change: Some(definition.change.to_owned()),
                 reversible: Some(definition.reversible),
                 none_reason: None,
             },
-            Some(crate::remediation::Classification::NotRemediable { reason, .. }) => Self {
-                lane: None,
+            Some(crate::fix::FixAvailability::NotFixable { reason, .. }) => Self {
+                fix_kind: None,
                 code: None,
                 change: None,
                 reversible: None,
                 none_reason: Some((*reason).to_owned()),
             },
             None => Self {
-                lane: None,
+                fix_kind: None,
                 code: None,
                 change: None,
                 reversible: None,
@@ -313,20 +313,20 @@ pub struct Finding {
     /// What was observed.
     pub evidence: Option<Evidence>,
     /// What to do about it.
-    pub remediation: Option<Remediation>,
-    /// What closing this rule's gap takes, from the remediation model.
-    pub remediation_class: RemediationClass,
+    pub fix: Option<Fix>,
+    /// What closing this rule's gap takes, from the fix model.
+    pub fix_class: FixClass,
     /// Why it does not count.
     pub suppression: Option<Suppression>,
     /// The observation source that decided it: `api` or `working-tree`.
     ///
     /// Null when no observation decided the finding — a judgment rule, a
-    /// rule the registry has not implemented, or a platform rule in a run
+    /// rule the rules have not implemented, or a platform rule in a run
     /// with no API credential.
     pub source: Option<String>,
     /// What stopped the evaluation.
     pub error: Option<FindingError>,
-    /// The declared gate, when this standard was not evaluated here.
+    /// The declared gate, when this rule was not evaluated here.
     pub routing: Option<Routing>,
 }
 
@@ -392,7 +392,7 @@ pub struct PolicyObservation {
 
 /// One rule instance in the effective, normalised policy.
 #[derive(Debug, Clone, PartialEq, Serialize)]
-pub struct EffectiveRule {
+pub struct EffectiveRuleRecord {
     /// The rule id.
     pub rule: String,
     /// The severity that applies after refinement.
@@ -408,10 +408,10 @@ pub struct EffectiveRule {
 pub struct AirlockIdentity {
     /// The airlock version.
     pub version: String,
-    /// The check registry version.
-    pub registry_version: String,
-    /// The check registry content digest.
-    pub registry_digest: String,
+    /// The rules version.
+    pub rules_version: String,
+    /// The rules content digest.
+    pub rules_digest: String,
 }
 
 impl AirlockIdentity {
@@ -420,8 +420,8 @@ impl AirlockIdentity {
     pub fn current(version: &str) -> Self {
         Self {
             version: version.to_owned(),
-            registry_version: REGISTRY_VERSION.to_owned(),
-            registry_digest: crate::registry::digest(),
+            rules_version: RULES_VERSION.to_owned(),
+            rules_digest: crate::rules::digest(),
         }
     }
 }
@@ -478,7 +478,7 @@ pub struct PolicyIdentity {
     pub bundle_digest: String,
 }
 
-/// Counts of decided standards and visible work not evaluated.
+/// Counts of decided rules and visible work not evaluated.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct Summary {
     pub met: usize,
@@ -568,10 +568,10 @@ pub struct Report {
     /// The policy it ran under.
     pub policy: PolicyIdentity,
     /// Every rule instance the policy compiled to.
-    pub effective_policy: Vec<EffectiveRule>,
+    pub effective_policy: Vec<EffectiveRuleRecord>,
     /// Things noticed that are not about one enabled rule.
     pub policy_observations: Vec<PolicyObservation>,
-    /// Evaluated standards only, ordered by rule id.
+    /// Evaluated rules only, ordered by rule id.
     pub findings: Vec<Finding>,
     pub waived: Vec<Finding>,
     pub routed: Vec<Finding>,
@@ -585,7 +585,7 @@ pub struct Report {
     /// Whether the observed Gaps include no blocking Gap.
     pub conformant: bool,
     /// The overall conclusion.
-    pub outcome: Outcome,
+    pub outcome: AuditResult,
 }
 
 impl Report {
@@ -609,7 +609,7 @@ impl Report {
         repository: AuditedRepository,
         observation: ObservationRecord,
         policy: PolicyIdentity,
-        effective_policy: Vec<EffectiveRule>,
+        effective_policy: Vec<EffectiveRuleRecord>,
         policy_observations: Vec<PolicyObservation>,
         mut findings: Vec<Finding>,
     ) -> Self {
@@ -658,11 +658,11 @@ impl Report {
             .any(|f| f.status == Some(Status::Gap) && f.severity == "blocking");
 
         let outcome = if !complete {
-            Outcome::Incomplete
+            AuditResult::Incomplete
         } else if conformant {
-            Outcome::Conformant
+            AuditResult::Conformant
         } else {
-            Outcome::Nonconformant
+            AuditResult::Nonconformant
         };
 
         Self {

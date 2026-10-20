@@ -1,16 +1,16 @@
 //! Files: what must be present, what must not be, and what must be a symlink.
 
-use crate::findings::Remediation;
-use crate::policy::RuleInstance;
+use crate::findings::Fix;
+use crate::policy::EffectiveRule;
 use crate::snapshot::FileState;
-use crate::ActionGroup;
+use crate::FixGroup;
 
 use super::{presence, AuditContext, Verdict};
 
 /// Every place GitHub honours a CODEOWNERS file.
 const CODEOWNERS_PATHS: &[&str] = &["CODEOWNERS", ".github/CODEOWNERS", "docs/CODEOWNERS"];
 
-pub(crate) fn run(id: &str, rule: &RuleInstance, context: &AuditContext) -> Option<Verdict> {
+pub(crate) fn run(id: &str, rule: &EffectiveRule, context: &AuditContext) -> Option<Verdict> {
     Some(match id {
         "REPO-FILE-01" => presence(context, "README.md", "README.md"),
         "REPO-FILE-02" => presence(context, "CONTRIBUTING.md", "CONTRIBUTING.md"),
@@ -68,8 +68,8 @@ fn gitattributes(context: &AuditContext) -> Verdict {
             "line_endings_not_normalised",
             ".gitattributes",
             ".gitattributes does not normalise line endings",
-            Remediation::new(
-                ActionGroup::NORMALISE_LINE_ENDINGS,
+            Fix::new(
+                FixGroup::NORMALISE_LINE_ENDINGS,
                 "Add `* text=auto` to .gitattributes.",
             ),
         )
@@ -81,7 +81,7 @@ fn taskfile(context: &AuditContext) -> Verdict {
         return Verdict::pass_at("file_present", "taskfile.yml", "taskfile.yml is present");
     }
     // A capitalised or differently-suffixed taskfile is a different failure
-    // from having none at all, and the remediation differs too.
+    // from having none at all, and the fix differs too.
     let alternatives = ["Taskfile.yml", "Taskfile.yaml", "taskfile.yaml"];
     if let Some(found) = alternatives
         .iter()
@@ -91,8 +91,8 @@ fn taskfile(context: &AuditContext) -> Verdict {
             "taskfile_misnamed",
             found,
             format!("the taskfile is named `{found}` rather than `taskfile.yml`"),
-            Remediation::new(
-                ActionGroup::RENAME_TASKFILE,
+            Fix::new(
+                FixGroup::RENAME_TASKFILE,
                 format!("Rename {found} to taskfile.yml."),
             ),
         );
@@ -123,15 +123,15 @@ fn ci_workflow(context: &AuditContext) -> Verdict {
         None => Verdict::fail(
             "ci_workflow_missing",
             "no workflow under .github/workflows/ triggers on pull_request",
-            Remediation::new(
-                ActionGroup::ADD_CI_WORKFLOW,
+            Fix::new(
+                FixGroup::ADD_CI_WORKFLOW,
                 "Add a CI workflow triggered on pull_request.",
             ),
         ),
     }
 }
 
-fn renovate(rule: &RuleInstance, context: &AuditContext) -> Verdict {
+fn renovate(rule: &EffectiveRule, context: &AuditContext) -> Verdict {
     let Some(text) = context.text(".github/renovate.json") else {
         return presence(context, ".github/renovate.json", ".github/renovate.json");
     };
@@ -153,8 +153,8 @@ fn renovate(rule: &RuleInstance, context: &AuditContext) -> Verdict {
             "renovate_extends_nothing",
             ".github/renovate.json",
             ".github/renovate.json extends no preset",
-            Remediation::new(
-                ActionGroup::EXTEND_ORG_PRESET,
+            Fix::new(
+                FixGroup::EXTEND_ORG_PRESET,
                 "Extend the organisation's shared renovate preset.",
             ),
         );
@@ -179,8 +179,8 @@ fn renovate(rule: &RuleInstance, context: &AuditContext) -> Verdict {
                 ".github/renovate.json extends {} rather than `{expected}`",
                 extends.join(", ")
             ),
-            Remediation::new(
-                ActionGroup::EXTEND_ORG_PRESET,
+            Fix::new(
+                FixGroup::EXTEND_ORG_PRESET,
                 format!("Extend `{expected}` in .github/renovate.json."),
             ),
         )
@@ -206,8 +206,8 @@ fn devcontainer(context: &AuditContext) -> Verdict {
             "directory_missing",
             ".devcontainer",
             ".devcontainer/ is absent",
-            Remediation::new(
-                ActionGroup::ADD_DEVCONTAINER,
+            Fix::new(
+                FixGroup::ADD_DEVCONTAINER,
                 "Add a .devcontainer/ definition.",
             ),
         )
@@ -232,8 +232,8 @@ fn claude_symlink(context: &AuditContext) -> Verdict {
                     "symlink_target_wrong",
                     "CLAUDE.md",
                     format!("CLAUDE.md is a symlink to `{target}` rather than `AGENTS.md`"),
-                    Remediation::new(
-                        ActionGroup::RELINK_CLAUDE_MD,
+                    Fix::new(
+                        FixGroup::RELINK_CLAUDE_MD,
                         "Point the CLAUDE.md symlink at AGENTS.md.",
                     ),
                 )
@@ -243,8 +243,8 @@ fn claude_symlink(context: &AuditContext) -> Verdict {
             "not_a_symlink",
             "CLAUDE.md",
             "CLAUDE.md is a regular file rather than a symlink to AGENTS.md",
-            Remediation::new(
-                ActionGroup::REPLACE_WITH_SYMLINK,
+            Fix::new(
+                FixGroup::REPLACE_WITH_SYMLINK,
                 "Replace CLAUDE.md with a symlink to AGENTS.md.",
             ),
         ),
@@ -252,8 +252,8 @@ fn claude_symlink(context: &AuditContext) -> Verdict {
             "file_missing",
             "CLAUDE.md",
             "CLAUDE.md is absent",
-            Remediation::new(
-                ActionGroup::ADD_SYMLINK,
+            Fix::new(
+                FixGroup::ADD_SYMLINK,
                 "Add CLAUDE.md as a symlink to AGENTS.md.",
             ),
         ),
@@ -264,7 +264,7 @@ fn claude_symlink(context: &AuditContext) -> Verdict {
 fn presence_fallback(context: &AuditContext, path: &str, state: &FileState) -> Verdict {
     let mut verdict = presence(context, path, path);
     // Preserve the established evidence text while delegating the state
-    // classification and remediation to the shared presence check.
+    // classification and fix to the shared presence check.
     match state {
         FileState::TreeTruncated => {
             verdict
@@ -287,7 +287,7 @@ fn presence_fallback(context: &AuditContext, path: &str, state: &FileState) -> V
     verdict
 }
 
-fn no_harness_config(rule: &RuleInstance, context: &AuditContext) -> Verdict {
+fn no_harness_config(rule: &EffectiveRule, context: &AuditContext) -> Verdict {
     let forbidden = match rule.param_strings("forbidden-paths") {
         Ok(Some(paths)) => paths,
         Ok(None) => unreachable!("registered list default"),
@@ -323,8 +323,8 @@ fn no_harness_config(rule: &RuleInstance, context: &AuditContext) -> Verdict {
         Verdict::fail(
             "harness_config_committed",
             format!("{} is committed", found.join(", ")),
-            Remediation::new(
-                ActionGroup::REMOVE_HARNESS_CONFIG,
+            Fix::new(
+                FixGroup::REMOVE_HARNESS_CONFIG,
                 "Remove the agent harness configuration; it belongs outside the repository.",
             ),
         )
@@ -358,10 +358,7 @@ fn no_codeowners(context: &AuditContext) -> Verdict {
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
-            Remediation::new(
-                ActionGroup::REMOVE_CODEOWNERS,
-                "Remove the CODEOWNERS file.",
-            ),
+            Fix::new(FixGroup::REMOVE_CODEOWNERS, "Remove the CODEOWNERS file."),
         )
     }
 }
@@ -393,9 +390,9 @@ fn audit_workflow(context: &AuditContext) -> Verdict {
             "audit_trigger_missing",
             &workflow.path,
             format!("the audit workflow does not trigger on {missing}"),
-            Remediation::new(
-                ActionGroup::ADD_AUDIT_WORKFLOW,
-                "Use the standard audit workflow with schedule and workflow_dispatch triggers.",
+            Fix::new(
+                FixGroup::ADD_AUDIT_WORKFLOW,
+                "Use the rule audit workflow with schedule and workflow_dispatch triggers.",
             ),
         )
     }

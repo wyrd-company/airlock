@@ -17,7 +17,7 @@ use ratatui::style::Modifier;
 use ratatui::text::{Line, Span};
 
 use airlock_core::findings::Status;
-use airlock_core::registry::Severity;
+use airlock_core::rules::Severity;
 
 use super::theme::{Role, Styles};
 

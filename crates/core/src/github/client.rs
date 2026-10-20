@@ -421,7 +421,7 @@ impl RestClient {
 
 fn transport_error(endpoint: &str, error: &reqwest::Error) -> ApiError {
     // A timeout is a budget failure, not a network failure: airlock chose the
-    // deadline, and the distinction changes the remediation.
+    // deadline, and the distinction changes the fix.
     let cause = if error.is_timeout() {
         ErrorCause::Budget
     } else {

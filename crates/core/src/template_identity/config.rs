@@ -3,7 +3,7 @@
 // relationships:
 //   implements: release-process-conformance
 
-use crate::policy::RuleInstance;
+use crate::policy::EffectiveRule;
 use crate::{Error, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
@@ -60,7 +60,7 @@ pub(crate) fn source(value: &str) -> Option<(&str, &str)> {
     (valid(owner) && valid(repo)).then_some((owner, repo))
 }
 
-pub(crate) fn expected(rule: &RuleInstance) -> Result<Vec<ExpectedTemplate>> {
+pub(crate) fn expected(rule: &EffectiveRule) -> Result<Vec<ExpectedTemplate>> {
     let value = rule
         .params
         .get("templates")
@@ -112,11 +112,11 @@ pub(crate) fn expected(rule: &RuleInstance) -> Result<Vec<ExpectedTemplate>> {
     Ok(entries)
 }
 
-pub(crate) fn record_path(rule: &RuleInstance) -> &str {
+pub(crate) fn record_path(rule: &EffectiveRule) -> &str {
     rule.param_str("record-path").unwrap_or(RECORD)
 }
 
-pub(crate) fn validate(rule: &RuleInstance) -> Result<()> {
+pub(crate) fn validate(rule: &EffectiveRule) -> Result<()> {
     if rule
         .params
         .get("record-path")

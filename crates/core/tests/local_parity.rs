@@ -19,8 +19,8 @@ use airlock_core::github::{
     TreeEntry,
 };
 use airlock_core::limits::Limits;
-use airlock_core::policy::{ResolvedPolicy, RuleInstance};
-use airlock_core::registry::{self, Observation};
+use airlock_core::policy::{EffectiveRule, ResolvedPolicy};
+use airlock_core::rules::{self, Observation};
 
 /// One fixture file: path, content, and whether it is a symlink target
 /// instead of regular content.
@@ -252,9 +252,9 @@ fn full_policy() -> ResolvedPolicy {
         commit: None,
         bundle_digest: "sha256:0".to_owned(),
         sources: Vec::new(),
-        rules: registry::CHECKS
+        rules: rules::RULES
             .iter()
-            .map(|def| RuleInstance {
+            .map(|def| EffectiveRule {
                 def,
                 severity: def.severity,
                 params: BTreeMap::new(),
@@ -282,7 +282,7 @@ fn file_rule_outcomes(report: &Report) -> BTreeMap<String, (String, Option<Strin
         .findings
         .iter()
         .filter(|finding| {
-            let def = registry::find(&finding.rule).expect("a registered rule");
+            let def = rules::find(&finding.rule).expect("a registered rule");
             def.observation() == Observation::FileTree && !def.needs_github_api()
         })
         .map(|finding| {
@@ -375,14 +375,14 @@ async fn every_finding_names_the_source_that_decided_it() {
 }
 
 #[tokio::test]
-async fn an_unobserved_platform_standard_is_routed_and_never_met() {
+async fn an_unobserved_platform_rule_is_routed_and_never_met() {
     let repo = committed_repository();
     let policy = full_policy();
     let report = audit::run_local(&policy, &options(), repo.path()).expect("the local audit runs");
 
     let mut gated = 0;
     for finding in report.entries() {
-        let def = registry::find(&finding.rule).expect("registered");
+        let def = rules::find(&finding.rule).expect("registered");
         if def.observation() == Observation::Platform {
             gated += 1;
             assert_eq!(
@@ -598,7 +598,7 @@ async fn decided_outcomes_match_the_integration_base() {
     }
 }
 
-fn policy_with_one(id: &str, severity: airlock_core::registry::Severity) -> ResolvedPolicy {
+fn policy_with_one(id: &str, severity: airlock_core::rules::Severity) -> ResolvedPolicy {
     let mut policy = full_policy();
     policy.rules.retain(|rule| rule.def.id == id);
     assert_eq!(policy.rules.len(), 1);
@@ -607,10 +607,10 @@ fn policy_with_one(id: &str, severity: airlock_core::registry::Severity) -> Reso
 }
 
 #[test]
-fn a_waived_standard_does_not_run_its_check() {
+fn a_waived_rule_does_not_run_its_check() {
     let repo = committed_repository();
     std::fs::write(repo.path().join(".github/renovate.json"), "{").unwrap();
-    let policy = policy_with_one("REPO-FILE-08", airlock_core::registry::Severity::None);
+    let policy = policy_with_one("REPO-FILE-08", airlock_core::rules::Severity::None);
     let report = audit::run_local(&policy, &options(), repo.path()).unwrap();
     assert_eq!(report.exit_code(), 0);
     assert!(report.findings.is_empty());
@@ -631,10 +631,10 @@ fn a_waived_standard_does_not_run_its_check() {
 }
 
 #[test]
-fn the_api_gate_routes_a_whole_file_tree_standard() {
+fn the_api_gate_routes_a_whole_file_tree_rule() {
     let repo = committed_repository();
     for id in ["REPO-CD-03", "REPO-REL-07", "REPO-REL-08"] {
-        let policy = policy_with_one(id, airlock_core::registry::Severity::Blocking);
+        let policy = policy_with_one(id, airlock_core::rules::Severity::Blocking);
         assert!(policy.rules[0].def.needs_github_api(), "{id}");
         let report = audit::run_local(&policy, &options(), repo.path()).unwrap();
         assert_eq!(report.exit_code(), 0);
@@ -650,7 +650,7 @@ fn the_api_gate_routes_a_whole_file_tree_standard() {
 
 #[tokio::test]
 async fn disclosure_routing_and_a_missing_input_without_a_gate_are_distinct() {
-    let policy = policy_with_one("REPO-GIT-04", airlock_core::registry::Severity::Blocking);
+    let policy = policy_with_one("REPO-GIT-04", airlock_core::rules::Severity::Blocking);
     let mut api = FakeGitHub::new();
     api.disclose_merge_settings = false;
     let report = audit::run(&api, "acme", "widget", &policy, &options(), None)
@@ -669,7 +669,7 @@ async fn disclosure_routing_and_a_missing_input_without_a_gate_are_distinct() {
     let repo = committed_repository();
     // No manifest can tell this check whether a registry package exists.
     std::fs::remove_file(repo.path().join("Cargo.toml")).unwrap();
-    let policy = policy_with_one("REPO-LIC-04", airlock_core::registry::Severity::Advisory);
+    let policy = policy_with_one("REPO-LIC-04", airlock_core::rules::Severity::Advisory);
     let report = audit::run_local(&policy, &options(), repo.path()).unwrap();
     assert_eq!(report.exit_code(), 2);
     assert!(report.findings.is_empty());
@@ -681,7 +681,7 @@ async fn disclosure_routing_and_a_missing_input_without_a_gate_are_distinct() {
 #[test]
 fn unbuilt_branches_preserve_decided_outcomes() {
     let repo = committed_repository();
-    let policy = policy_with_one("REPO-FILE-03", airlock_core::registry::Severity::Blocking);
+    let policy = policy_with_one("REPO-FILE-03", airlock_core::rules::Severity::Blocking);
     let unbuilt = audit::run_local(&policy, &options(), repo.path()).unwrap();
     assert_eq!(unbuilt.exit_code(), 0);
     assert_eq!(unbuilt.unbuilt.len(), 1);
@@ -700,7 +700,7 @@ fn unbuilt_branches_preserve_decided_outcomes() {
 #[test]
 fn missing_renovate_file_is_a_gap_before_the_owner_gate() {
     let repo = committed_repository();
-    let policy = policy_with_one("REPO-FILE-08", airlock_core::registry::Severity::Blocking);
+    let policy = policy_with_one("REPO-FILE-08", airlock_core::rules::Severity::Blocking);
     let gap = audit::run_local(&policy, &options(), repo.path()).unwrap();
     assert_eq!(gap.findings[0].status, Some(Status::Gap));
     assert_eq!(gap.exit_code(), 1);
@@ -723,8 +723,8 @@ fn severity_alone_controls_the_gap_exit_code() {
     let repo = committed_repository();
     std::fs::remove_file(repo.path().join("LICENSE")).unwrap();
     for (severity, expected) in [
-        (airlock_core::registry::Severity::Advisory, 0),
-        (airlock_core::registry::Severity::Blocking, 1),
+        (airlock_core::rules::Severity::Advisory, 0),
+        (airlock_core::rules::Severity::Blocking, 1),
     ] {
         let policy = policy_with_one("REPO-LIC-01", severity);
         let report = audit::run_local(&policy, &options(), repo.path()).unwrap();
@@ -789,7 +789,7 @@ async fn no_release_units_are_listed_out_of_scope_without_run_errors() {
     assert!(text.contains("out-of-scope: 5"), "{text}");
     let text = airlock_core::render::plan_text(&report);
     assert!(text.contains("out-of-scope (5)"), "{text}");
-    assert!(!text.contains("Every standard was evaluated"));
+    assert!(!text.contains("Every rule was evaluated"));
 }
 
 #[test]
@@ -809,7 +809,7 @@ fn release_unit_scope_distinguishes_absence_from_malformed_input() {
             "REPO-REL-03",
             "REPO-TASK-04",
         ] {
-            let policy = policy_with_one(id, airlock_core::registry::Severity::Blocking);
+            let policy = policy_with_one(id, airlock_core::rules::Severity::Blocking);
             let report = audit::run_local(&policy, &options(), repo.path()).unwrap();
             assert_eq!(report.exit_code(), 0, "{id}: {input:?}");
             assert_eq!(report.out_of_scope.len(), 1, "{id}: {input:?}");
@@ -828,7 +828,7 @@ fn release_unit_scope_distinguishes_absence_from_malformed_input() {
             "REPO-REL-03",
             "REPO-TASK-04",
         ] {
-            let policy = policy_with_one(id, airlock_core::registry::Severity::Advisory);
+            let policy = policy_with_one(id, airlock_core::rules::Severity::Advisory);
             let report = audit::run_local(&policy, &options(), repo.path()).unwrap();
             assert_eq!(report.exit_code(), 2, "{id}: {input:?}");
             assert_eq!(report.run_errors.len(), 1, "{id}");
@@ -841,7 +841,7 @@ fn release_unit_scope_distinguishes_absence_from_malformed_input() {
 fn include_namespaces_only_reach_the_scope_gate_when_a_comparison_is_needed() {
     let repo = committed_repository();
     std::fs::remove_file(repo.path().join(".intentional/config.yml")).unwrap();
-    let policy = policy_with_one("REPO-TASK-06", airlock_core::registry::Severity::Blocking);
+    let policy = policy_with_one("REPO-TASK-06", airlock_core::rules::Severity::Blocking);
     let report = audit::run_local(&policy, &options(), repo.path()).unwrap();
     assert_eq!(report.findings[0].status, Some(Status::Met));
     std::fs::write(
@@ -861,7 +861,7 @@ fn topic_policy() -> ResolvedPolicy {
         .rules
         .retain(|rule| matches!(rule.def.id, "REPO-META-07" | "REPO-META-09"));
     for rule in &mut policy.rules {
-        rule.severity = airlock_core::registry::Severity::Blocking;
+        rule.severity = airlock_core::rules::Severity::Blocking;
     }
     policy
 }
@@ -999,31 +999,29 @@ fn configured_topics_evaluate_and_malformed_configuration_is_a_run_error() {
 
 #[test]
 fn release_record_model_gap_fix_is_agent_reasoning_while_missing_record_is_operator() {
-    use airlock_core::findings::{Evidence, RemediationClass};
+    use airlock_core::findings::{Evidence, FixClass};
     for reason in [
         "release-model-missing",
         "release-model-not-a-file",
         "release-model-unreadable",
         "release-model-schema-not-supported",
     ] {
-        let class = RemediationClass::for_observation(
-            "REPO-REL-08",
-            Some(&Evidence::new(reason, "fixture")),
-        );
-        assert_eq!(class.lane.as_deref(), Some("judgment-file"), "{reason}");
+        let class =
+            FixClass::for_observation("REPO-REL-08", Some(&Evidence::new(reason, "fixture")));
+        assert_eq!(class.fix_kind.as_deref(), Some("agent"), "{reason}");
         assert_eq!(class.code.as_deref(), Some("regenerate-release-model"));
     }
-    let class = RemediationClass::for_observation(
+    let class = FixClass::for_observation(
         "REPO-REL-08",
         Some(&Evidence::new("release-record-missing", "fixture")),
     );
-    assert_eq!(class.lane.as_deref(), Some("operator-setting"));
+    assert_eq!(class.fix_kind.as_deref(), Some("operator"));
 }
 
 #[test]
 fn template_identity_routes_locally_and_lists_empty_configuration_as_waived() {
     let repo = committed_repository();
-    let mut policy = policy_with_one("REPO-TPL-01", airlock_core::registry::Severity::Blocking);
+    let mut policy = policy_with_one("REPO-TPL-01", airlock_core::rules::Severity::Blocking);
     let empty = audit::run_local(&policy, &options(), repo.path()).unwrap();
     assert_eq!(empty.exit_code(), 0);
     assert_eq!(empty.waived.len(), 1);
@@ -1055,7 +1053,7 @@ async fn template_identity_credentialed_working_tree_reads_the_configured_local_
     let repo = committed_repository();
     std::fs::create_dir(repo.path().join("state")).unwrap();
     std::fs::write(repo.path().join("state/applied.json"), "invalid JSON").unwrap();
-    let mut policy = policy_with_one("REPO-TPL-01", airlock_core::registry::Severity::Blocking);
+    let mut policy = policy_with_one("REPO-TPL-01", airlock_core::rules::Severity::Blocking);
     policy.rules[0].params.insert(
         "templates".into(),
         serde_json::json!([{"source":"gh:example-org/catalog#bundle","ref":"main"}]),
@@ -1110,7 +1108,7 @@ fn template_identity_repository_request_cannot_override_the_compiled_rule() {
     .unwrap();
     git(repo.path(), &["add", ".github/airlock.yml"]);
     git(repo.path(), &["commit", "-q", "-m", "fixture request"]);
-    let mut policy = policy_with_one("REPO-TPL-01", airlock_core::registry::Severity::Blocking);
+    let mut policy = policy_with_one("REPO-TPL-01", airlock_core::rules::Severity::Blocking);
     policy.rules[0].params.insert(
         "templates".into(),
         serde_json::json!([{"source":"gh:example-org/catalog#bundle","ref":"main"}]),

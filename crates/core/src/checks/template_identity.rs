@@ -5,13 +5,13 @@
 
 use super::{AuditContext, Verdict};
 use crate::document::DocumentError;
-use crate::findings::Remediation;
-use crate::policy::RuleInstance;
+use crate::findings::Fix;
+use crate::policy::EffectiveRule;
 use crate::snapshot::FileState;
 use crate::template_identity::{
     self as input, config, TemplateEvidence, TemplateItem, TemplateRevision,
 };
-use crate::ActionGroup;
+use crate::FixGroup;
 use serde_json::Value;
 
 fn accepted(status: Option<&str>) -> bool {
@@ -23,8 +23,8 @@ fn gap(reason: &str, path: &str, detail: impl Into<String>) -> Verdict {
         reason,
         path,
         detail,
-        Remediation::new(
-            ActionGroup::APPLY_ACCEPTED_TEMPLATE,
+        Fix::new(
+            FixGroup::APPLY_ACCEPTED_TEMPLATE,
             "Apply, update or baseline with Toha, select accepted parts, and commit the result.",
         ),
     )
@@ -146,7 +146,7 @@ fn item(
     Ok(item)
 }
 
-pub(crate) fn run(rule: &RuleInstance, context: &AuditContext) -> Verdict {
+pub(crate) fn run(rule: &EffectiveRule, context: &AuditContext) -> Verdict {
     try_verdict!(context.release_units());
     let entries = match config::expected(rule) {
         Ok(v) => v,
@@ -230,7 +230,7 @@ mod tests {
             "commit":"a".repeat(40),"generated":"toha/1","parts":["alpha"],"answers":{},"context":{},"paths":{}
         }]})
     }
-    fn rule() -> RuleInstance {
+    fn rule() -> EffectiveRule {
         fixtures::rule_with(
             config::RULE,
             &[(

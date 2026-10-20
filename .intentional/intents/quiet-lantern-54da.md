@@ -2,4 +2,4 @@
 airlock: minor
 ---
 
-Distinguish contextual remediation action groups from per-rule remediation codes and declare the action-group vocabulary in the core model.
+Distinguish contextual fix groups from per-rule fix codes and declare the fix-group vocabulary in the core model.

@@ -1,7 +1,7 @@
 //! The typed error surface of `airlock-core`.
 //!
 //! Core returns typed errors so the command line front end can map them onto
-//! exit codes and remediation text without matching on message strings.
+//! exit codes and fix text without matching on message strings.
 
 use std::path::PathBuf;
 

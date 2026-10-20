@@ -4,7 +4,7 @@ set -euo pipefail
 # Binary contract: 0 no blocking gaps, 1 blocking gaps, 2 a run error.
 # The Action alone may map exit 2 to success with fail-on-incomplete:false;
 # that override includes setup errors such as a missing AIRLOCK_TOKEN.
-# Waived, routed, unbuilt, and out-of-scope standards do not alter the binary exit status.
+# Waived, routed, unbuilt, and out-of-scope rules do not alter the binary exit status.
 
 repository=${INPUT_REPOSITORY:-${GITHUB_REPOSITORY:-}}
 policy=${INPUT_POLICY:-}

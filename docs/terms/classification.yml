@@ -4,5 +4,5 @@ description: >-
   The declared audience, family and category of a repository, held in organization-owned GitHub
   custom properties. Compiled rules use this input to determine which repositories they govern.
   Classification is not an audit finding and cannot be changed by the repository's own
-  configuration to evade a rule. It replaces capability and apply selectors. The old remediation
+  configuration to evade a rule. It replaces capability and apply selectors. The old fix
   Classification means fix information, not repository classification.

@@ -34,7 +34,7 @@ pub(super) fn compile(
         .ok_or_else(|| Error::Policy("the policy must declare a `name`".to_owned()))?
         .to_owned();
 
-    check_registry_requirement(document)?;
+    check_rules_requirement(document)?;
 
     let capabilities = read_capabilities(document)?;
     let mut rules = expand_capabilities(&capabilities);
@@ -43,7 +43,7 @@ pub(super) fn compile(
 
     let suppressions = read_suppressions(document, &rules)?;
 
-    let mut rules: Vec<RuleInstance> = rules.into_values().collect();
+    let mut rules: Vec<EffectiveRule> = rules.into_values().collect();
     rules.sort_by(|left, right| left.def.id.cmp(right.def.id));
 
     let bundle_digest = bundle_digest(&sources, &rules);
@@ -64,27 +64,27 @@ pub(super) fn compile(
     })
 }
 
-fn check_registry_requirement(document: &Yaml) -> Result<()> {
-    let Some(requirement) = document.get("requires-registry") else {
+fn check_rules_requirement(document: &Yaml) -> Result<()> {
+    let Some(requirement) = document.get("requires-rules") else {
         return Ok(());
     };
     let Some(requirement) = requirement.as_str() else {
         return Err(Error::Policy(
-            "`requires-registry` should be a semver requirement string".to_owned(),
+            "`requires-rules` should be a semver requirement string".to_owned(),
         ));
     };
     let requirement = semver::VersionReq::parse(requirement).map_err(|error| {
         Error::Policy(format!(
-            "`requires-registry: {requirement}` is not a semver requirement: {error}"
+            "`requires-rules: {requirement}` is not a semver requirement: {error}"
         ))
     })?;
-    let version = semver::Version::parse(REGISTRY_VERSION).map_err(|error| {
-        Error::Policy(format!("the compiled registry version is invalid: {error}"))
+    let version = semver::Version::parse(RULES_VERSION).map_err(|error| {
+        Error::Policy(format!("the compiled rules version is invalid: {error}"))
     })?;
     if !requirement.matches(&version) {
         return Err(Error::Policy(format!(
-            "this airlock carries check registry {REGISTRY_VERSION}, which does not satisfy the \
-             policy's `requires-registry: {requirement}`"
+            "this airlock carries rules {RULES_VERSION}, which does not satisfy the \
+             policy's `requires-rules: {requirement}`"
         )));
     }
     Ok(())
@@ -146,15 +146,15 @@ fn read_capabilities(document: &Yaml) -> Result<Vec<(String, Vec<Section>)>> {
 /// first capability that names it, in declaration order, owns its provenance.
 fn expand_capabilities(
     capabilities: &[(String, Vec<Section>)],
-) -> BTreeMap<&'static str, RuleInstance> {
-    let mut rules: BTreeMap<&'static str, RuleInstance> = BTreeMap::new();
+) -> BTreeMap<&'static str, EffectiveRule> {
+    let mut rules: BTreeMap<&'static str, EffectiveRule> = BTreeMap::new();
     for (capability, sections) in capabilities {
         for section in sections {
-            for def in registry::in_section(*section) {
-                if def.id == "REPO-TPL-01" && capability != "registry" {
+            for def in rules::in_section(*section) {
+                if def.id == "REPO-TPL-01" && capability != "rules" {
                     continue;
                 }
-                rules.entry(def.id).or_insert_with(|| RuleInstance {
+                rules.entry(def.id).or_insert_with(|| EffectiveRule {
                     def,
                     severity: def.severity,
                     params: BTreeMap::new(),
@@ -168,7 +168,7 @@ fn expand_capabilities(
 
 fn apply_check_refinements(
     document: &Yaml,
-    rules: &mut BTreeMap<&'static str, RuleInstance>,
+    rules: &mut BTreeMap<&'static str, EffectiveRule>,
 ) -> Result<()> {
     let Some(checks) = document.get("checks") else {
         return Ok(());
@@ -186,7 +186,7 @@ fn apply_check_refinements(
                 "REPO-TPL-01 is configured only through organization exceptions".into(),
             ));
         }
-        let def = registry::find(id).ok_or_else(|| {
+        let def = rules::find(id).ok_or_else(|| {
             Error::Policy(format!(
                 "`checks` names `{id}`, which is not a rule airlock knows"
             ))

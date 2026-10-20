@@ -23,7 +23,7 @@ showing       the whole working set · 9 of 9 · gate blocking · f
   ┃- 4 UNBUILT CHECKS AND AGENT WORK  1  unbuilt checks and gaps that need agen…
 0 above · 9 below · working set 9 of 9 · ↑↓ moves through the rest              
 ↑↓/j/k move · space collapse or expand · ↵ finding detail · f filter · 8 more…  
-incomplete · complete false · 9 rules · registry 0.6.0 · gate blocking          
+incomplete · complete false · 9 rules · rules 0.6.0 · gate blocking             
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 ccccccccccccccccdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd

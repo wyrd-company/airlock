@@ -16,13 +16,13 @@ requested_reason      null — the repository asked for nothing; the policy
 policy_reason         migration in flight                                       
 authorized_by         policy                                                    
                                                                                 
-REMEDIATION                                                                     
-retained              The standard is waived. Its declared fix is reference     
+FIX                                                                             
+retained              The rule is waived. Its declared fix is reference         
                       guidance; no gap was evaluated.                           
-remediation_class                                                               
+fix_class                                                                       
   code                empty-workflow-permissions                                
 — 0 lines above · 21 below · ↑↓ moves the window —                              
-esc back · a remediation transcript · o re-observe this rule · 3 more…          
+esc back · a fix transcript · o re-observe this rule · 3 more…                  
 not evaluated · exit code unchanged · authorized by policy                      
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
@@ -41,13 +41,13 @@ jjjjjjjjjjjjjjjjjjjjjjhhhhhhhhhhhhhhhhhhhhhhdddddddddddddddddddddddddddddddddddd
 jjjjjjjjjjjjjjjjjjjjjjhhhhhhhhhhhhhhhhhhhddddddddddddddddddddddddddddddddddddddd
 jjjjjjjjjjjjjjjjjjjjjjhhhhhhdddddddddddddddddddddddddddddddddddddddddddddddddddd
 dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-iiiiiiiiiiiddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-jjjjjjjjjjjjjjjjjjjjjjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhddddd
+iiiddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+jjjjjjjjjjjjjjjjjjjjjjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhddddddddd
 jjjjjjjjjjjjjjjjjjjjjjhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhddddddddddddddddddddddddddd
-jjjjjjjjjjjjjjjjjddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+jjjjjjjjjddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 jjjjjjjjjjjjjjjjjjjjjjhhhhhhhhhhhhhhhhhhhhhhhhhhdddddddddddddddddddddddddddddddd
 jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjdddddddddddddddddddddddddddddd
-eeedhhhhjjjedhhhhhhhhhhhhhhhhhhhhhhjjjedhhhhhhhhhhhhhhhhhhhhjjjkkkkkkkdddddddddd
+eeedhhhhjjjedhhhhhhhhhhhhhhjjjedhhhhhhhhhhhhhhhhhhhhjjjkkkkkkkdddddddddddddddddd
 llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
 --- legend ---
 a fg=#CBD3DD bg=#14181D BOLD

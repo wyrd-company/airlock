@@ -10,14 +10,14 @@ use crate::audited_repository::parse_suppression_requests;
 use crate::auth::VerifiedGrant;
 use crate::checks::{self, AuditContext, Workflow};
 use crate::findings::{
-    AirlockIdentity, AuditedRepository, EffectiveRule, Finding, PolicyIdentity, PolicyObservation,
-    PolicyObservationCode, PolicySourceIdentity, RemediationClass, Report, Suppression,
+    AirlockIdentity, AuditedRepository, EffectiveRuleRecord, Finding, FixClass, PolicyIdentity,
+    PolicyObservation, PolicyObservationCode, PolicySourceIdentity, Report, Suppression,
     SuppressionSource,
 };
 use crate::github::{ApiError, ErrorCause, GitHub};
 use crate::limits::Limits;
 use crate::policy::ResolvedPolicy;
-use crate::registry::{CredentialCapability, Observation, Severity};
+use crate::rules::{CredentialCapability, Observation, Severity};
 use crate::snapshot::RepoSnapshot;
 use crate::yaml;
 use crate::{Error, Result};
@@ -117,8 +117,8 @@ impl Sources {
 /// # Errors
 ///
 /// Returns an operational error when the repository itself cannot be read.
-/// A failure reading one standard's inputs is listed in the report's run errors.
-/// Other standards continue; the completed report carries exit code 2.
+/// A failure reading one rule's inputs is listed in the report's run errors.
+/// Other rules continue; the completed report carries exit code 2.
 pub async fn run<G: GitHub>(
     client: &G,
     owner: &str,
@@ -424,7 +424,7 @@ fn working_tree_observation(
 }
 
 /// Load the audited paths from the working tree, mirroring the API path
-/// loading: the standard set, workflows, then release-unit paths once the
+/// loading: the rule set, workflows, then release-unit paths once the
 /// config has been read.
 fn load_local_files(
     snapshot: &mut RepoSnapshot,
@@ -536,7 +536,7 @@ fn complete_run(
 
     for rule in &policy.rules {
         let waiver = waiver_for(rule, policy, &requests, context.full_name());
-        effective_policy.push(EffectiveRule {
+        effective_policy.push(EffectiveRuleRecord {
             rule: rule.def.id.to_owned(),
             severity: if waiver.is_some() {
                 "none".to_owned()
@@ -553,7 +553,13 @@ fn complete_run(
                 && credential == CredentialCapability::Unauthenticated))
             && rule.def.needs_github_api();
         let verdict = if waiver.is_some() {
-            checks::Verdict::waived()
+            checks::Verdict {
+                status: None,
+                evidence: None,
+                fix: None,
+                error: None,
+                routing: None,
+            }
         } else if gated {
             // Known file scope precedes the API-source gate. A missing API
             // credential cannot turn an absent release-unit scope into API work.
@@ -577,8 +583,7 @@ fn complete_run(
             None
         };
 
-        let remediation_class =
-            RemediationClass::for_observation(rule.def.id, verdict.evidence.as_ref());
+        let fix_class = FixClass::for_observation(rule.def.id, verdict.evidence.as_ref());
         let finding = Finding {
             rule: rule.def.id.to_owned(),
             statement: rule.def.statement.to_owned(),
@@ -589,8 +594,8 @@ fn complete_run(
             },
             status: verdict.status,
             evidence: verdict.evidence,
-            remediation: verdict.remediation,
-            remediation_class,
+            fix: verdict.fix,
+            fix_class,
             suppression: waiver,
             source,
             error: verdict.error,
@@ -747,7 +752,7 @@ fn suppression_requests(
 }
 
 fn waiver_for(
-    rule: &crate::policy::RuleInstance,
+    rule: &crate::policy::EffectiveRule,
     policy: &ResolvedPolicy,
     requests: &[crate::policy::SuppressionRequest],
     full_name: &str,
@@ -830,7 +835,7 @@ fn unauthorized_requests(
                 .suppressions
                 .allow_repo_requests
                 .contains(&request.rule))
-                || crate::registry::find(&request.rule).is_some_and(|rule| !rule.allow_override())
+                || crate::rules::find(&request.rule).is_some_and(|rule| !rule.allow_override())
         })
         .map(|request| {
             let status = findings
@@ -897,7 +902,7 @@ mod tests {
     use super::*;
     use crate::findings::Status;
     use crate::policy::{DirectSuppression, SuppressionRequest};
-    use crate::registry::Severity;
+    use crate::rules::Severity;
     use std::collections::BTreeMap;
 
     fn policy_with(direct: Vec<DirectSuppression>, allowed: &[&str]) -> ResolvedPolicy {
@@ -926,8 +931,8 @@ mod tests {
             severity: Severity::Blocking.code().to_owned(),
             status: Some(Status::Gap),
             evidence: None,
-            remediation: None,
-            remediation_class: RemediationClass::for_rule(rule),
+            fix: None,
+            fix_class: FixClass::for_rule(rule),
             suppression: None,
             source: None,
             error: None,

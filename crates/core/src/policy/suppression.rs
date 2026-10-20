@@ -2,7 +2,7 @@ use super::*;
 
 pub(super) fn read_suppressions(
     document: &Yaml,
-    rules: &BTreeMap<&'static str, RuleInstance>,
+    rules: &BTreeMap<&'static str, EffectiveRule>,
 ) -> Result<SuppressionAuthority> {
     let Some(suppressions) = document.get("suppressions") else {
         return Ok(SuppressionAuthority::default());
@@ -39,7 +39,7 @@ pub(super) fn read_suppressions(
             let rule = item.get("rule").and_then(Yaml::as_str).ok_or_else(|| {
                 Error::Policy("every direct suppression must name a `rule`".to_owned())
             })?;
-            registry::find(rule).ok_or_else(|| {
+            rules::find(rule).ok_or_else(|| {
                 Error::Policy(format!(
                     "a direct suppression names `{rule}`, which is not a rule airlock knows"
                 ))
@@ -77,13 +77,13 @@ pub(super) fn read_suppressions(
                     "`suppressions.allow-repo-requests` should list rule ids as strings".to_owned(),
                 )
             })?;
-            registry::find(rule).ok_or_else(|| {
+            rules::find(rule).ok_or_else(|| {
                 Error::Policy(format!(
                     "`suppressions.allow-repo-requests` names `{rule}`, which is not a rule \
                      airlock knows"
                 ))
             })?;
-            if !registry::find(rule)
+            if !rules::find(rule)
                 .expect("rule checked above")
                 .allow_override()
             {

@@ -1,18 +1,18 @@
 //! Licensing: the licence file and its declaration in package metadata.
 
-use crate::findings::Remediation;
-use crate::policy::RuleInstance;
-use crate::ActionGroup;
+use crate::findings::Fix;
+use crate::policy::EffectiveRule;
+use crate::FixGroup;
 
 use super::{presence, AuditContext, Verdict};
 
 /// The manifests airlock knows how to read a licence out of.
 const MANIFESTS: &[&str] = &["Cargo.toml", "package.json", "pubspec.yaml"];
 
-/// The dual-licence pattern the standard rejects, in both orders.
+/// The dual-licence pattern the rule rejects, in both orders.
 const DUAL_SPDX: &[&str] = &["MIT OR Apache-2.0", "Apache-2.0 OR MIT"];
 
-pub(crate) fn run(id: &str, _rule: &RuleInstance, context: &AuditContext) -> Option<Verdict> {
+pub(crate) fn run(id: &str, _rule: &EffectiveRule, context: &AuditContext) -> Option<Verdict> {
     Some(match id {
         "REPO-LIC-01" => presence(context, "LICENSE", "a LICENSE file"),
         "REPO-LIC-03" => not_dual_licensed(context),
@@ -60,10 +60,10 @@ fn not_dual_licensed(context: &AuditContext) -> Verdict {
         Verdict::fail(
             "dual_licensed",
             evidence.join("; "),
-            Remediation::new(
-                ActionGroup::CHOOSE_ONE_LICENSE,
+            Fix::new(
+                FixGroup::CHOOSE_ONE_LICENSE,
                 "Pick one licence. The dual MIT OR Apache-2.0 arrangement is a Rust ecosystem \
-                 convention the standard does not follow.",
+                 convention the rule does not follow.",
             ),
         )
     }
@@ -104,8 +104,8 @@ fn license_declared_in_metadata(context: &AuditContext) -> Verdict {
         Verdict::fail(
             "license_missing_from_metadata",
             format!("{} declares no licence", undeclared.join(", ")),
-            Remediation::new(
-                ActionGroup::DECLARE_LICENSE,
+            Fix::new(
+                FixGroup::DECLARE_LICENSE,
                 "Add the licence identifier to the package metadata.",
             ),
         )

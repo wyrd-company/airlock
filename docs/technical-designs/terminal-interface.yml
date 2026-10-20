@@ -278,7 +278,7 @@ proposed-design:
 
     Filters compose without changing global counts or effective configuration.
     Effective config includes waived and declared-gate entries and shows source
-    references, blob identities, accepted version and compiled registry digest.
+    references, blob identities, accepted version and compiled rules digest.
     Rule lookup provides an unfiltered address for every report entry.
     Both are views of Gaps, and opening an entry uses Gap detail.
 
@@ -331,7 +331,7 @@ proposed-design:
     | Fix | Declared fix, contextual action, lane and reversibility |
     | Effective config | Parameters, defaults, exception reason and authorizing source |
     | Scope | Classification, observed maturity, accepted version and applicability |
-    | Provenance | Airlock identity, registry version/digest, source references/blob ids |
+    | Provenance | Airlock identity, rules version/digest, source references/blob ids |
     | Run effect | Current effect on complete, conformant and exit decision |
 
     All facts are printed whole and scroll. An absent fact is explicitly absent
@@ -513,7 +513,7 @@ proposed-design:
 
     ## Copy and untrusted text
 
-    - Copyable values are the rule id in Gap detail and the full registry digest
+    - Copyable values are the rule id in Gap detail and the full rules digest
       in the effective-config view of Gaps (`y` in that view).
     - Use the terminal's clipboard request without a subprocess. Print the value
       in full and report "copy requested", never an unobserved clipboard result.

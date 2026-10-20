@@ -1,7 +1,7 @@
-//! The emitted conformance checklist is a projection of the registry.
+//! The emitted conformance checklist is a projection of the rules.
 //!
 //! These tests parse that projection independently and prove the generated
-//! document retains every registry-owned field. There is no second checklist
+//! document retains every rules-owned field. There is no second checklist
 //! fixture whose rule prose can drift.
 //! The table parser is intentionally independent of the generator: sharing the
 //! production parser would only prove that one implementation agrees with
@@ -10,12 +10,12 @@
 
 use std::collections::BTreeMap;
 
-use airlock_core::registry::{Section, Severity, CHECKS};
+use airlock_core::rules::{Section, Severity, RULES};
 
 #[test]
-fn agent_context_locates_standard_modules_and_generated_inspection_guidance() {
+fn agent_context_locates_rule_modules_and_generated_inspection_guidance() {
     let context = include_str!("../../../AGENTS.md");
-    assert!(context.contains("`crates/core/src/registry/`"));
+    assert!(context.contains("`crates/core/src/rules/`"));
     assert!(context.contains("`airlock skill` generates both `references/conformance.md` and\n`references/check-guidance.md` from those modules."));
 }
 
@@ -131,13 +131,13 @@ fn unescape_cell(cell: &str) -> String {
 #[test]
 fn the_generated_checklist_parses() {
     let rules = parse_checklist();
-    assert_eq!(rules.len(), CHECKS.len());
+    assert_eq!(rules.len(), RULES.len());
 }
 
 #[test]
 fn every_registered_rule_matches_the_checklist() {
     let rules = parse_checklist();
-    for check in CHECKS {
+    for check in RULES {
         let rule = rules
             .get(check.id)
             .unwrap_or_else(|| panic!("{} is registered but not in the checklist", check.id));
@@ -175,10 +175,10 @@ fn every_registered_rule_matches_the_checklist() {
 fn every_checklist_rule_is_registered_exactly_once() {
     let rules = parse_checklist();
     for id in rules.keys() {
-        let matches = CHECKS.iter().filter(|check| check.id == id).count();
+        let matches = RULES.iter().filter(|check| check.id == id).count();
         assert_eq!(matches, 1, "{id} is registered {matches} times");
     }
-    assert_eq!(CHECKS.len(), rules.len());
+    assert_eq!(RULES.len(), rules.len());
 }
 
 #[test]
@@ -198,7 +198,7 @@ fn report_terms_include_every_declared_non_outcome_category() {
 }
 
 #[test]
-fn committed_generated_references_match_the_registry() {
+fn committed_generated_references_match_the_rules() {
     assert_eq!(
         include_str!("../skills/repository-standards/references/conformance.md"),
         airlock_core::skill::conformance().unwrap()

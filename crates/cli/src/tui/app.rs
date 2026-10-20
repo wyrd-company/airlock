@@ -24,7 +24,7 @@ const EMPTY_REACH: catalogue::Reach = catalogue::Reach {
 };
 
 use airlock_core::findings::Status;
-use airlock_core::registry::Severity;
+use airlock_core::rules::Severity;
 
 use super::chrome::{self, wrap};
 use super::lane::{self, Lane};
@@ -36,10 +36,10 @@ use crate::admin::sign_in::{Density, Reason, SignIn};
 use super::bootstrap;
 use super::detail;
 use super::findings;
+use super::fix;
 use super::organizations;
 use super::panel;
 use super::policy;
-use super::remediation;
 use super::repositories::{self, Filter};
 use super::scaffold;
 use super::screen::{
@@ -62,7 +62,7 @@ pub enum Flow {
     /// A value rather than an action, because this type does not own the
     /// terminal: it says what it would like held, and the loop that does own
     /// the terminal asks for it. Only two values ever travel here — a rule id
-    /// and the registry digest — and no credential is on any screen to be one
+    /// and the rules digest — and no credential is on any screen to be one
     /// of them.
     Copy(String),
 }
@@ -82,7 +82,7 @@ pub enum Flow {
 /// authorization.
 #[derive(Debug, Clone)]
 struct Position {
-    /// The screen that was open. A remediation in flight holds the queue
+    /// The screen that was open. A fix in flight holds the queue
     /// behind it instead: a partly applied queue is re-observed, never resumed
     /// from a transcript written under a grant that has lapsed.
     screen: Screen,
@@ -112,7 +112,7 @@ impl Position {
         Self {
             // The transcript is an observation; the queue behind it is where
             // the operator stands once it is gone.
-            screen: if app.screen == Screen::Remediation {
+            screen: if app.screen == Screen::Fix {
                 Screen::Findings
             } else {
                 app.screen
@@ -257,7 +257,7 @@ pub struct App {
     /// A key the screen lists and that does nothing on this row says why rather
     /// than silently doing nothing.
     note: Option<String>,
-    remediation: remediation::State,
+    fix: fix::State,
     /// The publishing bootstrap's freshly observed facts, and step 2's state.
     ///
     /// Held like every other reading and discarded like every other reading: a
@@ -266,13 +266,13 @@ pub struct App {
     bootstrap: bootstrap::State,
     pending_bootstrap_observation: Option<Observe>,
     pending_bootstrap: Option<bootstrap::Request>,
-    pending_remediation: Option<remediation::Request>,
+    pending_fix: Option<fix::Request>,
     pending_preparation: Option<(Observe, String)>,
-    pending_undo: Option<remediation::UndoRequest>,
+    pending_undo: Option<fix::UndoRequest>,
     scaffold: scaffold::State,
     pending_scaffold_plan: Option<String>,
-    pending_scaffold_recovery: Option<crate::admin::remediation::Target>,
-    pending_scaffold: Option<crate::admin::remediation::ScaffoldRequest>,
+    pending_scaffold_recovery: Option<crate::admin::fix::Target>,
+    pending_scaffold: Option<crate::admin::fix::ScaffoldRequest>,
     /// What is left of the session's grant, where one is held.
     ///
     /// A duration and never a value. It is what the header counts down and
@@ -323,11 +323,11 @@ impl App {
             inspection: panel::Scroll::default(),
             reobserve: None,
             note: None,
-            remediation: remediation::State::default(),
+            fix: fix::State::default(),
             bootstrap: bootstrap::State::default(),
             pending_bootstrap_observation: None,
             pending_bootstrap: None,
-            pending_remediation: None,
+            pending_fix: None,
             pending_preparation: None,
             pending_undo: None,
             scaffold: scaffold::State::default(),
@@ -358,15 +358,15 @@ impl App {
     #[cfg(test)]
     #[cfg_attr(feature = "test-identity", allow(dead_code))]
     #[must_use]
-    pub fn with_remediation(mut self, remediation: remediation::State) -> Self {
-        self.remediation = remediation;
+    pub fn with_fix(mut self, fix: fix::State) -> Self {
+        self.fix = fix;
         self
     }
 
     #[cfg(test)]
     #[cfg_attr(feature = "test-identity", allow(dead_code))]
     #[must_use]
-    pub fn with_scaffold(mut self, plan: crate::admin::remediation::ScaffoldPlan) -> Self {
+    pub fn with_scaffold(mut self, plan: crate::admin::fix::ScaffoldPlan) -> Self {
         self.scaffold.begin(plan.owner.clone(), true);
         self.scaffold.prepared(plan);
         self
@@ -402,16 +402,16 @@ impl App {
         self.pending_observation.take()
     }
 
-    /// Take a confirmed remediation exactly once.
-    pub fn take_remediation_request(&mut self) -> Option<remediation::Request> {
-        self.pending_remediation.take()
+    /// Take a confirmed fix exactly once.
+    pub fn take_fix_request(&mut self) -> Option<fix::Request> {
+        self.pending_fix.take()
     }
 
     pub fn take_preparation_request(&mut self) -> Option<(Observe, String)> {
         self.pending_preparation.take()
     }
 
-    pub fn take_undo_request(&mut self) -> Option<remediation::UndoRequest> {
+    pub fn take_undo_request(&mut self) -> Option<fix::UndoRequest> {
         self.pending_undo.take()
     }
 
@@ -419,15 +419,15 @@ impl App {
         self.pending_scaffold_plan.take()
     }
 
-    pub fn take_scaffold_recovery_request(&mut self) -> Option<crate::admin::remediation::Target> {
+    pub fn take_scaffold_recovery_request(&mut self) -> Option<crate::admin::fix::Target> {
         self.pending_scaffold_recovery.take()
     }
 
-    pub fn take_scaffold_request(&mut self) -> Option<crate::admin::remediation::ScaffoldRequest> {
+    pub fn take_scaffold_request(&mut self) -> Option<crate::admin::fix::ScaffoldRequest> {
         self.pending_scaffold.take()
     }
 
-    pub fn scaffold_prepared(&mut self, mut plan: crate::admin::remediation::ScaffoldPlan) {
+    pub fn scaffold_prepared(&mut self, mut plan: crate::admin::fix::ScaffoldPlan) {
         if self.reauthorizing_now() {
             return;
         }
@@ -446,7 +446,7 @@ impl App {
     #[must_use]
     pub fn accepts_secret(&self) -> bool {
         match self.screen {
-            Screen::Remediation => self.remediation.accepts_secret(),
+            Screen::Fix => self.fix.accepts_secret(),
             Screen::PublishingBootstrap => self.bootstrap.accepts_secret(),
             _ => false,
         }
@@ -457,7 +457,7 @@ impl App {
             self.bootstrap.secret_input_changed(holding_input);
             return;
         }
-        self.remediation.secret_input_changed(holding_input);
+        self.fix.secret_input_changed(holding_input);
     }
 
     pub fn secret_empty_refused(&mut self) {
@@ -465,7 +465,7 @@ impl App {
             self.bootstrap.secret_empty_refused();
             return;
         }
-        self.remediation.secret_empty_refused();
+        self.fix.secret_empty_refused();
     }
 
     pub fn secret_supplied(&mut self) {
@@ -473,7 +473,7 @@ impl App {
             self.bootstrap.secret_supplied();
             return;
         }
-        self.remediation.secret_supplied();
+        self.fix.secret_supplied();
     }
 
     /// Take the bootstrap's fresh observation request exactly once.
@@ -505,34 +505,24 @@ impl App {
         self.bootstrap.observed(target, observations);
     }
 
-    pub fn remediation_prepared(
-        &mut self,
-        remediation_code: &str,
-        input: crate::admin::remediation::PreparedInput,
-    ) {
+    pub fn fix_prepared(&mut self, fix_code: &str, input: crate::admin::fix::PreparedInput) {
         if self.reauthorizing_now() {
             return;
         }
-        let remediation::State::Input { request } = &mut self.remediation else {
+        let fix::State::Input { request } = &mut self.fix else {
             return;
         };
-        let Some(item) = request
-            .items
-            .iter_mut()
-            .find(|item| item.remediation == remediation_code)
-        else {
+        let Some(item) = request.items.iter_mut().find(|item| item.fix == fix_code) else {
             return;
         };
         item.input = match input {
-            crate::admin::remediation::PreparedInput::Rulesets(values) => {
-                remediation::Input::Choice {
-                    values,
-                    selected: 0,
-                    empty: "no freshly observed organization rulesets are available".to_owned(),
-                }
-            }
-            crate::admin::remediation::PreparedInput::Credentials { variables, secrets } => {
-                remediation::Input::CredentialRename {
+            crate::admin::fix::PreparedInput::Rulesets(values) => fix::Input::Choice {
+                values,
+                selected: 0,
+                empty: "no freshly observed organization rulesets are available".to_owned(),
+            },
+            crate::admin::fix::PreparedInput::Credentials { variables, secrets } => {
+                fix::Input::CredentialRename {
                     variables,
                     selected_variable: 0,
                     variable_draft: String::new(),
@@ -558,9 +548,9 @@ impl App {
     }
 
     #[cfg(test)]
-    pub fn with_remediation_state(mut self, state: remediation::State) -> Self {
-        self.remediation = state;
-        self.screen = Screen::Remediation;
+    pub fn with_fix_state(mut self, state: fix::State) -> Self {
+        self.fix = state;
+        self.screen = Screen::Fix;
         self
     }
 
@@ -568,8 +558,8 @@ impl App {
     ///
     /// Which screen asked is answered by which one has a write in flight. Only
     /// one can: a confirmation is single-use, and the bootstrap's own is taken
-    /// the same way the remediation screen's is.
-    pub fn remediation_complete(&mut self, transcript: crate::admin::remediation::Transcript) {
+    /// the same way the fix screen's is.
+    pub fn fix_complete(&mut self, transcript: crate::admin::fix::Transcript) {
         if self.reauthorizing_now() {
             return;
         }
@@ -581,18 +571,15 @@ impl App {
             self.pending_bootstrap_observation = target;
             return;
         }
-        self.remediation.complete(transcript);
+        self.fix.complete(transcript);
     }
 
     /// Close a bulk confirmation with one post-write transcript per rule.
-    pub fn remediation_group_complete(
-        &mut self,
-        transcripts: Vec<crate::admin::remediation::Transcript>,
-    ) {
+    pub fn fix_group_complete(&mut self, transcripts: Vec<crate::admin::fix::Transcript>) {
         if self.reauthorizing_now() {
             return;
         }
-        self.remediation.complete_group(transcripts);
+        self.fix.complete_group(transcripts);
     }
 
     /// Show a sanitized operational failure in the status line.
@@ -609,7 +596,7 @@ impl App {
 
     pub fn scaffold_complete(
         &mut self,
-        target: crate::admin::remediation::Target,
+        target: crate::admin::fix::Target,
         report: &airlock_core::findings::Report,
         warnings: Vec<String>,
     ) {
@@ -756,12 +743,12 @@ impl App {
         if self.reauthorization.is_some() {
             return self.reauthorizing(event.code);
         }
-        if self.screen == Screen::Remediation && self.remediation.is_input() {
+        if self.screen == Screen::Fix && self.fix.is_input() {
             if event.code == KeyCode::Esc {
                 self.screen = Screen::Findings;
                 return Flow::Continue;
             }
-            if self.remediation.input_key(event.code) {
+            if self.fix.input_key(event.code) {
                 return Flow::Continue;
             }
         }
@@ -808,12 +795,12 @@ impl App {
                 return flow;
             }
         }
-        if self.screen == Screen::Remediation && matches!(event.code, KeyCode::Enter) {
-            self.pending_remediation = self.remediation.take_confirmation();
+        if self.screen == Screen::Fix && matches!(event.code, KeyCode::Enter) {
+            self.pending_fix = self.fix.take_confirmation();
             return Flow::Continue;
         }
-        if self.screen == Screen::Remediation && event.code == KeyCode::Char('u') {
-            self.pending_undo = self.remediation.take_undo();
+        if self.screen == Screen::Fix && event.code == KeyCode::Char('u') {
+            self.pending_undo = self.fix.take_undo();
             if self.pending_undo.is_none() {
                 self.note = Some("undo is unavailable for this change".to_owned());
             }
@@ -958,8 +945,8 @@ impl App {
     /// discarded and printable characters go straight to the focused field.
     pub fn handle_paste(&mut self, value: &str) {
         for character in value.chars().filter(|character| !character.is_control()) {
-            if self.screen == Screen::Remediation && self.remediation.is_input() {
-                let _ = self.remediation.input_key(KeyCode::Char(character));
+            if self.screen == Screen::Fix && self.fix.is_input() {
+                let _ = self.fix.input_key(KeyCode::Char(character));
             } else if self.screen == Screen::Repositories && self.filter.is_open() {
                 let _ = self.filtering(KeyCode::Char(character));
             } else if self.screen == Screen::Scaffold && self.scaffold.captures_text() {
@@ -986,9 +973,9 @@ impl App {
             });
             if row_is_settings {
                 if code == KeyCode::Char('A') {
-                    self.open_remediation_group();
+                    self.open_fix_group();
                 } else {
-                    self.open_remediation();
+                    self.open_fix();
                 }
             } else {
                 self.note = Some(findings::inert_apply());
@@ -1048,7 +1035,7 @@ impl App {
             // The transcript is reachable only where there is a settings-level
             // change to carry out. Elsewhere the status line says why rather
             // than the key silently doing nothing.
-            KeyCode::Char('a') => self.open_remediation(),
+            KeyCode::Char('a') => self.open_fix(),
             KeyCode::Char('o') => match rule {
                 Some(rule) => {
                     self.note = Some(detail::reobserving(&rule));
@@ -1086,7 +1073,7 @@ impl App {
                 return Some(match self.inspector.as_deref() {
                     Some(inspector) => {
                         self.note = Some(policy::copied());
-                        Flow::Copy(inspector.provenance.registry_digest.clone())
+                        Flow::Copy(inspector.provenance.rules_digest.clone())
                     }
                     None => {
                         self.note = Some(policy::nothing_to_copy());
@@ -1106,17 +1093,17 @@ impl App {
         findings::focused_row(queue, &entries, self.findings.selected())
     }
 
-    fn open_remediation(&mut self) {
+    fn open_fix(&mut self) {
         let Some(row) = self.focused_row().cloned() else {
             self.note = Some(findings::inert_apply());
             return;
         };
         let actionable = (row.group == findings::Group::Settings
             && row.status == Some(Status::Gap)
-            && row.detail.remediation.code.is_some())
+            && row.detail.fix.code.is_some())
             || (row.group == findings::Group::Decision
                 && row.status.is_none()
-                && row.remediation.as_deref() == Some("declare-capability-property"));
+                && row.fix.as_deref() == Some("declare-capability-property"));
         if !actionable {
             self.note = Some(findings::inert_apply());
             return;
@@ -1132,10 +1119,9 @@ impl App {
             self.note = Some("the repository must be re-observed before applying".to_owned());
             return;
         };
-        let (Some(code), Some(change), Some(reversible)) =
-            (row.remediation, row.change, row.reversible)
+        let (Some(code), Some(change), Some(reversible)) = (row.fix, row.change, row.reversible)
         else {
-            self.note = Some("this rule declares no settings remediation".to_owned());
+            self.note = Some("this rule declares no settings fix".to_owned());
             return;
         };
         let input = if code == "declare-capability-property" {
@@ -1153,7 +1139,7 @@ impl App {
                 );
                 return;
             }
-            remediation::Input::Fixed {
+            fix::Input::Fixed {
                 argument: format!("{property}\n{value}"),
                 display: format!(
                     "{} = {} · organization {}",
@@ -1163,7 +1149,7 @@ impl App {
                 ),
             }
         } else {
-            self.remediation_input(&code, &target)
+            self.fix_input(&code, &target)
         };
         if matches!(
             code.as_str(),
@@ -1174,30 +1160,30 @@ impl App {
         ) {
             self.pending_preparation = Some((target.clone(), code.clone()));
         }
-        self.remediation = remediation::State::confirm(
+        self.fix = fix::State::confirm(
             target.owner,
             target.name,
-            vec![remediation::Item {
+            vec![fix::Item {
                 rule: row.rule,
-                remediation: code,
+                fix: code,
                 change,
                 reversible,
                 input,
             }],
         );
-        self.screen = Screen::Remediation;
+        self.screen = Screen::Fix;
     }
 
-    fn remediation_input(&self, code: &str, target: &Observe) -> remediation::Input {
+    fn fix_input(&self, code: &str, target: &Observe) -> fix::Input {
         match code {
             "rename-repository-kebab"
             | "rename-repository-undotted"
-            | "rename-repository-family-prefix" => remediation::Input::Text {
-                draft: remediation::rename_candidate(code, &target.name, None),
+            | "rename-repository-family-prefix" => fix::Input::Text {
+                draft: fix::rename_candidate(code, &target.name, None),
                 required_prefix: None,
                 error: None,
             },
-            "transfer-repository" => remediation::Input::Transfer {
+            "transfer-repository" => fix::Input::Transfer {
                 destinations: self
                     .catalogue
                     .installations()
@@ -1208,13 +1194,13 @@ impl App {
                 selected: 0,
                 typed_name: String::new(),
             },
-            "attach-org-rulesets" | "tighten-org-rulesets" => remediation::Input::Choice {
+            "attach-org-rulesets" | "tighten-org-rulesets" => fix::Input::Choice {
                 values: Vec::new(),
                 selected: 0,
                 empty: "no freshly observed organization ruleset choices are available".to_owned(),
             },
             "rename-app-credentials" | "rename-task-named-credentials" => {
-                remediation::Input::CredentialRename {
+                fix::Input::CredentialRename {
                     variables: Vec::new(),
                     selected_variable: 0,
                     variable_draft: String::new(),
@@ -1225,18 +1211,17 @@ impl App {
                     error: None,
                 }
             }
-            _ => remediation::Input::None,
+            _ => fix::Input::None,
         }
     }
 
-    fn open_remediation_group(&mut self) {
+    fn open_fix_group(&mut self) {
         let Some(focused) = self.focused_row() else {
             return;
         };
-        let focused_kind = focused.remediation.as_deref().and_then(bulk_kind);
+        let focused_kind = focused.fix.as_deref().and_then(bulk_kind);
         if focused_kind.is_none() {
-            self.note =
-                Some("bulk is unavailable because this remediation takes an input".to_owned());
+            self.note = Some("bulk is unavailable because this fix takes an input".to_owned());
             return;
         }
         let target = self.requested.clone().or_else(|| {
@@ -1255,11 +1240,11 @@ impl App {
         };
         let items = bulk_items(queue, focused_kind.expect("checked above"));
         if items.len() < 2 {
-            self.note = Some("no other open input-free remediation has the same kind".to_owned());
+            self.note = Some("no other open input-free fix has the same kind".to_owned());
             return;
         }
-        self.remediation = remediation::State::confirm(target.owner, target.name, items);
-        self.screen = Screen::Remediation;
+        self.fix = fix::State::confirm(target.owner, target.name, items);
+        self.screen = Screen::Fix;
     }
 
     /// Keys while the repository filter is open.
@@ -1415,7 +1400,7 @@ impl App {
         self.observations = Observations::default();
         self.queue = None;
         self.inspector = None;
-        self.remediation = remediation::State::Empty;
+        self.fix = fix::State::Empty;
         // A placement is a reading of a repository, so it goes with every other
         // reading. What the operator supplied for step 2 is erased at the same
         // boundary by the terminal driver, which is where the value lives.
@@ -1427,7 +1412,7 @@ impl App {
         // out: a write authorized by a credential that no longer exists is not
         // a write this session consented to.
         self.pending_observation = None;
-        self.pending_remediation = None;
+        self.pending_fix = None;
         self.pending_bootstrap = None;
         self.pending_bootstrap_observation = None;
         self.pending_preparation = None;
@@ -1615,7 +1600,7 @@ impl App {
                     position.creating,
                 );
                 if position.creating {
-                    self.pending_scaffold_recovery = Some(crate::admin::remediation::Target {
+                    self.pending_scaffold_recovery = Some(crate::admin::fix::Target {
                         owner,
                         repo: position.name,
                     });
@@ -1749,8 +1734,8 @@ impl App {
         if self.screen == Screen::Scaffold && self.scaffold.captures_text() {
             return SCAFFOLD_INPUT_KEYS.to_vec();
         }
-        if self.screen == Screen::Remediation && self.remediation.captures_text() {
-            return if self.remediation.accepts_secret() {
+        if self.screen == Screen::Fix && self.fix.captures_text() {
+            return if self.fix.accepts_secret() {
                 SECRET_INPUT_KEYS.to_vec()
             } else {
                 INPUT_KEYS.to_vec()
@@ -1789,7 +1774,7 @@ impl App {
                 || chrome::status_text(Screen::PolicyInspector),
                 policy::status,
             ),
-            Screen::Remediation => self.remediation.status().to_owned(),
+            Screen::Fix => self.fix.status().to_owned(),
             Screen::PublishingBootstrap => self.bootstrap.status(),
             other => chrome::status_text(other),
         }
@@ -1842,8 +1827,8 @@ impl App {
                 |inspector| policy::body(styles, width, height, inspector, &self.inspection),
             );
         }
-        if self.screen == Screen::Remediation {
-            return remediation::body(styles, width as usize, &self.remediation);
+        if self.screen == Screen::Fix {
+            return fix::body(styles, width as usize, &self.fix);
         }
         if self.screen == Screen::PublishingBootstrap {
             return bootstrap::body(styles, width, height, &self.bootstrap);
@@ -1975,15 +1960,15 @@ impl App {
                  work queue"
             }
             Screen::FindingDetail => {
-                "one finding's evidence, error, suppression, remediation, and \
+                "one finding's evidence, error, suppression, fix, and \
                  effect on the run"
             }
-            Screen::Remediation => {
+            Screen::Fix => {
                 "the proposed change, the transcript of carrying it out, and \
                  the re-observation that follows it"
             }
             Screen::PolicyInspector => {
-                "every rule the run asked about, the registry digest, and where \
+                "every rule the run asked about, the rules digest, and where \
                  each rule came from"
             }
             Screen::PublishingBootstrap => {
@@ -2063,30 +2048,27 @@ fn rejected(report: &airlock_core::findings::Report) -> bool {
     })
 }
 
-fn bulk_kind(code: &str) -> Option<crate::admin::remediation::BulkKind> {
-    crate::admin::remediation::Action::for_code(code).map(|action| action.bulk_kind())
+fn bulk_kind(code: &str) -> Option<crate::admin::fix::BulkKind> {
+    crate::admin::fix::Action::for_code(code).map(|action| action.bulk_kind())
 }
 
-fn bulk_items(
-    queue: &findings::Queue,
-    kind: crate::admin::remediation::BulkKind,
-) -> Vec<remediation::Item> {
+fn bulk_items(queue: &findings::Queue, kind: crate::admin::fix::BulkKind) -> Vec<fix::Item> {
     queue
         .rows
         .iter()
         .filter(|row| row.group == findings::Group::Settings && row.status == Some(Status::Gap))
         .filter_map(|row| {
-            let code = row.remediation.clone()?;
+            let code = row.fix.clone()?;
             if bulk_kind(&code) != Some(kind) {
                 return None;
             }
-            crate::admin::remediation::Action::for_code(&code)?;
-            Some(remediation::Item {
+            crate::admin::fix::Action::for_code(&code)?;
+            Some(fix::Item {
                 rule: row.rule.clone(),
-                remediation: code,
+                fix: code,
                 change: row.change.clone()?,
                 reversible: row.reversible?,
-                input: remediation::Input::None,
+                input: fix::Input::None,
             })
         })
         .collect()
@@ -2104,14 +2086,14 @@ mod tests {
         app.handle_key(KeyEvent::new(code, KeyModifiers::NONE))
     }
 
-    fn selected_remediation_rule(app: &App) -> &str {
-        let request = match &app.remediation {
-            remediation::State::Input { request }
-            | remediation::State::SecretEntry { request, .. }
-            | remediation::State::Confirm { request }
-            | remediation::State::Applying { request }
-            | remediation::State::Complete { request, .. } => request,
-            remediation::State::Empty => panic!("the remediation was not populated"),
+    fn selected_fix_rule(app: &App) -> &str {
+        let request = match &app.fix {
+            fix::State::Input { request }
+            | fix::State::SecretEntry { request, .. }
+            | fix::State::Confirm { request }
+            | fix::State::Applying { request }
+            | fix::State::Complete { request, .. } => request,
+            fix::State::Empty => panic!("the fix was not populated"),
         };
         &request.items[0].rule
     }
@@ -2239,8 +2221,8 @@ mod tests {
         press(&mut app, KeyCode::Enter);
         assert_eq!(app.screen(), Screen::FindingDetail);
         press(&mut app, KeyCode::Char('a'));
-        assert_eq!(app.screen(), Screen::Remediation);
-        assert_eq!(selected_remediation_rule(&app), "REPO-GIT-01");
+        assert_eq!(app.screen(), Screen::Fix);
+        assert_eq!(selected_fix_rule(&app), "REPO-GIT-01");
     }
 
     #[test]
@@ -2280,11 +2262,11 @@ mod tests {
         focus(&mut app, findings::Group::Decision);
         press(&mut app, KeyCode::Char('a'));
 
-        let request = match &app.remediation {
-            remediation::State::Confirm { request } => request,
+        let request = match &app.fix {
+            fix::State::Confirm { request } => request,
             state => panic!("expected confirmation, got {state:?}"),
         };
-        let remediation::Input::Fixed { argument, display } = &request.items[0].input else {
+        let fix::Input::Fixed { argument, display } = &request.items[0].input else {
             panic!("capability decisions carry fixed input")
         };
         assert_eq!(argument, "release\ntr\u{1b}ue");
@@ -2292,11 +2274,11 @@ mod tests {
     }
 
     #[test]
-    fn a_long_input_remediation_code_opens_its_text_input() {
+    fn a_long_input_fix_code_opens_its_text_input() {
         let mut finding =
             findings::fixture::finding("REPO-NAME-02", Severity::Blocking, Some(Status::Gap));
-        finding.remediation = Some(airlock_core::findings::Remediation::new(
-            airlock_core::remediation::ActionGroup::RENAME_REPOSITORY,
+        finding.fix = Some(airlock_core::findings::Fix::new(
+            airlock_core::fix::FixGroup::RENAME_REPOSITORY,
             "Rename the repository.",
         ));
         let report = findings::fixture::report(vec![finding]);
@@ -2307,25 +2289,22 @@ mod tests {
         focus(&mut app, findings::Group::Settings);
         press(&mut app, KeyCode::Char('a'));
 
-        let remediation::State::Input { request } = &app.remediation else {
-            panic!("the long remediation code must demand input");
+        let fix::State::Input { request } = &app.fix else {
+            panic!("the long fix code must demand input");
         };
-        assert_eq!(request.items[0].remediation, "rename-repository-undotted");
-        assert!(matches!(
-            request.items[0].input,
-            remediation::Input::Text { .. }
-        ));
+        assert_eq!(request.items[0].fix, "rename-repository-undotted");
+        assert!(matches!(request.items[0].input, fix::Input::Text { .. }));
     }
 
     #[test]
     fn detail_apply_replaces_a_stale_confirmation_with_the_focused_rule() {
-        use airlock_core::findings::Remediation;
-        use airlock_core::remediation::ActionGroup;
+        use airlock_core::findings::Fix;
+        use airlock_core::fix::FixGroup;
 
         let mut second =
             findings::fixture::finding("REPO-GIT-04", Severity::Blocking, Some(Status::Gap));
-        second.remediation = Some(Remediation::new(
-            ActionGroup::CORRECT_MERGE_SETTINGS,
+        second.fix = Some(Fix::new(
+            FixGroup::CORRECT_MERGE_SETTINGS,
             "Disable merge commits.",
         ));
         let mut app = app();
@@ -2337,15 +2316,15 @@ mod tests {
 
         press(&mut app, KeyCode::Down);
         press(&mut app, KeyCode::Char('a'));
-        assert_eq!(selected_remediation_rule(&app), "REPO-GIT-01");
+        assert_eq!(selected_fix_rule(&app), "REPO-GIT-01");
         press(&mut app, KeyCode::Esc);
         press(&mut app, KeyCode::Down);
         press(&mut app, KeyCode::Enter);
         assert_eq!(app.screen(), Screen::FindingDetail);
         press(&mut app, KeyCode::Char('a'));
 
-        assert_eq!(app.screen(), Screen::Remediation);
-        assert_eq!(selected_remediation_rule(&app), "REPO-GIT-04");
+        assert_eq!(app.screen(), Screen::Fix);
+        assert_eq!(selected_fix_rule(&app), "REPO-GIT-04");
     }
 
     #[test]
@@ -2820,31 +2799,25 @@ mod tests {
         press(&mut app, KeyCode::Esc);
         assert_eq!(footer(&app), unfocused);
 
-        app.screen = Screen::Remediation;
-        app.remediation = remediation::State::confirm(
+        app.screen = Screen::Fix;
+        app.fix = fix::State::confirm(
             "generic-owner".to_owned(),
             "sample-repository".to_owned(),
-            vec![remediation::Item {
+            vec![fix::Item {
                 rule: "REPO-NAME-01".to_owned(),
-                remediation: "rename-repository-kebab".to_owned(),
+                fix: "rename-repository-kebab".to_owned(),
                 change: "rename".to_owned(),
                 reversible: true,
-                input: remediation::Input::Text {
+                input: fix::Input::Text {
                     draft: "sample-repository".to_owned(),
                     required_prefix: None,
                     error: None,
                 },
             }],
         );
-        let remediation_focused = footer(&app);
-        assert!(
-            !remediation_focused.contains("t theme"),
-            "{remediation_focused}"
-        );
-        assert!(
-            remediation_focused.contains("backspace delete"),
-            "{remediation_focused}"
-        );
+        let fix_focused = footer(&app);
+        assert!(!fix_focused.contains("t theme"), "{fix_focused}");
+        assert!(fix_focused.contains("backspace delete"), "{fix_focused}");
     }
 
     fn header(app: &App) -> String {
@@ -3190,7 +3163,7 @@ mod tests {
         let mut app = observed();
         focus(&mut app, findings::Group::Settings);
         press(&mut app, KeyCode::Char('a'));
-        assert_eq!(app.screen(), Screen::Remediation);
+        assert_eq!(app.screen(), Screen::Fix);
     }
 
     #[test]
@@ -3214,26 +3187,23 @@ mod tests {
             let mut row = template.clone();
             row.rule = format!("REPO-SAMPLE-{code}");
             row.status = Some(Status::Gap);
-            row.remediation = Some(code.to_owned());
+            row.fix = Some(code.to_owned());
             row.change = Some(code.to_owned());
             row.reversible = Some(true);
             row
         })
         .collect();
-        let items = bulk_items(
-            queue,
-            crate::admin::remediation::BulkKind::RepositorySettings,
-        );
+        let items = bulk_items(queue, crate::admin::fix::BulkKind::RepositorySettings);
         assert!(
             items.len() >= 2,
             "the fixture must exercise a bulk settings confirmation"
         );
         assert!(items
             .iter()
-            .all(|item| item.remediation != "set-default-branch-main"));
+            .all(|item| item.fix != "set-default-branch-main"));
         assert!(items.iter().all(|item| {
-            crate::admin::remediation::Action::for_code(&item.remediation).is_some_and(|action| {
-                action.bulk_kind() == crate::admin::remediation::BulkKind::RepositorySettings
+            crate::admin::fix::Action::for_code(&item.fix).is_some_and(|action| {
+                action.bulk_kind() == crate::admin::fix::BulkKind::RepositorySettings
             })
         }));
     }
@@ -3245,20 +3215,15 @@ mod tests {
             findings::fixture::finding("REPO-GIT-06", Severity::Blocking, Some(Status::Gap)),
         ]);
         let queue = findings::Queue::of(&report, &findings::Deliveries::default());
-        let items = bulk_items(
-            &queue,
-            crate::admin::remediation::BulkKind::RepositorySettings,
-        );
+        let items = bulk_items(&queue, crate::admin::fix::BulkKind::RepositorySettings);
         assert_eq!(items.len(), 2);
+        assert!(items.iter().any(|item| item.fix == "disable-merge-commits"));
         assert!(items
             .iter()
-            .any(|item| item.remediation == "disable-merge-commits"));
-        assert!(items
-            .iter()
-            .any(|item| item.remediation == "enable-head-branch-auto-delete"));
+            .any(|item| item.fix == "enable-head-branch-auto-delete"));
         assert!(items.iter().all(|item| {
-            crate::admin::remediation::Action::for_code(&item.remediation).is_some_and(|action| {
-                action.bulk_kind() == crate::admin::remediation::BulkKind::RepositorySettings
+            crate::admin::fix::Action::for_code(&item.fix).is_some_and(|action| {
+                action.bulk_kind() == crate::admin::fix::BulkKind::RepositorySettings
             })
         }));
     }
@@ -3490,7 +3455,7 @@ mod tests {
             Screen::FindingDetail,
             Screen::PolicyInspector,
             Screen::PublishingBootstrap,
-            Screen::Remediation,
+            Screen::Fix,
         ] {
             let mut app = working_session();
             app.screen = screen;
@@ -3501,7 +3466,7 @@ mod tests {
             assert!(app.take_reauthorization_request(), "{screen:?}");
             // The transcript is an observation; the queue behind it is where
             // the operator stands once it is gone.
-            let expected = if screen == Screen::Remediation {
+            let expected = if screen == Screen::Fix {
                 Screen::Findings
             } else {
                 screen
@@ -3540,17 +3505,17 @@ mod tests {
         for screen in Screen::ALL {
             let mut app = working_session();
             app.screen = screen;
-            // The remediation screen is only itself with something on it.
-            if screen == Screen::Remediation {
-                app.remediation = remediation::State::confirm(
+            // The fix screen is only itself with something on it.
+            if screen == Screen::Fix {
+                app.fix = fix::State::confirm(
                     "acme-industries".to_owned(),
                     "widget".to_owned(),
-                    vec![remediation::Item {
+                    vec![fix::Item {
                         rule: "REPO-GIT-01".to_owned(),
-                        remediation: "correct-merge-settings".to_owned(),
+                        fix: "correct-merge-settings".to_owned(),
                         change: "disable merge commits".to_owned(),
                         reversible: true,
-                        input: remediation::Input::None,
+                        input: fix::Input::None,
                     }],
                 );
             }
@@ -3571,10 +3536,7 @@ mod tests {
             assert!(app.inspector.is_none(), "{screen:?}");
             assert_eq!(app.catalogue, catalogue::State::Unauthorized, "{screen:?}");
             assert_eq!(app.observations, Observations::default(), "{screen:?}");
-            assert!(
-                matches!(app.remediation, remediation::State::Empty),
-                "{screen:?}"
-            );
+            assert!(matches!(app.fix, fix::State::Empty), "{screen:?}");
             assert!(!app.authorized(), "{screen:?}");
 
             // And the screen, which is where it would have been read. Every
@@ -3610,26 +3572,26 @@ mod tests {
         let mut app = working_session();
         focus(&mut app, findings::Group::Settings);
         press(&mut app, KeyCode::Char('a'));
-        assert_eq!(app.screen(), Screen::Remediation);
+        assert_eq!(app.screen(), Screen::Fix);
         press(&mut app, KeyCode::Enter);
-        assert!(app.pending_remediation.is_some(), "the confirmation stands");
+        assert!(app.pending_fix.is_some(), "the confirmation stands");
 
         app.lapse();
 
-        assert!(app.take_remediation_request().is_none());
+        assert!(app.take_fix_request().is_none());
         assert!(app.take_undo_request().is_none());
         assert!(app.take_preparation_request().is_none());
         assert!(app.take_observation_request().is_none());
         assert!(app.take_scaffold_plan_request().is_none());
         assert!(app.take_scaffold_recovery_request().is_none());
         assert!(app.take_scaffold_request().is_none());
-        assert!(matches!(app.remediation, remediation::State::Empty));
+        assert!(matches!(app.fix, fix::State::Empty));
     }
 
-    fn scaffold_plan(capability: &str, file: &str) -> crate::admin::remediation::ScaffoldPlan {
-        crate::admin::remediation::ScaffoldPlan {
+    fn scaffold_plan(capability: &str, file: &str) -> crate::admin::fix::ScaffoldPlan {
+        crate::admin::fix::ScaffoldPlan {
             owner: "acme-industries".to_owned(),
-            capabilities: vec![crate::admin::remediation::ScaffoldCapability {
+            capabilities: vec![crate::admin::fix::ScaffoldCapability {
                 name: capability.to_owned(),
                 display_name: capability.to_owned(),
                 property: format!("declares-{capability}"),
@@ -3696,7 +3658,7 @@ mod tests {
 
         assert_eq!(
             app.take_scaffold_recovery_request(),
-            Some(crate::admin::remediation::Target {
+            Some(crate::admin::fix::Target {
                 owner: "acme-industries".to_owned(),
                 repo: "sample-repository".to_owned(),
             })
@@ -3708,30 +3670,27 @@ mod tests {
     }
 
     #[test]
-    fn a_remediation_in_flight_is_re_observed_rather_than_resumed_from_memory() {
+    fn a_fix_in_flight_is_re_observed_rather_than_resumed_from_memory() {
         let mut app = working_session();
         focus(&mut app, findings::Group::Settings);
         press(&mut app, KeyCode::Char('a'));
         press(&mut app, KeyCode::Enter);
-        app.take_remediation_request();
-        app.remediation_complete(crate::admin::remediation::Transcript {
+        app.take_fix_request();
+        app.fix_complete(crate::admin::fix::Transcript {
             rule: "REPO-GIT-01".to_owned(),
-            remediation: "correct-merge-settings".to_owned(),
+            fix: "correct-merge-settings".to_owned(),
             proposed_change: "disable merge commits".to_owned(),
             steps: Vec::new(),
-            observed: crate::admin::remediation::ObservedStatus::Pass,
+            observed: crate::admin::fix::ObservedStatus::Pass,
             undo: None,
         });
-        assert!(matches!(
-            app.remediation,
-            remediation::State::Complete { .. }
-        ));
+        assert!(matches!(app.fix, fix::State::Complete { .. }));
 
         app.lapse();
         app.authorization_granted(granted());
 
         assert_eq!(app.screen(), Screen::Findings, "the queue behind it");
-        assert!(matches!(app.remediation, remediation::State::Empty));
+        assert!(matches!(app.fix, fix::State::Empty));
         assert_eq!(
             app.take_observation_request(),
             Some(Observe {
@@ -4032,17 +3991,17 @@ mod tests {
             "this session",
             "conformant",
         );
-        app.remediation_complete(crate::admin::remediation::Transcript {
+        app.fix_complete(crate::admin::fix::Transcript {
             rule: "REPO-GIT-01".to_owned(),
-            remediation: "correct-merge-settings".to_owned(),
+            fix: "correct-merge-settings".to_owned(),
             proposed_change: "disable merge commits".to_owned(),
             steps: Vec::new(),
-            observed: crate::admin::remediation::ObservedStatus::Pass,
+            observed: crate::admin::fix::ObservedStatus::Pass,
             undo: None,
         });
         app.scaffold_prepared(scaffold_plan("stale-capability", "STALE-FILE"));
         app.scaffold_complete(
-            crate::admin::remediation::Target {
+            crate::admin::fix::Target {
                 owner: "acme-industries".to_owned(),
                 repo: "stale-repository".to_owned(),
             },
@@ -4056,7 +4015,7 @@ mod tests {
         assert!(app.inspector.is_none(), "a stale policy was drawn");
         assert_eq!(app.catalogue, catalogue::State::Unauthorized);
         assert_eq!(app.observations, Observations::default());
-        assert!(matches!(app.remediation, remediation::State::Empty));
+        assert!(matches!(app.fix, fix::State::Empty));
         assert_eq!(
             app.status(),
             holding,

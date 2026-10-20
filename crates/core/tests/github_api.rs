@@ -1718,14 +1718,14 @@ async fn release_audit(
         )
         .mount(server)
         .await;
-    let def = airlock_core::registry::find("REPO-REL-08").unwrap();
+    let def = airlock_core::rules::find("REPO-REL-08").unwrap();
     let policy = airlock_core::policy::ResolvedPolicy {
         name: "fixture".into(),
         source: "fixture".into(),
         commit: None,
         bundle_digest: "sha256:fixture".into(),
         sources: vec![],
-        rules: vec![airlock_core::policy::RuleInstance {
+        rules: vec![airlock_core::policy::EffectiveRule {
             def,
             severity: def.severity,
             params: Default::default(),

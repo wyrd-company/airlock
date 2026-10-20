@@ -1,5 +1,5 @@
 use super::*;
-use crate::ActionGroup;
+use crate::FixGroup;
 
 const CANONICAL_AIRLOCK_REPOSITORY: &str = "wyrd-company/airlock";
 
@@ -43,8 +43,8 @@ pub(super) fn ci_on_pull_request(context: &AuditContext) -> Verdict {
         None => Verdict::fail(
             "ci_does_not_trigger_on_pull_request",
             "no workflow triggers on pull_request",
-            Remediation::new(
-                ActionGroup::TRIGGER_ON_PULL_REQUEST,
+            Fix::new(
+                FixGroup::TRIGGER_ON_PULL_REQUEST,
                 "Trigger CI on pull_request.",
             ),
         ),
@@ -82,8 +82,8 @@ pub(super) fn workflow_permissions_empty(context: &AuditContext) -> Verdict {
         Verdict::fail(
             "workflow_permissions_not_empty",
             offenders.join("; "),
-            Remediation::new(
-                ActionGroup::DEFAULT_DENY_PERMISSIONS,
+            Fix::new(
+                FixGroup::DEFAULT_DENY_PERMISSIONS,
                 "Set `permissions: {}` at workflow level and elevate per job.",
             ),
         )
@@ -116,8 +116,8 @@ pub(super) fn jobs_declare_permissions(context: &AuditContext) -> Verdict {
         Verdict::fail(
             "job_without_permissions",
             format!("{} declare no permissions", offenders.join(", ")),
-            Remediation::new(
-                ActionGroup::DECLARE_JOB_PERMISSIONS,
+            Fix::new(
+                FixGroup::DECLARE_JOB_PERMISSIONS,
                 "Declare the minimum permissions on every job.",
             ),
         )
@@ -188,8 +188,8 @@ pub(super) fn actions_pinned(context: &AuditContext) -> Verdict {
         Verdict::fail(
             "action_not_pinned",
             offenders.join("; "),
-            Remediation::new(
-                ActionGroup::PIN_ACTION,
+            Fix::new(
+                FixGroup::PIN_ACTION,
                 "Pin every action to a full commit sha and name the version it came from in a \
                  trailing comment, for example `# v4`.",
             ),
@@ -277,8 +277,8 @@ pub(super) fn no_pull_request_target(context: &AuditContext) -> Verdict {
         Verdict::fail(
             "pull_request_target_used",
             format!("{} uses pull_request_target", offenders.join(", ")),
-            Remediation::new(
-                ActionGroup::REMOVE_PULL_REQUEST_TARGET,
+            Fix::new(
+                FixGroup::REMOVE_PULL_REQUEST_TARGET,
                 "Replace pull_request_target with pull_request. It runs fork code with secrets.",
             ),
         )
@@ -297,8 +297,8 @@ pub(super) fn concurrency_covers_pull_requests(context: &AuditContext) -> Verdic
         return Verdict::fail(
             "no_pull_request_workflow",
             "no workflow triggers on pull_request, so no concurrency group covers pull requests",
-            Remediation::new(
-                ActionGroup::TRIGGER_ON_PULL_REQUEST,
+            Fix::new(
+                FixGroup::TRIGGER_ON_PULL_REQUEST,
                 "Trigger CI on pull_request.",
             ),
         );
@@ -338,8 +338,8 @@ pub(super) fn concurrency_covers_pull_requests(context: &AuditContext) -> Verdic
         Verdict::fail(
             "concurrency_missing",
             offenders.join("; "),
-            Remediation::new(
-                ActionGroup::ADD_CONCURRENCY,
+            Fix::new(
+                FixGroup::ADD_CONCURRENCY,
                 "Add a concurrency group with cancel-in-progress covering pull requests.",
             ),
         )
@@ -388,8 +388,8 @@ pub(super) fn jobs_invoke_tasks(context: &AuditContext) -> Verdict {
         Verdict::fail(
             "job_runs_raw_command",
             offenders.join("; "),
-            Remediation::new(
-                ActionGroup::WRAP_IN_TASK,
+            Fix::new(
+                FixGroup::WRAP_IN_TASK,
                 "Move the command into taskfile.yml and invoke the task, so local and CI cannot \
                  drift apart.",
             ),
@@ -408,8 +408,8 @@ pub(super) fn pull_request_title_check(context: &AuditContext) -> Verdict {
         return Verdict::fail(
             "no_title_check",
             "no workflow reads the pull request title to validate its format",
-            Remediation::new(
-                ActionGroup::ADD_TITLE_CHECK,
+            Fix::new(
+                FixGroup::ADD_TITLE_CHECK,
                 "Add a job that validates the pull request title format, and require it in the \
                  ruleset.",
             ),
@@ -433,9 +433,9 @@ pub(super) fn audit_uses_airlock_token(context: &AuditContext) -> Verdict {
         return Verdict::fail(
             "no_audit_workflow",
             "there is no .github/workflows/audit.yml to inspect",
-            Remediation::new(
-                ActionGroup::ADD_AUDIT_WORKFLOW,
-                "Add the standard scheduled, on-demand audit workflow.",
+            Fix::new(
+                FixGroup::ADD_AUDIT_WORKFLOW,
+                "Add the scheduled, on-demand audit workflow.",
             ),
         );
     };
@@ -475,8 +475,8 @@ pub(super) fn audit_uses_airlock_token(context: &AuditContext) -> Verdict {
         return Verdict::fail(
             "audit_action_missing",
             format!("{} does not invoke the Airlock audit action", workflow.path),
-            Remediation::new(
-                ActionGroup::SUPPLY_AIRLOCK_TOKEN,
+            Fix::new(
+                FixGroup::SUPPLY_AIRLOCK_TOKEN,
                 "Invoke the canonical Airlock audit action and supply `secrets.AIRLOCK_TOKEN`.",
             ),
         );
@@ -500,8 +500,8 @@ pub(super) fn audit_uses_airlock_token(context: &AuditContext) -> Verdict {
             "audit_token_missing",
             &workflow.path,
             "the Airlock audit action does not receive secrets.AIRLOCK_TOKEN as AIRLOCK_TOKEN",
-            Remediation::new(
-                ActionGroup::SUPPLY_AIRLOCK_TOKEN,
+            Fix::new(
+                FixGroup::SUPPLY_AIRLOCK_TOKEN,
                 "Set the action step's `AIRLOCK_TOKEN` environment variable to \
                  `${{ secrets.AIRLOCK_TOKEN }}`.",
             ),

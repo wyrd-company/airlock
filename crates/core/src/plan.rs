@@ -9,32 +9,32 @@
 //!
 //! Deriving a plan is therefore pure and read-only. This module holds no
 //! credential, reaches no endpoint, and has no path to one. It reads the
-//! remediation each rule declares in [`crate::remediation`] and pairs it with
+//! fix each rule declares in [`crate::fix`] and pairs it with
 //! what the run observed, so that a person can see what closing the gaps would
 //! take before anything is done about it.
 
 use crate::findings::{Report, Status};
-use crate::registry::{self, VerificationSurface};
-use crate::remediation::Lane;
+use crate::fix::FixKind;
+use crate::rules::{self, VerificationSurface};
 
 /// One change airlock would make, and the observation that calls for it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ProposedChange<'a> {
+pub struct ProposedFix<'a> {
     /// The rule whose gap this would close.
     pub rule: &'a str,
-    /// The rule's statement, verbatim from the registry.
+    /// The rule's statement, verbatim from the rules.
     pub statement: &'a str,
     /// The severity the effective policy graded the rule at.
     pub severity: &'a str,
     /// The evaluated Gap that supports this proposed fix.
     pub status: Option<Status>,
-    /// The rule's declared remediation code — the per-rule join key.
+    /// The rule's declared fix code — the per-rule join key.
     pub code: &'a str,
-    /// What the remediation would change.
+    /// What the fix would change.
     pub change: &'a str,
-    /// The lane it travels in, which is who can apply it and through what
+    /// The fix kind it travels in, which is who can apply it and through what
     /// surface.
-    pub lane: Lane,
+    pub fix_kind: FixKind,
     /// Whether a later change of mind can undo it.
     pub reversible: bool,
     /// What this particular failure needs, where the run said something more
@@ -42,7 +42,7 @@ pub struct ProposedChange<'a> {
     pub detail: Option<&'a str>,
 }
 
-/// A standard whose input could not be evaluated. Every run error blocks completion.
+/// A rule whose input could not be evaluated. Every run error blocks completion.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RunErrorRule<'a> {
     /// The rule that could not be decided.
@@ -55,12 +55,12 @@ pub struct RunErrorRule<'a> {
     pub blocks_completeness: bool,
 }
 
-/// A declared gate names the other surface or implementation that settles this standard.
+/// A declared gate names the other surface or implementation that settles this rule.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RoutedRule<'a> {
     pub reason: &'a str,
     pub settling_surface: &'a str,
-    /// The standard that was not evaluated here.
+    /// The rule that was not evaluated here.
     pub rule: &'a str,
     /// The severity the effective policy graded the rule at.
     pub severity: &'a str,
@@ -77,13 +77,13 @@ pub struct RoutedRule<'a> {
 pub struct UnclosableGap<'a> {
     /// The rule whose gap is open.
     pub rule: &'a str,
-    /// The rule's statement, verbatim from the registry.
+    /// The rule's statement, verbatim from the rules.
     pub statement: &'a str,
     /// The severity the effective policy graded the rule at.
     pub severity: &'a str,
     /// What the run observed.
     pub status: Option<Status>,
-    /// Why airlock offers no remediation. The only remaining move is a
+    /// Why airlock offers no fix. The only remaining move is a
     /// person's.
     pub reason: &'a str,
 }
@@ -91,8 +91,8 @@ pub struct UnclosableGap<'a> {
 /// What airlock would change about a repository, as observed once.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Plan<'a> {
-    /// The changes on offer, ordered by lane and then by rule id.
-    pub proposed: Vec<ProposedChange<'a>>,
+    /// The changes on offer, ordered by fix kind and then by rule id.
+    pub proposed: Vec<ProposedFix<'a>>,
     /// Open gaps airlock declares it cannot close.
     pub unclosable: Vec<UnclosableGap<'a>>,
     /// Run errors are visible and prevent a complete audit.
@@ -103,8 +103,8 @@ pub struct Plan<'a> {
 }
 
 impl<'a> Plan<'a> {
-    /// Derive fixes only from evaluated Gaps. Waivers, routed standards, unbuilt
-    /// checks, out-of-scope standards, and run errors remain visible without proposing an unobserved fix.
+    /// Derive fixes only from evaluated Gaps. Waivers, routed rules, unbuilt
+    /// checks, out-of-scope rules, and run errors remain visible without proposing an unobserved fix.
     #[must_use]
     pub fn derive(report: &'a Report) -> Self {
         let mut proposed = Vec::new();
@@ -129,8 +129,8 @@ impl<'a> Plan<'a> {
                         .as_ref()
                         .map(|e| e.detail.as_str())
                         .or(Some(&route.settling_surface)),
-                    verified_by: registry::find(&finding.rule)
-                        .and_then(registry::CheckDefinition::disclosure_gate)
+                    verified_by: rules::find(&finding.rule)
+                        .and_then(rules::RuleDefinition::disclosure_gate)
                         .map(|gate| gate.verified_by),
                 });
                 continue;
@@ -148,28 +148,25 @@ impl<'a> Plan<'a> {
                 continue;
             }
 
-            let class = &finding.remediation_class;
+            let class = &finding.fix_class;
             match (
                 class.code.as_deref(),
                 class.change.as_deref(),
-                class.lane.as_deref().and_then(Lane::parse),
+                class.fix_kind.as_deref().and_then(FixKind::parse),
                 class.reversible,
                 class.none_reason.as_deref(),
             ) {
-                (Some(code), Some(change), Some(lane), Some(reversible), _) => {
-                    proposed.push(ProposedChange {
+                (Some(code), Some(change), Some(fix_kind), Some(reversible), _) => {
+                    proposed.push(ProposedFix {
                         rule: &finding.rule,
                         statement: &finding.statement,
                         severity: &finding.severity,
                         status: finding.status,
                         code,
                         change,
-                        lane,
+                        fix_kind,
                         reversible,
-                        detail: finding
-                            .remediation
-                            .as_ref()
-                            .map(|remediation| remediation.detail.as_str()),
+                        detail: finding.fix.as_ref().map(|fix| fix.detail.as_str()),
                     });
                 }
                 (_, _, _, _, Some(reason)) => unclosable.push(UnclosableGap {
@@ -179,7 +176,7 @@ impl<'a> Plan<'a> {
                     status: finding.status,
                     reason,
                 }),
-                // A rule the registry does not classify at all. The remediation
+                // A rule the rules do not classify at all. The fix
                 // model's coverage test keeps this unreachable for registered
                 // rules, so there is nothing truthful to say about it here.
                 _ => {}
@@ -187,8 +184,8 @@ impl<'a> Plan<'a> {
         }
 
         proposed.sort_by(|left, right| {
-            lane_order(left.lane)
-                .cmp(&lane_order(right.lane))
+            kind_order(left.fix_kind)
+                .cmp(&kind_order(right.fix_kind))
                 .then_with(|| left.rule.cmp(right.rule))
         });
         unclosable.sort_by(|left, right| left.rule.cmp(right.rule));
@@ -213,11 +210,11 @@ impl<'a> Plan<'a> {
         self.run_errors.iter().any(|rule| rule.blocks_completeness)
     }
 
-    /// The proposed changes in one lane, in plan order.
-    pub fn in_lane(&self, lane: Lane) -> impl Iterator<Item = &ProposedChange<'a>> {
+    /// The proposed changes in one fix kind, in plan order.
+    pub fn of_kind(&self, fix_kind: FixKind) -> impl Iterator<Item = &ProposedFix<'a>> {
         self.proposed
             .iter()
-            .filter(move |change| change.lane == lane)
+            .filter(move |change| change.fix_kind == fix_kind)
     }
 
     /// Whether the plan proposes nothing and declares nothing unclosable.
@@ -235,30 +232,26 @@ const fn is_open_gap(status: Option<Status>) -> bool {
 /// The lanes in display order, most actionable first: what an operator can
 /// close in this session, then what airlock can author on its own, then what
 /// needs an author's judgment.
-pub const DISPLAY_ORDER: &[Lane] = &[
-    Lane::OperatorSetting,
-    Lane::DeterministicFile,
-    Lane::JudgmentFile,
-];
+pub const DISPLAY_ORDER: &[FixKind] = &[FixKind::Operator, FixKind::Airlock, FixKind::Agent];
 
-/// Where a lane sits in [`DISPLAY_ORDER`].
-const fn lane_order(lane: Lane) -> u8 {
-    match lane {
-        Lane::OperatorSetting => 0,
-        Lane::DeterministicFile => 1,
-        Lane::JudgmentFile => 2,
+/// Where a fix kind sits in [`DISPLAY_ORDER`].
+const fn kind_order(fix_kind: FixKind) -> u8 {
+    match fix_kind {
+        FixKind::Operator => 0,
+        FixKind::Airlock => 1,
+        FixKind::Agent => 2,
     }
 }
 
-/// What each lane means, in one line, for a reader deciding what to do next.
+/// What each fix kind means, in one line, for a reader deciding what to do next.
 #[must_use]
-pub const fn lane_gloss(lane: Lane) -> &'static str {
-    match lane {
-        Lane::OperatorSetting => {
+pub const fn kind_gloss(fix_kind: FixKind) -> &'static str {
+    match fix_kind {
+        FixKind::Operator => {
             "a repository or organisation setting, applied directly in the interactive session"
         }
-        Lane::DeterministicFile => "a file change airlock can author, delivered as a pull request",
-        Lane::JudgmentFile => {
+        FixKind::Airlock => "a file change airlock can author, delivered as a pull request",
+        FixKind::Agent => {
             "a file change an agent authors and a person reviews, delivered as a pull request"
         }
     }
@@ -268,10 +261,10 @@ pub const fn lane_gloss(lane: Lane) -> &'static str {
 mod tests {
     use super::*;
     use crate::findings::{
-        AirlockIdentity, AuditedRepository, Finding, ObservationRecord, PolicyIdentity,
-        Remediation, RemediationClass,
+        AirlockIdentity, AuditedRepository, Finding, Fix, FixClass, ObservationRecord,
+        PolicyIdentity,
     };
-    use crate::ActionGroup;
+    use crate::FixGroup;
 
     fn finding(rule: &str, status: Option<Status>) -> Finding {
         Finding {
@@ -280,8 +273,8 @@ mod tests {
             severity: "blocking".to_owned(),
             status,
             evidence: None,
-            remediation: None,
-            remediation_class: RemediationClass::for_rule(rule),
+            fix: None,
+            fix_class: FixClass::for_rule(rule),
             suppression: None,
             source: Some("api".to_owned()),
             error: None,
@@ -322,7 +315,7 @@ mod tests {
         let change = plan.proposed[0];
         assert_eq!(change.rule, "REPO-GIT-04");
         assert_eq!(change.code, "disable-merge-commits");
-        assert_eq!(change.lane, Lane::OperatorSetting);
+        assert_eq!(change.fix_kind, FixKind::Operator);
         assert!(change.reversible);
         assert!(change
             .change
@@ -346,7 +339,7 @@ mod tests {
     }
 
     #[test]
-    fn a_rule_declaring_no_remediation_is_reported_as_unclosable_with_its_reason() {
+    fn a_rule_declaring_no_fix_is_reported_as_unclosable_with_its_reason() {
         let report = report(vec![finding("REPO-GIT-08", Some(Status::Gap))]);
         let plan = Plan::derive(&report);
 
@@ -438,8 +431,8 @@ mod tests {
     #[test]
     fn the_contextual_detail_is_carried_when_the_run_gave_one() {
         let mut open = finding("REPO-GIT-04", Some(Status::Gap));
-        open.remediation = Some(Remediation::new(
-            ActionGroup::CORRECT_MERGE_SETTINGS,
+        open.fix = Some(Fix::new(
+            FixGroup::CORRECT_MERGE_SETTINGS,
             "Merge commits are enabled.",
         ));
         let report = report(vec![open]);
@@ -449,7 +442,7 @@ mod tests {
     }
 
     #[test]
-    fn in_lane_selects_only_that_lane() {
+    fn of_kind_selects_only_that_lane() {
         let report = report(vec![
             finding("REPO-GIT-04", Some(Status::Gap)),
             finding("REPO-FILE-04", Some(Status::Gap)),
@@ -457,7 +450,7 @@ mod tests {
         let plan = Plan::derive(&report);
 
         let settings: Vec<&str> = plan
-            .in_lane(Lane::OperatorSetting)
+            .of_kind(FixKind::Operator)
             .map(|change| change.rule)
             .collect();
         assert_eq!(settings, vec!["REPO-GIT-04"]);
@@ -465,19 +458,28 @@ mod tests {
 
     #[test]
     fn every_lane_has_a_gloss() {
-        for lane in Lane::ALL {
-            assert!(!lane_gloss(*lane).trim().is_empty(), "{}", lane.code());
+        for fix_kind in FixKind::ALL {
+            assert!(
+                !kind_gloss(*fix_kind).trim().is_empty(),
+                "{}",
+                fix_kind.code()
+            );
         }
     }
 
     #[test]
     fn the_display_order_covers_every_lane_and_agrees_with_the_sort() {
-        assert_eq!(DISPLAY_ORDER.len(), Lane::ALL.len());
-        for lane in Lane::ALL {
-            assert!(DISPLAY_ORDER.contains(lane), "{}", lane.code());
+        assert_eq!(DISPLAY_ORDER.len(), FixKind::ALL.len());
+        for fix_kind in FixKind::ALL {
+            assert!(DISPLAY_ORDER.contains(fix_kind), "{}", fix_kind.code());
         }
-        for (position, lane) in DISPLAY_ORDER.iter().enumerate() {
-            assert_eq!(usize::from(lane_order(*lane)), position, "{}", lane.code());
+        for (position, fix_kind) in DISPLAY_ORDER.iter().enumerate() {
+            assert_eq!(
+                usize::from(kind_order(*fix_kind)),
+                position,
+                "{}",
+                fix_kind.code()
+            );
         }
     }
 }

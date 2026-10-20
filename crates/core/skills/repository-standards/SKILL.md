@@ -1,31 +1,31 @@
 ---
 name: repository-standards
 description:
-  Apply the public repository standard shipped by Airlock. Use when creating a
+  Apply the public repository rule shipped by Airlock. Use when creating a
   public repository, auditing one for gaps, or preparing a private repository
   for publication. Covers Wyrd Company, Flapstack, and personal repositories;
   excludes forks, private work that will remain private, and archiving.
 ---
 
-# Public Repository Standards
+# Public Repository Rules
 
-Use this skill for public, non-fork repositories governed by the standard.
+Use this skill for public, non-fork repositories governed by the rule.
 Airlock is the durable upstream. A copy in an agent skill directory is an
 installation from an Airlock release, not another authority.
 
 ## Authority and ownership
 
-The compiled Airlock registry owns every rule id, statement, default severity,
+The compiled Airlock rules own every rule id, statement, default severity,
 section, applicability condition, and evaluation mode. The generated
 `references/conformance.md` is the only human-readable conformance checklist.
-It quotes the registry version and digest carried by the same binary.
+It quotes the rules version and digest carried by the same binary.
 
 Do not add normative checklists, rule summaries, required-file lists, or
 paraphrased rules to this file or another hand-written reference. Link to the
 relevant generated conformance section instead.
 
 `references/check-guidance.md` is generated from practical inspection guidance
-authored with each standard in the compiled registry. It does not define or
+authored with each rule in the compiled rules. It does not define or
 restate rules. The topics vocabulary, platform
 references, templates, and the workflow guidance in this file are
 hand-written. They explain how to work, not what constitutes conformance.
@@ -50,8 +50,8 @@ use the procedure for that case instead.
 ## Read the generated checklist first
 
 Open `references/conformance.md` before inspecting or changing a repository.
-Use its sections as the work order and its registry version and digest as the
-identity of the standard being applied.
+Use its sections as the work order and its rules version and digest as the
+identity of the rule being applied.
 
 **Always cite a rule by id and statement together.** A rule id alone is not a
 meaningful finding. Copy both from the generated reference or Airlock output;
@@ -71,7 +71,7 @@ For each applicable rule:
 
 - Treat Airlock audit output as evidence, not permission to mutate settings.
 - Keep repository changes reviewable and scoped to the findings being closed.
-- Ask before making judgment calls the registry deliberately leaves to a
+- Ask before making judgment calls the rules deliberately leaves to a
   person.
 - Re-run the relevant checks after changes; do not infer that a proposed fix
   worked.
@@ -100,13 +100,13 @@ Group related gaps when they share one change, but preserve each rule's id and
 exact statement in the evidence. Separate:
 
 - evaluated Met and Gap outcomes from compiled checks;
-- waived standards with their authorization reasons;
-- routed standards with their declared gates and settling surfaces;
+- waived rules with their authorization reasons;
+- routed rules with their declared gates and settling surfaces;
 - unbuilt checks with the reason that prevented an outcome;
-- out-of-scope standards with the declared release-unit boundary; and
+- out-of-scope rules with the declared release-unit boundary; and
 - run errors that prevented Airlock from completing its job.
 
 An agent assessment is advisory evidence. It does not replace a compiled
 check or change Met, Gap, or the exit code. Waived, routed, unbuilt, and out-of-scope
-standards have no Met or Gap outcome. A completed audit with no blocking
-Gaps does not claim that every standard was evaluated.
+rules have no Met or Gap outcome. A completed audit with no blocking
+Gaps does not claim that every rule was evaluated.

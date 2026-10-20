@@ -1,8 +1,8 @@
 # Conformance Checklist
 
-This reference is generated from Airlock check registry **0.6.0**
+This reference is generated from Airlock rules **0.6.0**
 (`sha256:8b8de8523ae967f71b1e3e1c1d79aef9fec1782a328f77e8e89aac19159b1d4f`).
-The registry is authoritative for every rule id, statement, default
+The rules are authoritative for every rule id, statement, default
 severity, section, and declared gates in this document.
 
 **Always cite a rule by id and statement together.** A rule id alone

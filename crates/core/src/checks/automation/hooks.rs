@@ -1,5 +1,5 @@
 use super::*;
-use crate::ActionGroup;
+use crate::FixGroup;
 
 pub(super) fn parse_lefthook(context: &AuditContext) -> Result<Yaml, Box<Verdict>> {
     match context.yaml(".config/lefthook.yml") {
@@ -9,7 +9,7 @@ pub(super) fn parse_lefthook(context: &AuditContext) -> Result<Yaml, Box<Verdict
             "file_missing",
             ".config/lefthook.yml",
             "there is no .config/lefthook.yml to read hooks from",
-            Remediation::new(ActionGroup::ADD_LEFTHOOK, "Add .config/lefthook.yml."),
+            Fix::new(FixGroup::ADD_LEFTHOOK, "Add .config/lefthook.yml."),
         ))),
     }
 }
@@ -64,8 +64,8 @@ pub(super) fn pre_commit_hook(context: &AuditContext) -> Verdict {
             "no_pre_commit_hook",
             ".config/lefthook.yml",
             "no pre-commit hook is defined",
-            Remediation::new(
-                ActionGroup::ADD_PRE_COMMIT,
+            Fix::new(
+                FixGroup::ADD_PRE_COMMIT,
                 "Add a pre-commit hook running format and lint on staged files.",
             ),
         );
@@ -87,8 +87,8 @@ pub(super) fn pre_commit_hook(context: &AuditContext) -> Verdict {
             "pre_commit_incomplete",
             ".config/lefthook.yml",
             format!("pre-commit runs no {}", missing.join(" or ")),
-            Remediation::new(
-                ActionGroup::COMPLETE_PRE_COMMIT,
+            Fix::new(
+                FixGroup::COMPLETE_PRE_COMMIT,
                 "Run format and lint from the pre-commit hook.",
             ),
         )
@@ -103,8 +103,8 @@ pub(super) fn commit_msg_hook(context: &AuditContext) -> Verdict {
             "no_commit_msg_hook",
             ".config/lefthook.yml",
             "no commit-msg hook is defined",
-            Remediation::new(
-                ActionGroup::ADD_COMMIT_MSG,
+            Fix::new(
+                FixGroup::ADD_COMMIT_MSG,
                 "Add a commit-msg hook validating conventional commit format.",
             ),
         );
@@ -162,8 +162,8 @@ pub(super) fn pre_push_hook(context: &AuditContext) -> Verdict {
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
-            Remediation::new(
-                ActionGroup::LIGHTEN_PRE_PUSH,
+            Fix::new(
+                FixGroup::LIGHTEN_PRE_PUSH,
                 "Run nothing or lint only from pre-push. A slow pre-push teaches contributors to \
                  pass --no-verify, which disables pre-commit too.",
             ),
@@ -205,8 +205,8 @@ pub(super) fn hooks_invoke_tasks(context: &AuditContext) -> Verdict {
             "hook_runs_raw_command",
             ".config/lefthook.yml",
             offenders.join("; "),
-            Remediation::new(
-                ActionGroup::WRAP_IN_TASK,
+            Fix::new(
+                FixGroup::WRAP_IN_TASK,
                 "Invoke tasks from hooks rather than raw commands.",
             ),
         )

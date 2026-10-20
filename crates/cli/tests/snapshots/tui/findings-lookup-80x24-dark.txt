@@ -23,7 +23,7 @@ showing       all 9 shown, never narrowed · gate blocking · l returns
                     licensing · pull request open                               
 0 above · 4 below · working set 9 of 9 · ↑↓ moves through the rest              
 ↑↓/j/k move · space collapse or expand · ↵ finding detail · f filter · 8 more…  
-incomplete · complete false · 9 rules · registry 0.6.0 · gate blocking          
+incomplete · complete false · 9 rules · rules 0.6.0 · gate blocking             
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 ccccccccccccccccdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd

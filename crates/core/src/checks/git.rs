@@ -1,13 +1,13 @@
 //! Git configuration: branches, rulesets, merge settings, tags, and history.
 
-use crate::findings::Remediation;
-use crate::policy::RuleInstance;
-use crate::registry::CheckDefinition;
-use crate::ActionGroup;
+use crate::findings::Fix;
+use crate::policy::EffectiveRule;
+use crate::rules::RuleDefinition;
+use crate::FixGroup;
 
 use super::{AuditContext, Verdict};
 
-pub(crate) fn run(id: &str, rule: &RuleInstance, context: &AuditContext) -> Option<Verdict> {
+pub(crate) fn run(id: &str, rule: &EffectiveRule, context: &AuditContext) -> Option<Verdict> {
     Some(match id {
         "REPO-GIT-01" => default_branch(context),
         "REPO-GIT-02" => org_ruleset_coverage(context),
@@ -32,8 +32,8 @@ fn default_branch(context: &AuditContext) -> Verdict {
         Verdict::fail(
             "default_branch_is_not_main",
             format!("the default branch is `{branch}`"),
-            Remediation::new(
-                ActionGroup::RENAME_DEFAULT_BRANCH,
+            Fix::new(
+                FixGroup::RENAME_DEFAULT_BRANCH,
                 "Rename the default branch to `main`.",
             ),
         )
@@ -70,8 +70,8 @@ fn org_ruleset_coverage(context: &AuditContext) -> Verdict {
         Verdict::fail(
             "no_org_ruleset",
             "no active organisation-sourced branch ruleset covers the repository",
-            Remediation::new(
-                ActionGroup::APPLY_ORG_RULESET,
+            Fix::new(
+                FixGroup::APPLY_ORG_RULESET,
                 "Apply an organisation ruleset targeting the default branch. Rulesets are an \
                  organisation-side setting airlock cannot change.",
             ),
@@ -158,8 +158,8 @@ fn report_branch_gaps(branch: &str, gaps: Vec<String>) -> Verdict {
         Verdict::fail(
             "branch_rules_insufficient",
             format!("on `{branch}`: {}", gaps.join("; ")),
-            Remediation::new(
-                ActionGroup::TIGHTEN_RULESET,
+            Fix::new(
+                FixGroup::TIGHTEN_RULESET,
                 "Update the ruleset to require pull requests, allow only squash and rebase, and \
                  require linear history.",
             ),
@@ -205,14 +205,14 @@ const AUTO_DELETE: BooleanSetting = BooleanSetting {
     remedy: "Enable auto-delete of head branches on merge.",
 };
 
-/// Compare one live boolean setting against what the standard expects.
+/// Compare one live boolean setting against what the rule expects.
 ///
-/// An absent value is not a false one. What absence means is the registry's
+/// An absent value is not a false one. What absence means is the rules's
 /// call, not this function's: it reports the field as undisclosed and the
 /// rule's declaration decides whether that is a permanent gate or a run that
 /// fell short.
 fn boolean_setting(
-    def: &CheckDefinition,
+    def: &RuleDefinition,
     context: &AuditContext,
     setting: &BooleanSetting,
     actual: Option<bool>,
@@ -231,15 +231,15 @@ fn boolean_setting(
         Verdict::fail(
             setting.code_fail,
             format!("{} is {actual}, expected {expected}", setting.subject),
-            Remediation::new(
-                ActionGroup::CHANGE_REPOSITORY_SETTING,
+            Fix::new(
+                FixGroup::CHANGE_REPOSITORY_SETTING,
                 setting.remedy.to_owned(),
             ),
         )
     }
 }
 
-fn merge_commits_disabled(def: &CheckDefinition, context: &AuditContext) -> Verdict {
+fn merge_commits_disabled(def: &RuleDefinition, context: &AuditContext) -> Verdict {
     let live = super::merge_setting("merge_commit");
     boolean_setting(
         def,
@@ -250,7 +250,7 @@ fn merge_commits_disabled(def: &CheckDefinition, context: &AuditContext) -> Verd
     )
 }
 
-fn squash_enabled(def: &CheckDefinition, context: &AuditContext) -> Verdict {
+fn squash_enabled(def: &RuleDefinition, context: &AuditContext) -> Verdict {
     let live = super::merge_setting("squash");
     boolean_setting(
         def,
@@ -261,7 +261,7 @@ fn squash_enabled(def: &CheckDefinition, context: &AuditContext) -> Verdict {
     )
 }
 
-fn auto_delete_enabled(def: &CheckDefinition, context: &AuditContext) -> Verdict {
+fn auto_delete_enabled(def: &RuleDefinition, context: &AuditContext) -> Verdict {
     let live = super::merge_setting("delete_branch_on_merge");
     boolean_setting(
         def,
@@ -338,8 +338,8 @@ fn tags_have_no_v_prefix(context: &AuditContext) -> Verdict {
         Verdict::fail(
             "v_prefixed_tags",
             format!("{} carry a `v` prefix", offenders.join(", ")),
-            Remediation::new(
-                ActionGroup::RETAG_WITHOUT_PREFIX,
+            Fix::new(
+                FixGroup::RETAG_WITHOUT_PREFIX,
                 "Tag releases without the `v` prefix.",
             ),
         )
@@ -347,7 +347,7 @@ fn tags_have_no_v_prefix(context: &AuditContext) -> Verdict {
 }
 
 fn multi_unit_tag_shape(context: &AuditContext) -> Verdict {
-    // This branch requires the standard's declared release-unit scope.
+    // This branch requires the rule's declared release-unit scope.
     let units = try_verdict!(context.release_units());
     if units.len() <= 1 {
         return Verdict::pass(
@@ -393,15 +393,15 @@ fn multi_unit_tag_shape(context: &AuditContext) -> Verdict {
                 offenders.join(", "),
                 units.len()
             ),
-            Remediation::new(
-                ActionGroup::SCOPE_TAGS,
+            Fix::new(
+                FixGroup::SCOPE_TAGS,
                 "Tag each release unit as `@scope/name@version`.",
             ),
         )
     }
 }
 
-fn no_merge_commits(rule: &RuleInstance, context: &AuditContext) -> Verdict {
+fn no_merge_commits(rule: &EffectiveRule, context: &AuditContext) -> Verdict {
     // Report the actual run's bound, which may override the compiled default
     // history limit. A resource budget is run state, not a computed default.
     let budget = rule
@@ -432,8 +432,8 @@ fn no_merge_commits(rule: &RuleInstance, context: &AuditContext) -> Verdict {
                 commits.len(),
                 merges[0]
             ),
-            Remediation::new(
-                ActionGroup::REWRITE_OR_PREVENT_MERGES,
+            Fix::new(
+                FixGroup::REWRITE_OR_PREVENT_MERGES,
                 "Require linear history so merge commits cannot enter the default branch.",
             ),
         );
@@ -493,8 +493,8 @@ fn app_identity_conventions(context: &AuditContext) -> Verdict {
         Verdict::fail(
             "app_identity_conventions_broken",
             offenders.join("; "),
-            Remediation::new(
-                ActionGroup::MOVE_APP_IDENTITY,
+            Fix::new(
+                FixGroup::MOVE_APP_IDENTITY,
                 "Store the app id as a variable named `<APP>_APP_ID` and only the private key as \
                  a secret named `<APP>_APP_PRIVATE_KEY`.",
             ),
@@ -520,7 +520,7 @@ mod tests {
     use super::super::fixtures::*;
     use crate::findings::Status;
     use crate::github::{ApiError, BranchRule, CommitSummary, ErrorCause, Paged, Ruleset, TagRef};
-    use crate::ActionGroup;
+    use crate::FixGroup;
     use serde_json::json;
 
     #[test]
@@ -616,10 +616,7 @@ mod tests {
         });
         let verdict = evaluate(&rule("REPO-GIT-02"), &context);
         assert_eq!(verdict.status, None);
-        assert_eq!(
-            verdict.remediation.unwrap().action_group,
-            ActionGroup::PLAN_GATE
-        );
+        assert_eq!(verdict.fix.unwrap().fix_group, FixGroup::PLAN_GATE);
     }
 
     #[test]
@@ -692,7 +689,7 @@ mod tests {
             let evidence = verdict.evidence.expect("admin-only evidence");
             assert_eq!(
                 evidence.code,
-                crate::registry::MERGE_SETTINGS_DISCLOSURE.evidence_code,
+                crate::rules::MERGE_SETTINGS_DISCLOSURE.evidence_code,
                 "{id}"
             );
             assert!(

@@ -3,14 +3,14 @@
 //! The findings screen answers what the run concluded. This answers what the
 //! run asked, which is the prior question: a verdict over a policy nobody can
 //! read is a number. Every rule the run asked about is listed with its
-//! severity, its evaluation mode, and its provenance; the registry digest is
+//! severity, its evaluation mode, and its provenance; the rules digest is
 //! printed in full with a statement of what it proves; and the sources block
 //! says where the rules came from, including the material the policy supplied
-//! rather than the registry.
+//! rather than the rules.
 //!
 //! Evaluation is a property of the rule and not of the run. A manual rule
 //! reports its judgment mode every time it is listed and never becomes
-//! mechanical, so the column is read from the compiled registry rather than
+//! mechanical, so the column is read from the compiled rules rather than
 //! from anything this run observed.
 //!
 //! The digest, the sources, the provenance, and the table are one reading and
@@ -19,7 +19,7 @@
 use ratatui::text::{Line, Span};
 
 use airlock_core::findings::{Report, SuppressionSource};
-use airlock_core::registry::{self, Severity};
+use airlock_core::rules::{self, Severity};
 
 use crate::admin::text::sanitize;
 
@@ -64,9 +64,9 @@ pub struct Rule {
     /// The severity that applies after refinement, which is what the run used.
     pub severity: Severity,
     /// How the rule is evaluated. A property of the rule, read from the
-    /// registry, so it cannot change with what a run happened to observe.
+    /// rules, so it cannot change with what a run happened to observe.
     pub evaluation: &'static str,
-    /// The section the registry gives the rule.
+    /// The section the rules gives the rule.
     pub section: String,
     /// The run's own record of where the rule came from.
     pub provenance: String,
@@ -110,7 +110,7 @@ impl Inspector {
             .effective_policy
             .iter()
             .map(|entry| {
-                let definition = registry::find(&entry.rule);
+                let definition = rules::find(&entry.rule);
                 Rule {
                     rule: sanitize(&entry.rule, VALUE_LIMIT),
                     severity: Severity::parse(&entry.severity).unwrap_or(Severity::Advisory),
@@ -144,7 +144,7 @@ impl Inspector {
     /// The digest as the status line quotes it.
     #[must_use]
     pub fn abbreviated_digest(&self) -> String {
-        let digest = &self.provenance.registry_digest;
+        let digest = &self.provenance.rules_digest;
         let (algorithm, value) = digest.split_once(':').unwrap_or(("", digest.as_str()));
         if value.chars().count() <= DIGEST_PREFIX {
             return digest.clone();
@@ -159,10 +159,10 @@ impl Inspector {
 }
 
 /// Where the rules came from: the policy, its references, and the material the
-/// policy supplied rather than the registry.
+/// policy supplied rather than the rules.
 ///
 /// Policy-sourced material is marked as such rather than being listed beside a
-/// blob identity it does not have. A suppression has no bytes in the registry
+/// blob identity it does not have. A suppression has no bytes in the rules
 /// to point at, and printing a digest next to one would say it did.
 fn sources(report: &Report, _rules: &[Rule]) -> Vec<Source> {
     let mut sources = vec![Source {
@@ -208,7 +208,7 @@ fn sources(report: &Report, _rules: &[Rule]) -> Vec<Source> {
         sources.push(Source {
             name: "suppressions".to_owned(),
             reference: format!("{authorized_by} \u{b7} {count} rule(s)"),
-            blob: "\u{2014} policy-sourced, not registry".to_owned(),
+            blob: "\u{2014} policy-sourced, not rules".to_owned(),
         });
     }
     sources
@@ -264,20 +264,20 @@ fn regions(styles: Styles, width: usize, inspector: &Inspector) -> Vec<Line<'sta
 
 /// The digest, and what it proves.
 fn digest_region(styles: Styles, width: usize, inspector: &Inspector) -> Vec<Line<'static>> {
-    let mut lines = vec![heading(styles, "REGISTRY DIGEST")];
+    let mut lines = vec![heading(styles, "RULES DIGEST")];
     // In full. An abbreviated digest cannot be compared against another run's,
     // and comparing them is the only thing a digest is for.
     lines.extend(value(
         styles,
         width,
         "digest",
-        &inspector.provenance.registry_digest,
+        &inspector.provenance.rules_digest,
     ));
     lines.extend(value(
         styles,
         width,
         "computed over",
-        "every rule the compiled registry declares: its id, its statement, its \
+        "every rule the compiled rules declare: its id, its statement, its \
          default severity, its section, and its evaluation mode.",
     ));
     lines.extend(value(
@@ -290,7 +290,7 @@ fn digest_region(styles: Styles, width: usize, inspector: &Inspector) -> Vec<Lin
         styles,
         width,
         "excludes",
-        "remediation classification. Two binaries that agree on the digest agree \
+        "fix classification. Two binaries that agree on the digest agree \
          on what every rule means, and may still differ on how they would close a \
          gap.",
     ));
@@ -305,7 +305,7 @@ fn sources_region(styles: Styles, width: usize, inspector: &Inspector) -> Vec<Li
             styles,
             width,
             "each policy source with its reference and its blob identity, and the \
-             material the policy supplied rather than the registry.",
+             material the policy supplied rather than the rules.",
             "the run recorded no policy identity at all, which happens when a report \
              is read from a document that predates the field.",
         ));
@@ -373,13 +373,13 @@ fn table(styles: Styles, width: usize, inspector: &Inspector) -> Vec<Line<'stati
     lines
 }
 
-/// The status line: the registry version, the abbreviated digest, the rule
+/// The status line: the rules version, the abbreviated digest, the rule
 /// count, and the section count.
 #[must_use]
 pub fn status(inspector: &Inspector) -> String {
     format!(
-        "registry {} \u{b7} {} \u{b7} {} rules \u{b7} {} sections",
-        inspector.provenance.registry_version,
+        "rules {} \u{b7} {} \u{b7} {} rules \u{b7} {} sections",
+        inspector.provenance.rules_version,
         inspector.abbreviated_digest(),
         inspector.rules.len(),
         inspector.sections
@@ -389,7 +389,7 @@ pub fn status(inspector: &Inspector) -> String {
 /// What the status line says after `y`.
 #[must_use]
 pub fn copied() -> String {
-    "the registry digest was offered to the terminal's clipboard \u{b7} a terminal \
+    "the rules digest was offered to the terminal's clipboard \u{b7} a terminal \
      that does not take it ignores it, and the digest is above in full"
         .to_owned()
 }
@@ -409,7 +409,7 @@ pub fn nothing_observed(styles: Styles, width: usize) -> Vec<Line<'static>> {
     lines.extend(empty(
         styles,
         width,
-        "every rule the run asked about, the registry digest and what it proves, \
+        "every rule the run asked about, the rules digest and what it proves, \
          where the rules came from, and the run's provenance.",
         "the effective policy is a property of a run, and no repository has been \
          observed in this session.",
@@ -501,7 +501,7 @@ mod tests {
     fn the_digest_is_printed_in_full_with_what_it_proves() {
         let report = fixture::mixed();
         let rendered = drawn(&report, REFERENCE_WIDTH);
-        let digest = Inspector::of(&report).provenance.registry_digest;
+        let digest = Inspector::of(&report).provenance.rules_digest;
         // Compared without the spaces the wrapping put in: the digest is one
         // token, and a width that broke it did not shorten it.
         assert!(
@@ -510,7 +510,7 @@ mod tests {
         );
         assert!(rendered.contains("same questions"), "{rendered}");
         assert!(
-            rendered.contains("remediation classification"),
+            rendered.contains("fix classification"),
             "the digest says what it does not cover: {rendered}"
         );
     }
@@ -518,12 +518,12 @@ mod tests {
     #[test]
     fn the_abbreviated_digest_is_marked_and_keeps_its_algorithm() {
         let mut report = fixture::mixed();
-        report.airlock.registry_digest = format!("sha256:{}", "a".repeat(64));
+        report.airlock.rules_digest = format!("sha256:{}", "a".repeat(64));
         assert_eq!(
             Inspector::of(&report).abbreviated_digest(),
             "sha256:aaaaaaaa\u{2026}"
         );
-        report.airlock.registry_digest = "sha256:abcd".to_owned();
+        report.airlock.rules_digest = "sha256:abcd".to_owned();
         assert_eq!(Inspector::of(&report).abbreviated_digest(), "sha256:abcd");
     }
 
@@ -604,7 +604,7 @@ mod tests {
         assert!(
             text(&regions(styles(), REFERENCE_WIDTH as usize, &inspector))
                 .replace(' ', "")
-                .contains(&inspector.provenance.registry_digest.replace(' ', "")),
+                .contains(&inspector.provenance.rules_digest.replace(' ', "")),
             "the whole digest is on the screen the abbreviation summarises"
         );
     }
@@ -619,7 +619,7 @@ mod tests {
             .find(|source| source.name == "suppressions")
             .expect("the run carries a policy-authorized suppression");
         assert!(
-            suppression.blob.contains("policy-sourced, not registry"),
+            suppression.blob.contains("policy-sourced, not rules"),
             "{}",
             suppression.blob
         );
@@ -646,10 +646,7 @@ mod tests {
         let report = fixture::mixed();
         let inspector = Inspector::of(&report);
         let line = status(&inspector);
-        assert!(
-            line.contains(&inspector.provenance.registry_version),
-            "{line}"
-        );
+        assert!(line.contains(&inspector.provenance.rules_version), "{line}");
         assert!(line.contains(&inspector.abbreviated_digest()), "{line}");
         assert!(
             line.contains(&format!("{} rules", inspector.rules.len())),

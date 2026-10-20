@@ -2,8 +2,8 @@ findings-80x24-no-color · 80x24 · theme dark · NO_COLOR
 --- text ---
 AIRLOCK 0.0.0  … repositories › findings  no credential stored · theme t · dark 
 FINDINGS                                                                        
-Present the whole standard as a work queue, ordered by what closing each gap    
-takes and who can close it.                                                     
+Present the whole rule as a work queue, ordered by what closing each gap takes  
+and who can close it.                                                           
                                                                                 
 STATUS VOCABULARY                                                               
 DECIDED · GATING                                                                

@@ -23,7 +23,7 @@ showing       the whole working set · 4 of 4 · gate blocking · f
   ┃- 6 ROUTED  0  no rule was withheld by a disclosure gate; this session's cre…
 0 above · 3 below · working set 4 of 4 · ↑↓ moves through the rest              
 ↑↓/j/k move · space collapse or expand · ↵ finding detail · f filter · 8 more…  
-incomplete · complete false · 4 rules · registry 0.6.0 · gate blocking          
+incomplete · complete false · 4 rules · rules 0.6.0 · gate blocking             
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 ccccccccccccccccdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd

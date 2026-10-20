@@ -20,7 +20,7 @@ Not yet published to any registry. Build from source:
 cargo install --git https://github.com/wyrd-company/airlock airlock-cli
 ```
 
-## Install the repository standards skill
+## Install the `repository-standards` skill
 
 Airlock carries the complete `repository-standards` agent skill, including its
 platform references, topics vocabulary, and templates. Emit it directly into
@@ -37,9 +37,9 @@ with local changes. To adopt an older standalone copy that has no marker, move
 it aside and emit a fresh tree. With no target, the command writes
 `repository-standards` in the current directory.
 
-The generated `references/conformance.md` quotes the compiled registry version
+The generated `references/conformance.md` quotes the compiled rules version
 and digest. Its rule statements, severities, sections, and evaluation modes
-come from that registry; the remaining guidance and reference material is
+come from those rules; the remaining guidance and reference material is
 hand-written in Airlock. This includes the rule-by-rule inspection guidance in
 `references/check-guidance.md`, which is joined into the generated checklist
 without owning its evaluation modes. Command output also reminds operators to
@@ -83,7 +83,7 @@ no policy and no built-in scaffold.
 It requires an interactive terminal on both stdin and stdout. Under a pipe, a
 redirect, or a scheduler it exits non-zero without rendering anything, and names
 what to run instead. `airlock audit` is the complete unattended findings
-surface, and `airlock agent-work` is its lane-scoped projection for an executing
+surface, and `airlock agent-work` is its work-list projection for an executing
 agent.
 
 Two keys are live everywhere: `t` switches between the dark and light palettes,
@@ -160,28 +160,28 @@ airlock audit wyrd-company/airlock --policy ./policy.yml | jq '.summary'
 ```
 
 At the end of an agent's work, `agent-work` re-runs the same audit and projects
-its findings into the agent's file-change lanes:
+its findings into the agent's file work:
 
 ```sh
 airlock agent-work wyrd-company/airlock --working-tree .
 ```
 
-Its `agent_lane` contains Gaps classified as `deterministic-file` or `judgment-
-file`. `operator_deferred` lists operator work. `needs_decision` and
+Its `agent_work` contains Gaps classified as `airlock` or `agent`.
+`operator_deferred` lists operator work. `needs_decision` and
 `run_errors` name missing inputs and failed observations. `waived`, `routed`,
-`unbuilt`, and `out_of_scope` list standards not evaluated here. These lists
+`unbuilt`, and `out_of_scope` list rules not evaluated here. These lists
 carry counts, identities, reasons, and settling surfaces. The `observation`
 block records whether files came from the API tree or the local working tree.
 
-This is a lane-scoped definition-of-done check, not an audit substitute or a
-repository conformance claim. A clear agent lane can coexist with operator work,
-unbuilt checks, waivers, routed or out-of-scope standards, and other repository
+This check establishes whether the agent work list is clear. A clear list can
+coexist with operator work,
+unbuilt checks, waivers, routed or out-of-scope rules, and other repository
 gaps; run `airlock audit` for the complete findings authority.
 
-`airlock audit --list-checks` prints the whole check registry: every rule id,
+`airlock audit --list-rules` prints the complete rules: every rule id,
 its statement, its severity, its compiled check and declared gates, and what
 closing its gap would take.
-That last part is the remediation catalogue — read it to know what airlock
+That last part is the fix catalogue — read it to know what airlock
 would do to a repository before pointing it at one.
 
 To see what it would change about a particular repository rather than in
@@ -191,7 +191,7 @@ general:
 airlock plan wyrd-company/airlock
 ```
 
-To author only the deterministic file lane in a checkout:
+To author only the Airlock fix kind in a checkout:
 
 ```sh
 airlock align-files wyrd-company/airlock --working-tree .
@@ -205,7 +205,7 @@ airlock align-files wyrd-company/airlock --working-tree .
 | `1` | `nonconformant` | At least one blocking Gap, with no run errors |
 | `2` | `incomplete` | Airlock could not complete its job |
 
-An evaluated standard has exactly one outcome: `met` or `gap`. Severity is
+An evaluated rule has exactly one outcome: `met` or `gap`. Severity is
 `none`, `advisory`, or `blocking`. A blocking Gap sets exit `1`; an advisory
 Gap leaves the exit code unchanged. An agent assessment is advisory evidence;
 only the compiled check decides Met or Gap.
@@ -214,13 +214,13 @@ The JSON document uses schema version `2`. Its `findings` list contains the
 Met and Gap results. Separate lists identify work without an outcome:
 
 - `waived`: effective severity `none`; the check does not run. Each entry names
-  the standard and its authorization reason.
-- `routed`: a compiled gate sends the standard to another run or surface.
-  `needs-github-api` routes the whole standard to a credentialed API-tree audit
+  the rule and its authorization reason.
+- `routed`: a compiled gate sends the rule to another run or surface.
+  `needs-github-api` routes the whole rule to a credentialed API-tree audit
   or Action. A disclosure gate names the interactive session. An unobserved
   repository owner routes the Renovate preset comparison after file presence,
-  valid JSON, and a nonempty preset list have been checked. The built-binary
-  regression `renovate_without_owner_preserves_json_and_extends_diagnostics`
+  valid JSON, typed `extends`, and a nonempty preset list have been checked. The
+  built-binary regression `renovate_without_owner_preserves_json_and_extends_diagnostics`
   covers these independent diagnostics.
 - `unbuilt`: this evaluation reaches a declared part of the check that Airlock
   has not built. It names the reason and needs a release with that check built.
@@ -241,14 +241,14 @@ Met and Gap results. Separate lists identify work without an outcome:
   exercise both waiver reasons.
 
 Waived, routed, unbuilt, and out-of-scope entries have no Met or Gap outcome and
-do not change the exit code. A standard is evaluated whole or routed whole when
-it requires an API-only fact. Other standards continue to run. A clean report
+do not change the exit code. A rule is evaluated whole or routed whole when
+it requires an API-only fact. Other rules continue to run. A clean report
 with waivers, routed, unbuilt, or out-of-scope work is distinguishable from one
-where every standard was evaluated.
+where every rule was evaluated.
 
 The tests `decided_outcomes_match_the_integration_base`,
-`a_waived_standard_does_not_run_its_check`,
-`the_api_gate_routes_a_whole_file_tree_standard`,
+`a_waived_rule_does_not_run_its_check`,
+`the_api_gate_routes_a_whole_file_tree_rule`,
 `disclosure_routing_and_a_missing_input_without_a_gate_are_distinct`, and
 `unbuilt_branches_preserve_decided_outcomes` verify these contracts.
 
@@ -263,43 +263,43 @@ On Unix, a closed output pipe terminates silently on signal 13 (`SIGPIPE`),
 commonly reported by shells as status 141.
 
 `airlock agent-work` asks whether agent file work remains. Its codes are `0`
-for `agent_lane_clear`, `1` for `agent_lane_work_remains`, and `2` for
+for `agent_work_clear`, `1` for `agent_work_remains`, and `2` for
 `could_not_settle`. It retains waived, routed, unbuilt, out-of-scope, and
 run-error lists.
-Operator work does not turn a clear agent lane into a claim that the repository
-meets every standard.
+Operator work does not turn a clear agent work list into a claim that the repository
+meets every rule.
 
-## Remediation lanes
+## Fix kinds
 
 Every registered rule declares, as compiled-in data, what closing its gap
-takes. Each finding carries that declaration in `remediation_class`: a stable
-code, what the change would be, whether it is reversible, and the lane it
-travels in — or `none_reason` when airlock offers no remediation. The
+takes. Each finding carries that declaration in `fix_class`: a stable
+code, what the change would be, whether it is reversible, and the fix kind it
+travels in — or `none_reason` when airlock offers no fix. The
 classification tells the consumer who can act and through which surface.
 
-| Lane                 | What it means                                                                                              | Who does the work                                 |
+| Fix kind                 | What it means                                                                                              | Who does the work                                 |
 | -------------------- | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
-| `deterministic-file` | The same gap resolves to the same file content in every repository                                         | Airlock authors locally; the caller delivers a PR |
-| `judgment-file`      | The fix is repository-specific file content — prose, or configuration wired to this repository's toolchain | An agent authors it; a human reviews              |
-| `operator-setting`   | The fix sits behind the administration API, and `administration: write` is indivisible                     | A human, behind the TUI                           |
+| `airlock` | The same gap resolves to the same file content in every repository                                         | Airlock authors locally; the caller delivers a PR |
+| `agent`      | The fix is repository-specific file content — prose, or configuration wired to this repository's toolchain | An agent authors it; a human reviews              |
+| `operator`   | The fix sits behind the administration API, and `administration: write` is indivisible                     | A human, behind the TUI                           |
 | _(none)_             | A human attestation, a fix outside the repository, or history surgery airlock will not automate            | Nobody — the reason says why                      |
 
-Lane is the only authorship gate. Mechanical evaluation is not enough:
+Fix kind is the only authorship gate. Mechanical evaluation is not enough:
 README presence, task wiring, job permissions, and other mechanically observed
 facts can still need repository judgment and therefore remain
-`judgment-file`.
+`agent`.
 
-The classification is not part of the registry digest. The digest attests what
+The classification is not part of the rules digest. The digest attests what
 every rule means and how it is evaluated — the contract a policy binds to with
-`requires-registry`. Remediation is airlock's answer to a gap, and a better
+`requires-rules`. Fix is airlock's answer to a gap, and a better
 answer must not invalidate policy compatibility.
 
 ## Planning what would change
 
 `airlock plan` observes a repository and prints the change each open gap calls
-for, grouped by lane: what an operator can apply directly, what airlock can
+for, grouped by fix kind: what an operator can apply directly, what airlock can
 author, and what needs an author's judgment. Each entry names the rule, its
-remediation code, what the change would be, and whether it can be undone.
+fix code, what the change would be, and whether it can be undone.
 
 ```sh
 airlock plan wyrd-company/airlock
@@ -314,9 +314,9 @@ changes. Aligning re-observes each rule immediately before acting on it and
 decides from what it then sees — a plan printed a minute ago describes a
 repository that may since have changed, and acting on it would be acting on a
 remembered observation. Machine consumers read the audit's findings document,
-which carries the same `remediation_class` this is derived from.
+which carries the same `fix_class` this is derived from.
 
-An authorized failure keeps its remediation on offer and is marked as standing
+An authorized failure keeps its fix on offer and is marked as standing
 debt: a suppression permitted the failure, it did not close the gap. A rule
 airlock could not decide proposes nothing and is named separately, because
 there is no observed gap to propose a change for.
@@ -329,13 +329,13 @@ verdict.
 
 The interactive terminal session is the only surface that holds the
 write-capable Airlock Admin credential. Opening a repository performs a fresh
-full observation. Applying a settings remediation then observes that rule
+full observation. Applying a settings fix then observes that rule
 again immediately before the request and once more afterwards. The transcript
 reports the request as one step, but derives pass or fail only from the final
 observation. An accepted request that leaves the setting unchanged remains a
 failure in the queue.
 
-The confirmation names the rule, remediation code, exact change, and
+The confirmation names the rule, fix code, exact change, and
 reversibility before any request is sent. Input-free settings of the same kind
 can share one confirmation, but each retains its own pre-observation, request,
 post-observation, and transcript. Transfers, repository names, and ruleset
@@ -352,7 +352,7 @@ writes a repository file.
 ## Closing file gaps
 
 `airlock align-files` is non-interactive and single-repository. It observes the
-working tree, authors only failing `deterministic-file` findings, and then
+working tree, authors only failing `airlock` findings, and then
 re-observes the affected rules through the working-tree source. It consumes the
 same `worktree::read_facts` boundary as the audit; a path that boundary refuses
 is refused here too.
@@ -364,12 +364,12 @@ line-ending normalization. Each successful path is written through a temporary
 file and same-directory rename. A failure exits nonzero and includes every path
 already written and the path not written.
 
-When several findings claim the same file, one remediation owns that path for
+When several findings claim the same file, one fix owns that path for
 the run. The report tells the caller to commit that write and run the command
 again; the next observation, not a remembered finding, decides what remains.
 
-The JSON and text reports include path operations, rule ids, remediation
-codes, skipped reasons, post-write findings and their sources, judgment-lane
+The JSON and text reports include path operations, rule ids, fix
+codes, skipped reasons, post-write findings and their sources, agent-work
 delegations, and read-only pull-request context. The well-known delivery branch
 is `airlock/align`. `open`, `none`, and `unknown` are distinct; unknown never
 means none. A second run re-observes the checkout and writes nothing when the
@@ -384,8 +384,8 @@ available. The command's read-only observation reports an existing pull
 request so the caller can suppress duplicates. Live caller-side duplicate
 suppression remains an integration responsibility.
 
-Judgment-file findings are not filled with boilerplate. The report hands their
-rule, remediation, evidence, and source to an agent. Emit task 82's embedded
+Agent fixes are not filled with boilerplate. The report hands their
+rule, fix, evidence, and source to an agent. Emit task 82's embedded
 guidance with:
 
 ```sh
@@ -426,7 +426,7 @@ Platform rules — settings, rulesets, tags, history, secrets — have no local
 equivalent and are never inferred from a working tree. With a repository and
 a credential (`airlock audit owner/repo --working-tree .`) they still come
 from the API and the run mixes sources; without a credential
-(`airlock audit --working-tree . --policy ./policy.yml`) each standard with a
+(`airlock audit --working-tree . --policy ./policy.yml`) each rule with a
 declared API gate is listed as `routed`, with reason `needs-github-api` and the
 credentialed API-tree audit or Action as its settling surface. Routing leaves
 the exit code unchanged.
@@ -443,18 +443,18 @@ working-tree run that had to assume the default branch says so with
 
 ## Policy
 
-The policy is YAML. It selects sections of the check registry through
+The policy is YAML. It selects sections of the rules through
 capabilities, refines individual rules, and decides who may suppress what.
 It expresses no logic of its own: the checks are the only place logic lives.
 
 ```yaml
 version: 1
 name: wyrd-company
-requires-registry: ">=0.2" # the binary's registry must satisfy this
+requires-rules: ">=0.2" # the binary's rules must satisfy this
 
 capabilities:
   base: [identity, licensing, files, git, automation]
-  registry: [release]
+  rules: [release]
 
 checks:
   REPO-META-06:
@@ -472,7 +472,7 @@ reference-data:
 ```
 
 Template identity uses an organization exception. Select `release` in the
-`registry` capability and list each required parent template:
+`rules` capability and list each required parent template:
 
 ```yaml
 exceptions:
@@ -514,7 +514,7 @@ audit. `--policy owner/repo:path[@ref]` names a policy explicitly, and
 Before any check runs, the policy and every transitive reference are resolved
 to immutable identities — a commit and blob sha for remote sources, a content
 hash for local ones — and hashed into a **policy bundle digest** that travels
-in every result alongside the registry version and digest. Two runs that agree
+in every result alongside the rules version and digest. Two runs that agree
 on those three values ran the same rules against the same policy.
 
 Each source is also reported individually under `policy.sources`, with what it

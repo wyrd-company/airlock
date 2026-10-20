@@ -4,5 +4,5 @@ description: >-
   The Airlock generation a configuration has accepted. A rule's compiled since release identifies
   when it was introduced. A newer rule is evaluated and reported as new but does not bind the
   gate until accepted. A repository may pilot a later version than its organization, never an
-  earlier one. Accepted version replaces requires-registry; it is unrelated to a template's
+  earlier one. Accepted version replaces requires-rules; it is unrelated to a template's
   accepted revision.

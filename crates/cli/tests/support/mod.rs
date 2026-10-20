@@ -148,7 +148,7 @@ impl FakeRepo {
     }
 
     /// Answer the ruleset endpoints the way a repository governed as the
-    /// standards expect answers them: one active organisation branch ruleset,
+    /// rules expect answers them: one active organisation branch ruleset,
     /// requiring pull requests, squash and rebase only, and linear history.
     #[must_use]
     pub fn with_conforming_org_ruleset(mut self) -> Self {

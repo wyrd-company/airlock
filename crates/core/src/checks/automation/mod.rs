@@ -1,7 +1,7 @@
 //! Automation: taskfiles, CI, CD, and hooks.
 
-use crate::findings::Remediation;
-use crate::policy::RuleInstance;
+use crate::findings::Fix;
+use crate::policy::EffectiveRule;
 use crate::yaml::Yaml;
 
 use super::{AuditContext, ParsedFile, Verdict, Workflow};
@@ -19,7 +19,7 @@ use workflows::*;
 /// The task verbs every repository must define.
 pub(super) const REQUIRED_TASKS: &[&str] = &["test", "lint", "format", "check"];
 
-pub(crate) fn run(id: &str, rule: &RuleInstance, context: &AuditContext) -> Option<Verdict> {
+pub(crate) fn run(id: &str, rule: &EffectiveRule, context: &AuditContext) -> Option<Verdict> {
     Some(match id {
         "REPO-TASK-01" => required_tasks(context),
         "REPO-TASK-04" => per_unit_taskfiles(context),
