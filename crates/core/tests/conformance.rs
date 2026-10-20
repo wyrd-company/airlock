@@ -12,6 +12,13 @@ use std::collections::BTreeMap;
 
 use airlock_core::registry::{Evaluation, Section, Severity, CHECKS};
 
+#[test]
+fn agent_context_locates_standard_modules_and_generated_inspection_guidance() {
+    let context = include_str!("../../../AGENTS.md");
+    assert!(context.contains("`crates/core/src/registry/`"));
+    assert!(context.contains("`airlock skill` generates both `references/conformance.md` and\n`references/check-guidance.md` from those modules."));
+}
+
 struct Rule {
     statement: String,
     severity: Severity,

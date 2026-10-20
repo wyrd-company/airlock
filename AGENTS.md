@@ -34,7 +34,8 @@ not a warning path. Adding a token prefix means adding the introspection that
 proves it read-only, or refusing it.
 
 **Check identity is compiled in.** Rule ids, statements, and default severities
-live in the registry in `crates/core/src/registry.rs`, not in policy files. A
+live in per-standard modules under `crates/core/src/registry/`, assembled by
+`crates/core/src/registry.rs`, not in policy files. A
 policy selects, parameterises, and re-grades; it cannot define a check or
 express a predicate. If a policy needs to say something the checks cannot, the
 answer is a new check.
@@ -59,10 +60,12 @@ Do not replace a pin with a tag.
 
 ## Where things live
 
-The compiled registry is the source of truth for rule ids, statements,
-severities, sections, and evaluation modes. `airlock skill` generates the
-`repository-standards` conformance reference from it; the rest of the embedded
-skill is hand-written guidance and supporting material.
+The per-standard modules under `crates/core/src/registry/` are the source of
+truth for rule ids, statements, severities, sections, evaluation modes,
+parameter defaults, fix lanes, lifecycle metadata, and inspection guidance.
+`airlock skill` generates both `references/conformance.md` and
+`references/check-guidance.md` from those modules. The embedded skill's
+workflow guidance and supporting material are hand-written.
 
 `docs/examples/` holds candidate copies of files that belong elsewhere — the
 organisation policy and its topic vocabulary live in `wyrd-company/.github`
