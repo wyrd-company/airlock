@@ -24,9 +24,9 @@ Do not add normative checklists, rule summaries, required-file lists, or
 paraphrased rules to this file or another hand-written reference. Link to the
 relevant generated conformance section instead.
 
-`references/check-guidance.md` owns practical inspection guidance. Its rule ids
-are structural join keys validated in both directions against the registry;
-they do not define or restate rules. The topics vocabulary, platform
+`references/check-guidance.md` is generated from practical inspection guidance
+authored with each standard in the compiled registry. It does not define or
+restate rules. The topics vocabulary, platform
 references, templates, and the workflow guidance in this file are
 hand-written. They explain how to work, not what constitutes conformance.
 
@@ -84,7 +84,7 @@ Read only what the current work needs:
 
 - `references/conformance.md` — generated rule identity and the complete
   checklist.
-- `references/check-guidance.md` — hand-written inspection hints joined into
+- `references/check-guidance.md` — generated inspection hints joined into
   the generated checklist.
 - `references/topics.md` — seeded topic vocabulary and selection guidance.
 - `references/platform/` — organization-level platform context that is not

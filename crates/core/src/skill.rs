@@ -1,10 +1,9 @@
 //! The repository-standards skill carried by the Airlock binary.
 //!
-//! Hand-written guidance and templates are embedded verbatim. The conformance
-//! reference is rendered from the compiled registry so its rule identity can
+//! Hand-written workflow guidance and templates are embedded verbatim. Inspection
+//! guidance and conformance are rendered from the compiled registry so rule identity can
 //! never drift from the questions this binary asks.
 
-use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::fs;
 use std::io;
@@ -18,10 +17,6 @@ const EMISSION_MARKER: &str = "airlock:repository-standards\n";
 
 const FILES: &[(&str, &str)] = &[
     ("SKILL.md", include_str!("../skills/repository-standards/SKILL.md")),
-    (
-        "references/check-guidance.md",
-        include_str!("../skills/repository-standards/references/check-guidance.md"),
-    ),
     ("references/topics.md", include_str!("../skills/repository-standards/references/topics.md")),
     ("references/platform/README.md", include_str!("../skills/repository-standards/references/platform/README.md")),
     ("references/platform/custom-properties.md", include_str!("../skills/repository-standards/references/platform/custom-properties.md")),
@@ -81,6 +76,7 @@ pub fn emit(target: &Path, force: bool) -> io::Result<()> {
         write_file(&staging, relative, contents)?;
     }
     write_file(&staging, "references/conformance.md", &conformance()?)?;
+    write_file(&staging, "references/check-guidance.md", &check_guidance())?;
     write_file(&staging, EMISSION_MARKER_PATH, EMISSION_MARKER)?;
 
     if target.exists() && !force {
@@ -191,7 +187,6 @@ fn remove_path(path: &Path) -> io::Result<()> {
 
 /// Render the registry-owned conformance reference.
 pub fn conformance() -> io::Result<String> {
-    let guidance = guidance_by_rule()?;
     let mut output = format!(
         "# Conformance Checklist\n\n\
          This reference is generated from Airlock check registry **{}** \
@@ -226,7 +221,7 @@ pub fn conformance() -> io::Result<String> {
                 escape_table(check.statement),
                 severity_title(check.severity.code()),
                 evaluation_title(check.evaluation),
-                escape_table(&guidance[check.id])
+                escape_table(check.guidance)
             );
         }
     }
@@ -269,76 +264,21 @@ fn escape_table(value: &str) -> String {
     value.replace('\\', "\\\\").replace('|', "\\|")
 }
 
-fn guidance_by_rule() -> io::Result<BTreeMap<String, String>> {
-    const DOCUMENT: &str =
-        include_str!("../skills/repository-standards/references/check-guidance.md");
-    let mut entries = BTreeMap::new();
-
-    for line in DOCUMENT.lines() {
-        let cells = split_table_row(line);
-        let Some(id) = cells
-            .first()
-            .and_then(|cell| cell.strip_prefix('`'))
-            .and_then(|cell| cell.strip_suffix('`'))
-        else {
-            continue;
-        };
-        if !id.starts_with("REPO-") {
-            continue;
-        }
-        let value = cells
-            .get(1)
-            .filter(|value| !value.is_empty())
-            .ok_or_else(|| invalid_data(format!("{id} has no hand-written check guidance")))?;
-        if registry::find(id).is_none() {
-            return Err(invalid_data(format!(
-                "check guidance names {id}, which is not in the registry"
-            )));
-        }
-        if entries.insert(id.to_owned(), value.to_owned()).is_some() {
-            return Err(invalid_data(format!(
-                "check guidance names {id} more than once"
-            )));
-        }
-    }
-
+fn check_guidance() -> String {
+    let mut output = String::from(
+        "# Check Guidance\n\n\
+         This reference is generated from the compiled Airlock registry.\n\n\
+         | Id | Guidance |\n| --- | --- |\n",
+    );
     for check in registry::CHECKS {
-        if !entries.contains_key(check.id) {
-            return Err(invalid_data(format!(
-                "{} has no hand-written check guidance",
-                check.id
-            )));
-        }
+        let _ = writeln!(
+            output,
+            "| `{}` | {} |",
+            check.id,
+            escape_table(check.guidance)
+        );
     }
-    Ok(entries)
-}
-
-fn split_table_row(line: &str) -> Vec<String> {
-    let mut cells = Vec::new();
-    let mut cell = String::new();
-    let mut escaped = false;
-    for character in line.trim_matches('|').chars() {
-        if escaped {
-            cell.push(character);
-            escaped = false;
-        } else if character == '\\' {
-            escaped = true;
-        } else if character == '|' {
-            cells.push(cell.trim().to_owned());
-            cell.clear();
-        } else {
-            cell.push(character);
-        }
-    }
-    if escaped {
-        cell.push('\\');
-    }
-    cells.push(cell.trim().to_owned());
-    cells
-}
-
-fn invalid_data(message: String) -> io::Error {
-    io::Error::new(io::ErrorKind::InvalidData, message)
+    output
 }
 
 #[cfg(test)]
@@ -390,12 +330,10 @@ mod tests {
     #[test]
     fn hand_written_skill_files_do_not_restate_registry_rules() {
         for (path, contents) in FILES {
-            if *path != "references/check-guidance.md" {
-                assert!(
-                    !contents.contains("REPO-"),
-                    "{path} contains a registry rule id"
-                );
-            }
+            assert!(
+                !contents.contains("REPO-"),
+                "{path} contains a registry rule id"
+            );
             for check in registry::CHECKS {
                 assert!(
                     !contents.contains(check.statement),
@@ -407,20 +345,13 @@ mod tests {
     }
 
     #[test]
-    fn hand_written_guidance_and_registry_name_the_same_rules() {
-        let guidance = guidance_by_rule().unwrap();
-        let registry = registry::CHECKS
-            .iter()
-            .map(|check| check.id.to_owned())
-            .collect::<BTreeSet<_>>();
-        assert_eq!(guidance.keys().cloned().collect::<BTreeSet<_>>(), registry);
-    }
-
-    #[test]
-    fn table_cells_escape_and_unescape_pipes_and_backslashes() {
-        let value = r"read a | b from c:\file";
-        let row = format!("| id | {} |", escape_table(value));
-        assert_eq!(split_table_row(&row), ["id", value]);
+    fn generated_guidance_names_every_standard_once() {
+        let document = check_guidance();
+        for check in registry::CHECKS {
+            assert!(!check.guidance.trim().is_empty(), "{}", check.id);
+            assert_eq!(document.matches(&format!("| `{}` |", check.id)).count(), 1);
+            assert!(document.contains(&escape_table(check.guidance)));
+        }
     }
 
     #[test]

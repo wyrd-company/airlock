@@ -341,13 +341,17 @@ fn apply_check_refinements(
                 )));
             };
             for (name, value) in params {
-                if !def.params.contains(&name.as_str()) {
+                if !def.params.iter().any(|parameter| parameter.name == name) {
                     return Err(Error::Policy(format!(
                         "`{id}` declares no parameter `{name}`; it accepts {}",
                         if def.params.is_empty() {
                             "none".to_owned()
                         } else {
-                            def.params.join(", ")
+                            def.params
+                                .iter()
+                                .map(|parameter| parameter.name)
+                                .collect::<Vec<_>>()
+                                .join(", ")
                         }
                     )));
                 }

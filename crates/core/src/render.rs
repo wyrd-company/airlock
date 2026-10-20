@@ -586,7 +586,7 @@ fn check_json(check: &CheckDefinition) -> serde_json::Value {
             "rationale": gate.rationale(),
         })),
         "implemented": check.evaluation != registry::Evaluation::Unimplemented,
-        "params": check.params,
+        "params": check.params.iter().map(|parameter| parameter.name).collect::<Vec<_>>(),
     })
 }
 

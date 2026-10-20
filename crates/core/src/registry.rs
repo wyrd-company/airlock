@@ -17,6 +17,17 @@
 
 use std::fmt;
 
+pub(crate) mod agent;
+pub(crate) mod automation;
+pub(crate) mod classification;
+pub(crate) mod docs;
+pub(crate) mod files;
+pub(crate) mod git;
+pub(crate) mod identity;
+pub(crate) mod licensing;
+pub(crate) mod readme;
+pub(crate) mod release;
+
 use sha2::{Digest, Sha256};
 
 /// The semantic version of the compiled registry.
@@ -448,6 +459,39 @@ pub const MERGE_SETTINGS_DISCLOSURE: DisclosureGate = DisclosureGate {
 /// Every declared disclosure gate.
 pub const DISCLOSURE_GATES: &[&DisclosureGate] = &[&MERGE_SETTINGS_DISCLOSURE];
 
+/// A standard's earliest lifecycle rung. This metadata does not select checks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Lifecycle {
+    /// Before the end-of-seeding tag.
+    Seeded,
+    /// Development has started.
+    Building,
+    /// At least one release exists.
+    Released,
+    /// A stable release exists.
+    Stable,
+}
+
+/// One configurable parameter and its compiled default.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Parameter {
+    /// The policy parameter name.
+    pub name: &'static str,
+    /// The literal default; strings permit only `{owner}` substitution.
+    pub default: ParameterDefault,
+}
+
+/// Literal parameter defaults, with no predicates or executable computation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParameterDefault {
+    /// An unsigned integer.
+    Integer(u64),
+    /// A string, optionally containing `{owner}`.
+    String(&'static str),
+    /// A literal list of strings.
+    Strings(&'static [&'static str]),
+}
+
 /// One registered check definition.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CheckDefinition {
@@ -461,890 +505,131 @@ pub struct CheckDefinition {
     pub section: Section,
     /// How the rule is evaluated.
     pub evaluation: Evaluation,
-    /// The parameter names a policy may set on this rule.
-    pub params: &'static [&'static str],
+    /// The parameters a policy may set, with their compiled defaults.
+    pub params: &'static [Parameter],
+    /// Inspection guidance authored with this standard.
+    pub guidance: &'static str,
+    /// The declared fix, including its delivery lane.
+    pub remediation: crate::remediation::Classification,
+    /// The earliest lifecycle rung; existing standards apply from seeding.
+    pub lifecycle: Lifecycle,
+    applicability: Applicability,
+    observation: Observation,
+    disclosure_gate: Option<&'static DisclosureGate>,
+    evaluation_reason: Option<&'static str>,
 }
 
 /// Every registered check definition, in conformance document order.
 pub const CHECKS: &[CheckDefinition] = &[
-    CheckDefinition {
-        id: "REPO-ORG-01",
-        statement: "The repository is in the org its audience implies: `boblangley` if overfit to Bob, `wyrd-company` if a stranger benefits, `flapstack` if a vendor-neutral public good",
-        severity: Severity::Observation,
-        section: Section::Identity,
-        evaluation: Evaluation::Manual,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-ORG-02",
-        statement: "A `boblangley` repository that has generalized has been considered for graduation to `wyrd-company`",
-        severity: Severity::Observation,
-        section: Section::Identity,
-        evaluation: Evaluation::Manual,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-NAME-01",
-        statement: "The name is `lower-kebab-case`; no underscores, camelCase, or PascalCase",
-        severity: Severity::Required,
-        section: Section::Identity,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-NAME-02",
-        statement: "A dotted name is used only where the repository is a deployable site and the name is its hostname",
-        severity: Severity::Required,
-        section: Section::Identity,
-        evaluation: Evaluation::Manual,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-NAME-03",
-        statement: "A repository in a product family carries the family prefix",
-        severity: Severity::Observation,
-        section: Section::Identity,
-        evaluation: Evaluation::Manual,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-NAME-04",
-        statement: "The family prefix and the family topic agree",
-        severity: Severity::Required,
-        section: Section::Identity,
-        evaluation: Evaluation::Manual,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-META-01",
-        statement: "`.github/repo-settings.yml` declares a description",
-        severity: Severity::Blocking,
-        section: Section::Identity,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-META-02",
-        statement: "The description is one sentence, at most 160 characters, and survives truncation at ~80",
-        severity: Severity::Required,
-        section: Section::Identity,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-META-03",
-        statement: "The description expands any acronym on first use",
-        severity: Severity::Required,
-        section: Section::Identity,
-        evaluation: Evaluation::Manual,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-META-04",
-        statement: "The description contains no self-deprecation",
-        severity: Severity::Required,
-        section: Section::Identity,
-        evaluation: Evaluation::Manual,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-META-05",
-        statement: "The description agrees with the README's opening line",
-        severity: Severity::Required,
-        section: Section::Identity,
-        evaluation: Evaluation::Manual,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-META-06",
-        statement: "Between three and eight topics are declared",
-        severity: Severity::Required,
-        section: Section::Identity,
-        evaluation: Evaluation::Mechanical,
-        params: &["min-topics", "max-topics"],
-    },
-    CheckDefinition {
-        id: "REPO-META-07",
-        statement: "Topics include at least one artifact-type and one ecosystem term",
-        severity: Severity::Required,
-        section: Section::Identity,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-META-08",
-        statement: "A repository in a product family carries the family topic",
-        severity: Severity::Required,
-        section: Section::Identity,
-        evaluation: Evaluation::Manual,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-META-09",
-        statement: "Any topic not in `topics.md` has been added to it",
-        severity: Severity::Required,
-        section: Section::Identity,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-META-10",
-        statement: "No org-name topic is declared",
-        severity: Severity::Required,
-        section: Section::Identity,
-        evaluation: Evaluation::Mechanical,
-        params: &["org-names"],
-    },
-    CheckDefinition {
-        id: "REPO-META-11",
-        statement: "The declared merge settings are squash and rebase enabled, merge commits disabled, head branches auto-deleted",
-        severity: Severity::Required,
-        section: Section::Identity,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-META-12",
-        statement: "`.github/repo-settings.yml` declares no `visibility` field",
-        severity: Severity::Blocking,
-        section: Section::Identity,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-META-13",
-        statement: "Live GitHub metadata matches the declared file",
-        severity: Severity::Observation,
-        section: Section::Identity,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-LIC-01",
-        statement: "A `LICENSE` file exists",
-        severity: Severity::Blocking,
-        section: Section::Licensing,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-LIC-02",
-        statement: "The license matches the repository's category: Apache-2.0 by default, CC0-1.0 for specs and schemas, MIT for plumbing, or a matched ecosystem license",
-        severity: Severity::Required,
-        section: Section::Licensing,
-        evaluation: Evaluation::Manual,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-LIC-03",
-        statement: "The repository is not dual-licensed `MIT OR Apache-2.0`",
-        severity: Severity::Blocking,
-        section: Section::Licensing,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-LIC-04",
-        statement: "A repository publishing to a registry declares the license in package metadata",
-        severity: Severity::Required,
-        section: Section::Licensing,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-LIC-05",
-        statement: "A plumbing repository's README states that the license covers packaging, not payload",
-        severity: Severity::Required,
-        section: Section::Licensing,
-        evaluation: Evaluation::Manual,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-LIC-06",
-        statement: "A non-default license choice has a stated reason in the README or a decision record",
-        severity: Severity::Observation,
-        section: Section::Licensing,
-        evaluation: Evaluation::Manual,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-FILE-01",
-        statement: "`README.md` exists",
-        severity: Severity::Blocking,
-        section: Section::Files,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-FILE-02",
-        statement: "`CONTRIBUTING.md` exists in the repository, not only at org level",
-        severity: Severity::Required,
-        section: Section::Files,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-FILE-03",
-        statement: "`.gitignore` exists and is ecosystem-appropriate",
-        severity: Severity::Required,
-        section: Section::Files,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-FILE-04",
-        statement: "`.gitattributes` exists and normalizes line endings",
-        severity: Severity::Required,
-        section: Section::Files,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-FILE-05",
-        statement: "`.editorconfig` exists",
-        severity: Severity::Required,
-        section: Section::Files,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-FILE-06",
-        statement: "`taskfile.yml` exists, lowercase",
-        severity: Severity::Required,
-        section: Section::Files,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-FILE-07",
-        statement: "`.github/workflows/` contains at least a CI workflow triggered on pull request",
-        severity: Severity::Blocking,
-        section: Section::Files,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-FILE-08",
-        statement: "`.github/renovate.json` exists and extends the org preset",
-        severity: Severity::Required,
-        section: Section::Files,
-        evaluation: Evaluation::Mechanical,
-        params: &["renovate-preset"],
-    },
-    CheckDefinition {
-        id: "REPO-FILE-16",
-        statement: "`.github/repo-settings.yml` exists",
-        severity: Severity::Blocking,
-        section: Section::Files,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-FILE-17",
-        statement: "`.github/workflows/audit.yml` exists and triggers on a schedule and on demand",
-        severity: Severity::Blocking,
-        section: Section::Files,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-FILE-09",
-        statement: "`.config/lefthook.yml` exists",
-        severity: Severity::Required,
-        section: Section::Files,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-FILE-10",
-        statement: "`.devcontainer/` exists",
-        severity: Severity::Required,
-        section: Section::Files,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-FILE-11",
-        statement: "`AGENTS.md` exists",
-        severity: Severity::Required,
-        section: Section::Files,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-FILE-12",
-        statement: "`CLAUDE.md` exists and is a symlink to `AGENTS.md`",
-        severity: Severity::Required,
-        section: Section::Files,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-FILE-13",
-        statement: "No agent harness configuration is committed — no `.claude/`, `.cursor/`, or equivalent",
-        severity: Severity::Required,
-        section: Section::Files,
-        evaluation: Evaluation::Mechanical,
-        params: &["forbidden-paths"],
-    },
-    CheckDefinition {
-        id: "REPO-FILE-14",
-        statement: "No `CODEOWNERS` file is present",
-        severity: Severity::Observation,
-        section: Section::Files,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-FILE-15",
-        statement: "Community health files are inherited from the org rather than duplicated, unless the local copy deliberately differs",
-        severity: Severity::Observation,
-        section: Section::Files,
-        evaluation: Evaluation::Manual,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-README-01",
-        statement: "Opens with a title and a one-line statement of what it is",
-        severity: Severity::Required,
-        section: Section::Readme,
-        evaluation: Evaluation::Manual,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-README-02",
-        statement: "Badges are present",
-        severity: Severity::Required,
-        section: Section::Readme,
-        evaluation: Evaluation::Manual,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-README-03",
-        statement: "An installation section covers every supported channel",
-        severity: Severity::Blocking,
-        section: Section::Readme,
-        evaluation: Evaluation::Manual,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-README-04",
-        statement: "A quickstart or usage section contains at least one real, runnable example",
-        severity: Severity::Blocking,
-        section: Section::Readme,
-        evaluation: Evaluation::Manual,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-README-05",
-        statement: "A repository with a user interface has an animated demo",
-        severity: Severity::Observation,
-        section: Section::Readme,
-        evaluation: Evaluation::Manual,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-README-06",
-        statement: "Where a demo exists, its `.tape` source is committed",
-        severity: Severity::Required,
-        section: Section::Readme,
-        // Mechanical scope: the committed-demo proxy is a regular file whose
-        // basename is `demo.gif`, matching the repository VHS convention.
-        // REPO-README-05 retains the judgment of what other media is a demo.
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-README-07",
-        statement: "Prerequisites appear only where non-obvious",
-        severity: Severity::Observation,
-        section: Section::Readme,
-        evaluation: Evaluation::Manual,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-README-08",
-        statement: "No license section",
-        severity: Severity::Required,
-        section: Section::Readme,
-        evaluation: Evaluation::Manual,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-README-09",
-        statement: "No contributing section",
-        severity: Severity::Required,
-        section: Section::Readme,
-        evaluation: Evaluation::Manual,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-GIT-01",
-        statement: "The default branch is `main`",
-        severity: Severity::Required,
-        section: Section::Git,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-GIT-02",
-        statement: "The repository is covered by organization-sourced rulesets on its default branch",
-        severity: Severity::Blocking,
-        section: Section::Git,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-GIT-03",
-        statement: "Those rulesets require pull requests, allow only squash and rebase, and require linear history",
-        severity: Severity::Blocking,
-        section: Section::Git,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-GIT-13",
-        statement: "A GitHub App's identity is a variable named `<APP>_APP_ID`; only its private key is a secret, named `<APP>_APP_PRIVATE_KEY`",
-        severity: Severity::Required,
-        section: Section::Git,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-GIT-14",
-        statement: "No secret or variable is named after the task that introduced it",
-        severity: Severity::Required,
-        section: Section::Git,
-        evaluation: Evaluation::Manual,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-GIT-04",
-        statement: "Merge commits are disabled",
-        severity: Severity::Required,
-        section: Section::Git,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-GIT-05",
-        statement: "Squash merge is enabled",
-        severity: Severity::Required,
-        section: Section::Git,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-GIT-06",
-        statement: "Auto-delete head branch on merge is enabled",
-        severity: Severity::Required,
-        section: Section::Git,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-GIT-07",
-        statement: "Wikis, Projects, and Discussions are off unless deliberately used",
-        severity: Severity::Observation,
-        section: Section::Git,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-GIT-08",
-        statement: "Tags carry no `v` prefix",
-        severity: Severity::Required,
-        section: Section::Git,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-GIT-09",
-        statement: "Multi-release-unit tags use `@scope/name@version`",
-        severity: Severity::Required,
-        section: Section::Git,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-GIT-10",
-        statement: "History contains no merge commits",
-        severity: Severity::Required,
-        section: Section::Git,
-        evaluation: Evaluation::Mechanical,
-        params: &["max-commits"],
-    },
-    CheckDefinition {
-        id: "REPO-TASK-01",
-        statement: "`test`, `lint`, `format`, and `check` tasks exist",
-        severity: Severity::Required,
-        section: Section::Automation,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-TASK-02",
-        statement: "Applicability of `build` and `dev` was an explicit decision, and they exist where applicable",
-        severity: Severity::Required,
-        section: Section::Automation,
-        evaluation: Evaluation::Manual,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-TASK-03",
-        statement: "`task check` runs everything CI runs",
-        severity: Severity::Required,
-        section: Section::Automation,
-        evaluation: Evaluation::Manual,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-TASK-04",
-        statement: "In a monorepo, each release unit has a `taskfile.yml` at its path",
-        severity: Severity::Required,
-        section: Section::Automation,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-TASK-05",
-        statement: "Every include sets `dir:`",
-        severity: Severity::Required,
-        section: Section::Automation,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-TASK-06",
-        statement: "Include namespaces match release unit ids",
-        severity: Severity::Required,
-        section: Section::Automation,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-CI-01",
-        statement: "CI is triggered on `pull_request`",
-        severity: Severity::Blocking,
-        section: Section::Automation,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-CI-02",
-        statement: "Workflow-level `permissions:` is set to `{}`",
-        severity: Severity::Blocking,
-        section: Section::Automation,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-CI-03",
-        statement: "Every job declares only the permissions it needs",
-        severity: Severity::Required,
-        section: Section::Automation,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-CI-04",
-        statement: "Every action is pinned to a full commit SHA with a version comment",
-        severity: Severity::Blocking,
-        section: Section::Automation,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-CI-05",
-        statement: "No workflow uses `pull_request_target`",
-        severity: Severity::Blocking,
-        section: Section::Automation,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-CI-06",
-        statement: "A `concurrency` group with `cancel-in-progress` covers pull requests",
-        severity: Severity::Required,
-        section: Section::Automation,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-CI-07",
-        statement: "Every job invokes a task rather than a raw command",
-        severity: Severity::Required,
-        section: Section::Automation,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-CI-08",
-        statement: "A required check validates pull request title format",
-        severity: Severity::Required,
-        section: Section::Automation,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-CI-09",
-        statement: "The scheduled audit workflow supplies `secrets.AIRLOCK_TOKEN` to the Airlock audit action",
-        severity: Severity::Required,
-        section: Section::Automation,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-CI-10",
-        statement: "No workflow mutates repository settings",
-        severity: Severity::Required,
-        section: Section::Automation,
-        evaluation: Evaluation::Manual,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-CD-01",
-        statement: "A repository that delivers anything has `.github/workflows/cd.yml`",
-        severity: Severity::Required,
-        section: Section::Automation,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-CD-02",
-        statement: "A repository publishing a versioned artifact triggers CD on tags matching `[0-9]*.[0-9]*.[0-9]*`",
-        severity: Severity::Required,
-        section: Section::Automation,
-        evaluation: Evaluation::Mechanical,
-        params: &["tag-pattern"],
-    },
-    CheckDefinition {
-        id: "REPO-CD-03",
-        statement: "A repository deploying a site or service triggers CD on push to the default branch",
-        severity: Severity::Required,
-        section: Section::Automation,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-CD-04",
-        statement: "CD sets `concurrency` with `cancel-in-progress: false`",
-        severity: Severity::Blocking,
-        section: Section::Automation,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-CD-05",
-        statement: "A CD `workflow_dispatch` can only re-deliver an existing tag, never create a release",
-        severity: Severity::Blocking,
-        section: Section::Automation,
-        evaluation: Evaluation::Manual,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-CD-06",
-        statement: "CD asserts every required publication credential is present before doing any work",
-        severity: Severity::Required,
-        section: Section::Automation,
-        evaluation: Evaluation::Manual,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-CD-07",
-        statement: "Release creation and delivery are separate workflows",
-        severity: Severity::Required,
-        section: Section::Automation,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-HOOK-01",
-        statement: "`pre-commit` runs `format` and `lint` on staged files only",
-        severity: Severity::Required,
-        section: Section::Automation,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-HOOK-02",
-        statement: "`commit-msg` validates conventional commit format",
-        severity: Severity::Required,
-        section: Section::Automation,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-HOOK-03",
-        statement: "`pre-push` runs nothing or lint only",
-        severity: Severity::Required,
-        section: Section::Automation,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-HOOK-04",
-        statement: "Hooks invoke tasks rather than raw commands",
-        severity: Severity::Required,
-        section: Section::Automation,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-AGENT-01",
-        statement: "`AGENTS.md` covers what the repository is, commands by reference, repository-specific conventions, what not to touch, and where docs live",
-        severity: Severity::Required,
-        section: Section::Agent,
-        evaluation: Evaluation::Manual,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-AGENT-02",
-        statement: "`AGENTS.md` contains nothing discoverable by reading the repository",
-        severity: Severity::Required,
-        section: Section::Agent,
-        evaluation: Evaluation::Manual,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-AGENT-03",
-        statement: "`AGENTS.md` does not restate the README or `CONTRIBUTING.md`",
-        severity: Severity::Required,
-        section: Section::Agent,
-        evaluation: Evaluation::Manual,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-AGENT-04",
-        statement: "`CONTRIBUTING.md` contains no command sequences beyond `task check`",
-        severity: Severity::Required,
-        section: Section::Agent,
-        evaluation: Evaluation::Manual,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-AGENT-05",
-        statement: "Generated directories are marked `linguist-generated=true` in `.gitattributes`",
-        severity: Severity::Required,
-        section: Section::Agent,
-        evaluation: Evaluation::Manual,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-DOCS-01",
-        statement: "User-facing pages sit at the top level of `docs/`",
-        severity: Severity::Observation,
-        section: Section::Docs,
-        evaluation: Evaluation::Manual,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-DOCS-02",
-        statement: "Engineering artifacts sit in `docs/decisions/`, `docs/technical-designs/`, or `docs/spikes/`",
-        severity: Severity::Observation,
-        section: Section::Docs,
-        evaluation: Evaluation::Manual,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-DOCS-03",
-        statement: "Artifact filenames are lower-kebab slugs with no type prefix and no `id:` field",
-        severity: Severity::Observation,
-        section: Section::Docs,
-        evaluation: Evaluation::Manual,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-DOCS-04",
-        statement: "A tool publishing docs to `wyrd.foo` has `docs/docs.yml`",
-        severity: Severity::Required,
-        section: Section::Docs,
-        evaluation: Evaluation::Manual,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-DOCS-05",
-        statement: "Schema-bound YAML artifacts follow their schema where one exists",
-        severity: Severity::Observation,
-        section: Section::Docs,
-        // Manual: schema references may resolve outside the bounded repository
-        // snapshot. The registry-owned evaluation reason records why partial
-        // validation was rejected and is surfaced in listings and findings.
-        evaluation: Evaluation::Manual,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-REL-01",
-        statement: "`.intentional/config.yml` exists and declares release units",
-        severity: Severity::Required,
-        section: Section::Release,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-REL-02",
-        statement: "A `CHANGELOG.md` exists at each release unit's declared path",
-        severity: Severity::Required,
-        section: Section::Release,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-REL-03",
-        statement: "A multi-unit repository has no root aggregate changelog",
-        severity: Severity::Required,
-        section: Section::Release,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-REL-04",
-        statement: "Release is `workflow_dispatch` on a pinned source SHA",
-        severity: Severity::Blocking,
-        section: Section::Release,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-REL-05",
-        statement: "The release workflow asserts the pinned SHA equals current `main`",
-        severity: Severity::Blocking,
-        section: Section::Release,
-        evaluation: Evaluation::Manual,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-REL-06",
-        statement: "The release workflow asserts a successful push-event CI run for exactly that SHA",
-        severity: Severity::Blocking,
-        section: Section::Release,
-        evaluation: Evaluation::Manual,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-REL-07",
-        statement: "No workflow publishes automatically on merge",
-        severity: Severity::Blocking,
-        section: Section::Release,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-PROP-03",
-        statement: "`.github/repo-settings.yml` declares no custom property values",
-        severity: Severity::Blocking,
-        section: Section::Classification,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
-    CheckDefinition {
-        id: "REPO-PROP-04",
-        statement: "No workflow writes organization custom properties",
-        severity: Severity::Blocking,
-        section: Section::Classification,
-        evaluation: Evaluation::Mechanical,
-        params: &[],
-    },
+    identity::repo_org_01::STANDARD,
+    identity::repo_org_02::STANDARD,
+    identity::repo_name_01::STANDARD,
+    identity::repo_name_02::STANDARD,
+    identity::repo_name_03::STANDARD,
+    identity::repo_name_04::STANDARD,
+    identity::repo_meta_01::STANDARD,
+    identity::repo_meta_02::STANDARD,
+    identity::repo_meta_03::STANDARD,
+    identity::repo_meta_04::STANDARD,
+    identity::repo_meta_05::STANDARD,
+    identity::repo_meta_06::STANDARD,
+    identity::repo_meta_07::STANDARD,
+    identity::repo_meta_08::STANDARD,
+    identity::repo_meta_09::STANDARD,
+    identity::repo_meta_10::STANDARD,
+    identity::repo_meta_11::STANDARD,
+    identity::repo_meta_12::STANDARD,
+    identity::repo_meta_13::STANDARD,
+    licensing::repo_lic_01::STANDARD,
+    licensing::repo_lic_02::STANDARD,
+    licensing::repo_lic_03::STANDARD,
+    licensing::repo_lic_04::STANDARD,
+    licensing::repo_lic_05::STANDARD,
+    licensing::repo_lic_06::STANDARD,
+    files::repo_file_01::STANDARD,
+    files::repo_file_02::STANDARD,
+    files::repo_file_03::STANDARD,
+    files::repo_file_04::STANDARD,
+    files::repo_file_05::STANDARD,
+    files::repo_file_06::STANDARD,
+    files::repo_file_07::STANDARD,
+    files::repo_file_08::STANDARD,
+    files::repo_file_16::STANDARD,
+    files::repo_file_17::STANDARD,
+    files::repo_file_09::STANDARD,
+    files::repo_file_10::STANDARD,
+    files::repo_file_11::STANDARD,
+    files::repo_file_12::STANDARD,
+    files::repo_file_13::STANDARD,
+    files::repo_file_14::STANDARD,
+    files::repo_file_15::STANDARD,
+    readme::repo_readme_01::STANDARD,
+    readme::repo_readme_02::STANDARD,
+    readme::repo_readme_03::STANDARD,
+    readme::repo_readme_04::STANDARD,
+    readme::repo_readme_05::STANDARD,
+    readme::repo_readme_06::STANDARD,
+    readme::repo_readme_07::STANDARD,
+    readme::repo_readme_08::STANDARD,
+    readme::repo_readme_09::STANDARD,
+    git::repo_git_01::STANDARD,
+    git::repo_git_02::STANDARD,
+    git::repo_git_03::STANDARD,
+    git::repo_git_13::STANDARD,
+    git::repo_git_14::STANDARD,
+    git::repo_git_04::STANDARD,
+    git::repo_git_05::STANDARD,
+    git::repo_git_06::STANDARD,
+    git::repo_git_07::STANDARD,
+    git::repo_git_08::STANDARD,
+    git::repo_git_09::STANDARD,
+    git::repo_git_10::STANDARD,
+    automation::repo_task_01::STANDARD,
+    automation::repo_task_02::STANDARD,
+    automation::repo_task_03::STANDARD,
+    automation::repo_task_04::STANDARD,
+    automation::repo_task_05::STANDARD,
+    automation::repo_task_06::STANDARD,
+    automation::repo_ci_01::STANDARD,
+    automation::repo_ci_02::STANDARD,
+    automation::repo_ci_03::STANDARD,
+    automation::repo_ci_04::STANDARD,
+    automation::repo_ci_05::STANDARD,
+    automation::repo_ci_06::STANDARD,
+    automation::repo_ci_07::STANDARD,
+    automation::repo_ci_08::STANDARD,
+    automation::repo_ci_09::STANDARD,
+    automation::repo_ci_10::STANDARD,
+    automation::repo_cd_01::STANDARD,
+    automation::repo_cd_02::STANDARD,
+    automation::repo_cd_03::STANDARD,
+    automation::repo_cd_04::STANDARD,
+    automation::repo_cd_05::STANDARD,
+    automation::repo_cd_06::STANDARD,
+    automation::repo_cd_07::STANDARD,
+    automation::repo_hook_01::STANDARD,
+    automation::repo_hook_02::STANDARD,
+    automation::repo_hook_03::STANDARD,
+    automation::repo_hook_04::STANDARD,
+    agent::repo_agent_01::STANDARD,
+    agent::repo_agent_02::STANDARD,
+    agent::repo_agent_03::STANDARD,
+    agent::repo_agent_04::STANDARD,
+    agent::repo_agent_05::STANDARD,
+    docs::repo_docs_01::STANDARD,
+    docs::repo_docs_02::STANDARD,
+    docs::repo_docs_03::STANDARD,
+    docs::repo_docs_04::STANDARD,
+    docs::repo_docs_05::STANDARD,
+    release::repo_rel_01::STANDARD,
+    release::repo_rel_02::STANDARD,
+    release::repo_rel_03::STANDARD,
+    release::repo_rel_04::STANDARD,
+    release::repo_rel_05::STANDARD,
+    release::repo_rel_06::STANDARD,
+    release::repo_rel_07::STANDARD,
+    classification::repo_prop_03::STANDARD,
+    classification::repo_prop_04::STANDARD,
 ];
 
 /// Look a check definition up by id.
@@ -1363,31 +648,28 @@ pub fn in_section(section: Section) -> Vec<&'static CheckDefinition> {
 }
 
 impl CheckDefinition {
+    /// The compiled default for a named parameter.
+    #[must_use]
+    pub fn parameter_default(&self, name: &str) -> Option<ParameterDefault> {
+        self.params
+            .iter()
+            .find(|parameter| parameter.name == name)
+            .map(|parameter| parameter.default)
+    }
+
     /// Why a non-mechanical evaluation mode is the honest boundary.
     ///
     /// This is registry data rather than only implementation commentary so
     /// operators see the classification boundary in listings and findings.
     #[must_use]
     pub fn evaluation_reason(&self) -> Option<&'static str> {
-        match self.id {
-            "REPO-DOCS-05" => Some(
-                "Schema discovery can leave the bounded repository snapshot. Partial validation \
-                 of only in-snapshot schemas was rejected because a manual finding communicates \
-                 the whole-repository judgment consistently; mixing passes with inconclusive \
-                 results based on schema location would make identical artifact classes gate \
-                 differently.",
-            ),
-            _ => None,
-        }
+        self.evaluation_reason
     }
 
     /// The repository state under which this check's statement applies.
     #[must_use]
     pub fn applicability(&self) -> Applicability {
-        match self.id {
-            "REPO-GIT-09" | "REPO-TASK-04" | "REPO-LIC-04" => Applicability::ReleaseUnitsDeclared,
-            _ => Applicability::Always,
-        }
+        self.applicability
     }
 
     /// The platform disclosure gate standing between this rule and the audit's
@@ -1405,16 +687,7 @@ impl CheckDefinition {
     /// read the answer.
     #[must_use]
     pub fn disclosure_gate(&self) -> Option<&'static DisclosureGate> {
-        match self.id {
-            // The three merge-behaviour rules read the gated fields directly.
-            // REPO-META-13 compares the whole declared settings file against
-            // live metadata, and its merge clause reads the same fields, so it
-            // meets the same wall.
-            "REPO-GIT-04" | "REPO-GIT-05" | "REPO-GIT-06" | "REPO-META-13" => {
-                Some(&MERGE_SETTINGS_DISCLOSURE)
-            }
-            _ => None,
-        }
+        self.disclosure_gate
     }
 
     /// What the rule observes.
@@ -1426,20 +699,7 @@ impl CheckDefinition {
     /// looks, not what the rule means.
     #[must_use]
     pub fn observation(&self) -> Observation {
-        match self.id {
-            // Org placement and repository naming are platform identity.
-            "REPO-ORG-01" | "REPO-ORG-02" | "REPO-NAME-01" | "REPO-NAME-02" | "REPO-NAME-03"
-            | "REPO-NAME-04"
-            // Live metadata against the declared file needs the live half.
-            | "REPO-META-13"
-            // Branch, ruleset, merge-setting, feature, tag, history, and
-            // credential-naming facts are all API-owned. REPO-GIT-13 is the
-            // exception: it reads workflow text.
-            | "REPO-GIT-01" | "REPO-GIT-02" | "REPO-GIT-03" | "REPO-GIT-04" | "REPO-GIT-05"
-            | "REPO-GIT-06" | "REPO-GIT-07" | "REPO-GIT-08" | "REPO-GIT-09" | "REPO-GIT-10"
-            | "REPO-GIT-14" => Observation::Platform,
-            _ => Observation::FileTree,
-        }
+        self.observation
     }
 }
 
@@ -1646,6 +906,30 @@ mod tests {
     fn every_check_definition_has_a_statement() {
         for check in CHECKS {
             assert!(!check.statement.trim().is_empty(), "{}", check.id);
+        }
+    }
+
+    #[test]
+    fn module_extraction_preserves_registry_identity() {
+        assert_eq!(CHECKS.len(), 109);
+        assert_eq!(
+            digest(),
+            "sha256:5c8813c3bfc7bd06c869e72aeada56f1b256066e4349022b3a93a78e18f3f74b"
+        );
+        assert!(CHECKS
+            .iter()
+            .all(|standard| standard.lifecycle == Lifecycle::Seeded));
+    }
+
+    #[test]
+    fn parameter_names_are_unique_within_each_standard() {
+        for standard in CHECKS {
+            let names: BTreeSet<_> = standard
+                .params
+                .iter()
+                .map(|parameter| parameter.name)
+                .collect();
+            assert_eq!(names.len(), standard.params.len(), "{}", standard.id);
         }
     }
 
