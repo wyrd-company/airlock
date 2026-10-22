@@ -1,5 +1,5 @@
-// Explicit synthetic boundary cases used by legacy consumer tests only.
 // relationships: { implements: ../../../docs/hosted-browser.md, references: ../shared/report.ts }
+// Explicit synthetic boundary cases used by legacy consumer tests only.
 import type {
   ConfigSource,
   OrganizationReport,

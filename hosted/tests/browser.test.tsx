@@ -12,6 +12,8 @@ describe("browser projection", () => {
       <RuleRow result={result} selectable selected toggle={() => {}} />,
     );
     expect(html.match(/<summary>/g)).toHaveLength(1);
+    const title = html.match(/class="rule-title">([\s\S]*?)<\/summary>/)![1];
+    expect(title.match(/default-branch-protection/g)).toHaveLength(1);
     expect(html).toContain("Org + repo · AND");
     expect(html).toContain("Organization requirement");
     expect(html).toContain("Repository requirement");

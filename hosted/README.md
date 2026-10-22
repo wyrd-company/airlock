@@ -8,8 +8,7 @@ relationships:
 Run `pnpm install --frozen-lockfile`, then `pnpm dev`. Open
 <http://localhost:5178> for the local actual-engine fixture preview. The fixture
 passes through the typed adapter, report store, API and browser. Missing audit
-time stays
-unavailable; no GitHub or identity service is connected.
+time stays unavailable; no GitHub or identity service is connected.
 
 `pnpm check` runs type checks, focused tests and the browser build.
 `pnpm build && pnpm preview` serves the same browser through a local Cloudflare

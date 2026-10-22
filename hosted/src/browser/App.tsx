@@ -770,7 +770,6 @@ export function RuleRow({
           <div className="rule-title">
             <strong>{rule.id}</strong>
             <div>
-              <code>{rule.id}</code>
               {rule.instances.length > 1 && <span>Org + repo · AND</span>}
               {result.groups.length > 1 && (
                 <span>
