@@ -1,3 +1,4 @@
+// Explicit synthetic boundary cases used by legacy consumer tests only.
 // relationships: { implements: ../../../docs/hosted-browser.md, references: ../shared/report.ts }
 import type {
   ConfigSource,
@@ -23,21 +24,45 @@ function instance(
     source: "organization",
     config_commit: orgCommit,
     mode: "floor",
+    statement: reason,
+    severity: "blocking",
+    relaxation_reason: null,
+    diagnostic:
+      flavor === "not-evaluated"
+        ? { code: "invalid-rule", reason: "Invalid rule" }
+        : null,
     result: "fail",
     flavor,
     reason,
     conditions: [
       {
-        label: "Requirement",
+        index: 0,
+        result: "fail",
+        flavor,
+        diagnostic: null,
         expected: reason,
-        observed: flavor === "not-evaluated" ? null : "Requirement is not met",
+        probe: "boundary-probe",
+        pointer: "",
+        evaluation: "boundary-evaluation",
+        observed_digest: null,
+        reason,
+        fix: { kind: "agent", guidance: reason },
       },
     ],
     fixes: [
       {
         kind: fixer,
-        origin: fixer === "not-fixable" ? "block" : "derived",
-        description: reason,
+        plan:
+          fixer === "you" || fixer === "airlock-pr"
+            ? {
+                kind: "action",
+                fixer: fixer === "you" ? "person" : "airlock",
+                action: "boundary-action",
+                input: { explanation: reason },
+              }
+            : fixer === "agent"
+              ? { kind: "agent", guidance: reason }
+              : { kind: "not-fixable", reason },
       },
     ],
   };
@@ -51,16 +76,14 @@ function rule(
 ): RuleResult {
   return {
     id,
-    statement,
     severity,
     result: "fail",
     flavor,
-    instances: [instance(statement, fixer, flavor)],
+    instances: [{ ...instance(statement, fixer, flavor), severity }],
   };
 }
 const pass: RuleResult = {
   id: "license-present",
-  statement: "A license is declared",
   severity: "blocking",
   result: "pass",
   flavor: "passed",
@@ -82,8 +105,11 @@ function repository(
   return {
     repository: `${account}/${name}`,
     maturity,
+    audited_commit: "c".repeat(40),
     repository_config: source(`${account}/${name}`, repoCommit),
-    assignments: ["maintained-repositories"],
+    assignments: [
+      { id: "maintained-repositories", matched: true, diagnostic: null },
+    ],
     rules,
     warnings: [],
   };
@@ -100,7 +126,19 @@ protectedBranch.instances.push({
   config_commit: repoCommit,
   mode: "value",
   conditions: [
-    { label: "Approving reviews", expected: "At least 1", observed: "0" },
+    {
+      index: 0,
+      result: "fail",
+      flavor: "gap",
+      diagnostic: null,
+      expected: 1,
+      probe: "boundary-probe",
+      pointer: "/reviews",
+      evaluation: "minimum",
+      observed_digest: null,
+      reason: "Too few reviews",
+      fix: { kind: "not-fixable", reason: "Boundary example" },
+    },
   ],
 });
 const primary = repository("example-org", "field-notes", [
@@ -126,14 +164,13 @@ const primary = repository("example-org", "field-notes", [
       "not-fixable",
       "not-evaluated",
     ),
-    detail_code: "invalid-rule",
   },
   pass,
 ]);
 primary.warnings.push({
-  rule_id: protectedBranch.id,
+  rule: protectedBranch.id,
   code: "relaxation-without-reason",
-  message:
+  reason:
     "Repository configuration relaxes the review requirement without a reason.",
 });
 export const fixtureReports: OrganizationReport[] = [
@@ -144,12 +181,22 @@ export const fixtureReports: OrganizationReport[] = [
 ].map((account, index) => ({
   account,
   organization_config: source(`${account}/.github`, orgCommit),
-  observed_at: "2026-10-22T00:00:00Z",
+  observation: { value: "2026-10-22T00:00:00Z", provenance: "capture" },
   repositories:
     index === 0
       ? [
           repository(account, "trail-map", [pass], "stable"),
           primary,
+          {
+            ...repository(account, "weekend-sketches", []),
+            assignments: [
+              {
+                id: "maintained-repositories",
+                matched: false,
+                diagnostic: null,
+              },
+            ],
+          },
           repository(
             account,
             "garden-planner",

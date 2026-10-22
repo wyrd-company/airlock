@@ -16,12 +16,15 @@ export function createService(store: ReportStore) {
       return json({ error: "integration-unavailable" }, 503);
     let response: Response;
     if (path === "/api/organizations") {
-      response = json({
-        mode: "local-fixtures",
-        organizations: (await store.list()).map((report) =>
-          summarize(projectOrganization(report)),
-        ),
-      });
+      const reports = await store.list();
+      if (!reports.ok) response = json({ error: reports.error }, 503);
+      else
+        response = json({
+          mode: "local-fixtures",
+          organizations: reports.value.map((report) =>
+            summarize(projectOrganization(report)),
+          ),
+        });
     } else if (path.startsWith("/api/organizations/")) {
       let account: string;
       try {
@@ -29,13 +32,17 @@ export function createService(store: ReportStore) {
       } catch {
         return json({ error: "invalid-organization" }, 400);
       }
-      const report = await store.get(account);
-      response = report
-        ? json({
-            mode: "local-fixtures",
-            organization: projectOrganization(report),
-          })
-        : json({ error: "organization-not-found" }, 404);
+      const result = await store.get(account);
+      if (!result.ok) response = json({ error: result.error }, 503);
+      else {
+        const report = result.value;
+        response = report
+          ? json({
+              mode: "local-fixtures",
+              organization: projectOrganization(report),
+            })
+          : json({ error: "organization-not-found" }, 404);
+      }
     } else if (path === "/api/session") {
       response = json({
         state: "unavailable",

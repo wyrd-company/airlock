@@ -27,7 +27,14 @@ function result(
   );
   return {
     ...base,
-    rule: { ...base.rule, id, statement: `Requirement ${id}`, severity },
+    rule: {
+      ...base.rule,
+      id,
+      severity,
+      instances: [
+        { ...base.rule.instances[0], statement: `Requirement ${id}`, severity },
+      ],
+    },
     groups,
   };
 }
@@ -209,9 +216,11 @@ describe("observed Rules index", () => {
     const org = structuredClone(projectOrganization(fixtureReports[0]));
     org.repositories = org.repositories.slice(0, 2);
     org.repositories[0].results = [result("shared-rule", ["you"], "advisory")];
-    org.repositories[0].results[0].rule.statement = "Building requirement";
+    org.repositories[0].results[0].rule.instances[0].statement =
+      "Building requirement";
     org.repositories[1].results = [result("shared-rule", ["you"], "blocking")];
-    org.repositories[1].results[0].rule.statement = "Released requirement";
+    org.repositories[1].results[0].rule.instances[0].statement =
+      "Released requirement";
     const catalog = observedRuleCatalog(org.repositories);
     expect(catalog).toEqual([
       {
@@ -220,13 +229,27 @@ describe("observed Rules index", () => {
           {
             repository: "example-org/field-notes",
             maturity: "building",
-            statement: "Building requirement",
+            statements: [
+              {
+                source: "organization",
+                statement: "Building requirement",
+                severity: "advisory",
+                config_commit: "a".repeat(40),
+              },
+            ],
             severity: "advisory",
           },
           {
             repository: "example-org/garden-planner",
             maturity: "released",
-            statement: "Released requirement",
+            statements: [
+              {
+                source: "organization",
+                statement: "Released requirement",
+                severity: "blocking",
+                config_commit: "a".repeat(40),
+              },
+            ],
             severity: "blocking",
           },
         ],

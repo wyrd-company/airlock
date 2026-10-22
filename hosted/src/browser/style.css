@@ -674,15 +674,28 @@ footer > span:first-child {
   color: var(--muted);
   margin: 10px 0 17px;
 }
-.unassigned > div {
-  display: flex;
-  gap: 11px;
-  align-items: center;
+.unassigned > details {
   border: 1px dashed #d3d9c7;
   border-radius: 4px;
   padding: 13px 17px;
   color: #7d8873;
   font-size: 12px;
+}
+.unassigned > details > summary {
+  cursor: pointer;
+}
+.unassigned > details p {
+  overflow-wrap: anywhere;
+  margin-top: 12px;
+}
+.fix-detail pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: 10px var(--mono);
+  line-height: 1.6;
+}
+.instance {
+  min-width: 0;
 }
 .unassigned .tag {
   margin-left: auto;

@@ -15,8 +15,8 @@ describe("browser projection", () => {
     expect(html).toContain("Org + repo · AND");
     expect(html).toContain("Organization requirement");
     expect(html).toContain("Repository requirement");
-    expect(html).toContain("Relaxation warning");
-    expect(html).toContain('aria-label="Select Protect the default branch"');
+    expect(html).toContain("Rule warning");
+    expect(html).toContain('aria-label="Select default-branch-protection"');
     expect(html).toContain("a".repeat(40));
     expect(html).toContain("b".repeat(40));
   });
@@ -24,12 +24,12 @@ describe("browser projection", () => {
     const result = structuredClone(
       projectOrganization(fixtureReports[0]).repositories[0].results[4],
     );
-    result.rule.statement = "<script>untrusted()</script>";
+    result.rule.instances[0].statement = "<script>untrusted()</script>";
     const html = renderToStaticMarkup(<RuleRow result={result} />);
     expect(html).not.toContain("<script>");
     expect(html).toContain("&lt;script&gt;");
-    expect(html).toContain("Not observed");
-    expect(html).toContain("Invalid rule");
+    expect(html).toContain("Unavailable");
+    expect(html).toContain("invalid-rule");
   });
   it("limits routes to one organization and recognized section", () => {
     expect(readRoute("#/example-org/repos/field-notes")).toEqual({

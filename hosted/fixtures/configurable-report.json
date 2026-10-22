@@ -1,0 +1,159 @@
+{
+  "account": "sample",
+  "organization_config": {
+    "repository": "sample/.github",
+    "path": ".github/airlock.yml",
+    "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "repositories": [
+    {
+      "repository": "sample/other-kit",
+      "audited_commit": "cccccccccccccccccccccccccccccccccccccccc",
+      "maturity": "building",
+      "repository_config": null,
+      "assignments": [
+        {
+          "id": "selected",
+          "matched": false,
+          "diagnostic": null
+        }
+      ],
+      "rules": [],
+      "warnings": []
+    },
+    {
+      "repository": "sample/sample-kit",
+      "audited_commit": "cccccccccccccccccccccccccccccccccccccccc",
+      "maturity": "building",
+      "repository_config": {
+        "repository": "sample/sample-kit",
+        "path": ".github/airlock.yml",
+        "commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "assignments": [
+        {
+          "id": "selected",
+          "matched": true,
+          "diagnostic": null
+        }
+      ],
+      "rules": [
+        {
+          "id": "sample-measure",
+          "result": "fail",
+          "flavor": "gap",
+          "severity": "blocking",
+          "instances": [
+            {
+              "source": "organization",
+              "config_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "mode": "value",
+              "statement": "The sample meets the configured measure.",
+              "reason": null,
+              "relaxation_reason": null,
+              "severity": "blocking",
+              "result": "fail",
+              "flavor": "gap",
+              "diagnostic": null,
+              "conditions": [
+                {
+                  "index": 0,
+                  "result": "fail",
+                  "flavor": "gap",
+                  "diagnostic": null,
+                  "expected": 6,
+                  "probe": "observed",
+                  "pointer": "/score",
+                  "evaluation": "minimum",
+                  "observed_digest": "ef2d127de37b942baad06145e54b0c619a1f22327b2ebbcfbec78f5564afe39d",
+                  "reason": "observed value does not meet condition",
+                  "fix": {
+                    "kind": "agent",
+                    "guidance": "Expand the sample and document the result."
+                  }
+                }
+              ],
+              "fixes": [
+                {
+                  "kind": "agent",
+                  "guidance": "Expand the sample and document the result."
+                }
+              ]
+            },
+            {
+              "source": "repository",
+              "config_commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "mode": "value",
+              "statement": "The sample meets the configured measure.",
+              "reason": null,
+              "relaxation_reason": null,
+              "severity": "blocking",
+              "result": "pass",
+              "flavor": "passed",
+              "diagnostic": null,
+              "conditions": [
+                {
+                  "index": 0,
+                  "result": "pass",
+                  "flavor": "passed",
+                  "diagnostic": null,
+                  "expected": 4,
+                  "probe": "observed",
+                  "pointer": "/score",
+                  "evaluation": "minimum",
+                  "observed_digest": "ef2d127de37b942baad06145e54b0c619a1f22327b2ebbcfbec78f5564afe39d",
+                  "reason": "condition passed",
+                  "fix": {
+                    "kind": "not-fixable",
+                    "reason": "no fix needed"
+                  }
+                }
+              ],
+              "fixes": []
+            }
+          ]
+        },
+        {
+          "id": "unavailable-evaluation",
+          "result": "fail",
+          "flavor": "not-evaluated",
+          "severity": "blocking",
+          "instances": [
+            {
+              "source": "organization",
+              "config_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "mode": "value",
+              "statement": null,
+              "reason": null,
+              "relaxation_reason": null,
+              "severity": "blocking",
+              "result": "fail",
+              "flavor": "not-evaluated",
+              "diagnostic": {
+                "code": "invalid-rule",
+                "reason": "unknown evaluation type external-judgment-not-adopted"
+              },
+              "conditions": [],
+              "fixes": [
+                {
+                  "kind": "not-fixable",
+                  "reason": "unknown evaluation type external-judgment-not-adopted"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "warnings": [
+        {
+          "rule": "sample-measure",
+          "code": "relaxation-without-reason",
+          "reason": "repository condition relaxes the parent without a reason; parent value remains enforced"
+        }
+      ]
+    }
+  ],
+  "unassigned_repositories": [
+    "sample/other-kit"
+  ]
+}

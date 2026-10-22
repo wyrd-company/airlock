@@ -1,8 +1,11 @@
 // relationships: { implements: ../../../docs/hosted-browser.md, references: ../shared/report.ts }
 import { useEffect, useReducer, useRef, useState, type ReactNode } from "react";
 import {
+  fixDescription,
   groupLabels,
   groupOrder,
+  type ObservationTime,
+  type RepositoryReport,
   type OrganizationSummary,
   type OrganizationView,
   type RepositoryView,
@@ -154,7 +157,9 @@ export function App() {
                 {String(index + 1).padStart(2, "0")}
               </span>
               {org.account}
-              <span className={`nav-dot ${org.blocking ? "red" : "green"}`} />
+              <span
+                className={`nav-dot ${org.blocking ? "red" : org.incomplete ? "amber" : "green"}`}
+              />
             </a>
           ))}
         </nav>
@@ -250,6 +255,9 @@ function Overview({ summaries }: { summaries: OrganizationSummary[] }) {
               {org.repositories} assigned{" "}
               {org.repositories === 1 ? "repository" : "repositories"}
               {org.unassigned ? ` · ${org.unassigned} unassigned` : ""}
+              {org.unknownAssignments
+                ? ` · ${org.unknownAssignments} assignment unknown`
+                : ""}
             </p>
             <div className="card-stats">
               <Count value={org.blocking} tone="blocking" label="blocking" />
@@ -318,10 +326,16 @@ function Organization({ route }: { route: Route }) {
             <span className="heading-dot">.</span>
           </h1>
           <p>
-            {org.repositories.length} assigned repositories · Observed{" "}
-            <time dateTime={org.observedAt}>
-              {new Date(org.observedAt).toUTCString()}
-            </time>
+            {
+              org.repositories.filter((repo) =>
+                repo.assignments.some((a) => a.matched === true),
+              ).length
+            }{" "}
+            assigned repositories
+            {org.repositories.some((repo) => repo.assignmentUnknown)
+              ? " · Assignment unknown — incomplete"
+              : ""}{" "}
+            · <Observation value={org.observation} />
           </p>
         </div>
         <div className="context-status">
@@ -418,24 +432,7 @@ function Organization({ route }: { route: Route }) {
             search={search}
             filter={filter}
           />
-          {org.unassigned.length > 0 && (
-            <section className="unassigned">
-              <h2>
-                Unassigned <span>{org.unassigned.length}</span>
-              </h2>
-              <p>
-                These repositories have no rule assignment. They are not
-                findings.
-              </p>
-              {org.unassigned.map((name) => (
-                <div key={name}>
-                  <span aria-hidden="true">↳</span>
-                  {name.split("/")[1]}
-                  <Tag>Unassigned</Tag>
-                </div>
-              ))}
-            </section>
-          )}
+          <UnassignedRepositories repositories={org.unassigned} />
         </>
       ) : route.section === "rules" ? (
         <RuleCatalog org={org} onProposal={() => setProposal(true)} />
@@ -487,15 +484,17 @@ export function RepositoryTable({
           >
             <div className="repo-name">
               <span
-                className={`repo-indicator ${repo.blocking ? "red" : repo.advisory ? "amber" : "green"}`}
+                className={`repo-indicator ${repo.blocking ? "red" : repo.advisory || repo.incomplete ? "amber" : "green"}`}
               />
               <strong>{repo.repository.split("/")[1]}</strong>
               <small>
-                {repo.incomplete
-                  ? incompleteLabel(repo.incomplete)
-                  : repo.blocking + repo.advisory
-                    ? "Has open gaps"
-                    : "All evaluated rules pass"}
+                {repo.assignmentUnknown
+                  ? "Assignment unknown — incomplete"
+                  : repo.incomplete
+                    ? incompleteLabel(repo.incomplete)
+                    : repo.blocking + repo.advisory
+                      ? "Has open gaps"
+                      : "All evaluated rules pass"}
               </small>
             </div>
             <span>
@@ -506,7 +505,12 @@ export function RepositoryTable({
               <Count value={repo.advisory} tone="advisory" label="advisory" />
             </div>
             <span className="assignment-name">
-              {repo.assignments.join(", ")}
+              {repo.assignments
+                .map(
+                  (a) =>
+                    `${a.id}: ${a.matched === true ? "assigned" : a.matched === false ? "not matched" : "unknown"}`,
+                )
+                .join(", ")}
             </span>
             <Arrow />
           </a>
@@ -549,7 +553,14 @@ function Repository({
           <h2>{repo.repository.split("/")[1]}</h2>
           <div className="repo-meta">
             <Tag>{repo.maturity}</Tag>
-            <span>{repo.assignments.join(", ")}</span>
+            <span>
+              {repo.assignments
+                .map(
+                  (a) =>
+                    `${a.id}: ${a.matched === true ? "assigned" : a.matched === false ? "not matched" : "unknown"}`,
+                )
+                .join(", ")}
+            </span>
           </div>
         </div>
         <div className="row-counts">
@@ -558,14 +569,21 @@ function Repository({
         </div>
       </div>
       <div className="provenance">
+        <span>
+          AUDITED REVISION <Commit value={repo.audited_commit} />
+        </span>
         <span>CONFIG COMMITS</span>
         <span>
-          Organization <Commit value={org.organizationConfig.commit} />
+          Organization <Commit value={org.organizationConfig.commit} />{" "}
+          {org.organizationConfig.repository}:{org.organizationConfig.path}
         </span>
         <span>
           Repository{" "}
           {repo.repository_config ? (
-            <Commit value={repo.repository_config.commit} />
+            <>
+              <Commit value={repo.repository_config.commit} />{" "}
+              {repo.repository_config.repository}:{repo.repository_config.path}
+            </>
           ) : (
             "No repository configuration"
           )}
@@ -624,7 +642,7 @@ function Repository({
               .filter((result) => selected.has(result.rule.id))
               .map((result) => (
                 <li key={result.rule.id}>
-                  <strong>{result.rule.statement}</strong>
+                  <strong>{result.rule.id}</strong>
                   {result.rule.instances
                     .filter((instance) => instance.result === "fail")
                     .map((instance, index) => (
@@ -742,7 +760,7 @@ export function RuleRow({
         <input
           className="rule-checkbox"
           type="checkbox"
-          aria-label={`Select ${rule.statement}`}
+          aria-label={`Select ${rule.id}`}
           checked={selected}
           onChange={toggle}
         />
@@ -750,7 +768,7 @@ export function RuleRow({
       <details>
         <summary>
           <div className="rule-title">
-            <strong>{rule.statement}</strong>
+            <strong>{rule.id}</strong>
             <div>
               <code>{rule.id}</code>
               {rule.instances.length > 1 && <span>Org + repo · AND</span>}
@@ -763,7 +781,7 @@ export function RuleRow({
           </div>
           <div className="rule-badges">
             {result.warnings.length > 0 && (
-              <Tag tone="warning">Relaxation warning</Tag>
+              <Tag tone="warning">Rule warning</Tag>
             )}
             <Tag
               tone={
@@ -786,16 +804,14 @@ export function RuleRow({
           </div>
         </summary>
         <div className="rule-detail">
-          {result.warnings.map((warning) => (
-            <p className="notice" key={warning}>
-              {warning}
+          <p>
+            Engine aggregate: {rule.result} · {rule.flavor} · {rule.severity}
+          </p>
+          {result.warnings.map((warning, index) => (
+            <p className="notice" key={index}>
+              <code>{warning.code}</code> · {warning.reason}
             </p>
           ))}
-          {rule.detail_code && (
-            <p className="notice">
-              Invalid rule · This result could not be evaluated.
-            </p>
-          )}
           <div className="instance-grid">
             {rule.instances.map((instance, index) => (
               <div className="instance" key={index}>
@@ -811,36 +827,59 @@ export function RuleRow({
                   Config <Commit value={instance.config_commit} />
                   <span>{instance.flavor}</span>
                 </div>
-                <p>{instance.reason}</p>
+                <p>{instance.statement ?? "Statement unavailable"}</p>
+                <p>
+                  Result {instance.result} · Severity {instance.severity}
+                </p>
+                <p>Reason: {instance.reason ?? "unavailable"}</p>
+                <p>
+                  Relaxation reason:{" "}
+                  {instance.relaxation_reason ?? "unavailable"}
+                </p>
+                {instance.diagnostic && (
+                  <p className="notice">
+                    <code>{instance.diagnostic.code}</code> ·{" "}
+                    {instance.diagnostic.reason}
+                  </p>
+                )}
                 <dl>
                   {instance.conditions.map((condition, index) => (
                     <div key={index}>
-                      <dt>{condition.label}</dt>
+                      <dt>
+                        Condition {condition.index} · {condition.probe}{" "}
+                        {condition.pointer} · {condition.evaluation}
+                      </dt>
                       <dd>
-                        <span>Expected</span>
-                        {condition.expected}
+                        Result {condition.result} · {condition.flavor}
                       </dd>
                       <dd>
-                        <span>Observed</span>
-                        {condition.observed ?? "Not observed"}
+                        <span>Expected JSON</span>
+                        <code>{JSON.stringify(condition.expected)}</code>
+                      </dd>
+                      <dd>
+                        <span>Observed digest</span>
+                        <code>
+                          {condition.observed_digest ?? "Unavailable"}
+                        </code>
+                      </dd>
+                      <dd>{condition.reason}</dd>
+                      {condition.diagnostic && (
+                        <dd>
+                          {condition.diagnostic.code} ·{" "}
+                          {condition.diagnostic.reason}
+                        </dd>
+                      )}
+                      <dd>
+                        Fix plan: <code>{JSON.stringify(condition.fix)}</code>
                       </dd>
                     </div>
                   ))}
                 </dl>
                 {instance.fixes.map((fix, index) => (
                   <div className="fix-detail" key={index}>
-                    <span>
-                      {groupLabels[fix.kind]} ·{" "}
-                      {
-                        {
-                          derived: "Derived fix",
-                          complete: "Declaration completes fix",
-                          replace: "Declaration replaces fix",
-                          block: "Fix blocked",
-                        }[fix.origin]
-                      }
-                    </span>
-                    <p>{fix.description}</p>
+                    <span>{groupLabels[fix.kind]} · Fix plan</span>
+                    <p>{fixDescription(fix.plan)}</p>
+                    <pre>{JSON.stringify(fix.plan, null, 2)}</pre>
                   </div>
                 ))}
               </div>
@@ -897,7 +936,14 @@ export function RuleCatalog({
               </a>
               <Tag>{observation.maturity}</Tag>
               <Tag tone={observation.severity}>{observation.severity}</Tag>
-              <p>{observation.statement}</p>
+              {observation.statements.map((instance, index) => (
+                <p key={index}>
+                  {instance.source} ·{" "}
+                  {instance.statement ?? "Statement unavailable"} ·{" "}
+                  {instance.severity} ·{" "}
+                  <Commit value={instance.config_commit} />
+                </p>
+              ))}
             </div>
           ))}
         </details>
@@ -905,7 +951,7 @@ export function RuleCatalog({
     </>
   );
 }
-function Assignments({
+export function Assignments({
   org,
   onProposal,
 }: {
@@ -913,7 +959,11 @@ function Assignments({
   onProposal: () => void;
 }) {
   const assignments = [
-    ...new Set(org.repositories.flatMap((repo) => repo.assignments)),
+    ...new Set(
+      [...org.repositories, ...org.unassigned].flatMap((repo) =>
+        repo.assignments.map((a) => a.id),
+      ),
+    ),
   ];
   return (
     <>
@@ -932,17 +982,26 @@ function Assignments({
       {assignments.map((assignment) => (
         <section className="assignment-card" key={assignment}>
           <h3>{assignment}</h3>
-          <p>Assigned repositories</p>
-          {org.repositories
-            .filter((repo) => repo.assignments.includes(assignment))
-            .map((repo) => (
-              <a
-                href={href(org.account, "repos", repo.repository.split("/")[1])}
-                key={repo.repository}
-              >
-                {repo.repository.split("/")[1]} <Arrow />
-              </a>
-            ))}
+          <p>Assignment observations: assigned, not matched, or unknown</p>
+          {[...org.repositories, ...org.unassigned].flatMap((repo) =>
+            repo.assignments
+              .filter((a) => a.id === assignment)
+              .map((a) => (
+                <div key={repo.repository}>
+                  {repo.repository} ·{" "}
+                  {a.matched === true
+                    ? "Assigned"
+                    : a.matched === false
+                      ? "Not matched"
+                      : "Unknown — incomplete"}
+                  {a.diagnostic && (
+                    <p>
+                      {a.diagnostic.code} · {a.diagnostic.reason}
+                    </p>
+                  )}
+                </div>
+              )),
+          )}
         </section>
       ))}
     </>
@@ -1009,5 +1068,60 @@ function Modal({
       <h2 id="dialog-title">{title}</h2>
       {children}
     </dialog>
+  );
+}
+
+export function Observation({ value }: { value: ObservationTime }) {
+  return value.provenance === "unavailable" ? (
+    <span>Audit time unavailable</span>
+  ) : (
+    <span>
+      {value.provenance === "capture" ? "Capture time" : "Audit time"}{" "}
+      <time dateTime={value.value}>{new Date(value.value).toUTCString()}</time>
+    </span>
+  );
+}
+export function UnassignedRepositories({
+  repositories,
+}: {
+  repositories: RepositoryReport[];
+}) {
+  if (!repositories.length) return null;
+  return (
+    <section className="unassigned">
+      <h2>
+        Unassigned <span>{repositories.length}</span>
+      </h2>
+      <p>These repositories have no rule assignment. They are not findings.</p>
+      {repositories.map((repo) => (
+        <details key={repo.repository}>
+          <summary>
+            {repo.repository.split("/")[1]} <Tag>Unassigned</Tag>
+          </summary>
+          <p>
+            {repo.repository} · {repo.maturity} · Audited revision{" "}
+            <Commit value={repo.audited_commit} />
+          </p>
+          <p>
+            {repo.repository_config
+              ? `${repo.repository_config.repository}:${repo.repository_config.path}@${repo.repository_config.commit}`
+              : "No repository configuration"}
+          </p>
+          {repo.assignments.map((a) => (
+            <p key={a.id}>
+              {a.id}:{" "}
+              {a.matched === true
+                ? "assigned"
+                : a.matched === false
+                  ? "not matched"
+                  : "unknown"}
+              {a.diagnostic
+                ? ` · ${a.diagnostic.code}: ${a.diagnostic.reason}`
+                : ""}
+            </p>
+          ))}
+        </details>
+      ))}
+    </section>
   );
 }

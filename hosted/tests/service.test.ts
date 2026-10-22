@@ -34,7 +34,8 @@ describe("local report service", () => {
       advisory: 3,
       incomplete: 1,
       unassigned: 1,
-      observedAt: "2026-10-22T00:00:00Z",
+      observation: { value: "2026-10-22T00:00:00Z", provenance: "capture" },
+      unknownAssignments: 0,
     });
     expect(JSON.stringify(body)).not.toContain("field-notes");
     expect(JSON.stringify(body)).not.toContain("instances");
@@ -62,7 +63,11 @@ describe("local report service", () => {
       ),
     ).toEqual(["a".repeat(40), "b".repeat(40)]);
     expect(JSON.stringify(organization)).not.toContain("sample-team");
-    expect(organization.unassigned).toEqual(["example-org/weekend-sketches"]);
+    expect(
+      organization.unassigned.map(
+        (repo: { repository: string }) => repo.repository,
+      ),
+    ).toEqual(["example-org/weekend-sketches"]);
   });
   it("keeps invalid-rule incomplete, waived/not-applicable passed and observed null", async () => {
     const reports = structuredClone(fixtureReports);
@@ -85,8 +90,8 @@ describe("local report service", () => {
       (value: { rule: { id: string } }) => value.rule.id === "ownership-review",
     );
     expect(result.groups).toEqual(["not-evaluated"]);
-    expect(result.rule.detail_code).toBe("invalid-rule");
-    expect(result.rule.instances[0].conditions[0].observed).toBeNull();
+    expect(result.rule.instances[0].diagnostic.code).toBe("invalid-rule");
+    expect(result.rule.instances[0].conditions[0].observed_digest).toBeNull();
     expect(organization.repositories[0].incomplete).toBe(1);
     expect(organization.repositories[0].blocking).toBe(3);
     expect(organization.repositories[0].advisory).toBe(2);
@@ -143,8 +148,11 @@ describe("local report service", () => {
   it("fixture store isolates caller mutation", async () => {
     const store = fixtureStore(fixtureReports);
     const first = await store.get("example-org");
-    first!.repositories.length = 0;
-    expect((await store.get("example-org"))!.repositories).toHaveLength(3);
+    if (!first.ok || !first.value) throw new Error("Missing fixture");
+    first.value.repositories.length = 0;
+    const second = await store.get("example-org");
+    if (!second.ok || !second.value) throw new Error("Missing fixture");
+    expect(second.value.repositories).toHaveLength(4);
   });
 });
 describe("Worker deployment boundary", () => {

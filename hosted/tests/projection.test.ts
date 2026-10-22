@@ -16,19 +16,31 @@ function instance(fixers: Fixer[]): RuleInstance {
     mode: "value",
     result: "fail",
     flavor: "gap",
+    statement: "Requirement",
+    severity: "blocking",
+    relaxation_reason: null,
+    diagnostic: null,
     reason: "Requirement is not met",
     conditions: [],
     fixes: fixers.map((kind) => ({
       kind,
-      origin: "derived",
-      description: `Fix by ${kind}`,
+      plan:
+        kind === "you" || kind === "airlock-pr"
+          ? {
+              kind: "action",
+              fixer: kind === "you" ? "person" : "airlock",
+              action: "boundary-action",
+              input: null,
+            }
+          : kind === "agent"
+            ? { kind: "agent", guidance: `Fix by ${kind}` }
+            : { kind: "not-fixable", reason: `Fix by ${kind}` },
     })),
   };
 }
 function syntheticRule(id: string, fixers: Fixer[]): RuleResult {
   return {
     id,
-    statement: `Requirement ${id}`,
     result: "fail",
     flavor: "gap",
     severity: "blocking",
@@ -47,9 +59,7 @@ describe("fixer projection", () => {
     (kind) => {
       const output = project(syntheticRule("one-fixer", [kind]));
       expect(output.groups).toEqual([kind]);
-      expect(output.fixes).toEqual([
-        { kind, origin: "derived", description: `Fix by ${kind}` },
-      ]);
+      expect(output.fixes.map((fix) => fix.kind)).toEqual([kind]);
     },
   );
   it("keeps every failing-instance fixer in display order without duplicating groups", () => {
@@ -78,7 +88,7 @@ describe("fixer projection", () => {
     const result = project(rule);
     expect(result.groups).toEqual(["agent"]);
     expect(result.fixes).toEqual([
-      { kind: "agent", origin: "derived", description: "Fix by agent" },
+      { kind: "agent", plan: { kind: "agent", guidance: "Fix by agent" } },
     ]);
   });
   it("puts a failure without a failing-instance fix in not-fixable", () => {
@@ -191,14 +201,14 @@ describe("repository ordering and warning attribution", () => {
     ]);
     report.repositories[0].warnings = [
       {
-        rule_id: "required-setting",
+        rule: "required-setting",
         code: "relaxation-without-reason",
-        message: "This setting was relaxed without a reason.",
+        reason: "This setting was relaxed without a reason.",
       },
       {
-        rule_id: "absent-rule",
+        rule: "absent-rule",
         code: "relaxation-without-reason",
-        message: "A different requirement was relaxed.",
+        reason: "A different requirement was relaxed.",
       },
     ];
     const results = projectOrganization(report).repositories[0].results;
@@ -207,6 +217,12 @@ describe("repository ordering and warning attribution", () => {
     ).toEqual([]);
     expect(
       results.find((row) => row.rule.id === "required-setting")!.warnings,
-    ).toEqual(["This setting was relaxed without a reason."]);
+    ).toEqual([
+      {
+        rule: "required-setting",
+        code: "relaxation-without-reason",
+        reason: "This setting was relaxed without a reason.",
+      },
+    ]);
   });
 });

@@ -2,8 +2,7 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { createService } from "./src/service/service.ts";
-import { fixtureReports } from "./src/service/fixtures.ts";
-import { fixtureStore } from "./src/service/store.ts";
+import { actualFixtureStore } from "./src/service/engine-fixture.ts";
 
 export default defineConfig({
   plugins: [
@@ -11,7 +10,7 @@ export default defineConfig({
     {
       name: "airlock-local-read-service",
       configureServer(server) {
-        const service = createService(fixtureStore(fixtureReports));
+        const service = createService(actualFixtureStore());
         server.middlewares.use(async (req, res, next) => {
           if (!req.url?.startsWith("/api/")) return next();
           try {

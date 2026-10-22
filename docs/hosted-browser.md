@@ -12,8 +12,8 @@ agent work list, Action, and terminal console operate independently.
 
 ## Local development
 
-This increment uses synthetic reports. It connects to no GitHub or identity
-service. From `hosted/`:
+The local preview reads an unedited serialized Rust engine fixture through a
+typed adapter. It connects to no GitHub or identity service. From `hosted/`:
 
 ```sh
 pnpm install --frozen-lockfile
@@ -57,7 +57,7 @@ commits, and relaxation warnings. The browser does not recompute AND results,
 severity, fix derivation, or rule predicates.
 
 The Rules section is a per-id index with expandable observations. Each
-observation names its repository, maturity rung, statement and effective
+observation names its repository, maturity rung, instance statements and effective
 severity; the index does not choose one repository's values as global values.
 Repository result details hold instance-specific requirements. The fixture API
 has only organization summary, selected organization, and unavailable session
@@ -71,43 +71,69 @@ merged.
 
 ## Adapter boundaries
 
-`shared/report.ts` defines a synthetic hosted input/view shape. It does not
-match core output. `projection.ts` projects that synthetic shape only;
-`fixtures.ts` supplies local sample data. No real core report is accepted here.
-A boundary adapter and validation against serialized engine output are required
-before connection. Invalid or unobserved input must remain incomplete, never
-become a passing observation.
+`shared/engine-report.ts` describes the Rust Serde input contract.
+`report-adapter.ts` validates unknown JSON and converts it to `shared/report.ts`.
+Invalid required fields, enums and fix tags return `invalid-engine-report` with
+a field path. Both report endpoints return HTTP 503, including bodyless HEAD;
+invalid input cannot become a healthy empty report. The Worker and Vite API use
+`engineReportStore`, not the synthetic fixtures reserved for unit boundary cases.
 
-The core report fixture has these differences that the integration adapter must
-handle explicitly:
+Aggregate result, flavor and severity come from the engine. A row is identified
+by rule id; statement, severity, reason, relaxation reason and diagnostic stay
+with their own source instances. Config repository/path/commit and repository
+`audited_commit` remain distinct. Conditions retain index, expected JSON, probe,
+pointer, evaluation, result, flavor, diagnostic, reason and tagged fix plan.
+`observed_digest` is labeled as digest evidence, never raw observed content.
 
-- Core has no report `observed_at`. Hosted observation time requires an explicit
-  source; it cannot be invented from a config commit or display placeholder.
-- Core repository entries include `audited_commit`, which the hosted synthetic
-  shape does not carry.
-- Core assignments are objects with `id`, `matched` (`true`, `false`, or `null`)
-  and `diagnostic`; hosted assignments are string ids.
-- Core statement, severity and diagnostic are per instance. Statement can be
-  null. Both shapes retain aggregate effective severity; core also retains each
-  instance's severity. Core reason and relaxation reason are separate nullable
-  fields. The synthetic hosted shape places statement on the aggregate rule,
-  requires an instance reason, and uses a rule-level `detail_code`. Invalid
-  rules have instance `diagnostic.code = invalid-rule` and remain not evaluated.
-- Core fixes are tagged `action` (with `fixer: person|airlock`, `action`, `input`),
-  `agent` (with `guidance`), or `not-fixable` (with `reason`). The synthetic hosted
-  shape uses a UI fixer, an origin and a description. Mapping cannot assume an
-  executable change or reconstruct declaration origin from an absent field.
-- Core condition evidence includes index, result, flavor, diagnostic, expected
-  JSON, probe, pointer, evaluation, `observed_digest`, reason and fix. It does not
-  disclose raw observed contents. The synthetic conditions use display strings
-  `label`, `expected` and `observed`. A digest is not raw observed evidence.
-- Core warnings use `rule`, `code`, `reason`; synthetic warnings use `rule_id`,
-  `code`, `message`.
-- Core lists an unassigned repository both in `repositories` (with zero rules
-  and nonmatching assignment observations) and `unassigned_repositories`. The
-  hosted synthetic list contains assigned repositories only. The adapter must
-  separate these entries; an unassigned repository is not a passing assigned
-  repository and must not inflate assigned counts.
+Assignments retain id, `matched: true|false|null`, and diagnostic. True means
+assigned, false means not matched, and null means unknown. Explicit unassigned
+repositories appear once in a separate list with their metadata; they do not
+inflate assigned counts or healthy cards. An unknown assignment remains visible
+and increases the incomplete count, including when the repository has zero
+rules. The Assignments section shows all three states and diagnostics.
+
+Warnings retain their rule id, code and reason, and appear only on that rule.
+The containing organization/repository config sources remain available for
+inspection. Tagged fixes retain the entire plan: action with person/airlock,
+action and JSON input; agent guidance; or not-fixable reason. Person maps to You
+and airlock to Airlock PR. Multi-fixer display order is retained; passing
+instances contribute no actionable fixes. Not-evaluated takes group precedence.
+A displayed plan is not an authorized or executed change. Declaration origin is
+absent from the engine output and is not inferred.
+
+The separate observation supplement permits unavailable time, explicit audit
+time, or capture time. Unavailable time displays as unavailable. Capture time is
+labeled capture time. Config commits cannot supply audit time. No archive,
+language, default-branch, visibility, raw observation or declaration-origin
+metadata is fabricated or fetched. Unsupported fields remain absent in the API
+and browser readers.
+
+### Fixture refresh
+
+`hosted/fixtures/configurable-report.json` is an unedited engine export.
+`provenance.json` records its producer source head, source/lock/output hashes,
+toolchain and capture time. `observation.json` explicitly supplies unavailable
+audit time. From the repository root, export to a temporary file:
+
+```sh
+AIRLOCK_CONFIGURABLE_FIXTURE_OUTPUT=/tmp/engine-report.json CARGO_BUILD_JOBS=2 \
+  cargo test --offline --locked -p airlock-core --test configurable_rules \
+  report_contract_fixture_is_serialized_by_the_real_engine -- --exact
+cmp /tmp/engine-report.json hosted/fixtures/configurable-report.json
+```
+
+When engine changes require a refresh, copy the generated bytes intact and
+update provenance and consumer assertions together. Prettier excludes this JSON
+file to preserve producer bytes. Run affected hosted type/format/tests and
+browser verification. No running engine, subprocess bridge, deployment,
+persistence or report-versioning mechanism is selected here.
+
+The real fixture proves its emitted AND, warning, invalid-rule, assignment and
+unassigned cases. Tests label separate representable boundary cases for pass,
+waiver, not-applicable, action fixes, unavailable evidence and unknown
+assignments. The current engine does not emit not-applicable; its boundary test
+is not evidence of applicability execution. Local fixture validation is not a
+live or production audit.
 
 `ReportStore` is an asynchronous read port. Its local implementation copies
 fixtures to prevent a caller from changing stored reports. A live store needs

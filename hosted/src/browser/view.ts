@@ -80,7 +80,12 @@ export function observedRuleCatalog(repositories: RepositoryView[]) {
           .map(({ rule }) => ({
             repository: repo.repository,
             maturity: repo.maturity,
-            statement: rule.statement,
+            statements: rule.instances.map((instance) => ({
+              source: instance.source,
+              statement: instance.statement,
+              severity: instance.severity,
+              config_commit: instance.config_commit,
+            })),
             severity: rule.severity,
           })),
       )

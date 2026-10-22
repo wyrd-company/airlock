@@ -1,13 +1,12 @@
 // relationships: { implements: ../../../docs/hosted-browser.md }
 import { createService, json } from "./service.ts";
-import { fixtureReports } from "./fixtures.ts";
-import { fixtureStore } from "./store.ts";
+import { actualFixtureStore } from "./engine-fixture.ts";
 import { IntegrationUnavailable } from "./integrations.ts";
 interface Environment {
   LOCAL_FIXTURES?: string;
   ASSETS: { fetch(request: Request): Promise<Response> };
 }
-const fixtureService = createService(fixtureStore(fixtureReports));
+const fixtureService = createService(actualFixtureStore());
 export default {
   async fetch(request: Request, environment: Environment): Promise<Response> {
     // Explicit local config AND loopback: deploying this config does not expose fixture APIs.
