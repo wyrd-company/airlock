@@ -16,7 +16,7 @@ use std::collections::BTreeSet;
 use std::fmt;
 
 use crate::github::{ApiError, ErrorCause, GitHub, Installation, OAuthScopeHeader};
-use crate::registry::CredentialCapability;
+use crate::rules::CredentialCapability;
 
 /// The client id of the Airlock Safe GitHub App.
 ///
@@ -683,7 +683,7 @@ mod tests {
                 "{scope}"
             );
             assert!(
-                !crate::registry::MERGE_SETTINGS_DISCLOSURE.withholds_from(grant.capability()),
+                !crate::rules::MERGE_SETTINGS_DISCLOSURE.withholds_from(grant.capability()),
                 "{scope} must not be excused by the merge-settings gate"
             );
         }
@@ -711,7 +711,7 @@ mod tests {
                 "{scopes:?}"
             );
             assert!(
-                crate::registry::MERGE_SETTINGS_DISCLOSURE.withholds_from(grant.capability()),
+                crate::rules::MERGE_SETTINGS_DISCLOSURE.withholds_from(grant.capability()),
                 "{scopes:?} provably cannot hold contents:write"
             );
         }

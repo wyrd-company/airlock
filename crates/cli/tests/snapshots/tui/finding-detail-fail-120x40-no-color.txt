@@ -2,8 +2,8 @@ finding-detail-fail-120x40-no-color · 120x40 · theme dark · NO_COLOR
 --- text ---
 AIRLOCK 0.0.0  …ations › repositories › findings › finding detail  no credential stored · tty required · theme t · dark 
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-▌ REPO-GIT-01   ✗    │   │  fail  ███ blocking                                                                          
-gates the run: fail at blocking severity, which the required gate enforces                                              
+▌ REPO-GIT-01   ✗    │   │  gap  ███ blocking                                                                           
+Blocking Gap: the audit exits 1 when no run error is present.                                                           
                                                                                                                         
 the condition REPO-GIT-01 states                                                                                        
                                                                                                                         
@@ -13,37 +13,37 @@ evidence.path         null
 evidence.detail       no ruleset applies                                                                                
 evidence.capability   null                                                                                              
                                                                                                                         
-REMEDIATION                                                                                                             
-remediation.code      tighten_ruleset                                                                                   
-remediation.detail    Protect the default branch with a ruleset that requires a pull request.                           
-remediation_class                                                                                                       
+FIX                                                                                                                     
+fix.code              tighten_ruleset                                                                                   
+fix.detail            Protect the default branch with a ruleset that requires a pull request.                           
+fix_class                                                                                                               
   code                set-default-branch-main                                                                           
   change              Rename the default branch to `main`.                                                              
-  lane                operator-setting                                                                                  
+  fix kind            operator                                                                                          
   reversible          yes                                                                                               
                                                                                                                         
 WHY THIS RULE APPLIES                                                                                                   
 severity              blocking                                                                                          
-evaluation            mechanical                                                                                        
+evaluation            compiled                                                                                          
 section               git                                                                                               
 provenance            capability:base/git                                                                               
                                                                                                                         
 RUN PROVENANCE                                                                                                          
 airlock               0.0.0                                                                                             
-registry              0.4.0                                                                                             
-digest                sha256:5c8813c3bfc7bd06c869e72aeada56f1b256066e4349022b3a93a78e18f3f74b                           
-schema                1                                                                                                 
+rules                 0.6.0                                                                                             
+digest                sha256:65f08de5f4c91360008b07b4c4612ff2c3f4d980b9e48efd4dcea0f55d331037                           
+schema                2                                                                                                 
 commit                aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa                                                          
 observed              2026-01-02T03:04:05Z                                                                              
                                                                                                                         
-— 0 lines above · 4 below · ↑↓ moves the window —                                                                       
+— 0 lines above · 2 below · ↑↓ moves the window —                                                                       
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-esc back · a remediation transcript · o re-observe this rule · y copy the rule id · t theme · ctrl-c exit               
-decided · gating · gates the run                                                                                        
+esc back · a fix transcript · o re-observe this rule · y copy the rule id · t theme · ctrl-c exit                       
+evaluated · blocking Gap                                                                                                
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-bbaaaaaaaaaaabbbbbbbbbbbbbbbaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+bbaaaaaaaaaaabbbbbbbbbbbbbbbaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
@@ -54,7 +54,7 @@ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-aaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+aaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
@@ -79,7 +79,7 @@ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-aaabbbbbbbbabbbbbbbbbbbbbbbbbbbbbbbbbbabbbbbbbbbbbbbbbbbbbbbbbbabbbbbbbbbbbbbbbbbbbbabbbbbbbbbaaaaaabbbbbbbbbbbbbbbbbbbb
+aaabbbbbbbbabbbbbbbbbbbbbbbbbbabbbbbbbbbbbbbbbbbbbbbbbbabbbbbbbbbbbbbbbbbbbbabbbbbbbbbaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbb
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 --- legend ---
 a fg=reset bg=reset BOLD

@@ -19,16 +19,18 @@ inputs:
     required: false
     default: json
   fail-on-incomplete:
-    description: Whether an incomplete audit (exit 2) fails the Action
+    description: Whether binary exit 2 fails the Action; false maps it to success, including missing-token errors
     required: false
     default: "true"
 
 outputs:
   outcome:
-    description: Audit outcome (conformant, nonconformant, or incomplete)
+    description: >-
+      Binary result (0 conformant, 1 blocking gaps, 2 run error);
+      waived, routed, unbuilt, and out-of-scope do not affect it
     value: ${{ steps.audit.outputs.outcome }}
   complete:
-    description: Whether every gate-relevant rule was decided
+    description: Whether the audit completed without a run error
     value: ${{ steps.audit.outputs.complete }}
   findings-location:
     description: Absolute path to the findings document on the runner

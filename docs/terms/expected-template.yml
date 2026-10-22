@@ -1,0 +1,7 @@
+$schema: https://refinery.systems/ontology/term
+title: Expected template
+description: >-
+  A parent template, with its accepted children or parts, listed by the organization in the
+  templates parameter of REPO-TPL-01 by Toha source and target. Each listed parent is required
+  on governed repositories. Every selected part must be accepted, but an accepted part need not
+  be selected. Parts share their parent's revision.

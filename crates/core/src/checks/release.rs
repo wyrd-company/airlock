@@ -1,9 +1,9 @@
 //! Release: release units, changelogs, and the release workflow.
 
-use crate::findings::Remediation;
-use crate::policy::RuleInstance;
+use crate::findings::Fix;
+use crate::policy::EffectiveRule;
 use crate::yaml::Yaml;
-use crate::ActionGroup;
+use crate::FixGroup;
 
 use super::{AuditContext, ParsedFile, Verdict};
 
@@ -16,7 +16,7 @@ const PUBLICATION_SIGNALS: &[&str] = &[
     "twine upload",
 ];
 
-pub(crate) fn run(id: &str, _rule: &RuleInstance, context: &AuditContext) -> Option<Verdict> {
+pub(crate) fn run(id: &str, _rule: &EffectiveRule, context: &AuditContext) -> Option<Verdict> {
     Some(match id {
         "REPO-REL-01" => release_units_declared(context),
         "REPO-REL-02" => changelog_per_unit(context),
@@ -29,13 +29,13 @@ pub(crate) fn run(id: &str, _rule: &RuleInstance, context: &AuditContext) -> Opt
 
 fn release_units_declared(context: &AuditContext) -> Verdict {
     match context.yaml(".intentional/config.yml") {
-        ParsedFile::Undecided(verdict) => *verdict,
+        ParsedFile::ReadError(verdict) => *verdict,
         ParsedFile::Missing | ParsedFile::NotAFile(_) => Verdict::fail_at(
             "file_missing",
             ".intentional/config.yml",
             ".intentional/config.yml is absent, so no release units are declared",
-            Remediation::new(
-                ActionGroup::DECLARE_RELEASE_UNITS,
+            Fix::new(
+                FixGroup::DECLARE_RELEASE_UNITS,
                 "Add .intentional/config.yml declaring the repository's release units.",
             ),
         ),
@@ -50,8 +50,8 @@ fn release_units_declared(context: &AuditContext) -> Verdict {
                     "no_release_units",
                     ".intentional/config.yml",
                     ".intentional/config.yml declares no release units",
-                    Remediation::new(
-                        ActionGroup::DECLARE_RELEASE_UNITS,
+                    Fix::new(
+                        FixGroup::DECLARE_RELEASE_UNITS,
                         "Declare at least one release unit.",
                     ),
                 )
@@ -67,13 +67,7 @@ fn release_units_declared(context: &AuditContext) -> Verdict {
 }
 
 fn changelog_per_unit(context: &AuditContext) -> Verdict {
-    let Some(units) = context.release_units() else {
-        return Verdict::inconclusive(
-            "no_release_units_declared",
-            "the repository declares no release units, so per-unit changelogs could not be \
-             checked",
-        );
-    };
+    let units = try_verdict!(context.release_units());
 
     let missing: Vec<String> = units
         .iter()
@@ -93,8 +87,8 @@ fn changelog_per_unit(context: &AuditContext) -> Verdict {
         Verdict::fail(
             "changelog_missing",
             format!("{} absent", missing.join(", ")),
-            Remediation::new(
-                ActionGroup::ADD_CHANGELOG,
+            Fix::new(
+                FixGroup::ADD_CHANGELOG,
                 "Add a CHANGELOG.md at each release unit's declared path.",
             ),
         )
@@ -110,13 +104,7 @@ fn changelog_path(unit_path: &str) -> String {
 }
 
 fn no_root_aggregate_changelog(context: &AuditContext) -> Verdict {
-    let Some(units) = context.release_units() else {
-        return Verdict::inconclusive(
-            "no_release_units_declared",
-            "the repository declares no release units, so whether a root changelog aggregates \
-             them could not be established",
-        );
-    };
+    let units = try_verdict!(context.release_units());
 
     if units.len() <= 1 {
         return Verdict::pass(
@@ -131,8 +119,8 @@ fn no_root_aggregate_changelog(context: &AuditContext) -> Verdict {
             "root_unit_in_multi_unit_repository",
             "a multi-unit repository declares a release unit at the root, so its root \
              CHANGELOG.md cannot be anything but an aggregate",
-            Remediation::new(
-                ActionGroup::MOVE_ROOT_UNIT,
+            Fix::new(
+                FixGroup::MOVE_ROOT_UNIT,
                 "Give every release unit its own path below the root.",
             ),
         );
@@ -146,8 +134,8 @@ fn no_root_aggregate_changelog(context: &AuditContext) -> Verdict {
                 "a root CHANGELOG.md exists in a {}-unit repository where no unit lives at the root",
                 units.len()
             ),
-            Remediation::new(
-                ActionGroup::REMOVE_ROOT_CHANGELOG,
+            Fix::new(
+                FixGroup::REMOVE_ROOT_CHANGELOG,
                 "Remove the root CHANGELOG.md; each release unit keeps its own.",
             ),
         )
@@ -161,7 +149,7 @@ fn no_root_aggregate_changelog(context: &AuditContext) -> Verdict {
 
 fn release_is_dispatched(context: &AuditContext) -> Verdict {
     let Some(workflow) = context.workflow("release.yml") else {
-        return Verdict::manual(
+        return Verdict::unbuilt(
             "no_release_workflow",
             "there is no .github/workflows/release.yml; whether this repository creates releases \
              is a judgment call",
@@ -206,8 +194,8 @@ fn release_is_dispatched(context: &AuditContext) -> Verdict {
             "release_trigger_wrong",
             &workflow.path,
             gaps.join("; "),
-            Remediation::new(
-                ActionGroup::DISPATCH_ON_PINNED_SHA,
+            Fix::new(
+                FixGroup::DISPATCH_ON_PINNED_SHA,
                 "Make release a workflow_dispatch taking the source sha as an input.",
             ),
         )
@@ -216,7 +204,7 @@ fn release_is_dispatched(context: &AuditContext) -> Verdict {
 
 fn no_publish_on_merge(context: &AuditContext) -> Verdict {
     if context.workflows_truncated {
-        return Verdict::inconclusive(
+        return Verdict::run_error(
             "workflow_listing_truncated",
             "the workflow listing was cut short by a budget, so the absence of a publish-on-merge \
              workflow could not be established",
@@ -260,8 +248,8 @@ fn no_publish_on_merge(context: &AuditContext) -> Verdict {
         Verdict::fail(
             "publishes_on_merge",
             offenders.join("; "),
-            Remediation::new(
-                ActionGroup::DISPATCH_PUBLICATION,
+            Fix::new(
+                FixGroup::DISPATCH_PUBLICATION,
                 "Publish from a dispatched workflow, never automatically on merge.",
             ),
         )
@@ -274,7 +262,7 @@ mod tests {
     use super::super::fixtures::*;
     use crate::findings::Status;
 
-    fn verdict(id: &str, files: &[(&str, &str)]) -> Status {
+    fn verdict(id: &str, files: &[(&str, &str)]) -> Option<Status> {
         let snapshot = snapshot(files);
         let workflows = workflows(&snapshot);
         let policy = policy();
@@ -289,15 +277,15 @@ mod tests {
     fn release_units_must_be_declared() {
         assert_eq!(
             verdict("REPO-REL-01", &[(".intentional/config.yml", SINGLE_UNIT)]),
-            Status::Pass
+            Some(Status::Met)
         );
-        assert_eq!(verdict("REPO-REL-01", &[]), Status::Fail);
+        assert_eq!(verdict("REPO-REL-01", &[]), Some(Status::Gap));
         assert_eq!(
             verdict(
                 "REPO-REL-01",
                 &[(".intentional/config.yml", "settings: {}\n")]
             ),
-            Status::Fail
+            Some(Status::Gap)
         );
     }
 
@@ -311,11 +299,11 @@ mod tests {
                     ("CHANGELOG.md", "# log")
                 ]
             ),
-            Status::Pass
+            Some(Status::Met)
         );
         assert_eq!(
             verdict("REPO-REL-02", &[(".intentional/config.yml", SINGLE_UNIT)]),
-            Status::Fail
+            Some(Status::Gap)
         );
         assert_eq!(
             verdict(
@@ -325,7 +313,7 @@ mod tests {
                     ("core/CHANGELOG.md", "# log")
                 ]
             ),
-            Status::Fail
+            Some(Status::Gap)
         );
     }
 
@@ -339,7 +327,7 @@ mod tests {
                     ("CHANGELOG.md", "# log")
                 ]
             ),
-            Status::Pass
+            Some(Status::Met)
         );
     }
 
@@ -353,11 +341,11 @@ mod tests {
                     ("CHANGELOG.md", "# log")
                 ]
             ),
-            Status::Fail
+            Some(Status::Gap)
         );
         assert_eq!(
             verdict("REPO-REL-03", &[(".intentional/config.yml", TWO_UNITS)]),
-            Status::Pass
+            Some(Status::Met)
         );
     }
 
@@ -367,7 +355,7 @@ mod tests {
                     required: true\npermissions: {}\njobs: {}\n";
         assert_eq!(
             verdict("REPO-REL-04", &[(".github/workflows/release.yml", good)]),
-            Status::Pass
+            Some(Status::Met)
         );
         let automatic = "on:\n  push:\n    branches: [main]\npermissions: {}\njobs: {}\n";
         assert_eq!(
@@ -375,9 +363,9 @@ mod tests {
                 "REPO-REL-04",
                 &[(".github/workflows/release.yml", automatic)]
             ),
-            Status::Fail
+            Some(Status::Gap)
         );
-        assert_eq!(verdict("REPO-REL-04", &[]), Status::Manual);
+        assert_eq!(verdict("REPO-REL-04", &[]), None);
     }
 
     #[test]
@@ -386,13 +374,13 @@ mod tests {
                           steps:\n      - run: cargo publish\n";
         assert_eq!(
             verdict("REPO-REL-07", &[(".github/workflows/x.yml", publishing)]),
-            Status::Fail
+            Some(Status::Gap)
         );
         let harmless = "on:\n  push:\n    branches: [main]\npermissions: {}\njobs:\n  a:\n    \
                         steps:\n      - run: task check\n";
         assert_eq!(
             verdict("REPO-REL-07", &[(".github/workflows/x.yml", harmless)]),
-            Status::Pass
+            Some(Status::Met)
         );
     }
 }

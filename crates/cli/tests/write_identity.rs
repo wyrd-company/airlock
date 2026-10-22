@@ -262,15 +262,15 @@ fn every_server_supplied_string_leaves_the_worker_sanitized() {
         "the state the screen renders trusts its caller"
     );
 
-    let remediation = std::fs::read_to_string(admin_source().join("remediation.rs"))
-        .expect("the remediation worker has a source file");
-    let remediation = shipped_only(&remediation);
+    let fix = std::fs::read_to_string(admin_source().join("fix.rs"))
+        .expect("the fix worker has a source file");
+    let fix = shipped_only(&fix);
     assert!(
-        remediation.contains("text::sanitize(name, NAME_LIMIT)")
-            && remediation.contains("the remediation choices could not be observed: {error:#}")
-            && remediation.contains("Response::Failed(text::sanitize(")
-            && remediation.contains("text::sanitize(detail, CAUSE_LIMIT)"),
-        "the remediation worker lets a server-supplied name, cause, or transcript step cross raw"
+        fix.contains("text::sanitize(name, NAME_LIMIT)")
+            && fix.contains("the fix choices could not be observed: {error:#}")
+            && fix.contains("Response::Failed(text::sanitize(")
+            && fix.contains("text::sanitize(detail, CAUSE_LIMIT)"),
+        "the fix worker lets a server-supplied name, cause, or transcript step cross raw"
     );
 }
 

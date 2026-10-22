@@ -421,7 +421,7 @@ impl RestClient {
 
 fn transport_error(endpoint: &str, error: &reqwest::Error) -> ApiError {
     // A timeout is a budget failure, not a network failure: airlock chose the
-    // deadline, and the distinction changes the remediation.
+    // deadline, and the distinction changes the fix.
     let cause = if error.is_timeout() {
         ErrorCause::Budget
     } else {
@@ -615,6 +615,7 @@ fn decode_tag(endpoint: &str, item: &Value) -> ApiResult<TagRef> {
     Ok(TagRef {
         name: name.to_owned(),
         sha: require_string(endpoint, object, "sha")?,
+        object_type: require_string(endpoint, object, "type")?,
     })
 }
 
@@ -624,6 +625,10 @@ fn decode_commit(endpoint: &str, item: &Value) -> ApiResult<CommitSummary> {
     Ok(CommitSummary {
         sha,
         parents: parents.len(),
+        parent_shas: parents
+            .iter()
+            .map(|parent| require_string(endpoint, parent, "sha"))
+            .collect::<ApiResult<Vec<_>>>()?,
     })
 }
 
@@ -912,6 +917,36 @@ impl GitHub for RestClient {
         require_string(&endpoint, &value, "sha")
     }
 
+    async fn compare_status(
+        &self,
+        owner: &str,
+        repo: &str,
+        base: &str,
+        head: &str,
+    ) -> ApiResult<String> {
+        let endpoint = format!("GET /repos/{owner}/{repo}/compare/{base}...{head}?per_page=1");
+        let path = format!(
+            "/repos/{}/{}/compare/{}...{}?per_page=1",
+            encode_segment(owner),
+            encode_segment(repo),
+            encode_segment(base),
+            encode_segment(head)
+        );
+        let (value, _) = self.get_json(&endpoint, &path).await?;
+        let status = require_string(&endpoint, &value, "status")?;
+        if !matches!(
+            status.as_str(),
+            "identical" | "ahead" | "behind" | "diverged"
+        ) {
+            return Err(ApiError::local(
+                ErrorCause::Malformed,
+                endpoint,
+                "unknown comparison status",
+            ));
+        }
+        Ok(status)
+    }
+
     async fn tree(&self, owner: &str, repo: &str, commit: &str) -> ApiResult<Tree> {
         let endpoint = format!("GET /repos/{owner}/{repo}/git/trees/{commit}");
         let path = format!(
@@ -990,6 +1025,60 @@ impl GitHub for RestClient {
                 .collect::<ApiResult<Vec<TagRef>>>()?,
             truncated,
         })
+    }
+
+    async fn annotated_tag(
+        &self,
+        owner: &str,
+        repo: &str,
+        sha: &str,
+    ) -> ApiResult<super::AnnotatedTag> {
+        let endpoint = format!("GET /repos/{owner}/{repo}/git/tags/{sha}");
+        let path = format!(
+            "/repos/{}/{}/git/tags/{}",
+            encode_segment(owner),
+            encode_segment(repo),
+            encode_segment(sha)
+        );
+        let (value, _) = self.get_json(&endpoint, &path).await?;
+        let object = value
+            .get("object")
+            .ok_or_else(|| malformed(&endpoint, "tag has no target object"))?;
+        Ok(super::AnnotatedTag {
+            has_tagger: value.get("tagger").is_some_and(Value::is_object),
+            target_kind: object
+                .get("type")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned(),
+            message: require_string(&endpoint, &value, "message")?,
+            commit: require_string(&endpoint, object, "sha")?,
+        })
+    }
+
+    async fn releases(&self, owner: &str, repo: &str) -> ApiResult<Paged<super::ReleaseRecord>> {
+        let endpoint = format!("GET /repos/{owner}/{repo}/releases");
+        let path = format!(
+            "/repos/{}/{}/releases?per_page=100",
+            encode_segment(owner),
+            encode_segment(repo)
+        );
+        let (items, truncated) = self.get_paged(&endpoint, &path).await?;
+        let items = items
+            .iter()
+            .map(|item| {
+                Ok(super::ReleaseRecord {
+                    id: require_u64(&endpoint, item, "id")?,
+                    tag_name: require_string(&endpoint, item, "tag_name")?,
+                    draft: item
+                        .get("draft")
+                        .and_then(Value::as_bool)
+                        .ok_or_else(|| malformed(&endpoint, "release draft must be boolean"))?,
+                    url: require_string(&endpoint, item, "html_url")?,
+                })
+            })
+            .collect::<ApiResult<Vec<_>>>()?;
+        Ok(Paged { items, truncated })
     }
 
     async fn history(
@@ -1374,7 +1463,7 @@ mod tests {
 
     #[test]
     fn only_an_exact_tag_ref_decodes_as_a_tag() {
-        let tag = serde_json::json!({ "ref": "refs/tags/1.0.0", "object": { "sha": "a" } });
+        let tag = serde_json::json!({ "ref": "refs/tags/1.0.0", "object": { "sha": "a", "type": "tag" } });
         assert_eq!(decode_tag("GET /refs", &tag).unwrap().name, "1.0.0");
     }
 
@@ -1390,7 +1479,8 @@ mod tests {
             "1.0.0",
             "",
         ] {
-            let item = serde_json::json!({ "ref": reference, "object": { "sha": "a" } });
+            let item =
+                serde_json::json!({ "ref": reference, "object": { "sha": "a", "type": "tag" } });
             let error = decode_tag("GET /refs", &item).unwrap_err();
             assert_eq!(error.cause, ErrorCause::Malformed, "`{reference}`");
         }
@@ -1398,7 +1488,8 @@ mod tests {
 
     #[test]
     fn an_empty_tag_name_is_malformed() {
-        let item = serde_json::json!({ "ref": "refs/tags/", "object": { "sha": "a" } });
+        let item =
+            serde_json::json!({ "ref": "refs/tags/", "object": { "sha": "a", "type": "tag" } });
         assert_eq!(
             decode_tag("GET /refs", &item).unwrap_err().cause,
             ErrorCause::Malformed

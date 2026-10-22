@@ -1,0 +1,5 @@
+$schema: https://refinery.systems/ontology/term
+title: File change
+description: >-
+  One path-level write, removal or other file operation made or proposed by a fix, with its
+  result and reason.

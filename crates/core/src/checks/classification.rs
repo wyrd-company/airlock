@@ -1,8 +1,8 @@
 //! Classification: custom properties stay an organisation concern.
 
-use crate::findings::Remediation;
-use crate::policy::RuleInstance;
-use crate::ActionGroup;
+use crate::findings::Fix;
+use crate::policy::EffectiveRule;
+use crate::FixGroup;
 
 use super::{repo_settings, AuditContext, Verdict};
 
@@ -13,7 +13,7 @@ const PROPERTY_WRITE_SIGNALS: &[&str] = &[
     "/orgs/{org}/properties",
 ];
 
-pub(crate) fn run(id: &str, _rule: &RuleInstance, context: &AuditContext) -> Option<Verdict> {
+pub(crate) fn run(id: &str, _rule: &EffectiveRule, context: &AuditContext) -> Option<Verdict> {
     Some(match id {
         "REPO-PROP-03" => no_declared_custom_properties(context),
         "REPO-PROP-04" => no_workflow_writes_properties(context),
@@ -32,16 +32,16 @@ fn no_declared_custom_properties(context: &AuditContext) -> Verdict {
     if declared.is_empty() {
         Verdict::pass_at(
             "no_custom_properties_declared",
-            ".github/repo-settings.yml",
+            ".github/airlock.yml",
             "no custom property values are declared",
         )
     } else {
         Verdict::fail_at(
             "custom_properties_declared",
-            ".github/repo-settings.yml",
+            ".github/airlock.yml",
             format!("the declared settings file carries {}", declared.join(", ")),
-            Remediation::new(
-                ActionGroup::REMOVE_CUSTOM_PROPERTIES,
+            Fix::new(
+                FixGroup::REMOVE_CUSTOM_PROPERTIES,
                 "Remove custom property values. Classification is set on the organisation, not \
                  claimed by the repository.",
             ),
@@ -51,7 +51,7 @@ fn no_declared_custom_properties(context: &AuditContext) -> Verdict {
 
 fn no_workflow_writes_properties(context: &AuditContext) -> Verdict {
     if context.workflows_truncated {
-        return Verdict::inconclusive(
+        return Verdict::run_error(
             "workflow_listing_truncated",
             "the workflow listing was cut short by a budget, so the absence of a property-writing \
              workflow could not be established",
@@ -88,8 +88,8 @@ fn no_workflow_writes_properties(context: &AuditContext) -> Verdict {
         Verdict::fail(
             "workflow_writes_properties",
             offenders.join("; "),
-            Remediation::new(
-                ActionGroup::REMOVE_PROPERTY_WRITES,
+            Fix::new(
+                FixGroup::REMOVE_PROPERTY_WRITES,
                 "Set organisation custom properties from the organisation, not from a repository \
                  workflow.",
             ),
@@ -103,7 +103,7 @@ mod tests {
     use super::super::fixtures::*;
     use crate::findings::Status;
 
-    fn verdict(id: &str, files: &[(&str, &str)]) -> Status {
+    fn verdict(id: &str, files: &[(&str, &str)]) -> Option<Status> {
         let snapshot = snapshot(files);
         let workflows = workflows(&snapshot);
         let policy = policy();
@@ -116,16 +116,16 @@ mod tests {
         assert_eq!(
             verdict(
                 "REPO-PROP-03",
-                &[(".github/repo-settings.yml", "properties:\n  tier: gold\n")]
+                &[(".github/airlock.yml", "properties:\n  tier: gold\n")]
             ),
-            Status::Fail
+            Some(Status::Gap)
         );
         assert_eq!(
             verdict(
                 "REPO-PROP-03",
-                &[(".github/repo-settings.yml", "description: x\n")]
+                &[(".github/airlock.yml", "description: x\n")]
             ),
-            Status::Pass
+            Some(Status::Met)
         );
     }
 
@@ -139,7 +139,7 @@ mod tests {
                     "jobs:\n  a:\n    steps:\n      - run: gh api -X PATCH repos/o/n/properties/values\n"
                 )]
             ),
-            Status::Fail
+            Some(Status::Gap)
         );
         assert_eq!(
             verdict(
@@ -149,7 +149,7 @@ mod tests {
                     "jobs:\n  a:\n    steps:\n      - run: task check\n"
                 )]
             ),
-            Status::Pass
+            Some(Status::Met)
         );
     }
 }

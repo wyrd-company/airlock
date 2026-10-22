@@ -2,4 +2,4 @@
 airlock: minor
 ---
 
-Every registered rule now declares its remediation as data: a stable code, what the change would be, whether it is reversible, and its lane (deterministic file change, judgment file change, or operator-only setting) — or an explicit no-remediation reason. Findings carry the classification in a new `remediation_class` field. The classification is deliberately outside the registry digest.
+Every registered rule now declares its fix as data: a stable code, what the change would be, whether it is reversible, and its fix kind (`airlock`, `agent`, or `operator`) — or an explicit no-fix reason. Findings carry the classification in a new `fix_class` field. The classification is deliberately outside the rules digest.

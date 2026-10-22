@@ -1,0 +1,7 @@
+$schema: https://refinery.systems/ontology/term
+title: Maturity
+description: >-
+  The repository's observed position on the lifecycle ladder: seeded, building, released or
+  stable. Maturity is inferred from repository evidence, never declared as classification.
+  Rules may govern particular rungs. The presence or absence of a workflow or model does not
+  let an in-scope repository evade its rules.

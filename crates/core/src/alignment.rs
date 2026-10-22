@@ -1,7 +1,7 @@
 //! Deterministic file alignment in a local working tree.
 //!
 //! This module is intentionally ignorant of git operations and GitHub write
-//! APIs. It consumes an observation, authors only the deterministic lane, and
+//! APIs. It consumes an observation, authors only the deterministic fix kind, and
 //! reports every path-level outcome so the caller can decide commit
 //! granularity.
 
@@ -13,7 +13,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 
 use crate::findings::{Finding, Report, Status};
-use crate::remediation::Lane;
+use crate::fix::FixKind;
 use crate::worktree::{self, WorkingTreeFacts, AUTHORIZATION_BEARING_PATHS};
 use crate::{Error, Result};
 
@@ -30,24 +30,26 @@ pub struct ScaffoldFile {
 ///
 /// Repository-specific and destructive transformations are deliberately not
 /// expressible here. They remain ordinary audit gaps after the first commit.
+/// The repository owner resolves placeholders in compiled parameter defaults.
 #[must_use]
-pub fn scaffold_files(policy: &crate::policy::ResolvedPolicy) -> Vec<ScaffoldFile> {
+pub fn scaffold_files(policy: &crate::policy::ResolvedPolicy, owner: &str) -> Vec<ScaffoldFile> {
     let mut files = BTreeMap::new();
     for rule in policy
         .rules
         .iter()
-        .filter(|rule| rule.condition == crate::policy::Condition::Always)
+        .filter(|rule| rule.severity != crate::rules::Severity::None)
     {
-        let Some(definition) = crate::remediation::classify(rule.def.id)
-            .and_then(crate::remediation::Classification::remediation)
-            .filter(|definition| definition.lane == Lane::DeterministicFile)
+        let Some(definition) = crate::fix::classify(rule.def.id)
+            .and_then(crate::fix::FixAvailability::fix)
+            .filter(|definition| definition.fix_kind == FixKind::Airlock)
         else {
             continue;
         };
-        match deterministic_author(definition.code, rule.param_str("renovate-preset"), None)
+        let renovate_preset = rule.param_str_for_owner("renovate-preset", Some(owner));
+        match deterministic_author(definition.code, renovate_preset.as_deref(), None)
             .unwrap_or_else(|| {
                 panic!(
-                    "deterministic remediation `{}` has no scaffold author dispatch",
+                    "deterministic fix `{}` has no scaffold author dispatch",
                     definition.code
                 )
             }) {
@@ -153,7 +155,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
 ";
-const RENOVATE: &str = "{\n  \"extends\": [\"github>wyrd-company/.github\"]\n}\n";
 const LEFTHOOK: &str = "\
 pre-commit:
   commands:
@@ -179,16 +180,16 @@ pub struct PathOperation {
     pub path: String,
     pub operation: String,
     pub rule: String,
-    pub remediation_code: String,
+    pub fix_code: String,
     pub outcome: String,
     pub reason: Option<String>,
 }
 
-/// A judgment-lane finding handed to an agent using the embedded skill.
+/// A judgment-fix kind finding handed to an agent using the embedded skill.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct AgentDelegation {
     pub rule: String,
-    pub remediation_code: String,
+    pub fix_code: String,
     pub change: String,
     pub source: Option<String>,
     pub evidence_code: Option<String>,
@@ -311,7 +312,7 @@ pub fn author(root: &Path, report: &Report) -> Result<AuthorReport> {
             continue;
         }
         // Re-read immediately before touching each path. The report selected
-        // the remediation, but it does not grant authority over a path that
+        // the fix, but it does not grant authority over a path that
         // changed after that observation.
         let current = worktree::read_facts(root)?;
         if current.path_modified_from_head(&operation.path) {
@@ -326,7 +327,7 @@ pub fn author(root: &Path, report: &Report) -> Result<AuthorReport> {
                 path: operation.path.clone(),
                 operation: operation.kind.name().to_owned(),
                 rule: operation.rule.clone(),
-                remediation_code: operation.code.clone(),
+                fix_code: operation.code.clone(),
                 outcome: "not_written".to_owned(),
                 reason: Some(error.to_string()),
             });
@@ -337,7 +338,7 @@ pub fn author(root: &Path, report: &Report) -> Result<AuthorReport> {
                     path: remaining.path.clone(),
                     operation: remaining.kind.name().to_owned(),
                     rule: remaining.rule.clone(),
-                    remediation_code: remaining.code.clone(),
+                    fix_code: remaining.code.clone(),
                     outcome: "not_written".to_owned(),
                     reason: Some("not attempted after an earlier path failure".to_owned()),
                 });
@@ -352,7 +353,7 @@ pub fn author(root: &Path, report: &Report) -> Result<AuthorReport> {
             path: operation.path.clone(),
             operation: operation.kind.name().to_owned(),
             rule: operation.rule.clone(),
-            remediation_code: operation.code.clone(),
+            fix_code: operation.code.clone(),
             outcome: "written".to_owned(),
             reason: None,
         });
@@ -377,14 +378,14 @@ fn judgment_findings(report: &Report) -> Vec<AgentDelegation> {
         .findings
         .iter()
         .filter(|finding| {
-            finding.status == Status::Fail
-                && finding.remediation_class.lane.as_deref() == Some(Lane::JudgmentFile.code())
+            finding.status == Some(Status::Gap)
+                && finding.fix_class.fix_kind.as_deref() == Some(FixKind::Agent.code())
         })
         .filter_map(|finding| {
             Some(AgentDelegation {
                 rule: finding.rule.clone(),
-                remediation_code: finding.remediation_class.code.clone()?,
-                change: finding.remediation_class.change.clone()?,
+                fix_code: finding.fix_class.code.clone()?,
+                change: finding.fix_class.change.clone()?,
                 source: finding.source.clone(),
                 evidence_code: finding.evidence.as_ref().map(|value| value.code.clone()),
                 evidence_path: finding
@@ -404,15 +405,35 @@ fn plan_operations(
 ) -> Vec<PlannedOperation> {
     let mut operations = Vec::new();
     let mut claimed = BTreeSet::new();
+    // A local display name may be a placeholder. Resolve only an API identity
+    // or the origin actually observed in this working tree.
+    let full_name = if report.repository.id.is_some() {
+        Some(report.repository.full_name.as_str())
+    } else {
+        facts.remote_full_name.as_deref()
+    };
+    let owner = full_name.and_then(|name| name.split_once('/').map(|(owner, _)| owner));
     for finding in report.findings.iter().filter(|finding| {
-        finding.status == Status::Fail
-            && finding.remediation_class.lane.as_deref() == Some(Lane::DeterministicFile.code())
+        finding.status == Some(Status::Gap)
+            && finding.fix_class.fix_kind.as_deref() == Some(FixKind::Airlock.code())
             && finding.source.as_deref() == Some("working-tree")
     }) {
-        let Some(code) = finding.remediation_class.code.as_deref() else {
+        let Some(code) = finding.fix_class.code.as_deref() else {
             continue;
         };
-        for operation in author_for(code, finding, facts).into_operations() {
+        let preset = report
+            .effective_policy
+            .iter()
+            .find(|rule| rule.rule == finding.rule)
+            .and_then(|rule| {
+                crate::policy::resolve_string_parameter(
+                    crate::rules::find(&rule.rule)?,
+                    &rule.params,
+                    "renovate-preset",
+                    owner,
+                )
+            });
+        for operation in author_for(code, finding, facts, preset.as_deref()).into_operations() {
             if claimed.insert(operation.path.clone()) {
                 operations.push(operation);
             } else {
@@ -420,11 +441,11 @@ fn plan_operations(
                     path: operation.path,
                     operation: operation.kind.name().to_owned(),
                     rule: finding.rule.clone(),
-                    remediation_code: code.to_owned(),
+                    fix_code: code.to_owned(),
                     outcome: "skipped".to_owned(),
                     reason: Some(
-                        "another remediation in this run already owns the path; commit the \
-                         reported write, then re-run alignment to apply this remediation"
+                        "another fix in this run already owns the path; commit the \
+                         reported write, then re-run alignment to apply this fix"
                             .to_owned(),
                     ),
                 });
@@ -434,7 +455,12 @@ fn plan_operations(
     operations
 }
 
-fn author_for(code: &str, finding: &Finding, facts: &WorkingTreeFacts) -> AuthorResult {
+fn author_for(
+    code: &str,
+    finding: &Finding,
+    facts: &WorkingTreeFacts,
+    renovate_preset: Option<&str>,
+) -> AuthorResult {
     let operation = |path: &str, kind| PlannedOperation {
         path: path.to_owned(),
         kind,
@@ -455,23 +481,15 @@ fn author_for(code: &str, finding: &Finding, facts: &WorkingTreeFacts) -> Author
         | "add-renovate-config"
         | "add-audit-workflow"
         | "add-lefthook-config"
-        | "add-title-check") => deterministic_author(
-            code,
-            finding
-                .remediation
-                .as_ref()
-                .and_then(|remediation| remediation.detail.split('`').nth(1))
-                .or((code == "add-renovate-config").then_some("github>wyrd-company/.github")),
-            Some(&facts.root),
-        )
-        .and_then(|author| match author {
-            DeterministicAuthor::File(path, contents) => {
-                Some(operation(&path, OperationKind::Write(contents)))
-            }
-            DeterministicAuthor::OrdinaryLane => None,
-        })
-        .into_iter()
-        .collect(),
+        | "add-title-check") => deterministic_author(code, renovate_preset, Some(&facts.root))
+            .and_then(|author| match author {
+                DeterministicAuthor::File(path, contents) => {
+                    Some(operation(&path, OperationKind::Write(contents)))
+                }
+                DeterministicAuthor::OrdinaryLane => None,
+            })
+            .into_iter()
+            .collect(),
         "add-claude-symlink" => {
             if facts.root.join("AGENTS.md").is_file() {
                 vec![operation(
@@ -509,7 +527,7 @@ fn author_for(code: &str, finding: &Finding, facts: &WorkingTreeFacts) -> Author
         | "declare-merge-settings"
         | "remove-visibility-field"
         | "remove-custom-property-values" => {
-            yaml_transform_operation(".github/repo-settings.yml", finding, facts, code)
+            yaml_transform_operation(".github/airlock.yml", finding, facts, code)
         }
         "set-include-dirs" | "align-include-namespaces" => {
             yaml_transform_operation("taskfile.yml", finding, facts, code)
@@ -529,14 +547,14 @@ fn author_for(code: &str, finding: &Finding, facts: &WorkingTreeFacts) -> Author
             )]
         }
         _ if implemented_codes().contains(code) => {
-            panic!("deterministic remediation `{code}` has no author dispatch")
+            panic!("deterministic fix `{code}` has no author dispatch")
         }
         _ => Vec::new(),
     };
     AuthorResult::from_operations(
         operations,
         fallback(),
-        format!("remediation `{code}` could not identify a safe authored operation"),
+        format!("fix `{code}` could not identify a safe authored operation"),
     )
 }
 
@@ -622,9 +640,10 @@ fn renovate_contents(root: Option<&Path>, expected: &str) -> String {
         .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
         .unwrap_or_else(|| serde_json::json!({}));
     value["extends"] = serde_json::json!([expected]);
-    serde_json::to_string_pretty(&value)
-        .map(|value| format!("{value}\n"))
-        .unwrap_or_else(|_| RENOVATE.to_owned())
+    format!(
+        "{}\n",
+        serde_json::to_string_pretty(&value).expect("JSON values serialize to JSON")
+    )
 }
 
 fn yaml_transform_operation(
@@ -1215,7 +1234,7 @@ fn skipped(operation: &PlannedOperation, reason: &str) -> PathOperation {
         path: operation.path.clone(),
         operation: operation.kind.name().to_owned(),
         rule: operation.rule.clone(),
-        remediation_code: operation.code.clone(),
+        fix_code: operation.code.clone(),
         outcome: "skipped".to_owned(),
         reason: Some(reason.to_owned()),
     }
@@ -1303,7 +1322,7 @@ impl OperationKind {
     }
 }
 
-/// Every deterministic remediation code has an author dispatch entry.
+/// Every deterministic fix code has an author dispatch entry.
 #[must_use]
 pub fn implemented_codes() -> BTreeSet<&'static str> {
     [
@@ -1349,80 +1368,68 @@ mod tests {
 
     use super::*;
     use crate::findings::{
-        AirlockIdentity, AuditedRepository, Gate, ObservationRecord, PolicyIdentity,
-        RemediationClass,
+        AirlockIdentity, AuditedRepository, FixClass, ObservationRecord, PolicyIdentity,
     };
-    use crate::remediation;
+    use crate::fix;
 
     #[test]
-    fn scaffold_files_include_only_fixed_deterministic_unconditional_rules() {
-        let rule = |id, condition| crate::policy::RuleInstance {
-            def: crate::registry::find(id).expect("registered rule"),
-            severity: crate::registry::Severity::Required,
-            params: BTreeMap::new(),
-            provenance: "capability:fixture".to_owned(),
-            condition,
-        };
-        let policy = crate::policy::ResolvedPolicy {
-            name: "fixture".to_owned(),
-            source: "fixture".to_owned(),
-            commit: None,
-            bundle_digest: "digest".to_owned(),
-            sources: Vec::new(),
-            gate: Gate::Blocking,
-            rules: vec![
-                rule("REPO-LIC-01", crate::policy::Condition::Always),
-                rule(
-                    "REPO-FILE-05",
-                    crate::policy::Condition::CustomProperty {
-                        name: "publishes".to_owned(),
-                        value: "true".to_owned(),
-                    },
-                ),
-            ],
-            suppressions: Default::default(),
-            reference_data: Default::default(),
-            capabilities: Vec::new(),
-        };
-        let files = scaffold_files(&policy);
-        assert_eq!(files.len(), 1);
-        assert_eq!(files[0].path, "LICENSE");
-        assert_eq!(files[0].contents, APACHE_2_LICENSE.as_bytes());
+    fn renovate_alignment_uses_the_observed_api_owner() {
+        for remote_owner in [None, Some("another-org")] {
+            let directory = repository();
+            if let Some(owner) = remote_owner {
+                git(
+                    directory.path(),
+                    &[
+                        "remote",
+                        "add",
+                        "origin",
+                        &format!("git@github.com:{owner}/sample.git"),
+                    ],
+                );
+            }
+            let mut observed = report("REPO-FILE-08");
+            observed.repository.id = Some(42);
+            observed.repository.full_name = "example-org/sample".to_owned();
+            observed
+                .effective_policy
+                .push(crate::findings::EffectiveRuleRecord {
+                    new: false,
+                    rule: "REPO-FILE-08".to_owned(),
+                    severity: "advisory".to_owned(),
+                    params: BTreeMap::new(),
+                    provenance: "fixture".to_owned(),
+                });
+            let result = author(directory.path(), &observed).unwrap();
+            assert_eq!(result.operations.len(), 1);
+            assert_eq!(result.operations[0].outcome, "written");
+            let contents: serde_json::Value = serde_json::from_slice(
+                &fs::read(directory.path().join(".github/renovate.json")).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(
+                contents["extends"],
+                serde_json::json!(["github>example-org/.github"])
+            );
+        }
     }
 
     #[test]
-    fn scaffolded_bytes_are_the_bytes_the_deterministic_author_would_write() {
-        let preset = "github>wyrd-company/.github";
-        let policy = crate::policy::ResolvedPolicy {
-            name: "fixture".to_owned(),
-            source: "fixture".to_owned(),
-            commit: None,
-            bundle_digest: "digest".to_owned(),
-            sources: Vec::new(),
-            gate: Gate::Blocking,
-            rules: vec![crate::policy::RuleInstance {
-                def: crate::registry::find("REPO-FILE-08").expect("registered rule"),
-                severity: crate::registry::Severity::Required,
-                params: BTreeMap::from([("renovate-preset".to_owned(), serde_json::json!(preset))]),
-                provenance: "fixture".to_owned(),
-                condition: crate::policy::Condition::Always,
-            }],
-            suppressions: Default::default(),
-            reference_data: Default::default(),
-            capabilities: Vec::new(),
-        };
-        let scaffolded = scaffold_files(&policy);
+    fn renovate_alignment_without_an_observed_owner_ignores_the_display_name() {
         let directory = repository();
-        let facts = worktree::read_facts(directory.path()).unwrap();
-        let authored = report("REPO-FILE-08");
-        let operations =
-            author_for("add-renovate-config", &authored.findings[0], &facts).into_operations();
-        let OperationKind::Write(expected) = &operations[0].kind else {
-            panic!("renovate author did not produce a write")
-        };
-
-        assert_eq!(scaffolded[0].path, operations[0].path);
-        assert_eq!(&scaffolded[0].contents, expected);
+        let mut observed = report("REPO-FILE-08");
+        observed
+            .effective_policy
+            .push(crate::findings::EffectiveRuleRecord {
+                new: false,
+                rule: "REPO-FILE-08".to_owned(),
+                severity: "advisory".to_owned(),
+                params: BTreeMap::new(),
+                provenance: "fixture".to_owned(),
+            });
+        let result = author(directory.path(), &observed).unwrap();
+        assert_eq!(result.operations.len(), 1);
+        assert_eq!(result.operations[0].outcome, "skipped");
+        assert!(!directory.path().join(".github/renovate.json").exists());
     }
 
     fn git(root: &Path, args: &[&str]) {
@@ -1472,31 +1479,32 @@ mod tests {
                 commit: None,
                 sources: Vec::new(),
                 bundle_digest: format!("sha256:{}", "b".repeat(64)),
-                gate: Gate::Blocking,
             },
             Vec::new(),
             Vec::new(),
             vec![Finding {
+                new: false,
                 rule: rule.to_owned(),
                 statement: "fixture".to_owned(),
-                severity: "required".to_owned(),
-                status: Status::Fail,
+                severity: "advisory".to_owned(),
+                status: Some(Status::Gap),
                 evidence: None,
-                remediation: None,
-                remediation_class: RemediationClass::for_rule(rule),
+                fix: None,
+                fix_class: FixClass::for_rule(rule),
                 suppression: None,
                 source: Some("working-tree".to_owned()),
                 error: None,
+                routing: None,
             }],
         )
     }
 
     #[test]
     fn every_deterministic_lane_entry_has_an_author() {
-        let declared: BTreeSet<_> = remediation::CLASSIFICATIONS
+        let declared: BTreeSet<_> = fix::CLASSIFICATIONS
             .iter()
-            .filter_map(remediation::Classification::remediation)
-            .filter(|definition| definition.lane == Lane::DeterministicFile)
+            .filter_map(fix::FixAvailability::fix)
+            .filter(|definition| definition.fix_kind == FixKind::Airlock)
             .map(|definition| definition.code)
             .collect();
         assert_eq!(implemented_codes(), declared);
@@ -1514,17 +1522,21 @@ mod tests {
 
     #[test]
     fn authorization_bearing_paths_are_not_author_targets() {
-        for definition in remediation::CLASSIFICATIONS
+        for definition in fix::CLASSIFICATIONS
             .iter()
-            .filter_map(remediation::Classification::remediation)
+            .filter_map(fix::FixAvailability::fix)
         {
             let finding = report(definition.rule);
             let directory = repository();
             let facts = worktree::read_facts(directory.path()).unwrap();
-            assert!(author_for(definition.code, &finding.findings[0], &facts)
-                .into_operations()
-                .iter()
-                .all(|operation| !AUTHORIZATION_BEARING_PATHS.contains(&operation.path.as_str())));
+            assert!(
+                author_for(definition.code, &finding.findings[0], &facts, None)
+                    .into_operations()
+                    .iter()
+                    .all(
+                        |operation| !AUTHORIZATION_BEARING_PATHS.contains(&operation.path.as_str())
+                    )
+            );
         }
     }
 
@@ -1605,11 +1617,11 @@ mod tests {
         let directory = repository();
         fs::create_dir_all(directory.path().join(".github")).unwrap();
         fs::write(
-            directory.path().join(".github/repo-settings.yml"),
+            directory.path().join(".github/airlock.yml"),
             "# comments only\n",
         )
         .unwrap();
-        git(directory.path(), &["add", ".github/repo-settings.yml"]);
+        git(directory.path(), &["add", ".github/airlock.yml"]);
         git(directory.path(), &["commit", "-q", "-m", "settings"]);
 
         let result = author(directory.path(), &report("REPO-META-11")).unwrap();
@@ -1672,5 +1684,101 @@ jobs:
         assert!(safe_repository_path(".github/workflows/ci.yml"));
         assert!(!safe_repository_path("../outside"));
         assert!(!safe_repository_path("/outside"));
+    }
+    #[test]
+    fn scaffolded_bytes_are_the_bytes_the_deterministic_author_would_write() {
+        let preset = "github>example-org/.github";
+        let policy = crate::policy::ResolvedPolicy {
+            name: "fixture".to_owned(),
+            source: "fixture".to_owned(),
+            commit: None,
+            bundle_digest: "digest".to_owned(),
+            sources: Vec::new(),
+
+            rules: vec![crate::policy::EffectiveRule {
+                def: crate::rules::find("REPO-FILE-08").expect("registered rule"),
+                severity: crate::rules::Severity::Advisory,
+                params: BTreeMap::from([("renovate-preset".to_owned(), serde_json::json!(preset))]),
+                provenance: "fixture".to_owned(),
+            }],
+            suppressions: Default::default(),
+
+            accepted_version: crate::policy::current_generation(),
+            exceptions: Default::default(),
+        };
+        let scaffolded = scaffold_files(&policy, "example-org");
+        let directory = repository();
+        let facts = worktree::read_facts(directory.path()).unwrap();
+        let authored = report("REPO-FILE-08");
+        let operations = author_for(
+            "add-renovate-config",
+            &authored.findings[0],
+            &facts,
+            Some(preset),
+        )
+        .into_operations();
+        let OperationKind::Write(expected) = &operations[0].kind else {
+            panic!("renovate author did not produce a write")
+        };
+
+        assert_eq!(scaffolded[0].path, operations[0].path);
+        assert_eq!(&scaffolded[0].contents, expected);
+    }
+    #[test]
+    fn scaffold_renovate_substitutes_the_owner_only_in_the_default() {
+        let mut policy = crate::policy::ResolvedPolicy {
+            name: "fixture".to_owned(),
+            source: "fixture".to_owned(),
+            commit: None,
+            bundle_digest: "digest".to_owned(),
+            sources: Vec::new(),
+
+            rules: vec![crate::policy::EffectiveRule {
+                def: crate::rules::find("REPO-FILE-08").unwrap(),
+                severity: crate::rules::Severity::Advisory,
+                params: BTreeMap::new(),
+                provenance: "fixture".to_owned(),
+            }],
+            suppressions: Default::default(),
+
+            accepted_version: crate::policy::current_generation(),
+            exceptions: Default::default(),
+        };
+        let preset = |policy: &crate::policy::ResolvedPolicy| {
+            let files = scaffold_files(policy, "example-org");
+            let file = files
+                .iter()
+                .find(|file| file.path == ".github/renovate.json")
+                .unwrap();
+            serde_json::from_slice::<serde_json::Value>(&file.contents).unwrap()["extends"].clone()
+        };
+        assert_eq!(
+            preset(&policy),
+            serde_json::json!(["github>example-org/.github"])
+        );
+        policy.rules[0].params.insert(
+            "renovate-preset".to_owned(),
+            serde_json::json!("github>{owner}/custom"),
+        );
+        assert_eq!(
+            preset(&policy),
+            serde_json::json!(["github>{owner}/custom"])
+        );
+    }
+    #[test]
+    fn scaffold_templates_follow_selected_rules_and_skip_waivers() {
+        let mut policy = crate::checks::fixtures::policy();
+        policy.rules = vec![
+            crate::checks::fixtures::rule("REPO-LIC-01"),
+            crate::checks::fixtures::rule("REPO-FILE-05"),
+        ];
+        let files = scaffold_files(&policy, "example-org");
+        assert_eq!(files.len(), 2);
+        assert!(files.iter().any(|file| file.path == "LICENSE"));
+        assert!(files.iter().any(|file| file.path == ".editorconfig"));
+        policy.rules[1].severity = crate::rules::Severity::None;
+        let files = scaffold_files(&policy, "example-org");
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, "LICENSE");
     }
 }

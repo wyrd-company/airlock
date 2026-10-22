@@ -1,0 +1,4 @@
+# relationships: { implements: ../docs/hosted-browser.md }
+allowBuilds:
+  esbuild: true
+  workerd: true

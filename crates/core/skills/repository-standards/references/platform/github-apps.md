@@ -49,7 +49,7 @@ property is the only thing that makes installation drift visible.
 | `wyrd-package-tags`      | Create validated per-package tags                                                      | Contents: write                |
 | `wyrd-docs-publisher`    | Write `content/<tool>/` in the docs tap                                                | Contents: write                |
 | `wyrd-dependency-reader` | Read sibling private repositories and packages during CI                               | Contents: read, Packages: read |
-| `wyrd-repo-settings`     | Apply `.github/repo-settings.yml`                                                      | Administration: write          |
+| `wyrd-repo-settings`     | Apply `.github/airlock.yml`                                                      | Administration: write          |
 
 Metadata: read is mandatory and granted automatically on all apps.
 

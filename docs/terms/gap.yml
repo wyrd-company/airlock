@@ -1,0 +1,6 @@
+$schema: https://refinery.systems/ontology/term
+title: Gap
+description: >-
+  An evaluated rule that the repository does not meet. Gap is one of the two evaluated
+  outcomes and carries the rule's effective severity and evidence. An unanswered question,
+  routed rule, waiver or run error is not a Gap.

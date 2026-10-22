@@ -1,3 +1,9 @@
+// ---
+// relationships:
+//   implements: terminal-interface
+//   references: release-process-conformance
+// ---
+
 //! The `airlock` binary.
 //!
 //! Every GitHub surface here is read-only. The file-alignment command may
@@ -59,14 +65,7 @@ enum Command {
     Audit(AuditArgs),
     /// List outstanding agent-lane work and check whether that lane is clear.
     AgentWork(AgentWorkArgs),
-    /// Print what airlock would change, without changing anything.
-    ///
-    /// A display, not a work order. It observes the repository with the same
-    /// read-only credential the audit uses, and prints the change each open
-    /// gap calls for. Nothing reads its output back: aligning re-observes
-    /// every rule before it acts, so there is no stored plan to apply.
-    Plan(PlanArgs),
-    /// Author deterministic file remediations in a local working tree.
+    /// Author deterministic file fixes in a local working tree.
     AlignFiles(AlignFilesArgs),
     /// Manage the read-only credential airlock uses.
     Auth(AuthArgs),
@@ -137,15 +136,15 @@ impl AlignFilesArgs {
 #[derive(Debug, Args)]
 struct AuditArgs {
     /// Repository to audit, as `owner/repo`.
-    #[arg(required_unless_present_any = ["list_checks", "working_tree"])]
+    #[arg(required_unless_present_any = ["list_rules", "working_tree"])]
     target: Option<String>,
 
     #[command(flatten)]
     repository: RepositoryArgs,
 
-    /// Print the check registry and exit, without auditing anything.
+    /// Print the rules and exit, without auditing anything.
     #[arg(long)]
-    list_checks: bool,
+    list_rules: bool,
 }
 
 #[derive(Debug, Args)]
@@ -156,74 +155,6 @@ struct AgentWorkArgs {
 
     #[command(flatten)]
     repository: RepositoryArgs,
-}
-
-/// Arguments for `airlock plan`.
-///
-/// Deliberately [`RepositoryArgs`] minus `--format`, which is why it does not
-/// simply flatten it. The plan renders for a person to read and has no machine
-/// form: a JSON plan would invite a pipeline to consume it, and a consumed
-/// plan is a remembered observation. Machine consumers read the audit's
-/// findings document, or `airlock agent-work` for the agent lane — both carry
-/// the same `remediation_class` a plan is derived from.
-#[derive(Debug, Args)]
-struct PlanArgs {
-    /// Repository to plan for, as `owner/repo`.
-    #[arg(required_unless_present = "working_tree")]
-    target: Option<String>,
-
-    /// Policy source: `owner/repo:path[@ref]` or a local file path.
-    ///
-    /// Defaults to the audited owner's `.github` repository.
-    #[arg(long)]
-    policy: Option<String>,
-
-    /// Plan against a specific commit, branch, or tag.
-    #[arg(long = "ref", conflicts_with = "working_tree")]
-    reference: Option<String>,
-
-    /// Observe file-level rules from a local working tree instead of the
-    /// API tree.
-    #[arg(long)]
-    working_tree: Option<PathBuf>,
-
-    /// Read-only token value. Insecure: it appears in shell history and in
-    /// process listings. Prefer --token-file or --token-stdin.
-    #[arg(long, conflicts_with_all = ["token_file", "token_stdin"])]
-    token: Option<String>,
-
-    /// Read the token from a file.
-    #[arg(long, conflicts_with_all = ["token", "token_stdin"])]
-    token_file: Option<PathBuf>,
-
-    /// Read the token from standard input.
-    #[arg(long, conflicts_with_all = ["token", "token_file"])]
-    token_stdin: bool,
-
-    /// Configuration profile to use.
-    #[arg(long, default_value = DEFAULT_PROFILE)]
-    profile: String,
-}
-
-impl PlanArgs {
-    /// The observation these arguments ask for.
-    ///
-    /// The plan reaches its report through the same single path every other
-    /// read-only surface uses, which is what keeps "no headless surface can
-    /// write" a property of the binary rather than a convention.
-    fn repository(self) -> RepositoryArgs {
-        RepositoryArgs {
-            policy: self.policy,
-            reference: self.reference,
-            working_tree: self.working_tree,
-            // A plan has no machine form; see the type's documentation.
-            format: None,
-            token: self.token,
-            token_file: self.token_file,
-            token_stdin: self.token_stdin,
-            profile: self.profile,
-        }
-    }
 }
 
 #[derive(Debug, Args)]
@@ -384,7 +315,6 @@ async fn run(cli: Cli, interactive: bool) -> Result<u8> {
     match command {
         Command::Audit(args) => audit_command(args, interactive).await,
         Command::AgentWork(args) => agent_work_command(args, interactive).await,
-        Command::Plan(args) => plan_command(args).await,
         Command::AlignFiles(args) => align_files_command(args, interactive).await,
         Command::Auth(AuthArgs {
             command: AuthCommand::Login(args),
@@ -403,10 +333,10 @@ fn skill_command(args: &SkillArgs) -> Result<u8> {
     airlock_core::skill::emit(&args.target, args.force)
         .with_context(|| format!("cannot write skill to {}", args.target.display()))?;
     println!(
-        "Wrote repository-standards skill from registry {} ({}) to {}.\n\
+        "Wrote repository-standards skill from rules {} ({}) to {}.\n\
          Cite every rule by id and statement together; a rule id alone is not meaningful.",
-        airlock_core::registry::REGISTRY_VERSION,
-        airlock_core::registry::digest(),
+        airlock_core::rules::RULES_VERSION,
+        airlock_core::rules::digest(),
         args.target.display()
     );
     Ok(0)
@@ -488,12 +418,11 @@ async fn align_files_command(args: AlignFilesArgs, interactive: bool) -> Result<
         .map(|operation| operation.rule.as_str())
         .collect();
     let reobserved = after
-        .findings
-        .iter()
+        .entries()
         .filter(|finding| affected.contains(finding.rule.as_str()))
         .map(|finding| ReobservedFinding {
             rule: finding.rule.clone(),
-            status: finding.status.code().to_owned(),
+            status: finding.status_code().to_owned(),
             source: finding.source.clone(),
         })
         .collect();
@@ -532,7 +461,7 @@ fn render_alignment_text(output: &AlignFilesOutput) {
             operation.outcome,
             operation.path,
             operation.rule,
-            operation.remediation_code,
+            operation.fix_code,
             operation
                 .reason
                 .as_ref()
@@ -559,7 +488,7 @@ fn render_alignment_text(output: &AlignFilesOutput) {
     println!("{}", output.default_branch_observation);
     if !output.operations.judgment_findings.is_empty() {
         println!(
-            "judgment lane: {} finding(s); emit the repository-standards skill and hand them to an agent.",
+            "agent fixes: {} finding(s); emit the repository-standards skill and hand them to an agent.",
             output.operations.judgment_findings.len()
         );
     }
@@ -646,13 +575,13 @@ fn resolved_format(requested: Option<Format>, interactive: bool) -> Format {
 async fn audit_command(args: AuditArgs, interactive: bool) -> Result<u8> {
     let format = resolved_format(args.repository.format, interactive);
 
-    if args.list_checks {
+    if args.list_rules {
         match format {
-            Format::Text => print!("{}", render::list_checks_text()),
+            Format::Text => print!("{}", render::list_rules_text()),
             Format::Json => println!(
                 "{}",
-                serde_json::to_string_pretty(&render::list_checks_json())
-                    .context("cannot render the check registry")?
+                serde_json::to_string_pretty(&render::list_rules_json())
+                    .context("cannot render the rules")?
             ),
         }
         return Ok(0);
@@ -678,20 +607,6 @@ async fn agent_work_command(args: AgentWorkArgs, interactive: bool) -> Result<u8
     }
 
     Ok(list.exit_code())
-}
-
-/// `airlock plan`: the same observation, rendered as the changes it implies.
-///
-/// It exits 0 whenever it could observe and render at all. The plan is a
-/// display, not a gate: `airlock audit` is the surface whose exit code carries
-/// the verdict, and a second gate answering the same question slightly
-/// differently is worse than no second gate.
-async fn plan_command(args: PlanArgs) -> Result<u8> {
-    let target = args.target.clone();
-    let report = repository_report(target.as_deref(), &args.repository()).await?;
-
-    print!("{}", render::plan_text(&report));
-    Ok(0)
 }
 
 fn render_report(report: &airlock_core::findings::Report, format: Format) -> Result<()> {
@@ -1051,12 +966,12 @@ mod tests {
     }
 
     #[test]
-    fn list_checks_needs_no_target() {
-        let cli = Cli::parse_from(["airlock", "audit", "--list-checks"]);
+    fn list_rules_needs_no_target() {
+        let cli = Cli::parse_from(["airlock", "audit", "--list-rules"]);
         let Some(Command::Audit(args)) = cli.command else {
             panic!("expected the audit command");
         };
-        assert!(args.list_checks);
+        assert!(args.list_rules);
         assert!(args.target.is_none());
     }
 

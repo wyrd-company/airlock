@@ -2,15 +2,12 @@
 airlock: minor
 ---
 
-Add `airlock plan`, the headless face of the remediation model. It observes a
-repository through the same verified read-only path the audit uses and prints
-the change each open gap calls for, grouped by lane, naming each rule's
-remediation code, what it would change, and whether it is reversible. The
-output is a display: it has no JSON form and nothing consumes it, because
-aligning re-observes every rule before acting rather than applying a plan
-computed earlier.
+Show each observed gap's declared fix, fix kind, reversibility and contextual
+instruction in the audit's human output. The JSON agent work list carries file
+work, operator deferrals, evidence, gate reasons, waivers and run errors.
+The interactive views share one read model. Fixes are derived from fresh audit
+results without credentials; Airlock re-observes before acting. There is no
+separate plan command or JSON plan to apply.
 
-`airlock audit --list-checks` now also carries each rule's declared
-remediation, in both the text and JSON listings, so the remediation catalogue
-is readable before airlock is pointed at a repository and cannot drift from
-what a run reports.
+`airlock audit --list-rules` carries each rule's declared fix in the text and
+JSON listings so the fix catalogue can be read before an audit.

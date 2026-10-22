@@ -1,9 +1,6 @@
 # Check Guidance
 
-This hand-written reference owns practical guidance for applying each rule.
-Rule ids, statements, severities, sections, and evaluation modes belong to the
-compiled Airlock registry; `references/conformance.md` joins this guidance to
-that registry projection.
+This reference is generated from the compiled Airlock rules.
 
 | Id | Guidance |
 | --- | --- |
@@ -63,6 +60,7 @@ that registry projection.
 | `REPO-GIT-03` | `gh api repos/{o}/{r}/rules/branches/main` |
 | `REPO-GIT-13` | Workflow source |
 | `REPO-GIT-14` | Workflow source |
+| `REPO-GIT-15` | Captured Intentional tag records and Git ancestry |
 | `REPO-GIT-04` | `gh repo view --json mergeCommitAllowed` |
 | `REPO-GIT-05` | `gh repo view --json squashMergeAllowed` |
 | `REPO-GIT-06` | `gh repo view --json deleteBranchOnMerge` |
@@ -114,5 +112,7 @@ that registry projection.
 | `REPO-REL-05` | Workflow contents |
 | `REPO-REL-06` | Workflow contents |
 | `REPO-REL-07` | Workflow contents |
+| `REPO-REL-08` | Read the committed Release Model and primary annotated tag records, then compare published GitHub Releases. Fix release-model-missing, release-model-not-a-file, release-model-unreadable, and release-model-schema-not-supported by running intentional model with a supported producer and committing .intentional/release-model.json (agent reasoning). Fix release-record-missing by publishing a GitHub Release on the missing primary tag (operator). Routed needs-github-api requires a credentialed API-tree audit or Action. Truncated listings and API failures require a complete rerun; they are run errors, not Gaps. |
+| `REPO-TPL-01` | Read the configured applied record as JSON at the audited revision. For record-missing, record-not-a-file, record-unreadable, record-schema-not-supported, application-missing, revision-not-accepted, revision-not-git or part-not-accepted, apply, update or baseline with Toha, select accepted parts, and commit the result. Organization exceptions alone configure templates and record-path; allow-override: false. |
 | `REPO-PROP-03` | File contents |
 | `REPO-PROP-04` | Workflow contents |

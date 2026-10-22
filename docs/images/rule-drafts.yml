@@ -1,0 +1,5 @@
+relationships:
+  references: ../hosted-browser.md
+  illustrates: ../../hosted/src/browser/RuleDraftEditor.tsx
+image: rule-drafts.png
+caption: Local example draft with baseline and edited configuration source.

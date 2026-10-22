@@ -9,14 +9,14 @@ Custom properties classify repositories so organization rulesets can target them
 directly. They are how a ruleset knows a repository publishes versioned
 artifacts and therefore needs tag authority.
 
-They are also the machine-readable answer to questions the repository standard
+They are also the machine-readable answer to questions the repository rules
 would otherwise resolve by judgment — _is this a tool?_, _does it publish?_, _is
 this a site?_ Prefer a property over an inference wherever one exists.
 
 ## Properties must stay organization-managed
 
 **A property is never reconciled from the repository it classifies.** It must
-not appear in `.github/repo-settings.yml`, and no workflow may set one.
+not appear in `.github/airlock.yml`, and no workflow may set one.
 
 This is a security boundary, not a preference. Rulesets are targeted by these
 values, so a repository able to declare its own could edit one line and opt

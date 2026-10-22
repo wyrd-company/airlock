@@ -1,0 +1,6 @@
+$schema: https://refinery.systems/ontology/term
+title: Agent fix
+description: >-
+  Repository-specific file work handed to an agent for reasoning with the embedded guidance.
+  It names the rule, observed gap and proposed change. Mechanical file work belongs to the
+  Airlock fix kind.

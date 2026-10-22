@@ -2,13 +2,23 @@
 
 [![CI](https://github.com/wyrd-company/airlock/actions/workflows/ci.yml/badge.svg)](https://github.com/wyrd-company/airlock/actions/workflows/ci.yml)
 
-Audits a GitHub repository against a declared release-readiness policy and
-reports what would block a release.
+Audits a GitHub repository against compiled rules and reports gaps that would
+block a release.
 
-A policy names the checks that apply and how severely each one counts. Airlock
-resolves that policy, runs the checks against the repository through the GitHub
-API, and prints a findings document. Its GitHub client never writes: every
-credential is verified read-only before first use. The local `align-files`
+A rule states a requirement; a check is the compiled procedure that evaluates
+it. A gap is an evaluated rule the repository does not meet. Configuration
+sets parameters and severity through reasoned exceptions; it never selects
+rules. A waiver is a rule with effective severity
+`none`, from a reasoned exception or absent required configuration. The report
+lists its reason and does not run its check. A fix closes a gap, and its fix
+kind identifies Airlock, an agent, or an operator as the author. See the
+[glossary](docs/terms/).
+
+The audit runs checks through the GitHub API and prints a report. Its client
+never writes, and every audit credential is verified read-only before first
+use. The interactive session applies settings fixes and may author the initial
+commit of a repository it is creating; it never modifies an existing
+repository's files. The local `align-files`
 command may author deterministic files in an explicit working tree, but never
 stages, commits, pushes, or opens a pull request.
 
@@ -20,7 +30,7 @@ Not yet published to any registry. Build from source:
 cargo install --git https://github.com/wyrd-company/airlock airlock-cli
 ```
 
-## Install the repository standards skill
+## Install the `repository-standards` skill
 
 Airlock carries the complete `repository-standards` agent skill, including its
 platform references, topics vocabulary, and templates. Emit it directly into
@@ -37,13 +47,13 @@ with local changes. To adopt an older standalone copy that has no marker, move
 it aside and emit a fresh tree. With no target, the command writes
 `repository-standards` in the current directory.
 
-The generated `references/conformance.md` quotes the compiled registry version
+The generated `references/conformance.md` quotes the compiled rules version
 and digest. Its rule statements, severities, sections, and evaluation modes
-come from that registry; the remaining guidance and reference material is
-hand-written in Airlock. This includes the rule-by-rule inspection guidance in
-`references/check-guidance.md`, which is joined into the generated checklist
-without owning its evaluation modes. Command output also reminds operators to
-cite a rule id and its statement together, never the id alone.
+come from those rules; the remaining guidance and reference material is
+hand-written in Airlock. The rule-by-rule inspection guidance in
+`references/check-guidance.md` is generated from the per-rule modules too.
+Command output also reminds operators to cite a rule id and its statement
+together, never the id alone.
 
 The minimum supported Rust version is 1.88.
 
@@ -83,7 +93,7 @@ no policy and no built-in scaffold.
 It requires an interactive terminal on both stdin and stdout. Under a pipe, a
 redirect, or a scheduler it exits non-zero without rendering anything, and names
 what to run instead. `airlock audit` is the complete unattended findings
-surface, and `airlock agent-work` is its lane-scoped projection for an executing
+surface, and `airlock agent-work` is its work-list projection for an executing
 agent.
 
 Two keys are live everywhere: `t` switches between the dark and light palettes,
@@ -91,7 +101,7 @@ and `ctrl-c` exits. `NO_COLOR` is honoured, and every distinction the interface
 draws survives it. The terminal is restored on every exit path, including a
 panic and a signal.
 
-See [`docs/terminal-interface.md`](docs/terminal-interface.md) for what each
+See [terminal interface design](docs/technical-designs/terminal-interface.yml) for what each
 screen shows and why.
 
 ## GitHub Action
@@ -110,7 +120,7 @@ steps:
     env:
       AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}
     with:
-      policy: example/.github:airlock/policy.yml
+      policy: example-org/.github:.github/airlock.yml
       ref: ${{ github.sha }}
       format: json
   - if: always() && env.AIRLOCK_FINDINGS != ''
@@ -149,7 +159,7 @@ including the toolchain setup and cached source build. The positive read-only
 verification is therefore the security boundary; the Action does not claim
 credential isolation from the build it performs.
 
-With no `--policy`, airlock reads `{owner}/.github:airlock/policy.yml` for the
+With no `--policy`, airlock reads `{owner}/.github:.github/airlock.yml` for the
 audited repository's owner. Airlock ships no built-in policy, so a repository
 whose owner has none cannot be audited — that is an error, not an empty run.
 
@@ -160,45 +170,40 @@ airlock audit wyrd-company/airlock --policy ./policy.yml | jq '.summary'
 ```
 
 At the end of an agent's work, `agent-work` re-runs the same audit and projects
-its findings into the agent's file-change lanes:
+its findings into the agent's file work:
 
 ```sh
 airlock agent-work wyrd-company/airlock --working-tree .
 ```
 
-Its `agent_lane` contains failed rules classified as `deterministic-file` or
-`judgment-file`, keyed by rule id and carrying the remediation code and the
-change it would make. `operator_deferred` separately identifies failed
-`operator-setting` rules and failures that declare no remediation; neither
-gates the command. `needs_decision`, `unsettled`, `admin_only`, `manual`, and
-`suppressed` keep the other unfinished or authorized-but-unaligned findings
-visible with their counts and identities. Undecided items say whether they gate
-and retain their evidence code, so a missing capability declaration is distinct
-from a retryable observation failure, and `admin_only` holds the gaps that
-require admin access to verify — named, never gating, and never passing. Every
-group retains each finding's observation
-source, and the top-level `observation` block says whether file findings came
-from the API tree or the local working tree.
+Its `agent_work` contains Gaps classified as `airlock` or `agent`.
+`operator_deferred` lists operator work. `run_errors` names missing inputs and
+failed observations. `waived`, `routed`,
+`unbuilt`, and `out_of_scope` list rules not evaluated here. These lists
+carry counts, identities, evidence, reasons, and settling surfaces. `met` keeps
+evaluated Met outcomes as handoff context. `maturity` retains the observed rung
+and prospective assessments from that audit. The `observation`
+block records whether files came from the API tree or the local working tree.
 
-This is a lane-scoped definition-of-done check, not an audit substitute or a
-repository conformance claim. A clear agent lane can coexist with operator
-work, manual judgment, suppressed debt, and other repository gaps; run
-`airlock audit` for the complete findings authority.
+This check establishes whether the agent work list is clear. It is not an audit
+substitute or a repository conformance claim. A clear list can coexist with
+operator work, unbuilt checks, waivers, routed or out-of-scope rules, and other
+repository gaps; run `airlock audit` for the complete findings authority.
 
-`airlock audit --list-checks` prints the whole check registry: every rule id,
-its statement, its severity, whether airlock evaluates it mechanically, reports
-it for a human, or has not built it yet, and what closing its gap would take.
-That last part is the remediation catalogue — read it to know what airlock
+`airlock audit --list-rules` prints the complete rules: every rule id,
+its statement, its severity, its compiled check and declared gates, and what
+closing its gap would take.
+That last part is the fix catalogue — read it to know what airlock
 would do to a repository before pointing it at one.
 
 To see what it would change about a particular repository rather than in
 general:
 
 ```sh
-airlock plan wyrd-company/airlock
+airlock audit owner/example --format text
 ```
 
-To author only the deterministic file lane in a checkout:
+To author only the Airlock fix kind in a checkout:
 
 ```sh
 airlock align-files wyrd-company/airlock --working-tree .
@@ -206,160 +211,131 @@ airlock align-files wyrd-company/airlock --working-tree .
 
 ## What the exit code means
 
-| Code | Outcome         | Meaning                                                                 |
-| ---- | --------------- | ----------------------------------------------------------------------- |
-| `0`  | `conformant`    | Every question this run could settle was settled; the gate is satisfied |
-| `1`  | `nonconformant` | Every question this run could settle was settled; a gating rule failed  |
-| `2`  | `incomplete`    | This run left a gating rule undecided, or never started                 |
+| Code | Result | Meaning |
+| ---- | ------ | ------- |
+| `0` | `conformant` | No blocking Gaps and no run errors |
+| `1` | `nonconformant` | At least one blocking Gap, with no run errors |
+| `2` | `incomplete` | Airlock could not complete its job |
 
-A rule behind a declared disclosure gate requires admin access to verify. It is
-reported `admin-only`, named as its own group, and counted against no exit code
-— codes `0` and `1` therefore mean "nothing this run could answer went
-unanswered", never "every rule was decided".
+An evaluated rule has exactly one outcome: `met` or `gap`. Severity is
+`none`, `advisory`, or `blocking`. A blocking Gap sets exit `1`; an advisory
+Gap leaves the exit code unchanged. An agent assessment is advisory evidence;
+only the compiled check decides Met or Gap.
+
+The JSON document uses schema version `2`. Its `findings` list contains the
+Met and Gap results. Separate lists identify work without an outcome:
+
+- `waived`: effective severity `none`; the check does not run. Each entry names
+  the rule and its authorization reason.
+- `routed`: a compiled gate sends the rule to another run or surface.
+  `needs-github-api` routes the whole rule to a credentialed API-tree audit
+  or Action. A disclosure gate names the interactive session. An unobserved
+  repository owner routes the Renovate preset comparison after file presence,
+  valid JSON, typed `extends`, and a nonempty preset list have been checked. The
+  built-binary regression `renovate_without_owner_preserves_json_and_extends_diagnostics`
+  covers these independent diagnostics.
+- `unbuilt`: this evaluation reaches a declared part of the check that Airlock
+  has not built. It names the reason and needs a release with that check built.
+  Other branches of the same check still decide Met or Gap.
+- `out_of_scope`: observed maturity is below the rule's earliest rung, or a
+  compiled check reached its declared boundary with no release units declared.
+  Both use reason `out-of-scope`. Evidence code `maturity_out_of_scope` identifies
+  the rung boundary; `no_release_units_declared` identifies the release-unit
+  boundary. Neither has a Met or Gap outcome or changes the exit code. A known
+  earlier rung is settled before later-rule inputs are read. Malformed or
+  unreadable release-unit declarations remain run errors when that boundary is
+  reached.
+- `run_errors`: a failed read, exhausted budget, truncated input, or missing
+  input with no declared gate. Every run error sets exit `2`, at any severity.
+  A credentialed endpoint failure is a run error, never routing.
+  Absent required topic reference data defaults to severity `none`, with waiver
+  reason `no reference data configured` when the topic map is absent. A partial
+  map names its missing required topic categories in alphabetical order.
+  Configured malformed data remains a run error. The regressions
+  `absent_topic_configuration_waives_checks_before_reading_repository_inputs` and
+  `partial_topic_configuration_names_missing_categories_before_reading_repository_inputs`
+  exercise both waiver reasons.
+
+Waived, routed, unbuilt, and out-of-scope entries have no Met or Gap outcome and
+do not change the exit code. A rule is evaluated whole or routed whole when
+it requires an API-only fact. Other rules continue to run. A clean report
+with waivers, routed, unbuilt, or out-of-scope work is distinguishable from one
+where every rule was evaluated.
+
+The tests `decided_outcomes_match_the_integration_base`,
+`a_waived_rule_does_not_run_its_check`,
+`the_api_gate_routes_a_whole_file_tree_rule`,
+`disclosure_routing_and_a_missing_input_without_a_gate_are_distinct`, and
+`unbuilt_branches_preserve_decided_outcomes` verify these contracts.
+
+The binary's exit contract is unconditional. The composite Action retains
+`fail-on-incomplete: "false"` as an adapter override: it maps binary exit `2`
+to Action success while reporting `outcome: incomplete` and `complete: false`.
+The override also covers setup errors such as a missing `AIRLOCK_TOKEN`.
+`scripts/test-action.sh` verifies this mapping. Blocking Gaps still fail the
+Action.
 
 On Unix, a closed output pipe terminates silently on signal 13 (`SIGPIPE`),
 commonly reported by shells as status 141.
 
-`airlock agent-work` uses the same numeric codes for a different, explicitly
-lane-scoped question:
+`airlock agent-work` asks whether agent file work remains. Its codes are `0`
+for `agent_work_clear`, `1` for `agent_work_remains`, and `2` for
+`could_not_settle`. It retains waived, routed, unbuilt, out-of-scope, and
+run-error lists.
+Operator work does not turn a clear agent work list into a claim that the repository
+meets every rule.
 
-| Code | Outcome                   | Meaning                                                             |
-| ---- | ------------------------- | ------------------------------------------------------------------- |
-| `0`  | `agent_lane_clear`        | No deterministic or judgment file failure remains                   |
-| `1`  | `agent_lane_work_remains` | At least one deterministic or judgment file failure remains         |
-| `2`  | `could_not_settle`        | The audit left a gate-relevant question unanswered or could not run |
-
-Operator-setting failures are always counted and identified in
-`operator_deferred`, but do not change code `0` to code `1`. Code `0` therefore
-means only “my lane is clear”; it never means “the repository is aligned.”
-
-The distinction is the point. An audit that fell short of evaluating an enabled
-rule — because it is not built yet, because a bounded scan ran out of budget, or
-because GitHub refused the request — never reports success. Every rule the
-policy enables produces exactly one finding, with one of nine statuses:
-
-`pass`, `fail`, `manual` (a judgment call for a human), `suppressed`,
-`skipped` (a capability condition was not met), `unimplemented`,
-`inconclusive` (a bound was hit), `admin-only` (the fact requires admin access
-to verify), `error` (an API failure, with its cause).
-
-`manual`, `suppressed`, and `skipped` are conclusive and never gate. The other
-four leave the assertion undecided, and each one carries which kind of
-undecided it is.
-
-`unimplemented`, `inconclusive`, and `error` are _circumstantial_: this run did
-not establish what it can normally establish, so at a gating severity they make
-the whole audit incomplete. `admin-only` is _structural_: the registry
-declares, per rule, a **disclosure gate** — a fact the platform reveals only to
-a grant the audit is not allowed to hold, plus the surface that verifies it
-instead. GitHub discloses merge settings only to `contents: write`
-(`administration: read` does not expose them), and the headless audit proves its
-credential read-only before it runs, so those facts are undisclosed on every
-scheduled run by construction. A verdict that is permanently red carries no
-information, so a structural gap does not make the audit incomplete.
-
-A check reports one observation — the platform did not disclose this field —
-and the declaration decides what it means. A structural gap needs both halves:
-a rule that declares the gate, and a credential airlock enumerated and found
-unable to hold the grant the gate requires. An absent field with no declaration
-behind it is a run that fell short and keeps blocking, and so is one missing
-from a write-capable credential that should have been shown it — the
-interactive session inherits no exemption.
-
-Which half a credential falls in is read from whichever representation carries
-its grant: installation permissions for an app credential, the scope list for a
-scoped one. A grant airlock cannot classify as entirely reads is treated as
-write-capable, including a scope its reviewed read-only list does not name.
-Read-only is the answer that excuses a gap, so an uncertain grant never earns
-it: reporting a permanent gap as a blocking one overstates what a retry can
-achieve, while excusing a field a credential should have been shown retires a
-gap that is real.
-
-A structural gap is never a pass either: it is named as its own group by `plan`
-and `agent-work`, counted in the summary, and pointed at the verification
-surface its gate declares — today the interactive session, which holds a
-credential that can both read and align the setting. Every surface takes its
-wording from the declaration rather than writing its own.
-`airlock audit --list-checks` prints each rule's gate, the grant it requires,
-and where it is verified, so which rules require admin access, and where they
-are verified, is readable before pointing airlock at anything.
-
-Incomplete input can never produce a clean result. A listing that stopped at
-the page budget, a recursive tree GitHub truncated, or a response airlock could
-not decode all make the assertions that depend on them inconclusive — airlock
-does not conclude "no tag carries a `v` prefix" from the tags it happened to
-read, or "no agent harness configuration is committed" from part of a tree.
-Requests carry connect and read timeouts and the whole run carries a wall-clock
-budget; exhausting either is a refusal before verification and an error finding
-after it.
-
-## Remediation lanes
+## Fix kinds
 
 Every registered rule declares, as compiled-in data, what closing its gap
-takes. Each finding carries that declaration in `remediation_class`: a stable
-code, what the change would be, whether it is reversible, and the lane it
-travels in — or `none_reason` when airlock offers no remediation. The
+takes. Each finding carries that declaration in `fix_class`: a stable
+code, what the change would be, whether it is reversible, and the fix kind it
+travels in — or `none_reason` when airlock offers no fix. The
 classification tells the consumer who can act and through which surface.
 
-| Lane                 | What it means                                                                                              | Who does the work                                 |
+| Fix kind                 | What it means                                                                                              | Who does the work                                 |
 | -------------------- | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
-| `deterministic-file` | The same gap resolves to the same file content in every repository                                         | Airlock authors locally; the caller delivers a PR |
-| `judgment-file`      | The fix is repository-specific file content — prose, or configuration wired to this repository's toolchain | An agent authors it; a human reviews              |
-| `operator-setting`   | The fix sits behind the administration API, and `administration: write` is indivisible                     | A human, behind the TUI                           |
+| `airlock` | The same gap resolves to the same file content in every repository                                         | Airlock authors locally; the caller delivers a PR |
+| `agent`      | The fix is repository-specific file content — prose, or configuration wired to this repository's toolchain | An agent authors it; a human reviews              |
+| `operator`   | The fix sits behind the administration API, and `administration: write` is indivisible                     | A human, behind the TUI                           |
 | _(none)_             | A human attestation, a fix outside the repository, or history surgery airlock will not automate            | Nobody — the reason says why                      |
 
-Lane is the only authorship gate. Mechanical evaluation is not enough:
+Fix kind is the only authorship gate. Mechanical evaluation is not enough:
 README presence, task wiring, job permissions, and other mechanically observed
 facts can still need repository judgment and therefore remain
-`judgment-file`.
+`agent`.
 
-The classification is not part of the registry digest. The digest attests what
-every rule means and how it is evaluated — the contract a policy binds to with
-`requires-registry`. Remediation is airlock's answer to a gap, and a better
+The classification is not part of the rules digest. The digest attests what
+every rule means and how it is evaluated — the compiled rule contract. Fix is
+airlock's answer to a gap, and a better
 answer must not invalidate policy compatibility.
 
-## Planning what would change
+## Reading fixes
 
-`airlock plan` observes a repository and prints the change each open gap calls
-for, grouped by lane: what an operator can apply directly, what airlock can
-author, and what needs an author's judgment. Each entry names the rule, its
-remediation code, what the change would be, and whether it can be undone.
+`airlock audit` shows each observed gap's fix code, fix kind, change,
+reversibility and contextual detail. It names rules with no fix and their reasons.
+Waived, routed, unbuilt, out-of-scope and run-error entries remain visible.
 
 ```sh
-airlock plan wyrd-company/airlock
+airlock audit owner/example --format text
 ```
 
-It reads the repository through the same verified read-only path the audit
-uses. There is no write anywhere behind it, and no flag that adds one.
-
-A plan is a display, and the output says so. Nothing consumes it: it has no
-JSON form, it is never stored, and it is never handed to anything that applies
-changes. Aligning re-observes each rule immediately before acting on it and
-decides from what it then sees — a plan printed a minute ago describes a
-repository that may since have changed, and acting on it would be acting on a
-remembered observation. Machine consumers read the audit's findings document,
-which carries the same `remediation_class` this is derived from.
-
-An authorized failure keeps its remediation on offer and is marked as standing
-debt: a suppression permitted the failure, it did not close the gap. A rule
-airlock could not decide proposes nothing and is named separately, because
-there is no observed gap to propose a change for.
-
-`airlock plan` exits 0 whenever it could observe and render at all. It is not a
-second gate; `airlock audit` is the surface whose exit code carries the
-verdict.
+Fixes are derived without credentials from the fresh audit report. They are
+for display. The JSON work list is the machine surface; there is no JSON plan
+or stored plan to apply. Airlock re-observes each rule immediately before acting
+and decides from that observation.
 
 ## Closing settings gaps
 
 The interactive terminal session is the only surface that holds the
 write-capable Airlock Admin credential. Opening a repository performs a fresh
-full observation. Applying a settings remediation then observes that rule
+full observation. Applying a settings fix then observes that rule
 again immediately before the request and once more afterwards. The transcript
 reports the request as one step, but derives pass or fail only from the final
 observation. An accepted request that leaves the setting unchanged remains a
 failure in the queue.
 
-The confirmation names the rule, remediation code, exact change, and
+The confirmation names the rule, fix code, exact change, and
 reversibility before any request is sent. Input-free settings of the same kind
 can share one confirmation, but each retains its own pre-observation, request,
 post-observation, and transcript. Transfers, repository names, and ruleset
@@ -376,7 +352,7 @@ writes a repository file.
 ## Closing file gaps
 
 `airlock align-files` is non-interactive and single-repository. It observes the
-working tree, authors only failing `deterministic-file` findings, and then
+working tree, authors only failing `airlock` findings, and then
 re-observes the affected rules through the working-tree source. It consumes the
 same `worktree::read_facts` boundary as the audit; a path that boundary refuses
 is refused here too.
@@ -388,12 +364,12 @@ line-ending normalization. Each successful path is written through a temporary
 file and same-directory rename. A failure exits nonzero and includes every path
 already written and the path not written.
 
-When several findings claim the same file, one remediation owns that path for
+When several findings claim the same file, one fix owns that path for
 the run. The report tells the caller to commit that write and run the command
 again; the next observation, not a remembered finding, decides what remains.
 
-The JSON and text reports include path operations, rule ids, remediation
-codes, skipped reasons, post-write findings and their sources, judgment-lane
+The JSON and text reports include path operations, rule ids, fix
+codes, skipped reasons, post-write findings and their sources, agent-work
 delegations, and read-only pull-request context. The well-known delivery branch
 is `airlock/align`. `open`, `none`, and `unknown` are distinct; unknown never
 means none. A second run re-observes the checkout and writes nothing when the
@@ -408,8 +384,8 @@ available. The command's read-only observation reports an existing pull
 request so the caller can suppress duplicates. Live caller-side duplicate
 suppression remains an integration responsibility.
 
-Judgment-file findings are not filled with boilerplate. The report hands their
-rule, remediation, evidence, and source to an agent. Emit task 82's embedded
+Agent fixes are not filled with boilerplate. The report hands their
+rule, fix, evidence, and source to an agent. Emit task 82's embedded
 guidance with:
 
 ```sh
@@ -417,7 +393,7 @@ airlock skill repository-standards
 ```
 
 The agent authors the repository-specific content and sends it through the
-same draft-pull-request review. Operator-setting findings never enter either
+same draft-pull-request review. Operator fixes never enter either
 file path: they require a person in the terminal interface because GitHub's
 `administration: write` permission is too broad to grant an agent.
 
@@ -450,9 +426,10 @@ Platform rules — settings, rulesets, tags, history, secrets — have no local
 equivalent and are never inferred from a working tree. With a repository and
 a credential (`airlock audit owner/repo --working-tree .`) they still come
 from the API and the run mixes sources; without a credential
-(`airlock audit --working-tree . --policy ./policy.yml`) they are reported as
-`inconclusive` with evidence `not_observed` — never as passing — and the
-audit is `incomplete` at any gating severity.
+(`airlock audit --working-tree . --policy ./policy.yml`) each rule with a
+declared API gate is listed as `routed`, with reason `needs-github-api` and the
+credentialed API-tree audit or Action as its settling surface. Routing leaves
+the exit code unchanged.
 
 Every finding carries a `source` field naming what decided it (`api` or
 `working-tree`; null when nothing observed it), and the report carries an
@@ -464,95 +441,108 @@ result with `dirty: true` describes something not yet committed, and a
 working-tree run that had to assume the default branch says so with
 `default_branch_observed: false`.
 
-## Policy
+## Configuration
 
-The policy is YAML. It selects sections of the check registry through
-capabilities, refines individual rules, and decides who may suppress what.
-It expresses no logic of its own: the checks are the only place logic lives.
+Airlock reads `.github/airlock.yml` in the organization's reserved `.github`
+repository and in the audited repository. The organization file governs
+exceptions. The repository file holds declarations and exception requests.
+Unknown keys, malformed parameters and exceptions without a reason are
+configuration errors. Configuration never selects rules.
 
 ```yaml
-version: 1
-name: wyrd-company
-requires-registry: ">=0.2" # the binary's registry must satisfy this
-gate: blocking # which failing severities count: blocking | required
-
-capabilities:
-  base: [identity, licensing, files, git, automation]
-  registry: [release]
-
-apply:
-  base: always
-  registry:
-    when:
-      property: release
-      value: "true"
-
-checks:
+# Organization .github repository: .github/airlock.yml
+version: 0.6.0
+exceptions:
   REPO-META-06:
-    params: { min-topics: 3, max-topics: 8 }
-  REPO-FILE-10:
-    severity: observation
-  REPO-DOCS-04:
-    enabled: false
-
-suppressions:
-  allow-repo-requests: [REPO-DOCS-01, REPO-DOCS-02]
-
-reference-data:
-  topics: wyrd-company/.github:airlock/topics.yml
+    reason: Keep repository discovery concise
+    min-topics: 3
+    max-topics: 8
+  REPO-META-07:
+    reason: Shared topic vocabulary
+    topics:
+      artifact-type: [cli, library]
+      ecosystem: [rust, node]
+  REPO-META-09:
+    reason: Shared topic vocabulary
+    topics:
+      artifact-type: [cli, library]
+      ecosystem: [rust, node]
+  REPO-DOCS-01:
+    reason: Small utilities can document usage in their README
+    repositories:
+      example-org/sample:
+        reason: Usage is complete in README.md
+        severity: none
 ```
 
-The custom-property condition binds the capability to organization-owned policy
-data. A matching value enables its rules, a different value skips them, and an
-unset value is reported as `capability_undeclared` for an operator decision.
-An unreadable value is `condition_undecided`, never a decision or a skip. The
-reference vocabulary defines `release`, `product`, `component`, and `website`;
-the policy selects which property and value govern each capability.
-
-Anything airlock does not recognise — an unknown key, section, rule id,
-parameter, severity, or condition — is an error, never a silently narrower
-audit. `--policy owner/repo:path[@ref]` names a policy explicitly, and
-`--policy ./path` reads a local one for development.
-
-Before any check runs, the policy and every transitive reference are resolved
-to immutable identities — a commit and blob sha for remote sources, a content
-hash for local ones — and hashed into a **policy bundle digest** that travels
-in every result alongside the registry version and digest. Two runs that agree
-on those three values ran the same rules against the same policy.
-
-Each source is also reported individually under `policy.sources`, with what it
-pinned to, so a reader who sees the bundle digest move can tell which reference
-moved it:
-
-```json
-"sources": [
-  {
-    "name": "topics",
-    "source": "wyrd-company/.github:airlock/topics.yml",
-    "commit": "def456…",
-    "blob_sha": "abc789…",
-    "content_digest": "sha256:…"
-  }
-]
-```
-
-Suppression authority lives in the policy. An audited repository's
-`.github/airlock.yml` holds _requests_:
+Every exception names a compiled rule. Parameters sit beside `reason` and
+`severity`. A waiver is `severity: none`; the report keeps its reason visible.
+A rule with absent required configuration is visibly not asked.
 
 ```yaml
-version: 1
-suppress:
-  - rule: REPO-DOCS-01
-    reason: "docs are design notes until the first release"
+# Audited repository: .github/airlock.yml
+version: 0.6.0
+description: A command line utility
+topics: [cli, rust]
+merge:
+  squash: true
+  rebase: true
+  merge_commit: false
+  delete_branch_on_merge: true
+exceptions:
+  REPO-DOCS-02:
+    reason: One module requires no separate architecture guide
+    severity: none
 ```
 
-A request is honoured only where the policy's `allow-repo-requests` names that
-rule, and the honoured finding records both the request's reason and the
-policy's authorisation. Anything else leaves the finding exactly as it was and
-records the attempt in `policy_observations`. The repository being judged never
-controls the exceptions to the judge.
+Each rule has a compiled `allow_override` permission. The organization can
+set `allow-override: false` on its exception to refuse repository requests.
+It cannot loosen a compiled prohibition. Refused requests remain visible in
+`policy_observations` and do not change the rule. Repository requests cannot
+set override authority. Working-tree audits read requests from the committed
+file; uncommitted requests grant nothing.
 
-Worked examples are in [`docs/examples/`](docs/examples/).
+`version` is the accepted Airlock generation. A repository may accept a later
+generation than its organization but cannot accept an earlier one. Each rule's
+compiled `since` release identifies its introduction. Rules newer than the
+accepted generation are evaluated and reported with `new: true`; their gaps
+do not fail the gate. Run errors still make the audit incomplete with exit 2.
+`repository_generation_cannot_lag_organization` and
+`organization_can_tighten_but_not_loosen_compiled_override_permission` pin these
+configuration boundaries.
+
+Template identity is organization-only configuration:
+
+```yaml
+exceptions:
+  REPO-TPL-01:
+    reason: Expected release process
+    allow-override: false
+    record-path: .toha.json
+    templates:
+      - source: gh:example-org/catalog#bundle
+        ref: main
+        minimum: release@2.0.0
+        parts: [alpha, beta]
+```
+
+The existing structured template shape is validated at load. Each parent is
+required at its `target` (default `.`); recorded commits must be reachable from
+`ref` and descend from `minimum` when supplied. An empty list is visibly not
+configured. A repository request cannot waive or replace these expectations.
+`template_configuration_shape_and_compiled_prohibition_are_preserved` checks the
+configuration contract. REST tests in `template_identity.rs` cover evaluation
+and the absence of template repository requests outside scope or under a waiver.
+
+A topic parameter can also name a local or remote vocabulary file, for example
+`topics: example-org/.github:airlock/topics.yml`. Remote configuration cannot
+read local files. Configuration sources are bounded and pinned by commit/blob
+or content digest; their identities appear in `policy.sources` and contribute
+to the bundle digest. `--policy owner/repo:path[@ref]` selects an explicit
+organization source; `--policy ./path` reads one from disk.
+
+Examples of both files are in [`docs/examples/`](docs/examples/). No file
+migration runs. An existing configuration is validated as supplied.
 
 ## Credentials
 

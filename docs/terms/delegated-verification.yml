@@ -1,0 +1,7 @@
+$schema: https://refinery.systems/ontology/term
+title: Delegated verification
+description: >-
+  Verification by a CI job when the necessary fact is observable only to an identity Airlock
+  cannot hold. Airlock checks the job's existence and result rather than contacting a package
+  registry. The operator can dispatch verify-only work; the headless audit reads run history and
+  reports when it was last verified. Verify-only execution gates release work off.

@@ -3,32 +3,32 @@ findings-120x40-dark · 120x40 · theme dark · colour
 AIRLOCK 0.0.0  sign-in › organizations › repositories › findings   no credential stored · tty required · theme t · dark 
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 FINDINGS                                                                                                                
-Present the whole standard as a work queue, ordered by what closing each gap takes and who can close it.                
+Present the whole rule as a work queue, ordered by what closing each gap takes and who can close it.                    
                                                                                                                         
 STATUS VOCABULARY                                                                                                       
 DECIDED · GATING  counts toward the verdict                                                                             
- ✓    │   │  pass          the condition was observed to hold                                                           
- ✗    │   │  fail          the condition was observed not to hold                                                       
+ ✓    │   │  met           the compiled requirement is met                                                              
+ ✗    │   │  gap           the compiled requirement is not met                                                          
 DECIDED · INERT  never gates                                                                                            
-    ◆ │   │  manual        judgment_rule, reported for a human                                                          
-    ⊘ │   │  suppressed    a failure the policy authorized                                                              
-    ○ │   │  skipped       condition_not_met, the capability condition did not apply                                    
-UNDECIDED  makes the run incomplete at a gating severity, unless the fact requires admin access to verify               
-      │ ▢ │  unimplemented registered and enabled, not yet evaluated                                                    
-      │ ◑ │  inconclusive  the question could not be established                                                        
-      │ ◍ │  admin-only    the rule requires admin access to verify, so the question is answered on the verification su…
-      │ ! │  error         the call did not complete, so no evidence exists                                             
+NOT EVALUATED  no outcome: read the waived, routed, unbuilt, out-of-scope, or run-error label                           
                                                                                                                         
-SEVERITY  ███ blocking   ██░ required   █░░ observation                                                                 
+SEVERITY  ███ blocking   ██░ advisory   ░░░ none                                                                        
 ▌ a solid left rail marks a row that actually gates the run                                                             
                                                                                                                         
 NOTHING OBSERVED YET                                                                                                    
-would show      the verdict, the status summary, and the eight groups of the work queue                                 
+would show      the verdict, the status summary, and the nine groups of the work queue                                  
 empty because   this build is the interface shell. It draws the frame, the status vocabulary, and the navigation between
                 screens. No authorization is requested and no repository is observed, so there is nothing for this      
                 region to hold.                                                                                         
 next            navigate with ↵ and esc to read the frame on every screen, press t to compare the palettes, and ctrl-c  
                 to leave.                                                                                               
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
                                                                                                                         
                                                                                                                         
                                                                                                                         
@@ -48,23 +48,16 @@ eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 fffffffffffffffffeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 gggggggggggggggghhhhhhhhhhhhhhhhhhhhhhhhhhheeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-iiieeejeeejeekkkkkkkkkkkkkklllllllllllllllllllllllllllllllllleeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-mmmeeejeeejeennnnnnnnnnnnnnlllllllllllllllllllllllllllllllllllllleeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+iiieeejeeejeekkkkkkkkkkkkkkllllllllllllllllllllllllllllllleeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+mmmeeejeeejeennnnnnnnnnnnnnllllllllllllllllllllllllllllllllllleeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 ggggggggggggggghhhhhhhhhhhhheeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-eeeooojeeejeeppppppppppppppllllllllllllllllllllllllllllllllllleeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-eeeqqqjeeejeerrrrrrrrrrrrrrllllllllllllllllllllllllllllllleeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-eeesssjeeejeettttttttttttttllllllllllllllllllllllllllllllllllllllllllllllllllllllllleeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-ggggggggghhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhheeeeeeeeeeeeeee
-eeeeeejuuujeevvvvvvvvvvvvvvllllllllllllllllllllllllllllllllllllllllleeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-eeeeeejwwwjeexxxxxxxxxxxxxxllllllllllllllllllllllllllllllllllllleeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-eeeeeejyyyjeezzzzzzzzzzzzzzlllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
-eeeeeejAAAjeeBBBBBBBBBBBBBBlllllllllllllllllllllllllllllllllllllllllllllllleeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+ggggggggggggghhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhheeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-ggggggggeeeeeellllllllhhheeeellllllllhhheeeellllllllllleeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-mmCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+ggggggggeeeeeellllllllhhheeeellllllllhhheeeelllleeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+mmoooooooooooooooooooooooooooooooooooooooooooooooooooooooooeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 ffffffffffffffffffffeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-hhhhhhhhhhhhhhhhllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllleeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+hhhhhhhhhhhhhhhhlllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllleeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 hhhhhhhhhhhhhhhhllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
 hhhhhhhhhhhhhhhhlllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllleeeeee
 hhhhhhhhhhhhhhhhllllllllllllllleeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
@@ -78,9 +71,16 @@ eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-ddddddellllhhhdddddellllllllllllllllllhhhdellllllllllllllhhhdellllllhhhdelllllhhhdellllllllllhhhdelllllllllhhhCCCCCCCeee
-DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD
+ddddddellllhhhdddddellllllllllllllllllhhhdellllllllllllllhhhdellllllhhhdelllllhhhdellllllllllhhhdelllllllllhhhoooooooeee
+pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp
 --- legend ---
 a fg=#CBD3DD bg=#14181D BOLD
 b fg=#CBD3DD bg=#14181D
@@ -96,19 +96,5 @@ k fg=#5FB98A bg=#0B0D10 BOLD
 l fg=#79838F bg=#0B0D10
 m fg=#E05C58 bg=#0B0D10
 n fg=#E05C58 bg=#0B0D10 BOLD
-o fg=#6C9BE0 bg=#0B0D10
-p fg=#6C9BE0 bg=#0B0D10 BOLD
-q fg=#A886D8 bg=#0B0D10
-r fg=#A886D8 bg=#0B0D10 BOLD
-s fg=#77818C bg=#0B0D10
-t fg=#77818C bg=#0B0D10 BOLD
-u fg=#B79A5A bg=#0B0D10
-v fg=#B79A5A bg=#0B0D10 BOLD
-w fg=#D9A441 bg=#0B0D10
-x fg=#D9A441 bg=#0B0D10 BOLD
-y fg=#4FA5A5 bg=#0B0D10
-z fg=#4FA5A5 bg=#0B0D10 BOLD
-A fg=#E8843A bg=#0B0D10
-B fg=#E8843A bg=#0B0D10 BOLD
-C fg=#4C5661 bg=#0B0D10 ITALIC
-D fg=#79838F bg=#101419
+o fg=#4C5661 bg=#0B0D10 ITALIC
+p fg=#79838F bg=#101419

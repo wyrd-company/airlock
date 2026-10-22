@@ -1,0 +1,38 @@
+[
+  {
+    "repository": "github.com/wyrd-company/intentional",
+    "revision": "epic/workflow (unreleased)",
+    "commit": "1d896ebc3a601595fb1a4e7cf337a6f484953f46",
+    "path": "docs/specifications/release-model.schema.yml",
+    "copy": "release-model-1.schema.yml",
+    "schema_id": "https://intentional.foo/schemas/release-model/1",
+    "sha256": "748bfaea4c52395db623c39d9cf699660129724a3b85b5cc7dc232585a5d9ae1"
+  },
+  {
+    "repository": "github.com/wyrd-company/intentional",
+    "revision": "epic/workflow (unreleased)",
+    "commit": "1d896ebc3a601595fb1a4e7cf337a6f484953f46",
+    "path": "docs/specifications/tag-record.schema.yml",
+    "copy": "tag-record.schema.yml",
+    "schema_id": "https://intentional.foo/schemas/0.2/tag-record",
+    "sha256": "4912a777b10fe0018a35e6b605b0faae013385a7cd26412f13fed103c9274e96"
+  },
+  {
+    "repository": "github.com/wyrd-company/intentional",
+    "revision": "epic/workflow (unreleased)",
+    "commit": "1d896ebc3a601595fb1a4e7cf337a6f484953f46",
+    "path": "docs/specifications/release-plan.schema.yml",
+    "copy": "release-plan.schema.yml",
+    "schema_id": "https://intentional.foo/schemas/0.3/release-plan",
+    "sha256": "c108a87ede09da74d31c1e0894c79c1ad71865f58d1fbb0bfa66acaac5fe150a"
+  },
+  {
+    "repository": "github.com/wyrd-company/intentional",
+    "revision": "epic/workflow (unreleased)",
+    "commit": "1d896ebc3a601595fb1a4e7cf337a6f484953f46",
+    "path": "docs/specifications/release-workspace.schema.yml",
+    "copy": "release-workspace.schema.yml",
+    "schema_id": "https://intentional.foo/schemas/0.2/config",
+    "sha256": "b18b3e5c431b1e7686d75e4b1c3f930b954782ff2c7b211e8e9d49dc345c7295"
+  }
+]

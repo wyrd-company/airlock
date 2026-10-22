@@ -1,14 +1,8 @@
 use super::*;
 
-pub(super) fn bundle_digest(
-    sources: &[BundleSource],
-    rules: &[RuleInstance],
-    gate: Gate,
-) -> String {
+pub(super) fn bundle_digest(sources: &[BundleSource], rules: &[EffectiveRule]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(b"airlock-policy-bundle-1\x1e");
-    hasher.update(gate.code().as_bytes());
-    hasher.update(b"\x1e");
     for source in sources {
         hasher.update(source.name.as_bytes());
         hasher.update(b"\x1f");
@@ -21,8 +15,6 @@ pub(super) fn bundle_digest(
         hasher.update(rule.def.id.as_bytes());
         hasher.update(b"\x1f");
         hasher.update(rule.severity.code().as_bytes());
-        hasher.update(b"\x1f");
-        hasher.update(rule.condition.digest_identity().as_bytes());
         hasher.update(b"\x1f");
         hasher.update(
             serde_json::to_string(&rule.params)

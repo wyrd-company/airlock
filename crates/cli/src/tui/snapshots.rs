@@ -1,3 +1,9 @@
+// ---
+// relationships:
+//   implements: terminal-interface
+//   references: release-process-conformance
+// ---
+
 //! Snapshot proof of the rendering.
 //!
 //! Every case draws the whole interface into a buffer and records two grids:
@@ -348,12 +354,12 @@ fn check(case: &Case) {
     );
 }
 
-fn populated_scaffold_plan() -> crate::admin::remediation::ScaffoldPlan {
-    crate::admin::remediation::ScaffoldPlan {
+fn populated_scaffold_plan() -> crate::admin::fix::ScaffoldPlan {
+    crate::admin::fix::ScaffoldPlan {
         owner: "generic-organization".to_owned(),
         capabilities: ["package", "application", "publishing", "documentation"]
             .into_iter()
-            .map(|name| crate::admin::remediation::ScaffoldCapability {
+            .map(|name| crate::admin::fix::ScaffoldCapability {
                 name: name.to_owned(),
                 display_name: format!("{name} repositories"),
                 property: format!("declares-{name}"),
@@ -410,15 +416,10 @@ fn check_populated_scaffold(width: u16, height: u16) {
 }
 
 #[cfg_attr(feature = "test-identity", allow(dead_code))]
-fn check_remediation(
-    name: &'static str,
-    width: u16,
-    height: u16,
-    state: super::remediation::State,
-) {
+fn check_fix(name: &'static str, width: u16, height: u16, state: super::fix::State) {
     let case = Case {
         name,
-        screen: Screen::Remediation,
+        screen: Screen::Fix,
         theme: Theme::Dark,
         color: ColorMode::Color,
         width,
@@ -430,8 +431,8 @@ fn check_remediation(
     let backend = TestBackend::new(width, height);
     let mut terminal = Terminal::new(backend).expect("a test terminal");
     let app = App::new(VERSION, ColorMode::Color)
-        .at(Screen::Remediation, Theme::Dark)
-        .with_remediation(state);
+        .at(Screen::Fix, Theme::Dark)
+        .with_fix(state);
     terminal
         .draw(|frame| app.render(frame.area(), frame.buffer_mut()))
         .expect("the frame draws");
@@ -552,7 +553,7 @@ fn slug(screen: Screen) -> &'static str {
         Screen::Scaffold => "repository-scaffold",
         Screen::Findings => "findings",
         Screen::FindingDetail => "finding-detail",
-        Screen::Remediation => "remediation",
+        Screen::Fix => "fix",
         Screen::PolicyInspector => "policy-inspector",
         Screen::PublishingBootstrap => "publishing-bootstrap",
     }
@@ -881,7 +882,7 @@ fn queues() -> Vec<Case> {
         ),
         (
             "findings-expanded",
-            Run::of(fixture::mixed()).driven(14, " "),
+            Run::of(fixture::mixed()).driven(15, " "),
         ),
         (
             "findings-filtered",
@@ -889,8 +890,8 @@ fn queues() -> Vec<Case> {
         ),
         ("findings-lookup", Run::of(fixture::mixed()).driven(0, "l")),
         (
-            "finding-capability-decision",
-            Run::of(fixture::mixed()).driven(5, "\n"),
+            "finding-missing-input",
+            Run::of(fixture::mixed()).driven(9, "\n"),
         ),
     ] {
         for (width, height) in [
@@ -1182,7 +1183,7 @@ fn the_whole_vocabulary_is_legible_at_the_floor_without_colour() {
     });
     for status in airlock_core::findings::Status::ALL {
         assert!(
-            rendered.contains(super::lane::glyph_of(*status)),
+            rendered.contains(super::lane::glyph_of(Some(*status))),
             "{status:?} is not on screen at the floor"
         );
         assert!(
@@ -1232,20 +1233,20 @@ fn legend(case: &Case) -> Vec<String> {
 
 #[test]
 #[cfg(not(feature = "test-identity"))]
-fn remediation_input_and_result_frames_match_recordings() {
-    use super::remediation::{Input, Item, State};
-    use crate::admin::remediation::{ObservedStatus, Step, Transcript};
+fn fix_input_and_result_frames_match_recordings() {
+    use super::fix::{Input, Item, State};
+    use crate::admin::fix::{ObservedStatus, Step, Transcript};
 
     let item = |code: &str, input| Item {
         rule: "REPO-SAMPLE-01".to_owned(),
-        remediation: code.to_owned(),
+        fix: code.to_owned(),
         change: "Apply the observed settings change.".to_owned(),
         reversible: true,
         input,
     };
     let frames = [
         (
-            "remediation-rename-input-120x40-dark",
+            "fix-rename-input-120x40-dark",
             State::confirm(
                 "generic-owner".to_owned(),
                 "sample-repository".to_owned(),
@@ -1260,7 +1261,7 @@ fn remediation_input_and_result_frames_match_recordings() {
             ),
         ),
         (
-            "remediation-ruleset-choice-120x40-dark",
+            "fix-ruleset-choice-120x40-dark",
             State::confirm(
                 "generic-owner".to_owned(),
                 "sample-repository".to_owned(),
@@ -1278,7 +1279,7 @@ fn remediation_input_and_result_frames_match_recordings() {
             ),
         ),
         (
-            "remediation-transfer-120x40-dark",
+            "fix-transfer-120x40-dark",
             State::confirm(
                 "generic-owner".to_owned(),
                 "sample-repository".to_owned(),
@@ -1293,9 +1294,9 @@ fn remediation_input_and_result_frames_match_recordings() {
             ),
         ),
         (
-            "remediation-secret-entry-120x40-dark",
+            "fix-secret-entry-120x40-dark",
             State::SecretEntry {
-                request: super::remediation::Request {
+                request: super::fix::Request {
                     owner: "generic-owner".to_owned(),
                     repo: "sample-repository".to_owned(),
                     items: vec![item(
@@ -1312,33 +1313,14 @@ fn remediation_input_and_result_frames_match_recordings() {
                         },
                     )],
                 },
-                input: super::remediation::SecretInputState::Empty,
+                input: super::fix::SecretInputState::Empty,
             },
-        ),
-        (
-            "remediation-capability-confirm-120x40-dark",
-            State::confirm(
-                "generic-owner".to_owned(),
-                "sample-repository".to_owned(),
-                vec![Item {
-                    rule: "REPO-REL-04".to_owned(),
-                    remediation: "declare-capability-property".to_owned(),
-                    change:
-                        "set organization custom property `release` to `true` for this repository"
-                            .to_owned(),
-                    reversible: false,
-                    input: Input::Fixed {
-                        argument: "release\ntrue".to_owned(),
-                        display: "release = true · organization generic-owner".to_owned(),
-                    },
-                }],
-            ),
         ),
     ];
     for (name, state) in frames {
-        check_remediation(name, REFERENCE_WIDTH, REFERENCE_HEIGHT, state.clone());
+        check_fix(name, REFERENCE_WIDTH, REFERENCE_HEIGHT, state.clone());
         let floor_name = Box::leak(name.replace("120x40", "80x24").into_boxed_str());
-        check_remediation(floor_name, FLOOR_WIDTH, FLOOR_HEIGHT, state);
+        check_fix(floor_name, FLOOR_WIDTH, FLOOR_HEIGHT, state);
     }
     let mut creation = State::confirm(
         "generic-owner".to_owned(),
@@ -1353,14 +1335,14 @@ fn remediation_input_and_result_frames_match_recordings() {
         )],
     );
     assert!(creation.input_key(KeyCode::Enter));
-    check_remediation(
-        "remediation-ruleset-confirm-120x40-dark",
+    check_fix(
+        "fix-ruleset-confirm-120x40-dark",
         REFERENCE_WIDTH,
         REFERENCE_HEIGHT,
         creation.clone(),
     );
-    check_remediation(
-        "remediation-ruleset-confirm-80x24-dark",
+    check_fix(
+        "fix-ruleset-confirm-80x24-dark",
         FLOOR_WIDTH,
         FLOOR_HEIGHT,
         creation,
@@ -1378,14 +1360,14 @@ fn remediation_input_and_result_frames_match_recordings() {
         )],
     );
     assert!(attachment.input_key(KeyCode::Enter));
-    check_remediation(
-        "remediation-ruleset-attach-confirm-120x40-dark",
+    check_fix(
+        "fix-ruleset-attach-confirm-120x40-dark",
         REFERENCE_WIDTH,
         REFERENCE_HEIGHT,
         attachment.clone(),
     );
-    check_remediation(
-        "remediation-ruleset-attach-confirm-80x24-dark",
+    check_fix(
+        "fix-ruleset-attach-confirm-80x24-dark",
         FLOOR_WIDTH,
         FLOOR_HEIGHT,
         attachment,
@@ -1399,7 +1381,7 @@ fn remediation_input_and_result_frames_match_recordings() {
     let _ = complete.take_confirmation();
     complete.complete(Transcript {
         rule: "REPO-SAMPLE-01".to_owned(),
-        remediation: "disable-merge-commits".to_owned(),
+        fix: "disable-merge-commits".to_owned(),
         proposed_change: "disable merge commits".to_owned(),
         steps: vec![Step {
             detail: "re-observation reports pass".to_owned(),
@@ -1409,8 +1391,8 @@ fn remediation_input_and_result_frames_match_recordings() {
         observed: ObservedStatus::Pass,
         undo: None,
     });
-    check_remediation(
-        "remediation-complete-120x40-dark",
+    check_fix(
+        "fix-complete-120x40-dark",
         REFERENCE_WIDTH,
         REFERENCE_HEIGHT,
         complete,
@@ -1423,7 +1405,7 @@ fn remediation_input_and_result_frames_match_recordings() {
     let _ = floor_complete.take_confirmation();
     floor_complete.complete(Transcript {
         rule: "REPO-SAMPLE-01".to_owned(),
-        remediation: "disable-merge-commits".to_owned(),
+        fix: "disable-merge-commits".to_owned(),
         proposed_change: "disable merge commits".to_owned(),
         steps: vec![Step {
             detail: "re-observation reports pass".to_owned(),
@@ -1433,8 +1415,8 @@ fn remediation_input_and_result_frames_match_recordings() {
         observed: ObservedStatus::Pass,
         undo: None,
     });
-    check_remediation(
-        "remediation-complete-80x24-dark",
+    check_fix(
+        "fix-complete-80x24-dark",
         FLOOR_WIDTH,
         FLOOR_HEIGHT,
         floor_complete,

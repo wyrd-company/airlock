@@ -1,0 +1,88 @@
+# relationships: { references: ../../../docs/configurable-rules.md }
+# Hand-authored example source, not a fetched config or an audit.
+rules:
+  sample-note:
+    statement: The note contains the expected text.
+    probes:
+      note: { kind: file-content, input: { path: note.txt } }
+    conditions:
+      - probe: note
+        pointer: /contents
+        evaluation: equal
+        setting:
+          floor: "Ready\n"
+          value: "Ready\n"
+    severity: { floor: advisory, value: advisory }
+    fix:
+      mode: complete
+      input: { path: note.txt, contents: "Ready\n" }
+  sample-settings:
+    statement: The optional wiki is disabled.
+    probes:
+      settings: { kind: repository, input: {} }
+    conditions:
+      - probe: settings
+        pointer: /has-wiki
+        evaluation: equal
+        setting: { floor: false, value: false }
+    severity:
+      seeded: { floor: none, value: advisory }
+      building: { floor: advisory, value: advisory }
+      released: { floor: advisory, value: blocking }
+      stable: { floor: blocking, value: blocking }
+    fix:
+      mode: action
+      action: set-repository-setting
+      input: { setting: has-wiki, value: false }
+  sample-guidance:
+    statement: Both notes are present.
+    probes:
+      first: { kind: file-content, input: { path: first.txt } }
+      second: { kind: file-content, input: { path: second.txt } }
+    conditions:
+      - &present
+        probe: first
+        pointer: /exists
+        evaluation: equal
+        setting: { floor: true, value: true }
+      - probe: second
+        pointer: /exists
+        evaluation: equal
+        setting: { floor: true, value: true }
+    severity: { floor: advisory, value: blocking }
+    fix:
+      mode: agent
+      guidance: |
+        Inspect both notes.
+        Keep the quoted value "false" as text.
+  # An unassigned numeric preservation specimen, not a claimed observation.
+  sample-number:
+    statement: A numeric observation meets the configured bound.
+    probes:
+      facts: { kind: repository, input: {} }
+    conditions:
+      - probe: facts
+        pointer: /count
+        evaluation: minimum
+        setting: { floor: 0, value: 9007199254740993 }
+    severity: { floor: advisory, value: blocking }
+    fix:
+      {
+        mode: block,
+        reason: No numeric observation is supplied by this example.,
+      }
+assignments:
+  sample:
+    probes: {}
+    conditions: []
+    rules: [sample-note]
+repositories:
+  sample/sample-kit:
+    sample-note:
+      statement: The sample note has an organization-owned replacement.
+      probes:
+        first: { kind: file-content, input: { path: note.txt } }
+      conditions:
+        - *present
+      severity: { floor: none, value: none }
+      reason: The sample keeps this file elsewhere.

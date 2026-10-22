@@ -1,3 +1,9 @@
+// ---
+// relationships:
+//   implements: terminal-interface
+//   references: release-process-conformance
+// ---
+
 //! The finding detail: everything airlock knows about one rule.
 //!
 //! This is the screen that answers "why does this say what it says". The queue
@@ -14,9 +20,9 @@
 //! * a **suppression** is a failure the policy authorized, not a failure that
 //!   is absent, so the authorization is printed — a suppression that cannot be
 //!   read is indistinguishable from a rule that was never run, and the
-//!   remediation is retained because authorizing a failure does not delete the
+//!   fix is retained because authorizing a failure does not delete the
 //!   fix for it;
-//! * an **error** is undecided, and what it reports is why airlock did not
+//! * an **error** is not evaluated, and what it reports is why airlock did not
 //!   look. It is never rendered as a failure, at any severity, for any cause.
 //!
 //! Everything drawn here was made safe where the run became a read model, and
@@ -28,12 +34,12 @@
 
 use ratatui::text::{Line, Span};
 
-use airlock_core::findings::{EffectiveRule, Finding, Status, Undecided};
-use airlock_core::registry;
+use airlock_core::findings::{EffectiveRuleRecord, Finding, Status};
+use airlock_core::rules;
 
 use crate::admin::text::drawable;
 
-use super::lane::{self, Lane};
+use super::lane;
 use super::panel::{self, field_at, heading, Provenance, Scroll};
 use super::theme::{Role, Styles};
 
@@ -111,7 +117,7 @@ impl Error {
             }
         };
         format!(
-            "{separation} This is error and not fail: airlock did not observe the \
+            "{separation} This is a run error and not a Gap: airlock did not observe the \
              condition to be unmet, it failed to look, and reporting that as a failure \
              would attribute a tooling limit to the repository."
         )
@@ -134,34 +140,34 @@ pub struct Suppression {
 /// What closing the gap would take.
 ///
 /// Two vocabularies live here and are never merged: the contextual
-/// `remediation` says what this failure needs, and the declared
-/// `remediation_class` says what the rule's gap always takes and who can do it.
+/// `fix` says what this failure needs, and the declared
+/// `fix_class` says what the rule's gap always takes and who can do it.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Remediation {
-    /// The contextual action group, where the run offered one.
+pub struct Fix {
+    /// The contextual fix group, where the run offered one.
     pub code: Option<String>,
     /// What the contextual remedy says to do.
     pub detail: Option<String>,
     /// The rule's declared join key.
     pub class_code: Option<String>,
-    /// What the declared remediation would change.
+    /// What the declared fix would change.
     pub class_change: Option<String>,
-    /// The lane the declared remediation travels in.
-    pub class_lane: Option<String>,
+    /// The lane the declared fix travels in.
+    pub class_fix_kind: Option<String>,
     /// Whether the declared change can be undone.
     pub class_reversible: Option<bool>,
-    /// Why no remediation is declared, when none is.
+    /// Why no fix is declared, when none is.
     pub class_none_reason: Option<String>,
 }
 
-impl Remediation {
+impl Fix {
     /// Whether anything at all is on offer for this rule.
     ///
     /// Either vocabulary will do: the region is drawn where there is something
     /// to say about closing the gap, whichever of the two said it.
     #[must_use]
     pub const fn offered(&self) -> bool {
-        self.class_lane.is_some() || self.code.is_some()
+        self.class_fix_kind.is_some() || self.code.is_some()
     }
 }
 
@@ -173,11 +179,13 @@ impl Remediation {
 /// server-supplied string could reach a cell.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Detail {
+    /// Full declared gate reason and destination, sanitized without truncation.
+    pub routing: Option<airlock_core::findings::Routing>,
     /// How the rule is evaluated, which is a property of the rule and not of
-    /// the run: a manual rule reports its judgment mode every time.
+    /// the run: compiled rules declare their check boundaries.
     pub evaluation: Option<&'static str>,
     /// Why a non-mechanical evaluation is the honest boundary, where the
-    /// registry declares a reason.
+    /// rules declare a reason.
     pub evaluation_reason: Option<&'static str>,
     /// The run's own record of where the rule came from, formatted
     /// `capability:{capability}/{section}`.
@@ -189,17 +197,24 @@ pub struct Detail {
     /// The authorization, where the failure was suppressed.
     pub suppression: Option<Suppression>,
     /// What closing the gap would take.
-    pub remediation: Remediation,
+    pub fix: Fix,
 }
 
 impl Detail {
     /// Take everything off one finding, sanitizing as it goes.
     #[must_use]
-    pub fn of(finding: &Finding, effective_policy: &[EffectiveRule]) -> Self {
-        let definition = registry::find(&finding.rule);
+    pub fn of(finding: &Finding, effective_policy: &[EffectiveRuleRecord]) -> Self {
+        let definition = rules::find(&finding.rule);
         Self {
-            evaluation: definition.map(|check| check.evaluation.code()),
-            evaluation_reason: definition.and_then(registry::CheckDefinition::evaluation_reason),
+            routing: finding
+                .routing
+                .as_ref()
+                .map(|route| airlock_core::findings::Routing {
+                    reason: drawable(&route.reason),
+                    settling_surface: drawable(&route.settling_surface),
+                }),
+            evaluation: definition.map(|_| "compiled"),
+            evaluation_reason: definition.and_then(rules::RuleDefinition::unbuilt_reason),
             policy_provenance: effective_policy
                 .iter()
                 .find(|rule| rule.rule == finding.rule)
@@ -236,33 +251,26 @@ impl Detail {
                     .map(|reason| drawable(reason)),
                 authorized_by: drawable(&suppression.authorized_by),
             }),
-            remediation: Remediation {
+            fix: Fix {
                 code: finding
-                    .remediation
+                    .fix
                     .as_ref()
-                    .map(|remediation| remediation.action_group.code().to_owned()),
-                detail: finding
-                    .remediation
-                    .as_ref()
-                    .map(|remediation| drawable(&remediation.detail)),
-                class_code: finding
-                    .remediation_class
-                    .code
-                    .as_ref()
-                    .map(|code| drawable(code)),
+                    .map(|fix| fix.fix_group.code().to_owned()),
+                detail: finding.fix.as_ref().map(|fix| drawable(&fix.detail)),
+                class_code: finding.fix_class.code.as_ref().map(|code| drawable(code)),
                 class_change: finding
-                    .remediation_class
+                    .fix_class
                     .change
                     .as_ref()
                     .map(|change| drawable(change)),
-                class_lane: finding
-                    .remediation_class
-                    .lane
+                class_fix_kind: finding
+                    .fix_class
+                    .fix_kind
                     .as_ref()
                     .map(|lane| drawable(lane)),
-                class_reversible: finding.remediation_class.reversible,
+                class_reversible: finding.fix_class.reversible,
                 class_none_reason: finding
-                    .remediation_class
+                    .fix_class
                     .none_reason
                     .as_ref()
                     .map(|reason| drawable(reason)),
@@ -309,6 +317,17 @@ fn regions(
     }
     lines.push(Line::default());
     lines.extend(evidence_region(styles, width, row));
+    if let Some(route) = &detail.routing {
+        lines.push(Line::default());
+        lines.push(heading(styles, "DECLARED GATE"));
+        lines.extend(value(styles, width, "reason", &route.reason));
+        lines.extend(value(
+            styles,
+            width,
+            "settling surface",
+            &route.settling_surface,
+        ));
+    }
     if detail.error.is_some() {
         lines.push(Line::default());
         lines.extend(error_region(styles, width, detail.error.as_ref()));
@@ -321,7 +340,7 @@ fn regions(
         lines.extend(suppression_region(styles, width, suppression));
     }
     lines.push(Line::default());
-    lines.extend(remediation_region(styles, width, row));
+    lines.extend(fix_region(styles, width, row));
     lines.push(Line::default());
     lines.extend(why_region(styles, width, row, provenance));
     lines.push(Line::default());
@@ -340,10 +359,10 @@ fn identity(styles: Styles, row: &super::findings::Row) -> Line<'static> {
         Span::styled(row.rule.clone(), styles.bold(Role::Accent)),
         Span::raw("  "),
     ];
-    spans.extend(lane::lanes_spans(Some(row.status), styles));
+    spans.extend(lane::lanes_spans(row.status, styles));
     spans.push(Span::raw("  "));
     spans.push(Span::styled(
-        row.status.code(),
+        row.result_label.clone(),
         styles.bold(Role::Status(row.status)),
     ));
     spans.push(Span::raw("  "));
@@ -353,45 +372,12 @@ fn identity(styles: Styles, row: &super::findings::Row) -> Line<'static> {
 
 /// Whether this finding gates the run, and why.
 fn gate_note(styles: Styles, width: usize, row: &super::findings::Row) -> Vec<Line<'static>> {
-    let text = if row.gates() && row.status.undecided().is_some() {
-        format!(
-            "gates the run: {} at {} severity, which the {} gate enforces, so complete \
-             is false and no verdict can be certified",
-            row.status.code(),
-            row.severity.code(),
-            row.gate.code()
-        )
+    let text = if row.status.is_none() && row.gates() {
+        "Run error: complete is false, at every severity. The audit exits 2.".to_owned()
     } else if row.gates() {
-        format!(
-            "gates the run: {} at {} severity, which the {} gate enforces",
-            row.status.code(),
-            row.severity.code(),
-            row.gate.code()
-        )
-    } else if row.status.undecided() == Some(Undecided::Structural) {
-        format!(
-            "does not gate: the fact requires admin access to verify, so a read-only \
-             run reaching its expected access boundary is not a finding about the \
-             repository \u{2014} at {} severity or any other",
-            row.severity.code()
-        )
-    } else if lane::lane_of(row.status) == Lane::Inert {
-        format!(
-            "does not gate: {} never gates and never affects completeness",
-            row.status.code()
-        )
-    } else if !row.gate.enforces(row.severity) {
-        format!(
-            "does not gate: the {} gate does not enforce {} severity",
-            row.gate.code(),
-            row.severity.code()
-        )
+        "Blocking Gap: the audit exits 1 when no run error is present.".to_owned()
     } else {
-        format!(
-            "does not gate: {} at {} severity is not a result the gate acts on",
-            row.status.code(),
-            row.severity.code()
-        )
+        format!("{}: exit code unchanged.", row.result_label)
     };
     super::chrome::wrap(&text, width)
         .into_iter()
@@ -521,39 +507,34 @@ fn suppression_region(
 }
 
 /// What closing the gap would take, under both of its two names.
-fn remediation_region(
-    styles: Styles,
-    width: usize,
-    row: &super::findings::Row,
-) -> Vec<Line<'static>> {
-    let remediation = &row.detail.remediation;
-    let mut lines = vec![heading(styles, "REMEDIATION")];
-    if row.status == Status::Suppressed && remediation.offered() {
+fn fix_region(styles: Styles, width: usize, row: &super::findings::Row) -> Vec<Line<'static>> {
+    let fix = &row.detail.fix;
+    let mut lines = vec![heading(styles, "FIX")];
+    if row.group == super::findings::Group::Waived && fix.offered() {
         lines.extend(value(
             styles,
             width,
             "retained",
-            "the failure is authorized and the fix for it is not deleted by that. \
-             Applying it ends the suppression by closing the gap.",
+            "The rule is waived. Its declared fix is reference guidance; no gap was evaluated.",
         ));
     }
-    if let Some(code) = remediation.code.as_ref() {
-        lines.extend(value(styles, width, "remediation.code", code));
+    if let Some(code) = fix.code.as_ref() {
+        lines.extend(value(styles, width, "fix.code", code));
     }
-    if let Some(detail) = remediation.detail.as_ref() {
-        lines.extend(value(styles, width, "remediation.detail", detail));
+    if let Some(detail) = fix.detail.as_ref() {
+        lines.extend(value(styles, width, "fix.detail", detail));
     }
-    match remediation.class_lane.as_ref() {
+    match fix.class_fix_kind.as_ref() {
         Some(lane) => {
-            lines.push(nested_heading(styles, "remediation_class"));
-            lines.extend(nested(styles, width, "code", &remediation.class_code));
-            lines.extend(nested(styles, width, "change", &remediation.class_change));
-            lines.extend(nested(styles, width, "lane", &Some(lane.clone())));
+            lines.push(nested_heading(styles, "fix_class"));
+            lines.extend(nested(styles, width, "code", &fix.class_code));
+            lines.extend(nested(styles, width, "change", &fix.class_change));
+            lines.extend(nested(styles, width, "fix kind", &Some(lane.clone())));
             lines.extend(nested(
                 styles,
                 width,
                 "reversible",
-                &Some(match remediation.class_reversible {
+                &Some(match fix.class_reversible {
                     Some(true) => "yes".to_owned(),
                     Some(false) => "no".to_owned(),
                     None => format!("{NULL} \u{2014} the classification does not say"),
@@ -561,17 +542,17 @@ fn remediation_region(
             ));
         }
         // Exactly one of a lane and a declared reason is set. Where neither is,
-        // the registry does not classify the rule at all, and saying so is a
+        // the rules do not classify the rule at all, and saying so is a
         // different fact from a declared refusal to remediate.
         None => {
-            lines.push(nested_heading(styles, "remediation_class"));
+            lines.push(nested_heading(styles, "fix_class"));
             lines.extend(nested(
                 styles,
                 width,
                 "none_reason",
-                &Some(remediation.class_none_reason.clone().unwrap_or_else(|| {
+                &Some(fix.class_none_reason.clone().unwrap_or_else(|| {
                     format!(
-                        "{NULL} \u{2014} airlock declares no remediation classification \
+                        "{NULL} \u{2014} airlock declares no fix classification \
                          for this rule at all, which is not the same as declaring that \
                          none is possible"
                     )
@@ -630,64 +611,25 @@ fn effect_region(styles: Styles, width: usize, row: &super::findings::Row) -> Ve
 /// The sentence itself.
 ///
 /// Composed from status, severity, and the gate together, because neither
-/// severity nor status alone is consequence: a fail at a severity the gate does
-/// not enforce stops nothing, and an undecided result there leaves the run
-/// complete.
+/// severity nor status alone determines the exit: new Gaps do not bind, and
+/// declared gates do not become evaluated outcomes.
 #[must_use]
 fn effect(row: &super::findings::Row) -> String {
-    let severity = row.severity.code();
-    let gate = row.gate.code();
-    let enforced = row.gate.enforces(row.severity);
     match row.status {
-        Status::Fail if enforced => format!(
-            "A fail at {severity} severity makes the run nonconformant, because the {gate} \
-             gate enforces it. The run is still complete: the question was asked and \
-             answered. complete and conformant are separate facts, and this finding \
-             changes only the second of them."
-        ),
-        Status::Fail => format!(
-            "A fail at {severity} severity is real information that stops nothing: the \
-             {gate} gate does not enforce {severity}. The run stays complete and this \
-             finding leaves conformant untouched. It is still a gap, and it is not a pass."
-        ),
-        Status::Pass => format!(
-            "A pass at {severity} severity is the condition observed to hold. It leaves \
-             complete and conformant exactly as it found them."
-        ),
-        Status::Suppressed => format!(
-            "The rule failed at {severity} severity and the policy authorized that failure \
-             in advance. It is decided and inert: it does not gate, and it is not a pass. \
-             It is standing debt, and the authorization is printed above because a \
-             suppression that cannot be read is indistinguishable from a rule that was \
-             never run."
-        ),
-        Status::Skipped => "condition_not_met: the capability condition did not apply, so the \
-             rule's statement is not about this repository. It never gates and never affects \
-             completeness."
-            .to_owned(),
-        Status::Manual => format!(
-            "judgment_rule: airlock reports it for a human and reaches no verdict of its \
-             own. It never gates at {severity} severity or any other, and it never affects \
-             completeness. Evaluation is a property of the rule, so it does not become \
-             mechanical on a later run."
-        ),
-        Status::AdminOnly => format!(
-            "The fact requires admin access to verify, so the question is answered on the \
-             verification surface the gate names rather than here. It leaves the run \
-             complete at {severity} severity and at every other, because a read-only run \
-             reaching its expected access boundary is not a finding about the repository. \
-             The missing answer is still missing, and this is not a pass."
-        ),
-        Status::Unimplemented | Status::Inconclusive | Status::Error if enforced => format!(
-            "This run fell short of deciding the rule, at a severity the {gate} gate \
-             enforces. That makes the run incomplete: complete is false, and no verdict \
-             can be certified while it is. Incompleteness outranks nonconformance, and an \
-             unanswered question is not a clean repository."
-        ),
-        Status::Unimplemented | Status::Inconclusive | Status::Error => format!(
-            "This run fell short of deciding the rule, at {severity} severity, which the \
-             {gate} gate does not enforce. The run stays complete. The question is still \
-             unanswered, and an unanswered question is not a pass."
+        Some(Status::Met) => "Met: the compiled requirement holds.".to_owned(),
+        Some(Status::Gap) if row.new => {
+            "New Gap: generation not accepted; exit code unchanged.".to_owned()
+        }
+        Some(Status::Gap) if row.severity == rules::Severity::Blocking => {
+            "Blocking Gap: Exit 1 when no run error is present.".to_owned()
+        }
+        Some(Status::Gap) => "Advisory Gap: the exit code is unchanged.".to_owned(),
+        None if row.group == super::findings::Group::RunErrors => {
+            "Run error: Airlock could not complete its job. Exit 2.".to_owned()
+        }
+        None => format!(
+            "{}: no Met or Gap outcome; exit code unchanged.",
+            row.result_label
         ),
     }
 }
@@ -696,21 +638,19 @@ fn effect(row: &super::findings::Row) -> String {
 /// suppression.
 #[must_use]
 pub fn status(row: &super::findings::Row) -> String {
-    let lane = match lane::lane_of(row.status) {
-        Lane::Gating => "decided \u{b7} gating",
-        Lane::Inert => "decided \u{b7} inert",
-        Lane::Undecided => "undecided",
+    let lane = match row.status {
+        Some(_) => "evaluated",
+        None => "not evaluated",
     };
-    // Undecided is asked first, because what an unanswered question does to a
+    // NotEvaluated is asked first, because what an unanswered question does to a
     // run is decided before what a decided one does: it sets complete, and
     // incompleteness outranks nonconformance.
-    let effect = match row.status.undecided() {
-        Some(Undecided::Circumstantial) if row.gate.enforces(row.severity) => {
-            "complete: false".to_owned()
-        }
-        Some(_) => "the run stays complete \u{b7} the question is still unanswered".to_owned(),
-        None if row.gates() => "gates the run".to_owned(),
-        None => "does not gate".to_owned(),
+    let effect = if row.status.is_none() && row.gates() {
+        "run error; complete: false"
+    } else if row.gates() {
+        "blocking Gap"
+    } else {
+        "exit code unchanged"
     };
     let mut text = format!("{lane} \u{b7} {effect}");
     if let Some(suppression) = row.detail.suppression.as_ref() {
@@ -799,7 +739,7 @@ pub fn nothing_selected(styles: Styles, width: usize) -> Vec<Line<'static>> {
         (
             "would show",
             "one rule in full: its statement, its evidence, any error or \
-             suppression, the remediation on offer, why the rule applies, and what \
+             suppression, the fix on offer, why the rule applies, and what \
              this status at this severity does to the run.",
         ),
         (
@@ -824,7 +764,7 @@ mod tests {
     use crate::tui::chrome::{FLOOR_HEIGHT, FLOOR_WIDTH, REFERENCE_HEIGHT, REFERENCE_WIDTH};
     use crate::tui::findings::{fixture, Deliveries, Queue};
     use crate::tui::theme::{ColorMode, Theme};
-    use airlock_core::findings::{Finding, Gate, Report};
+    use airlock_core::findings::{Finding, Report};
 
     fn styles() -> Styles {
         Styles::new(Theme::Dark, ColorMode::Color)
@@ -862,7 +802,7 @@ mod tests {
 
     /// A run of exactly one finding, so a rule id addresses one row.
     fn only(finding: Finding) -> Report {
-        fixture::report(Gate::Required, vec![finding])
+        fixture::report(vec![finding])
     }
 
     fn drawn(report: &Report, rule: &str, width: u16, height: u16) -> String {
@@ -890,13 +830,54 @@ mod tests {
     // -----------------------------------------------------------------
 
     #[test]
+    fn a_new_blocking_gap_has_no_exit_one_claim_anywhere_in_its_detail() {
+        let mut entry =
+            fixture::finding("REPO-LIC-01", rules::Severity::Blocking, Some(Status::Gap));
+        entry.new = true;
+        let report = only(entry);
+        let queue = queue(&report);
+        let row = row_for(&queue, "REPO-LIC-01");
+        assert!(!row.gates());
+        let effect = effect(row);
+        assert!(effect.to_ascii_lowercase().contains("new"));
+        assert!(effect.contains("exit code unchanged"));
+        assert!(!status(row).contains("gating"));
+        let rendered = text(&regions(styles(), 120, row, &queue.provenance));
+        assert!(
+            !rendered.to_ascii_lowercase().contains("exit 1"),
+            "{rendered}"
+        );
+        assert!(rendered.contains("generation not accepted"), "{rendered}");
+    }
+
+    #[test]
+    fn declared_gate_destination_is_complete_and_cannot_instruct_the_terminal() {
+        let mut entry = super::super::findings::fixture::finding(
+            "REPO-GIT-04",
+            airlock_core::rules::Severity::Blocking,
+            None,
+        );
+        let destination = format!("{}\u{1b}[2J", "a".repeat(900));
+        entry.routing = Some(airlock_core::findings::Routing {
+            reason: "needs-administration".to_owned(),
+            settling_surface: destination.clone(),
+        });
+        let projected = Detail::of(&entry, &[]);
+        let gate = projected.routing.unwrap();
+        assert_eq!(gate.reason, "needs-administration");
+        assert_eq!(gate.settling_surface, drawable(&destination));
+        assert!(!gate.settling_surface.contains('\u{1b}'));
+        assert!(gate.settling_surface.contains(&"a".repeat(900)));
+    }
+
+    #[test]
     fn a_failure_reads_as_nonconformant_and_still_complete() {
         let rendered = whole(&fixture::mixed(), "REPO-GIT-01", REFERENCE_WIDTH);
-        assert!(rendered.contains("nonconformant"), "{rendered}");
-        assert!(rendered.contains("still complete"), "{rendered}");
-        assert!(rendered.contains("gates the run"), "{rendered}");
+        assert!(rendered.contains("Blocking Gap"), "{rendered}");
+        assert!(rendered.contains("Exit 1"), "{rendered}");
+        assert!(rendered.contains("audit exits 1"), "{rendered}");
         assert!(rendered.contains("branch_unprotected"), "{rendered}");
-        assert!(rendered.contains("REMEDIATION"), "{rendered}");
+        assert!(rendered.contains("FIX"), "{rendered}");
     }
 
     #[test]
@@ -910,15 +891,15 @@ mod tests {
     }
 
     #[test]
-    fn a_suppression_retains_its_remediation() {
+    fn a_suppression_retains_its_fix() {
         let report = only(fixture::suppressed());
         let queue = queue(&report);
         let row = row_for(&queue, "REPO-CI-02");
-        assert_eq!(row.status, Status::Suppressed);
-        let rendered = text(&remediation_region(styles(), 120, row));
-        assert!(rendered.contains("REMEDIATION"), "{rendered}");
+        assert_eq!(row.status, None);
+        let rendered = text(&fix_region(styles(), 120, row));
+        assert!(rendered.contains("FIX"), "{rendered}");
         assert!(
-            rendered.contains("not deleted by that"),
+            rendered.contains("no gap was evaluated"),
             "authorizing a failure does not delete the fix for it: {rendered}"
         );
     }
@@ -936,9 +917,12 @@ mod tests {
     fn an_error_is_never_rendered_as_a_failure() {
         let rendered = whole(&fixture::incomplete(), "REPO-GIT-09", REFERENCE_WIDTH);
         assert!(rendered.contains("error"), "{rendered}");
-        assert!(rendered.contains("error not fail") || rendered.contains("error and not fail"));
+        assert!(
+            rendered.contains("run error, not Gap")
+                || rendered.contains("a run error and not a Gap")
+        );
         assert!(rendered.contains("failed to look"), "{rendered}");
-        assert!(rendered.contains("incomplete"), "{rendered}");
+        assert!(rendered.contains("Exit 2"), "{rendered}");
     }
 
     #[test]
@@ -964,7 +948,7 @@ mod tests {
         assert_ne!(permission.reads_as(), plan.reads_as());
         // Neither is ever a failure, and both say so in the same words.
         for error in [&permission, &plan] {
-            assert!(error.reads_as().contains("error and not fail"));
+            assert!(error.reads_as().contains("a run error and not a Gap"));
         }
     }
 
@@ -1015,7 +999,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------
-    // Evidence, remediation, provenance
+    // Evidence, fix, provenance
     // -----------------------------------------------------------------
 
     #[test]
@@ -1025,26 +1009,26 @@ mod tests {
         let rendered = text(&evidence_region(styles(), 120, row));
         assert!(rendered.contains("evidence null"), "{rendered}");
         assert!(
-            rendered.contains("no evidence exists"),
+            rendered.contains("not evaluated"),
             "the reason is given: {rendered}"
         );
     }
 
     #[test]
-    fn the_two_remediation_vocabularies_are_never_merged() {
+    fn the_two_fix_vocabularies_are_never_merged() {
         let mut finding = fixture::settings_failure();
-        finding.remediation = Some(airlock_core::findings::Remediation::new(
-            airlock_core::remediation::ActionGroup::TIGHTEN_RULESET,
+        finding.fix = Some(airlock_core::findings::Fix::new(
+            airlock_core::fix::FixGroup::TIGHTEN_RULESET,
             "Protect the default branch.",
         ));
-        let report = fixture::report(Gate::Required, vec![finding]);
+        let report = fixture::report(vec![finding]);
         let rendered = whole(&report, "REPO-GIT-01", REFERENCE_WIDTH);
-        assert!(rendered.contains("remediation.code"), "{rendered}");
-        assert!(rendered.contains("remediation_class"), "{rendered}");
+        assert!(rendered.contains("fix.code"), "{rendered}");
+        assert!(rendered.contains("fix_class"), "{rendered}");
     }
 
     #[test]
-    fn a_rule_with_no_declared_remediation_prints_the_declared_reason() {
+    fn a_rule_with_no_declared_fix_prints_the_declared_reason() {
         let rendered = whole(&fixture::long_fact(), "REPO-DOCS-05", REFERENCE_WIDTH);
         assert!(rendered.contains("none_reason"), "{rendered}");
         assert!(rendered.contains("the maintainer's"), "{rendered}");
@@ -1090,8 +1074,8 @@ mod tests {
             assert!(!sentence.is_empty(), "{}", row.rule);
             seen.push(row.status);
         }
-        assert!(seen.contains(&Status::Suppressed));
-        assert!(seen.contains(&Status::AdminOnly));
+        assert!(seen.contains(&None));
+        assert!(seen.contains(&None));
     }
 
     #[test]
@@ -1099,8 +1083,8 @@ mod tests {
         let queue = queue(&fixture::mixed());
         let row = row_for(&queue, "REPO-GIT-04");
         let sentence = effect(row);
-        assert!(sentence.contains("complete"), "{sentence}");
-        assert!(sentence.contains("not a pass"), "{sentence}");
+        assert!(sentence.contains("exit code unchanged"), "{sentence}");
+        assert!(sentence.contains("no Met or Gap"), "{sentence}");
         assert!(!row.gates(), "an admin-only finding never gates");
     }
 
@@ -1216,12 +1200,12 @@ mod tests {
             values.extend(suppression.policy_reason.clone());
             values.push(suppression.authorized_by.clone());
         }
-        if let Some(remediation) = finding.remediation.as_ref() {
-            values.push(remediation.detail.clone());
+        if let Some(fix) = finding.fix.as_ref() {
+            values.push(fix.detail.clone());
         }
-        values.extend(finding.remediation_class.code.clone());
-        values.extend(finding.remediation_class.change.clone());
-        values.extend(finding.remediation_class.none_reason.clone());
+        values.extend(finding.fix_class.code.clone());
+        values.extend(finding.fix_class.change.clone());
+        values.extend(finding.fix_class.none_reason.clone());
         values
     }
 
@@ -1238,7 +1222,7 @@ mod tests {
         // exactly the case a fixture of convenient lengths cannot reach.
         let report = fixture::hostile();
         let queue = queue(&report);
-        for finding in &report.findings {
+        for finding in report.entries() {
             let row = row_for(&queue, &finding.rule);
             for width in [REFERENCE_WIDTH, FLOOR_WIDTH] {
                 let rendered = text(&regions(styles(), width as usize, row, &queue.provenance))
@@ -1283,7 +1267,7 @@ mod tests {
         let report = fixture::hostile();
         let queue = queue(&report);
         let mut checked = 0;
-        for finding in &report.findings {
+        for finding in report.entries() {
             for value in supplied(finding) {
                 assert!(value.chars().count() > 400, "{}", value.chars().count());
                 checked += 1;
@@ -1379,11 +1363,11 @@ mod tests {
     #[test]
     fn the_status_line_states_the_lane_and_the_gating_effect() {
         let mixed = queue(&fixture::mixed());
-        assert!(status(row_for(&mixed, "REPO-GIT-01")).starts_with("decided \u{b7} gating"));
-        assert!(status(row_for(&mixed, "REPO-GIT-04")).starts_with("undecided"));
+        assert!(status(row_for(&mixed, "REPO-GIT-01")).starts_with("evaluated"));
+        assert!(status(row_for(&mixed, "REPO-GIT-04")).starts_with("not evaluated"));
         let report = only(fixture::suppressed());
         let inert = queue(&report);
-        assert!(status(row_for(&inert, "REPO-CI-02")).starts_with("decided \u{b7} inert"));
+        assert!(status(row_for(&inert, "REPO-CI-02")).starts_with("not evaluated"));
     }
 
     #[test]

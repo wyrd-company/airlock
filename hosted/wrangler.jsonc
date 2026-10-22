@@ -1,0 +1,16 @@
+{
+  // relationships: { implements: ../docs/hosted-browser.md }
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "airlock-hosted-local",
+  "main": "src/service/worker.ts",
+  "compatibility_date": "2026-10-22",
+  "workers_dev": false,
+  "preview_urls": false,
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "run_worker_first": true,
+  },
+  // Fixture access is explicitly local. No default/live environment or cron cadence.
+  "vars": { "LOCAL_FIXTURES": "enabled" },
+}

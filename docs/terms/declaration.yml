@@ -1,0 +1,8 @@
+$schema: https://refinery.systems/ontology/term
+title: Declaration
+description: >-
+  An explicit answer to a question a rule requires before Airlock can compare the repository with
+  that requirement. Repository declarations share the repository configuration with exception
+  requests. Organization-owned classification declarations are made through the operator surface
+  and remain in GitHub custom properties. A missing declaration is undeclared work, not a manual
+  outcome or evidence of Met or Gap.

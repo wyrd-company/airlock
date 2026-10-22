@@ -15,11 +15,11 @@ use crate::admin::bootstrap::{
     place, Ceremony, Credential, Observation, Placement, Publication, StepState,
 };
 use crate::admin::catalogue::Observe;
-use crate::admin::remediation::{ObservedStatus, Transcript};
+use crate::admin::fix::{ObservedStatus, Transcript};
 
 use super::chrome::wrap;
+use super::fix::SecretInputState;
 use super::panel::{self, LABEL_WIDTH};
-use super::remediation::SecretInputState;
 use super::theme::{Role, Styles};
 
 /// The confirmed write the screen asks the loop to make.
@@ -245,7 +245,7 @@ impl State {
     }
 
     /// Whether a confirmed write is in flight, which is what makes the returning
-    /// transcript this screen's rather than the remediation screen's.
+    /// transcript this screen's rather than the fix screen's.
     #[must_use]
     pub const fn applying(&self) -> bool {
         matches!(self.entry, Entry::Applying { .. })
@@ -817,7 +817,7 @@ mod tests {
             assert!(
                 !Status::ALL
                     .iter()
-                    .any(|status| super::super::lane::glyph_of(*status) == glyph),
+                    .any(|status| super::super::lane::glyph_of(Some(*status)) == glyph),
                 "{} is drawn with a finding glyph",
                 state.name()
             );

@@ -5,10 +5,9 @@
 //! snapshot at a single resolved commit, so a verdict describes a repository
 //! state that existed.
 //!
-//! The rule that governs every check: never report `pass` for an assertion the
-//! check did not fully evaluate. A bounded scan that ran out of budget is
-//! inconclusive. A rule whose remaining clause is a judgment call is manual.
-//! Absence of evidence is never evidence of conformance.
+//! Only the compiled check decides Met or Gap. Exhausted read budgets are run
+//! errors. A declared unbuilt boundary stays visible without claiming an
+//! outcome. Absence of evidence never establishes Met.
 
 macro_rules! try_verdict {
     ($expression:expr) => {
@@ -27,20 +26,19 @@ mod identity;
 mod licensing;
 mod readme;
 mod release;
+mod release_record;
+mod template_identity;
 
-use crate::findings::{Evidence, FindingError, Remediation, Status};
+use crate::findings::{Evidence, FindingError, Fix, Status};
 use crate::github::{
-    ApiError, BranchRule, CommitSummary, CustomPropertyValue, Paged, Repository, Ruleset, TagRef,
-    MESSAGE_HINTS_VERSION,
+    ApiError, BranchRule, CommitSummary, Paged, Repository, Ruleset, TagRef, MESSAGE_HINTS_VERSION,
 };
 use crate::limits::Limits;
-use crate::policy::{Condition, ResolvedPolicy, RuleInstance};
-use crate::registry::{
-    Applicability, CheckDefinition, CredentialCapability, DisclosureGate, Evaluation,
-};
+use crate::policy::{EffectiveRule, ResolvedPolicy};
+use crate::rules::{CredentialCapability, DisclosureGate, RuleDefinition};
 use crate::snapshot::{FileState, RepoSnapshot};
 use crate::yaml::{self, Yaml};
-use crate::ActionGroup;
+use crate::FixGroup;
 
 pub(crate) struct MergeSetting {
     pub(crate) declared: &'static str,
@@ -89,24 +87,71 @@ pub(crate) fn merge_setting(declared: &str) -> &'static MergeSetting {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Verdict {
     /// The status.
-    pub status: Status,
+    pub status: Option<Status>,
     /// What was observed.
     pub evidence: Option<Evidence>,
     /// What to do about it.
-    pub remediation: Option<Remediation>,
+    pub fix: Option<Fix>,
     /// What stopped the evaluation.
     pub error: Option<FindingError>,
+    pub routing: Option<crate::findings::Routing>,
 }
 
 impl Verdict {
+    pub fn out_of_scope() -> Self {
+        Self {
+            status: None,
+            evidence: Some(Evidence::new(
+                "no_release_units_declared",
+                "The repository declares no release units",
+            )),
+            fix: None,
+            error: None,
+            routing: Some(crate::findings::Routing {
+                reason: "out-of-scope".to_owned(),
+                settling_surface: "An audit of a repository with declared release units".to_owned(),
+            }),
+        }
+    }
+
+    pub fn needs_repository_owner() -> Self {
+        Self {
+            status: None,
+            evidence: Some(Evidence::new(
+                "repository_owner_unobserved",
+                "The repository owner is needed to resolve the preset",
+            )),
+            fix: None,
+            error: None,
+            routing: Some(crate::findings::Routing {
+                reason: "needs-repository-owner".to_owned(),
+                settling_surface: "An audit with an observed GitHub repository owner".to_owned(),
+            }),
+        }
+    }
+
+    pub fn needs_github_api() -> Self {
+        Self {
+            status: None,
+            evidence: None,
+            fix: None,
+            error: None,
+            routing: Some(crate::findings::Routing {
+                reason: "needs-github-api".to_owned(),
+                settling_surface: "Credentialed API-tree audit or Action".to_owned(),
+            }),
+        }
+    }
+
     /// The assertion holds.
     #[must_use]
     pub fn pass(code: &str, detail: impl Into<String>) -> Self {
         Self {
-            status: Status::Pass,
+            status: Some(Status::Met),
             evidence: Some(Evidence::new(code, detail)),
-            remediation: None,
+            fix: None,
             error: None,
+            routing: None,
         }
     }
 
@@ -114,59 +159,73 @@ impl Verdict {
     #[must_use]
     pub fn pass_at(code: &str, path: &str, detail: impl Into<String>) -> Self {
         Self {
-            status: Status::Pass,
+            status: Some(Status::Met),
             evidence: Some(Evidence::at(code, path, detail)),
-            remediation: None,
+            fix: None,
             error: None,
+            routing: None,
         }
     }
 
     /// The assertion does not hold.
     #[must_use]
-    pub fn fail(code: &str, detail: impl Into<String>, remediation: Remediation) -> Self {
+    pub fn fail(code: &str, detail: impl Into<String>, fix: Fix) -> Self {
         Self {
-            status: Status::Fail,
+            status: Some(Status::Gap),
             evidence: Some(Evidence::new(code, detail)),
-            remediation: Some(remediation),
+            fix: Some(fix),
             error: None,
+            routing: None,
         }
     }
 
     /// The assertion does not hold, and the evidence is about one path.
     #[must_use]
-    pub fn fail_at(
-        code: &str,
-        path: &str,
-        detail: impl Into<String>,
-        remediation: Remediation,
-    ) -> Self {
+    pub fn fail_at(code: &str, path: &str, detail: impl Into<String>, fix: Fix) -> Self {
         Self {
-            status: Status::Fail,
+            status: Some(Status::Gap),
             evidence: Some(Evidence::at(code, path, detail)),
-            remediation: Some(remediation),
+            fix: Some(fix),
             error: None,
+            routing: None,
         }
     }
 
-    /// What airlock could decide holds; the rest is a judgment call.
+    /// This repository reaches the check's declared unbuilt boundary.
     #[must_use]
-    pub fn manual(code: &str, detail: impl Into<String>) -> Self {
+    pub fn unbuilt(code: &str, detail: impl Into<String>) -> Self {
         Self {
-            status: Status::Manual,
+            status: None,
             evidence: Some(Evidence::new(code, detail)),
-            remediation: None,
+            fix: None,
             error: None,
+            routing: Some(crate::findings::Routing {
+                reason: "unbuilt".to_owned(),
+                settling_surface: "A release of Airlock with this compiled check implemented"
+                    .to_owned(),
+            }),
         }
     }
 
     /// The assertion could not be decided within a budget.
     #[must_use]
-    pub fn inconclusive(code: &str, detail: impl Into<String>) -> Self {
+    pub fn run_error(code: &str, detail: impl Into<String>) -> Self {
+        let detail = detail.into();
         Self {
-            status: Status::Inconclusive,
-            evidence: Some(Evidence::new(code, detail)),
-            remediation: None,
-            error: None,
+            status: None,
+            evidence: Some(Evidence::new(code, &detail)),
+            fix: None,
+            error: Some(FindingError {
+                cause: code.to_owned(),
+                endpoint: "audit-input".to_owned(),
+                status: None,
+                message: Some(detail),
+                documentation_url: None,
+                accepted_permissions: None,
+                request_id: None,
+                message_hints_version: MESSAGE_HINTS_VERSION,
+            }),
+            routing: None,
         }
     }
 
@@ -180,7 +239,11 @@ impl Verdict {
     #[must_use]
     pub fn withheld(gate: &DisclosureGate, subject: &str) -> Self {
         Self {
-            status: Status::AdminOnly,
+            status: None,
+            routing: Some(crate::findings::Routing {
+                reason: gate.evidence_code.to_owned(),
+                settling_surface: gate.verified_by.code().to_owned(),
+            }),
             evidence: Some(Evidence::new(
                 gate.evidence_code,
                 format!(
@@ -188,7 +251,7 @@ impl Verdict {
                     gate.rationale()
                 ),
             )),
-            remediation: None,
+            fix: None,
             error: None,
         }
     }
@@ -196,9 +259,9 @@ impl Verdict {
     /// An API failure prevented the evaluation.
     #[must_use]
     pub fn from_api_error(error: &ApiError) -> Self {
-        let remediation = match error.cause {
-            crate::github::ErrorCause::Permission => Some(Remediation::new(
-                ActionGroup::GRANT_PERMISSION,
+        let fix = match error.cause {
+            crate::github::ErrorCause::Permission => Some(Fix::new(
+                FixGroup::GRANT_PERMISSION,
                 match &error.accepted_permissions {
                     Some(permissions) => format!(
                         "The credential lacks the permission {permissions} that {} requires.",
@@ -207,8 +270,8 @@ impl Verdict {
                     None => format!("The credential cannot read {}.", error.endpoint),
                 },
             )),
-            crate::github::ErrorCause::PlanLimitation => Some(Remediation::new(
-                ActionGroup::PLAN_GATE,
+            crate::github::ErrorCause::PlanLimitation => Some(Fix::new(
+                FixGroup::PLAN_GATE,
                 format!(
                     "{} is gated by the account's GitHub plan, so airlock cannot read it.",
                     error.endpoint
@@ -217,9 +280,10 @@ impl Verdict {
             _ => None,
         };
         Self {
-            status: Status::Error,
+            status: None,
             evidence: None,
-            remediation,
+            fix,
+            routing: None,
             error: Some(FindingError {
                 cause: error.cause.code().to_owned(),
                 endpoint: error.endpoint.clone(),
@@ -274,7 +338,7 @@ impl Workflow {
             }
             Some(Yaml::Map(entries)) => Ok(entries.iter().map(|(name, _)| name.clone()).collect()),
             None => Ok(Vec::new()),
-            Some(other) => Err(Box::new(Verdict::inconclusive(
+            Some(other) => Err(Box::new(Verdict::run_error(
                 MALFORMED_DECLARATION,
                 format!("`on:` in {} is a {}", self.path, other.kind()),
             ))),
@@ -334,7 +398,12 @@ impl Workflow {
 }
 
 /// Everything one audit run gathered, ready for the checks to read.
+#[derive(Clone)]
 pub struct AuditContext<'a> {
+    /// Observed from committed Git evidence; never from mutable local files.
+    pub maturity: Result<crate::maturity::Observed, crate::maturity::ObservationError>,
+    /// Captured template revisions and ancestry comparisons.
+    pub template_revisions: Result<Vec<crate::template_identity::TemplateRevision>, ApiError>,
     /// The repository at the audited commit.
     pub snapshot: &'a RepoSnapshot,
     /// The policy the audit runs under.
@@ -345,10 +414,10 @@ pub struct AuditContext<'a> {
     pub workflows: Vec<Workflow>,
     /// Whether the workflow listing was cut short by a budget.
     pub workflows_truncated: bool,
-    /// Organization-owned custom property values assigned to this repository.
-    pub custom_property_values: Result<Vec<CustomPropertyValue>, ApiError>,
     /// The repository's tags, and whether the listing was complete.
     pub tags: Result<Paged<TagRef>, ApiError>,
+    /// Captured release records and matching annotated tag objects.
+    pub release_records: Result<crate::release_records::ReleaseInputs, ApiError>,
     /// Default-branch history, and whether the walk stopped at a budget.
     pub history: Result<Paged<CommitSummary>, ApiError>,
     /// Rulesets covering the repository, including inherited ones.
@@ -370,7 +439,7 @@ pub enum ParsedFile<'a> {
     /// The file was read and parsed.
     Parsed(Yaml),
     /// The file could not be read or parsed, with the evidence saying why.
-    Undecided(Box<Verdict>),
+    ReadError(Box<Verdict>),
     /// The path holds something that is not a file.
     NotAFile(&'a FileState),
 }
@@ -397,40 +466,7 @@ impl AuditContext<'_> {
     /// Parse a YAML file from the snapshot.
     #[must_use]
     pub fn yaml(&self, path: &str) -> ParsedFile<'_> {
-        let state = self.snapshot.file(path);
-        match state {
-            FileState::Missing => ParsedFile::Missing,
-            FileState::TreeTruncated => ParsedFile::Undecided(Box::new(Verdict::inconclusive(
-                "tree_truncated",
-                self.snapshot
-                    .truncation_detail(&format!("whether {path} exists")),
-            ))),
-            FileState::Content { .. } => {
-                let text = state.text().unwrap_or_default();
-                match yaml::parse_mapping(text, self.limits.yaml) {
-                    Ok(document) => ParsedFile::Parsed(document),
-                    Err(error) => ParsedFile::Undecided(Box::new(Verdict::inconclusive(
-                        "unparseable_yaml",
-                        format!("{path} could not be parsed: {error}"),
-                    ))),
-                }
-            }
-            FileState::OverBudget { size, limit } => {
-                ParsedFile::Undecided(Box::new(Verdict::inconclusive(
-                    "file_over_budget",
-                    format!(
-                        "{path} is {size} bytes, over the {limit} byte limit, so it was not read"
-                    ),
-                )))
-            }
-            FileState::Unreadable(error) => {
-                ParsedFile::Undecided(Box::new(Verdict::from_api_error(error)))
-            }
-            FileState::LocalUnreadable { detail } => ParsedFile::Undecided(Box::new(
-                Verdict::inconclusive("local_path_unreadable", detail.clone()),
-            )),
-            FileState::Symlink { .. } | FileState::NotAFile { .. } => ParsedFile::NotAFile(state),
-        }
+        snapshot_yaml(self.snapshot, path, self.limits)
     }
 
     /// The workflow at `.github/workflows/{name}`.
@@ -439,282 +475,186 @@ impl AuditContext<'_> {
         self.workflows.iter().find(|workflow| workflow.name == name)
     }
 
-    /// Release unit paths declared by `.intentional/config.yml`, if it parses.
-    #[must_use]
-    pub fn release_units(&self) -> Option<Vec<(String, String)>> {
-        let ParsedFile::Parsed(document) = self.yaml(".intentional/config.yml") else {
-            return None;
-        };
-        let units = document.get("release-units")?.as_map()?;
-        Some(
-            units
-                .iter()
-                .map(|(id, unit)| {
-                    let path = unit
-                        .get("path")
-                        .and_then(Yaml::as_str)
-                        .unwrap_or(".")
-                        .trim_end_matches('/')
-                        .to_owned();
-                    (id.clone(), path)
-                })
-                .collect(),
-        )
+    /// Release unit paths, or the declared scope boundary when none are present.
+    /// Malformed or unreadable declarations remain run errors.
+    pub fn release_units(&self) -> Result<Vec<(String, String)>, Box<Verdict>> {
+        release_units(self.snapshot)
     }
 }
 
-/// Evaluate one rule instance.
-///
-/// The dispatch order is deliberate: the policy condition runs first, then
-/// built-in registry applicability, then the registry evaluation mode. A rule
-/// that cannot be evaluated therefore says so through the status taxonomy
-/// rather than through a check pretending to have looked.
-#[must_use]
-pub fn evaluate(rule: &RuleInstance, context: &AuditContext) -> Verdict {
-    if let Some(verdict) = condition_verdict(condition_holds(&rule.condition, context), || {
-        format!(
-            "the capability that enables this rule applies only when `{}`",
-            rule.condition.code()
-        )
-    }) {
-        return verdict;
-    }
-
-    if let Some(verdict) = condition_verdict(
-        applicability_holds(rule.def.applicability(), context),
-        || {
-            format!(
-                "this rule applies only when `{}`",
-                rule.def.applicability().code()
-            )
-        },
-    ) {
-        return verdict;
-    }
-
-    match rule.def.evaluation {
-        Evaluation::Manual => Verdict {
-            status: Status::Manual,
-            evidence: Some(Evidence::new(
-                "judgment_rule",
-                rule.def
-                    .evaluation_reason()
-                    .unwrap_or("this rule is a judgment call; airlock reports it for a human"),
-            )),
-            remediation: None,
-            error: None,
-        },
-        Evaluation::Unimplemented => Verdict {
-            status: Status::Unimplemented,
-            evidence: Some(Evidence::new(
-                "not_implemented",
-                "this rule is registered but airlock does not evaluate it yet",
-            )),
-            remediation: Some(Remediation::new(
-                ActionGroup::DISABLE_OR_WAIT,
-                "Remove the rule from the policy or wait for airlock to implement it. An \
-                 enabled rule airlock cannot evaluate makes the audit incomplete rather than \
-                 quietly narrower.",
-            )),
-            error: None,
-        },
-        Evaluation::Mechanical => run(rule, context),
-    }
-}
-
-fn condition_verdict(
-    outcome: ConditionOutcome,
-    skipped_detail: impl FnOnce() -> String,
-) -> Option<Verdict> {
-    match outcome {
-        ConditionOutcome::Holds => {}
-        ConditionOutcome::DoesNotHold(detail) => {
-            return Some(Verdict {
-                status: Status::Skipped,
-                evidence: Some(Evidence::new(
-                    "condition_not_met",
-                    detail.unwrap_or_else(skipped_detail),
-                )),
-                remediation: None,
-                error: None,
-            })
+/// Shared release-unit scope for input gathering and evaluation.
+pub(crate) fn release_units(
+    snapshot: &RepoSnapshot,
+) -> Result<Vec<(String, String)>, Box<Verdict>> {
+    let document = match snapshot_yaml(snapshot, ".intentional/config.yml", snapshot.limits) {
+        ParsedFile::Missing | ParsedFile::NotAFile(_) => {
+            return Err(Box::new(Verdict::out_of_scope()))
         }
-        // A condition airlock could not evaluate is not a condition that
-        // failed. Skipping here would quietly drop every rule the capability
-        // governs, which is the same fail-open shape as passing them.
-        ConditionOutcome::Undecided(verdict) => return Some(*verdict),
-    }
-    None
-}
-
-/// What airlock could establish about a capability condition.
-///
-/// Three-valued on purpose. "The condition does not hold" and "airlock could
-/// not tell whether the condition holds" lead to opposite conclusions, and
-/// collapsing them lets a truncated tree silently disable a whole capability.
-enum ConditionOutcome {
-    /// The condition holds; the rule runs.
-    Holds,
-    /// The condition conclusively does not hold; the rule is skipped.
-    DoesNotHold(Option<String>),
-    /// Airlock could not evaluate the condition.
-    Undecided(Box<Verdict>),
-}
-
-fn condition_holds(condition: &Condition, context: &AuditContext) -> ConditionOutcome {
-    match condition {
-        Condition::Always => ConditionOutcome::Holds,
-        Condition::IntentionalConfigPresent => {
-            file_condition(context, ".intentional/config.yml", condition)
-        }
-        Condition::CustomProperty { name, value } => {
-            custom_property_condition(context, name, value)
-        }
-    }
-}
-
-fn custom_property_condition(
-    context: &AuditContext,
-    name: &str,
-    expected: &str,
-) -> ConditionOutcome {
-    let values = match &context.custom_property_values {
-        Ok(values) => values,
-        Err(error) => {
-            let detail = Verdict::from_api_error(error);
-            return ConditionOutcome::Undecided(Box::new(Verdict {
-                status: detail.status,
-                evidence: Some(Evidence::new(
-                    "condition_undecided",
-                    format!(
-                        "the custom-property condition `{name}={expected}` could not be read: {error}"
-                    ),
-                )),
-                remediation: detail.remediation,
-                error: detail.error,
-            }));
-        }
+        ParsedFile::ReadError(error) => return Err(error),
+        ParsedFile::Parsed(document) => document,
     };
-    match values
+    let Some(declared) = document.get("release-units") else {
+        return Err(Box::new(Verdict::out_of_scope()));
+    };
+    let Some(units) = declared.as_map() else {
+        return Err(Box::new(Verdict::run_error(
+            MALFORMED_DECLARATION,
+            "`release-units` must be a mapping",
+        )));
+    };
+    if units.is_empty() {
+        return Err(Box::new(Verdict::out_of_scope()));
+    }
+    Ok(units
         .iter()
-        .find(|property| property.property_name == name)
-    {
-        // GitHub uses null for an unassigned property. A multi-select array is
-        // assigned data, but a scalar capability binding cannot exactly match
-        // it; classify that honestly as declared-but-not-matching rather than
-        // turning a valid API value into an input failure.
-        None | Some(CustomPropertyValue {
-            value: crate::github::CustomPropertyValueKind::Null,
-            ..
-        }) => ConditionOutcome::Undecided(Box::new(Verdict {
-            status: Status::Inconclusive,
-            evidence: Some(Evidence::capability_undeclared(name, expected)),
-            remediation: None,
-            error: None,
-        })),
-        Some(property) if property.value.as_str() == Some(expected) => ConditionOutcome::Holds,
-        Some(property) => ConditionOutcome::DoesNotHold(Some(format!(
-            "organization custom property `{name}` must equal `{expected}` for this capability; observed {}",
-            property.value.reading()
+        .map(|(id, unit)| {
+            let path = unit
+                .get("path")
+                .and_then(Yaml::as_str)
+                .unwrap_or(".")
+                .trim_end_matches('/')
+                .to_owned();
+            (id.clone(), path)
+        })
+        .collect())
+}
+
+fn snapshot_yaml<'a>(snapshot: &'a RepoSnapshot, path: &str, limits: Limits) -> ParsedFile<'a> {
+    let state = snapshot.file(path);
+    match state {
+        FileState::Missing => ParsedFile::Missing,
+        FileState::TreeTruncated => ParsedFile::ReadError(Box::new(Verdict::run_error(
+            "tree_truncated",
+            snapshot.truncation_detail(&format!("whether {path} exists")),
         ))),
-    }
-}
-
-fn applicability_holds(applicability: Applicability, context: &AuditContext) -> ConditionOutcome {
-    match applicability {
-        Applicability::Always => ConditionOutcome::Holds,
-        Applicability::ReleaseUnitsDeclared => release_units_declared_condition(context),
-    }
-}
-
-fn release_units_declared_condition(context: &AuditContext) -> ConditionOutcome {
-    match context.yaml(".intentional/config.yml") {
-        ParsedFile::Missing | ParsedFile::NotAFile(_) => ConditionOutcome::DoesNotHold(None),
-        ParsedFile::Parsed(document) => match document.get("release-units") {
-            None => ConditionOutcome::DoesNotHold(None),
-            Some(units) => match units.as_map() {
-                Some([]) => ConditionOutcome::DoesNotHold(None),
-                Some(_) => ConditionOutcome::Holds,
-                None => ConditionOutcome::Undecided(Box::new(Verdict::inconclusive(
-                    "condition_undecided",
-                    "the `release-units-declared` condition could not interpret \
-                     `.intentional/config.yml`: `release-units` is not a mapping",
+        FileState::Content { .. } => {
+            let text = state.text().unwrap_or_default();
+            match yaml::parse_mapping(text, limits.yaml) {
+                Ok(document) => ParsedFile::Parsed(document),
+                Err(error) => ParsedFile::ReadError(Box::new(Verdict::run_error(
+                    "unparseable_yaml",
+                    format!("{path} could not be parsed: {error}"),
                 ))),
-            },
-        },
-        ParsedFile::Undecided(verdict) => {
-            let detail = verdict.evidence.as_ref().map_or_else(
-                || "the condition input could not be read".to_owned(),
-                |evidence| evidence.detail.clone(),
-            );
-            ConditionOutcome::Undecided(Box::new(Verdict::inconclusive(
-                "condition_undecided",
-                format!("the `release-units-declared` condition could not be decided: {detail}"),
-            )))
+            }
         }
-    }
-}
-
-/// A condition that turns on whether one file exists.
-fn file_condition(context: &AuditContext, path: &str, condition: &Condition) -> ConditionOutcome {
-    match context.snapshot.file(path) {
-        FileState::Content { .. } => ConditionOutcome::Holds,
-        FileState::Missing => ConditionOutcome::DoesNotHold(None),
-        FileState::TreeTruncated => ConditionOutcome::Undecided(Box::new(Verdict::inconclusive(
-            "condition_undecided",
-            format!(
-                "the `{}` condition turns on {path}, and {}",
-                condition.code(),
-                context
-                    .snapshot
-                    .truncation_detail(&format!("whether {path} exists"))
-            ),
-        ))),
         FileState::OverBudget { size, limit } => {
-            ConditionOutcome::Undecided(Box::new(Verdict::inconclusive(
-                "condition_undecided",
-                format!(
-                    "the `{}` condition turns on {path}, which is {size} bytes, over the {limit} \
-                     byte limit, so it was never read",
-                    condition.code()
-                ),
+            ParsedFile::ReadError(Box::new(Verdict::run_error(
+                "file_over_budget",
+                format!("{path} is {size} bytes, over the {limit} byte limit, so it was not read"),
             )))
         }
         FileState::Unreadable(error) => {
-            ConditionOutcome::Undecided(Box::new(Verdict::from_api_error(error)))
+            ParsedFile::ReadError(Box::new(Verdict::from_api_error(error)))
         }
-        FileState::LocalUnreadable { detail } => ConditionOutcome::Undecided(Box::new(
-            Verdict::inconclusive("condition_undecided", detail.clone()),
+        FileState::LocalUnreadable { detail } => ParsedFile::ReadError(Box::new(
+            Verdict::run_error("local_path_unreadable", detail.clone()),
         )),
-        // A symlink or a directory where the condition expects a file is a
-        // conclusive answer: the file the condition asks about is not there.
-        FileState::Symlink { .. } | FileState::NotAFile { .. } => {
-            ConditionOutcome::DoesNotHold(None)
-        }
+        FileState::Symlink { .. } | FileState::NotAFile { .. } => ParsedFile::NotAFile(state),
     }
 }
 
-fn run(rule: &RuleInstance, context: &AuditContext) -> Verdict {
+/// Evaluate the compiled check. Every non-outcome requires a declared gate;
+/// an undeclared boundary is a run error.
+#[must_use]
+pub fn evaluate(rule: &EffectiveRule, context: &AuditContext) -> Verdict {
+    if let Err(verdict) = applicability(rule, context) {
+        return *verdict;
+    }
+    let mut verdict = run(rule, context);
+    if let Some(route) = &verdict.routing {
+        let declared = match route.reason.as_str() {
+            "unbuilt" => rule.def.unbuilt_reason().is_some(),
+            "out-of-scope" => rule.def.needs_release_units(),
+            "needs-repository-owner" => rule.def.needs_repository_owner(),
+            reason => rule
+                .def
+                .disclosure_gate()
+                .is_some_and(|gate| gate.evidence_code == reason),
+        };
+        if !declared {
+            verdict = Verdict::run_error(
+                "undeclared_gate",
+                "The check reached a gate its compiled rule does not declare",
+            );
+        }
+    }
+    verdict
+}
+
+/// Whether the captured API source or credential leaves this rule routed.
+/// File scope and maturity are settled separately before this gate.
+pub(crate) fn api_gated(
+    rule: &EffectiveRule,
+    credential: CredentialCapability,
+    api_observed: bool,
+) -> bool {
+    rule.def.needs_github_api()
+        && (!api_observed
+            || (rule.def.id == "REPO-TPL-01"
+                && credential == CredentialCapability::Unauthenticated))
+}
+
+/// Shared scope boundary for evaluation and API routing. Classification/config
+/// selection remains outside this function.
+pub fn applicability(rule: &EffectiveRule, context: &AuditContext) -> Result<(), Box<Verdict>> {
+    if let Ok(maturity) = &context.maturity {
+        if !rule.def.lifecycle.governs(maturity.rung) {
+            return Err(Box::new(Verdict {
+                status: None,
+                evidence: Some(Evidence::new(
+                    "maturity_out_of_scope",
+                    format!(
+                        "Observed {}; this rule applies from {}",
+                        maturity.rung.code(),
+                        rule.def.lifecycle.code(),
+                    ),
+                )),
+                fix: None,
+                error: None,
+                routing: Some(crate::findings::Routing {
+                    reason: "out-of-scope".to_owned(),
+                    settling_surface: format!(
+                        "An audit at the {} rung or above",
+                        rule.def.lifecycle.code()
+                    ),
+                }),
+            }));
+        }
+    }
+    // File-only rules can reach this boundary only in a comparison branch.
+    if rule.def.needs_release_units() && rule.def.needs_github_api() {
+        context.release_units()?;
+    }
+    if rule.def.lifecycle != crate::rules::Lifecycle::Seeded {
+        context
+            .maturity
+            .as_ref()
+            .map_err(|error| Box::new(error.verdict()))?;
+    }
+    Ok(())
+}
+
+fn run(rule: &EffectiveRule, context: &AuditContext) -> Verdict {
     let id = rule.def.id;
-    identity::run(id, rule, context)
+    (id == "REPO-TPL-01")
+        .then(|| template_identity::run(rule, context))
+        .or_else(|| identity::run(id, rule, context))
         .or_else(|| licensing::run(id, rule, context))
         .or_else(|| files::run(id, rule, context))
         .or_else(|| readme::run(id, rule, context))
         .or_else(|| git::run(id, rule, context))
         .or_else(|| automation::run(id, rule, context))
         .or_else(|| release::run(id, rule, context))
+        .or_else(|| (id == "REPO-REL-08").then(|| release_record::run(context)))
         .or_else(|| classification::run(id, rule, context))
         .unwrap_or_else(|| {
-            // A rule registered mechanical with no implementation would be a
-            // silent gap, so it reports as one rather than passing.
-            Verdict {
-                status: Status::Unimplemented,
-                evidence: Some(Evidence::new(
+            if let Some(reason) = rule.def.unbuilt_reason() {
+                Verdict::unbuilt("unbuilt", reason)
+            } else {
+                Verdict::run_error(
                     "no_implementation_registered",
-                    format!("{id} is registered mechanical but has no implementation"),
-                )),
-                remediation: None,
-                error: None,
+                    format!("{id} declares no unbuilt gate and has no check"),
+                )
             }
         })
 }
@@ -729,7 +669,7 @@ pub(crate) fn presence(context: &AuditContext, path: &str, subject: &str) -> Ver
         FileState::Content { .. } => {
             Verdict::pass_at("file_present", path, format!("{subject} is present"))
         }
-        FileState::TreeTruncated => Verdict::inconclusive(
+        FileState::TreeTruncated => Verdict::run_error(
             "tree_truncated",
             format!(
                 "GitHub truncated the tree at {}, so whether {path} exists was never \
@@ -741,14 +681,14 @@ pub(crate) fn presence(context: &AuditContext, path: &str, subject: &str) -> Ver
             "file_missing",
             path,
             format!("{subject} is absent"),
-            Remediation::new(ActionGroup::ADD_FILE, format!("Add {path}.")),
+            Fix::new(FixGroup::ADD_FILE, format!("Add {path}.")),
         ),
         FileState::Symlink { target } => Verdict::fail_at(
             "file_is_a_symlink",
             path,
             format!("{path} is a symlink to `{target}` rather than a file"),
-            Remediation::new(
-                ActionGroup::REPLACE_SYMLINK,
+            Fix::new(
+                FixGroup::REPLACE_SYMLINK,
                 format!("Make {path} a regular file."),
             ),
         ),
@@ -756,43 +696,43 @@ pub(crate) fn presence(context: &AuditContext, path: &str, subject: &str) -> Ver
             "path_is_not_a_file",
             path,
             format!("{path} is a {kind:?} (mode {mode}) rather than a file"),
-            Remediation::new(
-                ActionGroup::REPLACE_ENTRY,
+            Fix::new(
+                FixGroup::REPLACE_ENTRY,
                 format!("Make {path} a regular file."),
             ),
         ),
-        FileState::OverBudget { size, limit } => Verdict::inconclusive(
+        FileState::OverBudget { size, limit } => Verdict::run_error(
             "file_over_budget",
             format!("{path} is {size} bytes, over the {limit} byte limit, so it was not read"),
         ),
         FileState::Unreadable(error) => Verdict::from_api_error(error),
         FileState::LocalUnreadable { detail } => {
-            Verdict::inconclusive("local_path_unreadable", detail.clone())
+            Verdict::run_error("local_path_unreadable", detail.clone())
         }
     }
 }
 
 /// The declared repository settings file, or the verdict explaining why not.
 pub(crate) fn repo_settings(context: &AuditContext) -> Result<Yaml, Box<Verdict>> {
-    match context.yaml(".github/repo-settings.yml") {
+    match context.yaml(".github/airlock.yml") {
         ParsedFile::Parsed(document) => Ok(document),
-        ParsedFile::Undecided(verdict) => Err(verdict),
+        ParsedFile::ReadError(verdict) => Err(verdict),
         ParsedFile::Missing => Err(Box::new(Verdict::fail_at(
             "file_missing",
-            ".github/repo-settings.yml",
+            ".github/airlock.yml",
             "the declared settings file is absent, so nothing is declared",
-            Remediation::new(
-                ActionGroup::ADD_FILE,
-                "Add .github/repo-settings.yml declaring the repository's metadata.",
+            Fix::new(
+                FixGroup::ADD_FILE,
+                "Add .github/airlock.yml declaring the repository's metadata.",
             ),
         ))),
         ParsedFile::NotAFile(_) => Err(Box::new(Verdict::fail_at(
             "path_is_not_a_file",
-            ".github/repo-settings.yml",
+            ".github/airlock.yml",
             "the declared settings path is not a regular file",
-            Remediation::new(
-                ActionGroup::REPLACE_ENTRY,
-                "Make .github/repo-settings.yml a regular file.",
+            Fix::new(
+                FixGroup::REPLACE_ENTRY,
+                "Make .github/airlock.yml a regular file.",
             ),
         ))),
     }
@@ -805,19 +745,19 @@ pub(crate) const MALFORMED_DECLARATION: &str = "malformed_declaration";
 /// The verdict for a field the credential did not disclose.
 ///
 /// The check reports the observation — "the platform did not give me this
-/// field" — and the registry decides what that means. A rule the registry
+/// field" — and the rules decide what that means. A rule the rules
 /// declares gated is structurally undecided: no retry on this surface can
 /// answer it, and the declaration names the surface that can. A rule with no
 /// declaration is a run that fell short of what it can normally do, so it stays
 /// circumstantially undecided and keeps blocking. A check cannot promote itself
-/// out of that by knowing something the registry does not.
-pub(crate) fn undisclosed(def: &CheckDefinition, context: &AuditContext, subject: &str) -> Verdict {
+/// out of that by knowing something the rules do not.
+pub(crate) fn undisclosed(def: &RuleDefinition, context: &AuditContext, subject: &str) -> Verdict {
     match def.disclosure_gate() {
         Some(gate) if gate.withholds_from(context.credential) => Verdict::withheld(gate, subject),
         // Either the rule declares no gate, or it declares one this run's
         // credential could have satisfied. Both mean the same thing: the field
         // should have been there and was not, which is a run that fell short.
-        _ => Verdict::inconclusive(
+        _ => Verdict::run_error(
             "field_undisclosed",
             format!(
                 "{subject} was not disclosed to this credential ({}), and no declared \
@@ -844,7 +784,7 @@ fn collect_strings<'a>(
         match entry {
             Some(value) => values.push(value.to_owned()),
             None => {
-                return Err(Box::new(Verdict::inconclusive(
+                return Err(Box::new(Verdict::run_error(
                     MALFORMED_DECLARATION,
                     format!(
                         "entry {} of {subject} is not a string, so the declaration could not be \
@@ -876,7 +816,7 @@ pub(crate) fn yaml_strings(
 /// A YAML value that must be a sequence of strings.
 pub(crate) fn yaml_string_seq(value: &Yaml, subject: &str) -> Result<Vec<String>, Box<Verdict>> {
     let Some(entries) = value.as_seq() else {
-        return Err(Box::new(Verdict::inconclusive(
+        return Err(Box::new(Verdict::run_error(
             MALFORMED_DECLARATION,
             format!("{subject} is a {} rather than a list", value.kind()),
         )));
@@ -900,7 +840,7 @@ pub(crate) fn json_strings(
         return Ok(None);
     };
     let Some(entries) = value.as_array() else {
-        return Err(Box::new(Verdict::inconclusive(
+        return Err(Box::new(Verdict::run_error(
             MALFORMED_DECLARATION,
             format!("{subject} is not a list"),
         )));
@@ -919,7 +859,7 @@ pub(crate) fn json_strings(
 ///
 /// `Ok(None)` means no `topics` key at all.
 pub(crate) fn declared_topics(settings: &Yaml) -> Result<Option<Vec<String>>, Box<Verdict>> {
-    yaml_strings(settings, "topics", "`topics` in .github/repo-settings.yml")
+    yaml_strings(settings, "topics", "`topics` in .github/airlock.yml")
 }
 
 pub(crate) fn workflow_signals<'a>(text: &str, signals: &'a [&'a str]) -> Vec<&'a str> {
@@ -961,7 +901,7 @@ pub(crate) mod fixtures {
 
     use super::*;
     use crate::github::{EntryKind, Repository, Tree, TreeEntry};
-    use crate::registry;
+    use crate::rules;
     use std::collections::BTreeMap;
 
     /// Owned inputs for repeatedly evaluating checks in one test.
@@ -1072,28 +1012,27 @@ pub(crate) mod fixtures {
             commit: None,
             bundle_digest: "sha256:0".to_owned(),
             sources: Vec::new(),
-            gate: crate::findings::Gate::Blocking,
             rules: Vec::new(),
             suppressions: Default::default(),
-            reference_data: BTreeMap::new(),
-            capabilities: Vec::new(),
+
+            accepted_version: crate::policy::current_generation(),
+            exceptions: Default::default(),
         }
     }
 
     /// A rule instance for `id` at its registered severity.
-    pub fn rule(id: &str) -> RuleInstance {
-        let def = registry::find(id).expect("the rule is registered");
-        RuleInstance {
+    pub fn rule(id: &str) -> EffectiveRule {
+        let def = rules::find(id).expect("the rule is registered");
+        EffectiveRule {
             def,
             severity: def.severity,
             params: BTreeMap::new(),
             provenance: "test".to_owned(),
-            condition: Condition::Always,
         }
     }
 
     /// A rule instance with parameters.
-    pub fn rule_with(id: &str, params: &[(&str, serde_json::Value)]) -> RuleInstance {
+    pub fn rule_with(id: &str, params: &[(&str, serde_json::Value)]) -> EffectiveRule {
         let mut rule = rule(id);
         rule.params = params
             .iter()
@@ -1109,12 +1048,18 @@ pub(crate) mod fixtures {
         workflows: Vec<Workflow>,
     ) -> AuditContext<'a> {
         AuditContext {
+            maturity: Ok(crate::maturity::Observed {
+                rung: crate::rules::Lifecycle::Released,
+                baseline_tags: vec!["baseline".into()],
+                release_tags: vec!["release".into()],
+            }),
+            template_revisions: Ok(Vec::new()),
             snapshot,
             policy,
             limits: Limits::default(),
             workflows,
             workflows_truncated: false,
-            custom_property_values: Ok(Vec::new()),
+            release_records: Ok(crate::release_records::ReleaseInputs::default()),
             tags: Ok(Paged::complete(Vec::new())),
             history: Ok(Paged::complete(Vec::new())),
             rulesets: Ok(Paged::complete(Vec::new())),
@@ -1130,110 +1075,128 @@ pub(crate) mod fixtures {
 mod tests {
     use super::fixtures::*;
     use super::*;
-    use crate::findings::Undecided;
-    use crate::github::ErrorCause;
 
     #[test]
-    fn an_unset_custom_property_is_a_capability_decision() {
-        let fixture = CheckFixture::new(&[]);
-        let mut rule = rule("REPO-REL-04");
-        rule.condition = Condition::CustomProperty {
-            name: "release".to_owned(),
-            value: "true".to_owned(),
-        };
-        let verdict = evaluate(&rule, &fixture.context());
-        assert_eq!(verdict.status, Status::Inconclusive);
-        assert_eq!(verdict.evidence.unwrap().code, "capability_undeclared");
+    fn api_gate_preserves_public_observation_and_template_credentials() {
+        for (id, credential, observed, expected) in [
+            ("REPO-REL-08", CredentialCapability::ReadOnly, false, true),
+            (
+                "REPO-REL-08",
+                CredentialCapability::Unauthenticated,
+                true,
+                false,
+            ),
+            ("REPO-TPL-01", CredentialCapability::ReadOnly, true, false),
+            (
+                "REPO-TPL-01",
+                CredentialCapability::Unauthenticated,
+                true,
+                true,
+            ),
+            (
+                "REPO-FILE-01",
+                CredentialCapability::Unauthenticated,
+                false,
+                false,
+            ),
+        ] {
+            assert_eq!(api_gated(&rule(id), credential, observed), expected, "{id}");
+        }
     }
 
     #[test]
-    fn a_custom_property_that_declares_the_capability_absent_skips_the_rule() {
-        let fixture = CheckFixture::new(&[]);
+    fn seeded_rules_report_later_rungs_as_out_of_scope_without_outcomes() {
+        let fixture = CheckFixture::new(&[(
+            ".intentional/config.yml",
+            "release-units: {sample: {path: .}}",
+        )]);
         let mut context = fixture.context();
-        context.custom_property_values = Ok(vec![CustomPropertyValue {
-            property_name: "release".to_owned(),
-            value: crate::github::CustomPropertyValueKind::String("false".to_owned()),
-        }]);
-        let mut rule = rule("REPO-REL-04");
-        rule.condition = Condition::CustomProperty {
-            name: "release".to_owned(),
-            value: "true".to_owned(),
-        };
-        let verdict = evaluate(&rule, &context);
-        assert_eq!(verdict.status, Status::Skipped);
-        let evidence = verdict.evidence.unwrap();
-        assert_eq!(evidence.code, "condition_not_met");
+        context.maturity.as_mut().unwrap().rung = crate::rules::Lifecycle::Seeded;
+        for id in ["REPO-TPL-01", "REPO-REL-08"] {
+            let verdict = evaluate(&rule(id), &context);
+            assert!(verdict.status.is_none(), "{id}");
+            assert!(verdict.error.is_none(), "{id}");
+            assert_eq!(verdict.routing.unwrap().reason, "out-of-scope", "{id}");
+        }
+        let seeded = evaluate(&rule("REPO-GIT-15"), &context);
+        assert_eq!(seeded.status, Some(Status::Gap));
+        assert!(seeded
+            .fix
+            .unwrap()
+            .detail
+            .contains("intentional tag --baseline"));
+    }
+
+    #[test]
+    fn building_applies_template_identity_but_not_release_records() {
+        let fixture = CheckFixture::new(&[(
+            ".intentional/config.yml",
+            "release-units: {sample: {path: .}}",
+        )]);
+        let mut context = fixture.context();
+        context.maturity.as_mut().unwrap().rung = crate::rules::Lifecycle::Building;
+        assert!(applicability(&rule("REPO-TPL-01"), &context).is_ok());
         assert_eq!(
-            evidence.detail,
-            "organization custom property `release` must equal `true` for this capability; observed `false`"
+            applicability(&rule("REPO-REL-08"), &context)
+                .unwrap_err()
+                .routing
+                .unwrap()
+                .reason,
+            "out-of-scope"
+        );
+        assert_eq!(
+            evaluate(&rule("REPO-GIT-15"), &context).status,
+            Some(Status::Met)
         );
     }
 
     #[test]
-    fn null_on_the_bound_property_is_an_undeclared_capability() {
-        let fixture = CheckFixture::new(&[]);
+    fn unobserved_maturity_does_not_guess_or_block_independent_seeded_checks() {
+        let fixture = CheckFixture::new(&[(
+            ".intentional/config.yml",
+            "release-units: {sample: {path: .}}",
+        )]);
         let mut context = fixture.context();
-        context.custom_property_values = Ok(vec![CustomPropertyValue {
-            property_name: "release".to_owned(),
-            value: crate::github::CustomPropertyValueKind::Null,
-        }]);
-        let mut rule = rule("REPO-REL-04");
-        rule.condition = Condition::CustomProperty {
-            name: "release".to_owned(),
-            value: "true".to_owned(),
-        };
-
-        let verdict = evaluate(&rule, &context);
-        assert_eq!(verdict.status, Status::Inconclusive);
-        assert_eq!(verdict.evidence.unwrap().code, "capability_undeclared");
+        context.maturity = Err("history was truncated".into());
+        assert_eq!(
+            evaluate(&rule("REPO-REL-08"), &context)
+                .error
+                .unwrap()
+                .cause,
+            "maturity_unobserved"
+        );
+        assert_eq!(
+            evaluate(&rule("REPO-GIT-01"), &context).status,
+            Some(Status::Met)
+        );
     }
 
     #[test]
-    fn an_array_on_the_bound_property_is_declared_but_not_matching() {
+    fn release_unit_scope_is_one_case_of_the_shared_applicability_boundary() {
         let fixture = CheckFixture::new(&[]);
         let mut context = fixture.context();
-        context.custom_property_values = Ok(vec![CustomPropertyValue {
-            property_name: "release".to_owned(),
-            value: crate::github::CustomPropertyValueKind::Strings(vec![
-                "true".to_owned(),
-                "sample".to_owned(),
-            ]),
-        }]);
-        let mut rule = rule("REPO-REL-04");
-        rule.condition = Condition::CustomProperty {
-            name: "release".to_owned(),
-            value: "true".to_owned(),
-        };
-
-        let verdict = evaluate(&rule, &context);
-        assert_eq!(verdict.status, Status::Skipped);
-        let evidence = verdict.evidence.unwrap();
-        assert_eq!(evidence.code, "condition_not_met");
-        assert!(evidence.detail.contains("observed [`true`, `sample`]"));
+        context.maturity = Err("not observed".into());
+        let verdict = applicability(&rule("REPO-TPL-01"), &context).unwrap_err();
+        assert_eq!(verdict.routing.unwrap().reason, "out-of-scope");
+        assert!(verdict.error.is_none());
     }
 
     #[test]
-    fn an_unreadable_custom_property_is_not_a_capability_decision() {
-        let fixture = CheckFixture::new(&[]);
+    fn a_known_earlier_rung_does_not_read_later_rule_inputs() {
+        let fixture = CheckFixture::new(&[(".intentional/config.yml", "release-units: [sample]")]);
         let mut context = fixture.context();
-        context.custom_property_values = Err(ApiError::local(
-            ErrorCause::Permission,
-            "GET /repos/owner/name/properties/values",
-            "Resource not accessible by integration",
-        ));
-        let mut rule = rule("REPO-REL-04");
-        rule.condition = Condition::CustomProperty {
-            name: "release".to_owned(),
-            value: "true".to_owned(),
-        };
-        let verdict = evaluate(&rule, &context);
-        assert_eq!(verdict.evidence.unwrap().code, "condition_undecided");
+        context.maturity.as_mut().unwrap().rung = crate::rules::Lifecycle::Seeded;
+        let verdict = evaluate(&rule("REPO-TPL-01"), &context);
+        assert!(verdict.error.is_none());
+        assert_eq!(verdict.routing.unwrap().reason, "out-of-scope");
+        context.maturity.as_mut().unwrap().rung = crate::rules::Lifecycle::Building;
+        assert!(evaluate(&rule("REPO-TPL-01"), &context).error.is_some());
     }
 
     #[test]
-    fn a_withheld_field_is_structural_only_where_the_registry_declares_a_gate() {
+    fn a_withheld_field_is_structural_only_where_the_rules_declares_a_gate() {
         // The check reports one observation — the platform did not give me
-        // this field — and the registry decides what it means. A rule that
+        // this field — and the rules decide what it means. A rule that
         // declares a gate can only be settled with admin access, so it is
         // structural. A rule that declares no gate is a run that fell short,
         // so it stays circumstantial and keeps blocking. No check can promote
@@ -1242,28 +1205,28 @@ mod tests {
         let policy = policy();
         let read_only = context(&snapshot, &policy, Vec::new());
 
-        let declared = crate::registry::find("REPO-GIT-04").expect("registered");
+        let declared = crate::rules::find("REPO-GIT-04").expect("registered");
         let verdict = undisclosed(declared, &read_only, "the merge-commit setting");
-        assert_eq!(verdict.status, Status::AdminOnly);
-        assert_eq!(verdict.status.undecided(), Some(Undecided::Structural));
+        assert_eq!(verdict.status, None);
+        assert!(verdict.routing.is_some());
         let evidence = verdict.evidence.expect("evidence");
         assert_eq!(
             evidence.code,
-            crate::registry::MERGE_SETTINGS_DISCLOSURE.evidence_code
+            crate::rules::MERGE_SETTINGS_DISCLOSURE.evidence_code
         );
         assert!(
             evidence
                 .detail
-                .contains(crate::registry::Grant::CONTENTS_WRITE.code()),
+                .contains(crate::rules::Grant::CONTENTS_WRITE.code()),
             "the detail is built from the declaration: {}",
             evidence.detail
         );
 
-        let undeclared = crate::registry::find("REPO-GIT-01").expect("registered");
+        let undeclared = crate::rules::find("REPO-GIT-01").expect("registered");
         assert!(undeclared.disclosure_gate().is_none());
         let verdict = undisclosed(undeclared, &read_only, "the default branch");
-        assert_ne!(verdict.status, Status::AdminOnly);
-        assert_eq!(verdict.status.undecided(), Some(Undecided::Circumstantial));
+        assert!(verdict.status.is_none() && verdict.routing.is_none() && verdict.error.is_some());
+        assert!(verdict.routing.is_none());
         assert_eq!(
             verdict.evidence.expect("evidence").code,
             "field_undisclosed"
@@ -1281,11 +1244,11 @@ mod tests {
         let mut write_capable = context(&snapshot, &policy, Vec::new());
         write_capable.credential = CredentialCapability::WriteCapable;
 
-        let declared = crate::registry::find("REPO-GIT-04").expect("registered");
+        let declared = crate::rules::find("REPO-GIT-04").expect("registered");
         let verdict = undisclosed(declared, &write_capable, "the merge-commit setting");
 
-        assert_eq!(verdict.status, Status::Inconclusive);
-        assert_eq!(verdict.status.undecided(), Some(Undecided::Circumstantial));
+        assert_eq!(verdict.status, None);
+        assert!(verdict.routing.is_none());
         assert!(declared.disclosure_gate().is_some_and(|gate| {
             !gate.withholds_from(CredentialCapability::WriteCapable)
                 && gate.withholds_from(CredentialCapability::ReadOnly)
@@ -1298,7 +1261,7 @@ mod tests {
         let policy = policy();
         let context = context(&snapshot, &policy, Vec::new());
         let verdict = evaluate(&rule("REPO-README-01"), &context);
-        assert_eq!(verdict.status, Status::Manual);
+        assert_eq!(verdict.status, None);
     }
 
     #[test]
@@ -1307,90 +1270,7 @@ mod tests {
         let policy = policy();
         let context = context(&snapshot, &policy, Vec::new());
         let verdict = evaluate(&rule("REPO-DOCS-05"), &context);
-        assert_eq!(verdict.status, Status::Manual);
-    }
-
-    #[test]
-    fn a_rule_whose_condition_is_unmet_is_skipped() {
-        let snapshot = snapshot(&[]);
-        let policy = policy();
-        let context = context(&snapshot, &policy, Vec::new());
-        let mut instance = rule("REPO-REL-01");
-        instance.condition = Condition::IntentionalConfigPresent;
-        assert_eq!(evaluate(&instance, &context).status, Status::Skipped);
-    }
-
-    #[test]
-    fn a_condition_airlock_cannot_evaluate_is_undecided_rather_than_unmet() {
-        // The truncated tree never established that .intentional/config.yml is
-        // absent, so skipping every release rule would hide both the file and
-        // the checks it enables.
-        let mut snapshot = snapshot(&[]);
-        snapshot.tree.truncated = true;
-        let policy = policy();
-        let context = context(&snapshot, &policy, Vec::new());
-        let mut instance = rule("REPO-REL-01");
-        instance.condition = Condition::IntentionalConfigPresent;
-        let verdict = evaluate(&instance, &context);
-        assert_eq!(verdict.status, Status::Inconclusive);
-        assert_eq!(verdict.evidence.unwrap().code, "condition_undecided");
-    }
-
-    #[test]
-    fn an_unreadable_condition_input_reports_the_api_failure() {
-        let mut snapshot = snapshot(&[]);
-        snapshot.files.insert(
-            ".intentional/config.yml".to_owned(),
-            FileState::Unreadable(crate::github::ApiError::local(
-                crate::github::ErrorCause::Permission,
-                "GET /repos/owner/name/git/blobs/1",
-                "Resource not accessible by integration",
-            )),
-        );
-        let policy = policy();
-        let context = context(&snapshot, &policy, Vec::new());
-        let mut instance = rule("REPO-REL-01");
-        instance.condition = Condition::IntentionalConfigPresent;
-        let verdict = evaluate(&instance, &context);
-        assert_eq!(verdict.status, Status::Error);
-        assert_eq!(verdict.error.unwrap().cause, "permission");
-    }
-
-    #[test]
-    fn a_condition_that_holds_lets_the_check_run() {
-        let snapshot = snapshot(&[(
-            ".intentional/config.yml",
-            "release-units:\n  main:\n    path: .\n",
-        )]);
-        let policy = policy();
-        let context = context(&snapshot, &policy, Vec::new());
-        let mut instance = rule("REPO-REL-01");
-        instance.condition = Condition::IntentionalConfigPresent;
-        assert_eq!(evaluate(&instance, &context).status, Status::Pass);
-    }
-
-    #[test]
-    fn release_unit_rules_skip_when_no_units_are_declared() {
-        for files in [
-            Vec::new(),
-            vec![(".intentional/config.yml", "settings: {}\n")],
-            vec![(".intentional/config.yml", "release-units: {}\n")],
-        ] {
-            let snapshot = snapshot(&files);
-            let policy = policy();
-            let context = context(&snapshot, &policy, Vec::new());
-            for id in ["REPO-GIT-09", "REPO-TASK-04", "REPO-LIC-04"] {
-                let verdict = evaluate(&rule(id), &context);
-                assert_eq!(verdict.status, Status::Skipped, "{id}");
-                let evidence = verdict.evidence.expect("a skip names its condition");
-                assert_eq!(evidence.code, "condition_not_met", "{id}");
-                assert!(
-                    evidence.detail.contains("release-units-declared"),
-                    "{id}: {}",
-                    evidence.detail
-                );
-            }
-        }
+        assert_eq!(verdict.status, None);
     }
 
     #[test]
@@ -1406,29 +1286,11 @@ mod tests {
         let context = context(&snapshot, &policy, Vec::new());
 
         for id in ["REPO-GIT-09", "REPO-TASK-04", "REPO-LIC-04"] {
-            assert_eq!(evaluate(&rule(id), &context).status, Status::Pass, "{id}");
-        }
-    }
-
-    #[test]
-    fn undecidable_release_unit_input_cannot_skip_conditioned_rules() {
-        let mut truncated = snapshot(&[]);
-        truncated.tree.truncated = true;
-
-        let malformed = snapshot(&[(".intentional/config.yml", "release-units: [")]);
-
-        for snapshot in [&truncated, &malformed] {
-            let policy = policy();
-            let context = context(snapshot, &policy, Vec::new());
-            for id in ["REPO-GIT-09", "REPO-TASK-04", "REPO-LIC-04"] {
-                let verdict = evaluate(&rule(id), &context);
-                assert_eq!(verdict.status, Status::Inconclusive, "{id}");
-                assert_eq!(
-                    verdict.evidence.expect("inconclusive evidence").code,
-                    "condition_undecided",
-                    "{id}"
-                );
-            }
+            assert_eq!(
+                evaluate(&rule(id), &context).status,
+                Some(Status::Met),
+                "{id}"
+            );
         }
     }
 
@@ -1439,8 +1301,8 @@ mod tests {
         let snapshot = snapshot(&[]);
         let policy = policy();
         let context = context(&snapshot, &policy, Vec::new());
-        for def in crate::registry::CHECKS {
-            if def.evaluation != Evaluation::Mechanical {
+        for def in crate::rules::RULES {
+            if def.unbuilt_reason().is_some() {
                 continue;
             }
             let verdict = evaluate(&rule(def.id), &context);
@@ -1461,7 +1323,7 @@ mod tests {
         let document =
             yaml::parse_mapping("topics: [cli, 42, rust]\n", Limits::default().yaml).unwrap();
         let verdict = *declared_topics(&document).unwrap_err();
-        assert_eq!(verdict.status, Status::Inconclusive);
+        assert_eq!(verdict.status, None);
         let evidence = verdict.evidence.unwrap();
         assert_eq!(evidence.code, MALFORMED_DECLARATION);
         assert!(evidence.detail.contains("entry 2"));
@@ -1487,7 +1349,7 @@ mod tests {
     fn a_value_that_is_not_a_list_is_malformed() {
         let document = yaml::parse_mapping("topics: cli, rust\n", Limits::default().yaml).unwrap();
         let verdict = *declared_topics(&document).unwrap_err();
-        assert_eq!(verdict.status, Status::Inconclusive);
+        assert_eq!(verdict.status, None);
         assert!(verdict
             .evidence
             .unwrap()
@@ -1503,7 +1365,7 @@ mod tests {
         )]);
         let parsed = workflows(&snapshot);
         let error = parsed[0].triggers().unwrap_err();
-        assert_eq!(error.status, Status::Inconclusive);
+        assert_eq!(error.status, None);
         assert_eq!(error.evidence.unwrap().code, MALFORMED_DECLARATION);
     }
 
@@ -1530,5 +1392,48 @@ mod tests {
             .unwrap()
             .pushes_to("main")
             .unwrap());
+    }
+}
+
+#[cfg(test)]
+mod outcome_gate_tests {
+    use super::fixtures::*;
+    use super::*;
+
+    #[test]
+    fn an_unbuilt_boundary_requires_a_compiled_declaration() {
+        let fixture = CheckFixture::new(&[(".gitignore", "target/\n")]);
+        let declared = evaluate(&rule("REPO-FILE-03"), &fixture.context());
+        assert_eq!(declared.routing.as_ref().unwrap().reason, "unbuilt");
+        assert!(declared.status.is_none());
+
+        // Invoke the same check through a definition with no unbuilt gate.
+        let mut definition = *crate::rules::find("REPO-FILE-01").unwrap();
+        definition.id = "REPO-FILE-03";
+        let undeclared_rule = EffectiveRule {
+            def: Box::leak(Box::new(definition)),
+            ..rule("REPO-FILE-03")
+        };
+        let undeclared = evaluate(&undeclared_rule, &fixture.context());
+        assert!(undeclared.routing.is_none());
+        assert!(undeclared.status.is_none());
+        assert_eq!(undeclared.error.unwrap().cause, "undeclared_gate");
+    }
+    #[test]
+    fn an_out_of_scope_boundary_requires_a_compiled_declaration() {
+        let fixture = CheckFixture::new(&[]);
+        let declared = evaluate(&rule("REPO-LIC-04"), &fixture.context());
+        assert_eq!(declared.routing.as_ref().unwrap().reason, "out-of-scope");
+        assert!(declared.status.is_none());
+        let mut definition = *crate::rules::find("REPO-FILE-01").unwrap();
+        definition.id = "REPO-LIC-04";
+        let undeclared_rule = EffectiveRule {
+            def: Box::leak(Box::new(definition)),
+            ..rule("REPO-LIC-04")
+        };
+        let undeclared = evaluate(&undeclared_rule, &fixture.context());
+        assert!(undeclared.routing.is_none());
+        assert!(undeclared.status.is_none());
+        assert_eq!(undeclared.error.unwrap().cause, "undeclared_gate");
     }
 }

@@ -1,0 +1,6 @@
+$schema: https://refinery.systems/ontology/term
+title: Met
+description: >-
+  An evaluated rule whose compiled requirement the repository satisfies. Met is one of the
+  two evaluated outcomes. A waiver, routed rule, missing declaration or run error does not
+  establish Met.

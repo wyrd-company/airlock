@@ -39,7 +39,7 @@ tasks:
       - shellcheck scripts/*.sh
       - >-
         ryl check --config-file .ryl.yml .github/workflows/*.yml
-        .github/repo-settings.yml docs/examples/*.yml taskfile.yml
+        .github/airlock.yml docs taskfile.yml
       - rumdl check .
       - intentional check
 

@@ -11,11 +11,11 @@ mod bootstrap;
 mod chrome;
 mod detail;
 mod findings;
+mod fix;
 mod lane;
 mod organizations;
 mod panel;
 mod policy;
-mod remediation;
 mod repositories;
 mod scaffold;
 mod screen;
@@ -35,11 +35,11 @@ use crossterm::event::{self, Event};
 use self::app::{App, Flow};
 use self::theme::ColorMode;
 use crate::admin::catalogue::{self, Reading};
-use crate::admin::flow::{Authorizing, Report};
-use crate::admin::remediation::{
+use crate::admin::fix::{
     Request as WorkerRequest, Response as WorkerResponse, SecretEntry, SecretInputAction,
     SecretOperation, SecretValue, Target, Working,
 };
+use crate::admin::flow::{Authorizing, Report};
 use crate::admin::session::SessionCredential;
 use crate::admin::text::{self, CAUSE_LIMIT};
 
@@ -257,7 +257,7 @@ fn drive(app: &mut App, session: &mut terminal::Session, authorizing: Authorizin
                     match Working::start(&session, env!("CARGO_PKG_VERSION")) {
                         Ok(started) => working = Some(started),
                         Err(error) => app.operation_failed(text::sanitize(
-                            &format!("cannot start the remediation worker: {error:#}"),
+                            &format!("cannot start the fix worker: {error:#}"),
                             CAUSE_LIMIT,
                         )),
                     }
@@ -320,7 +320,7 @@ fn drive(app: &mut App, session: &mut terminal::Session, authorizing: Authorizin
                 app.operation_failed(text::sanitize(&format!("{error:#}"), CAUSE_LIMIT));
             }
         }
-        if let (Some(worker), Some((observe, remediation))) =
+        if let (Some(worker), Some((observe, fix))) =
             (working.as_ref(), app.take_preparation_request())
         {
             if let Err(error) = worker.request(WorkerRequest::Prepare {
@@ -328,12 +328,12 @@ fn drive(app: &mut App, session: &mut terminal::Session, authorizing: Authorizin
                     owner: observe.owner,
                     repo: observe.name,
                 },
-                remediation,
+                fix,
             }) {
                 app.operation_failed(text::sanitize(&format!("{error:#}"), CAUSE_LIMIT));
             }
         }
-        if let (Some(worker), Some(request)) = (working.as_ref(), app.take_remediation_request()) {
+        if let (Some(worker), Some(request)) = (working.as_ref(), app.take_fix_request()) {
             let target = Target {
                 owner: request.owner,
                 repo: request.repo,
@@ -345,7 +345,7 @@ fn drive(app: &mut App, session: &mut terminal::Session, authorizing: Authorizin
                 let secret = item.secret_rename();
                 if let Some(secret) = secret.filter(|_| {
                     matches!(
-                        item.remediation.as_str(),
+                        item.fix.as_str(),
                         "rename-app-credentials" | "rename-task-named-credentials"
                     )
                 }) {
@@ -359,7 +359,7 @@ fn drive(app: &mut App, session: &mut terminal::Session, authorizing: Authorizin
                     WorkerRequest::ApplyWithSecret {
                         target,
                         rule: item.rule,
-                        remediation: item.remediation,
+                        fix: item.fix,
                         operation: SecretOperation::RenameCredentials { variable, secret },
                         value,
                     }
@@ -367,7 +367,7 @@ fn drive(app: &mut App, session: &mut terminal::Session, authorizing: Authorizin
                     WorkerRequest::Apply {
                         target,
                         rule: item.rule,
-                        remediation: item.remediation,
+                        fix: item.fix,
                         argument,
                     }
                 }
@@ -378,9 +378,8 @@ fn drive(app: &mut App, session: &mut terminal::Session, authorizing: Authorizin
                         .items
                         .into_iter()
                         .map(|item| {
-                            let action =
-                                crate::admin::remediation::Action::for_code(&item.remediation)
-                                    .expect("bulk items are structurally input-free actions");
+                            let action = crate::admin::fix::Action::for_code(&item.fix)
+                                .expect("bulk items are structurally input-free actions");
                             (item.rule, action)
                         })
                         .collect(),
@@ -417,7 +416,7 @@ fn drive(app: &mut App, session: &mut terminal::Session, authorizing: Authorizin
                     repo: request.repo,
                 },
                 rule: "publishing-bootstrap".to_owned(),
-                remediation: "set-publishing-bootstrap-secret".to_owned(),
+                fix: "set-publishing-bootstrap-secret".to_owned(),
                 operation: SecretOperation::SetRepositorySecret {
                     name: request.secret,
                 },
@@ -433,7 +432,7 @@ fn drive(app: &mut App, session: &mut terminal::Session, authorizing: Authorizin
                     repo: request.repo,
                 },
                 rule: request.rule,
-                remediation: request.remediation,
+                fix: request.fix,
                 undo: request.undo,
                 expected: request.expected,
             }) {
@@ -469,11 +468,9 @@ fn drive(app: &mut App, session: &mut terminal::Session, authorizing: Authorizin
                         },
                         observations,
                     ),
-                    WorkerResponse::Prepared { remediation, input } => {
-                        app.remediation_prepared(&remediation, input)
-                    }
+                    WorkerResponse::Prepared { fix, input } => app.fix_prepared(&fix, input),
                     WorkerResponse::Applied { target, transcript } => {
-                        app.remediation_complete(transcript);
+                        app.fix_complete(transcript);
                         if let Err(error) = worker.request(WorkerRequest::Observe(target)) {
                             app.operation_failed(text::sanitize(
                                 &format!("{error:#}"),
@@ -485,7 +482,7 @@ fn drive(app: &mut App, session: &mut terminal::Session, authorizing: Authorizin
                         target,
                         transcripts,
                     } => {
-                        app.remediation_group_complete(transcripts);
+                        app.fix_group_complete(transcripts);
                         if let Err(error) = worker.request(WorkerRequest::Observe(target)) {
                             app.operation_failed(text::sanitize(
                                 &format!("{error:#}"),
@@ -590,7 +587,7 @@ fn reissue(app: &mut App, authorizing: &mut Option<Authorizing>) {
 /// swallows nothing that matters — a terminal that does not implement the
 /// sequence ignores it, and the value is on the screen in full regardless.
 ///
-/// Only a rule id and the registry digest ever reach here. No credential is on
+/// Only a rule id and the rules digest ever reach here. No credential is on
 /// any screen, so none can be copied off one.
 fn offer_to_clipboard(value: &str) {
     use base64::Engine as _;

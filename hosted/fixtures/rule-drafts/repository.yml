@@ -1,0 +1,29 @@
+# relationships: { references: ../../../docs/configurable-rules.md }
+# Hand-authored repository example; assignment is still required.
+rules:
+  sample-note:
+    statement: The local note contains its expected text.
+    probes:
+      note: { kind: file-content, input: { path: note.txt } }
+    conditions:
+      - probe: note
+        pointer: /contents
+        evaluation: equal
+        setting: { floor: "Ready\n", value: "Ready\n" }
+    severity: { floor: advisory, value: blocking }
+    reason: The sample uses a local note.
+    fix:
+      mode: agent
+      guidance: |
+        Inspect the local note.
+        Preserve the text "false".
+  sample-sibling:
+    statement: The other note is present.
+    probes:
+      note: { kind: file-content, input: { path: other.txt } }
+    conditions:
+      - probe: note
+        pointer: /exists
+        evaluation: equal
+        setting: { floor: true, value: true }
+    severity: { floor: advisory, value: advisory }

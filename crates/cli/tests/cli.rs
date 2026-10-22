@@ -1,3 +1,9 @@
+// ---
+// relationships:
+//   implements: terminal-interface
+//   references: release-process-conformance
+// ---
+
 //! End-to-end runs of the `airlock` binary.
 //!
 //! Every run here talks to a fixture GitHub. The binary is pointed at it by
@@ -20,13 +26,7 @@ use wiremock::MockServer;
 
 /// A policy over the licensing section only, which is small enough to reason
 /// about and contains one blocking rule.
-const LICENSING_POLICY: &str = "\
-version: 1
-name: test-policy
-gate: blocking
-capabilities:
-  base: [licensing]
-";
+const LICENSING_POLICY: &str = "# fixture-sections: licensing\nversion: 0.6.0\n";
 
 fn airlock(server: &MockServer, config: &TempDir) -> Command {
     let mut command = Command::cargo_bin("airlock").expect("the airlock binary builds");
@@ -56,9 +56,34 @@ fn offline() -> Command {
     command
 }
 
+// Tests focus on checks with explicit waivers; production config never selects rules.
+fn fixture_policy(body: &str) -> String {
+    let Some(sections) = body
+        .lines()
+        .find_map(|line| line.strip_prefix("# fixture-sections: "))
+    else {
+        return body.to_owned();
+    };
+    let sections: Vec<_> = sections.split(',').map(str::trim).collect();
+    let mut waivers = String::new();
+    for rule in airlock_core::rules::RULES {
+        if !sections.contains(&rule.section.code()) && !body.contains(&format!("  {}:", rule.id)) {
+            waivers.push_str(&format!(
+                "  {}: {{reason: Focused fixture, severity: none}}\n",
+                rule.id
+            ));
+        }
+    }
+    if body.contains("exceptions:\n") {
+        body.replacen("exceptions:\n", &format!("exceptions:\n{waivers}"), 1)
+    } else {
+        format!("{body}exceptions:\n{waivers}")
+    }
+}
+
 fn policy_path(directory: &TempDir, body: &str) -> String {
     let path = directory.path().join("policy.yml");
-    std::fs::write(&path, body).expect("the policy is written");
+    std::fs::write(&path, fixture_policy(body)).expect("the policy is written");
     path.display().to_string()
 }
 
@@ -84,12 +109,28 @@ fn json_output(output: &[u8]) -> Value {
 }
 
 fn finding<'a>(report: &'a Value, rule: &str) -> &'a Value {
-    report["findings"]
-        .as_array()
-        .expect("findings is an array")
-        .iter()
-        .find(|finding| finding["rule"] == rule)
-        .unwrap_or_else(|| panic!("{rule} has no finding"))
+    let entries: Vec<_> = [
+        "findings",
+        "waived",
+        "routed",
+        "unbuilt",
+        "out_of_scope",
+        "run_errors",
+    ]
+    .into_iter()
+    .flat_map(|list| {
+        report[list]
+            .as_array()
+            .expect("each result list is an array")
+    })
+    .filter(|entry| entry["rule"] == rule)
+    .collect();
+    assert_eq!(
+        entries.len(),
+        1,
+        "{rule} must occur in exactly one result list"
+    );
+    entries[0]
 }
 
 async fn audit_json(repo: FakeRepo, policy: &str, exit_code: i32) -> Value {
@@ -186,8 +227,8 @@ fn skill_emits_the_complete_offline_tree_and_refuses_existing_targets() {
         .assert()
         .success()
         .stdout(contains("Cite every rule by id and statement together"))
-        .stdout(contains(airlock_core::registry::REGISTRY_VERSION))
-        .stdout(contains(airlock_core::registry::digest()));
+        .stdout(contains(airlock_core::rules::RULES_VERSION))
+        .stdout(contains(airlock_core::rules::digest()));
 
     let conformance = std::fs::read_to_string(target.join("references/conformance.md")).unwrap();
     assert!(conformance.contains("REPO-CI-02"));
@@ -228,31 +269,31 @@ fn repository_commands_without_a_target_are_usage_errors() {
 }
 
 #[test]
-fn list_checks_reports_the_whole_registry_without_a_target() {
+fn list_rules_reports_all_rules_without_a_target() {
     let assertion = offline()
-        .args(["audit", "--list-checks", "--format", "json"])
+        .args(["audit", "--list-rules", "--format", "json"])
         .assert()
         .success();
     let listing = json_output(&assertion.get_output().stdout);
-    let checks = listing["checks"].as_array().unwrap();
+    let checks = listing["rules"].as_array().unwrap();
     assert!(checks.len() >= 109);
     for id in ["REPO-FILE-01", "REPO-CI-09", "REPO-PROP-04"] {
         assert!(checks.iter().any(|check| check["id"] == id), "{id}");
     }
-    assert!(listing["registry_digest"]
+    assert!(listing["rules_digest"]
         .as_str()
         .unwrap()
         .starts_with("sha256:"));
 }
 
 #[test]
-fn list_checks_reports_evaluation_modes_and_no_unimplemented_rules() {
+fn list_rules_reports_evaluation_modes_and_no_unimplemented_rules() {
     let assertion = offline()
-        .args(["audit", "--list-checks", "--format", "json"])
+        .args(["audit", "--list-rules", "--format", "json"])
         .assert()
         .success();
     let listing = json_output(&assertion.get_output().stdout);
-    let checks = listing["checks"].as_array().unwrap();
+    let checks = listing["rules"].as_array().unwrap();
     let unimplemented: Vec<&str> = checks
         .iter()
         .filter(|check| check["evaluation"] == "unimplemented")
@@ -261,17 +302,19 @@ fn list_checks_reports_evaluation_modes_and_no_unimplemented_rules() {
     assert!(unimplemented.is_empty());
     assert!(checks
         .iter()
-        .any(|check| check["id"] == "REPO-DOCS-05" && check["evaluation"] == "manual"));
+        .any(|check| check["id"] == "REPO-DOCS-05" && check["unbuilt_reason"].is_string()));
     assert!(checks.iter().any(|check| {
         check["id"] == "REPO-DOCS-05"
-            && check["evaluation_reason"]
+            && check["unbuilt_reason"]
                 .as_str()
                 .is_some_and(|reason| reason.contains("Partial validation"))
     }));
     assert!(checks
         .iter()
-        .any(|check| check["id"] == "REPO-README-06" && check["evaluation"] == "mechanical"));
-    assert!(checks.iter().any(|check| check["evaluation"] == "manual"));
+        .any(|check| check["id"] == "REPO-README-06" && check["evaluation"] == "compiled"));
+    assert!(checks
+        .iter()
+        .any(|check| check["unbuilt_reason"].is_string()));
 }
 
 #[test]
@@ -281,7 +324,7 @@ fn a_closed_output_pipe_terminates_silently_with_sigpipe() {
     let writer: OwnedFd = writer.into();
 
     let output = std::process::Command::new(assert_cmd::cargo::cargo_bin!("airlock"))
-        .args(["audit", "--list-checks", "--format", "json"])
+        .args(["audit", "--list-rules", "--format", "json"])
         .stdout(Stdio::from(writer))
         .stderr(Stdio::piped())
         .spawn()
@@ -309,9 +352,9 @@ async fn a_conformant_repository_exits_zero() {
     assert_eq!(report["outcome"], "conformant");
     assert_eq!(report["complete"], true);
     assert_eq!(report["conformant"], true);
-    assert_eq!(report["schema_version"], 1);
+    assert_eq!(report["schema_version"], 2);
     assert_eq!(report["repository"]["audited_commit"], support::COMMIT);
-    assert_eq!(finding(&report, "REPO-LIC-01")["status"], "pass");
+    assert_eq!(finding(&report, "REPO-LIC-01")["status"], "met");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -324,37 +367,37 @@ async fn a_blocking_failure_exits_one() {
     assert_eq!(report["outcome"], "nonconformant");
     assert_eq!(report["complete"], true);
     let lic01 = finding(&report, "REPO-LIC-01");
-    assert_eq!(lic01["status"], "fail");
+    assert_eq!(lic01["status"], "gap");
     assert_eq!(lic01["evidence"]["code"], "file_missing");
-    assert_eq!(lic01["remediation"]["action_group"], "add_file");
-    assert!(lic01["remediation"].get("code").is_none());
+    assert_eq!(lic01["fix"]["fix_group"], "add_file");
+    assert!(lic01["fix"].get("code").is_none());
     assert_eq!(
-        lic01["remediation_class"]["code"], "add-license-file",
-        "consumers join on the per-rule remediation class"
+        lic01["fix_class"]["code"], "add-license-file",
+        "consumers join on the per-rule fix class"
     );
-    assert!(lic01["remediation"]["detail"].is_string());
+    assert!(lic01["fix"]["detail"].is_string());
 }
 
 // ---------------------------------------------------------------------------
-// Plan
+// Human audit fixes
 // ---------------------------------------------------------------------------
 
-/// Run `airlock plan` against a fixture repository and return what it printed.
-async fn plan_text(repo: FakeRepo, policy: &str) -> String {
+/// Run `airlock audit` against a fixture repository and return what it printed.
+async fn audit_text(repo: FakeRepo, policy: &str) -> String {
     let server = support::start(&[repo]).await;
     let config = TempDir::new().unwrap();
     let policies = TempDir::new().unwrap();
     let assertion = airlock(&server, &config)
         .args([
-            "plan",
+            "audit",
+            "--format",
+            "text",
             "wyrd-company/example",
             "--policy",
             &policy_path(&policies, policy),
         ])
         .assert()
-        // A plan is a display, never a gate: the repository below is
-        // nonconformant and `airlock audit` exits 1 on it.
-        .code(0);
+        .code(predicates::iter::in_iter([0, 1]));
     String::from_utf8(assertion.get_output().stdout.clone()).expect("stdout is utf-8")
 }
 
@@ -366,15 +409,15 @@ fn nonconformant_repo() -> FakeRepo {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn plan_prints_the_change_each_open_gap_calls_for() {
-    let text = plan_text(nonconformant_repo(), LICENSING_POLICY).await;
+async fn audit_prints_the_change_each_open_gap_calls_for() {
+    let text = audit_text(nonconformant_repo(), LICENSING_POLICY).await;
 
     assert!(text.contains("REPO-LIC-01"), "{text}");
     assert!(
         text.contains("add-license-file"),
-        "the plan joins on the per-rule remediation code: {text}"
+        "the plan joins on the per-rule fix code: {text}"
     );
-    assert!(text.contains("deterministic-file"), "{text}");
+    assert!(text.contains("airlock"), "{text}");
     assert!(
         text.contains("not reversible"),
         "adding a licence cannot be undone by changing your mind: {text}"
@@ -382,26 +425,26 @@ async fn plan_prints_the_change_each_open_gap_calls_for() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn plan_says_its_output_is_a_display_and_not_a_stored_work_order() {
-    let text = plan_text(nonconformant_repo(), LICENSING_POLICY).await;
+async fn audit_says_its_output_is_a_display_and_not_a_stored_work_order() {
+    let text = audit_text(nonconformant_repo(), LICENSING_POLICY).await;
     assert!(text.contains("display"), "{text}");
     assert!(text.contains("re-observes each rule"), "{text}");
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn plan_proposes_nothing_for_a_repository_with_no_open_gap() {
+async fn audit_proposes_nothing_for_a_repository_with_no_open_gap() {
     let repo = FakeRepo::new("wyrd-company", "example")
         .with_file("LICENSE", "Apache License 2.0")
         .with_file(
             "Cargo.toml",
             "[package]\nname = \"example\"\nlicense = \"Apache-2.0\"\n",
         );
-    let text = plan_text(repo, LICENSING_POLICY).await;
-    assert!(text.contains("No change is proposed"), "{text}");
+    let text = audit_text(repo, LICENSING_POLICY).await;
+    assert!(!text.contains("fix add-license-file"), "{text}");
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn plan_refuses_a_credential_it_cannot_prove_read_only() {
+async fn audit_refuses_a_credential_it_cannot_prove_read_only() {
     let server = support::start(&[FakeRepo::new("wyrd-company", "example")]).await;
     let config = TempDir::new().unwrap();
     let policies = TempDir::new().unwrap();
@@ -412,7 +455,7 @@ async fn plan_refuses_a_credential_it_cannot_prove_read_only() {
     airlock(&server, &config)
         .env("AIRLOCK_TOKEN", "github_pat_11ABCDEFG")
         .args([
-            "plan",
+            "audit",
             "wyrd-company/example",
             "--policy",
             &policy_path(&policies, LICENSING_POLICY),
@@ -423,14 +466,17 @@ async fn plan_refuses_a_credential_it_cannot_prove_read_only() {
 }
 
 #[test]
-fn plan_offers_no_output_format_because_nothing_consumes_a_plan() {
-    // A JSON plan would invite a pipeline to read it back, and a plan read
-    // back is a remembered observation. Machine consumers read the audit.
+fn retired_plan_command_is_not_a_machine_or_human_surface() {
     offline()
         .args(["plan", "--help"])
         .assert()
+        .code(2)
+        .stderr(contains("unrecognized subcommand"));
+    offline()
+        .arg("--help")
+        .assert()
         .success()
-        .stdout(contains("--format").not());
+        .stdout(contains("  plan").not());
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -442,22 +488,22 @@ async fn agent_work_is_json_by_default_and_reports_file_work() {
 
     let list = agent_work_json(repo, LICENSING_POLICY, 1).await;
 
-    assert_eq!(list["outcome"], "agent_lane_work_remains");
-    assert_eq!(list["scope"], "agent_lane_only_not_repository_conformance");
+    assert_eq!(list["outcome"], "agent_work_remains");
+    assert_eq!(list["scope"], "agent_work_only_not_repository_conformance");
     assert!(list.get("conformant").is_none());
-    assert_eq!(list["agent_lane"]["count"], 1);
-    assert_eq!(list["agent_lane"]["items"][0]["rule"], "REPO-LIC-01");
+    assert_eq!(list["agent_work"]["count"], 1);
+    assert_eq!(list["agent_work"]["items"][0]["rule"], "REPO-LIC-01");
     assert_eq!(
-        list["agent_lane"]["items"][0]["remediation_code"],
+        list["agent_work"]["items"][0]["fix_code"],
         "add-license-file"
     );
-    assert_eq!(list["agent_lane"]["items"][0]["lane"], "deterministic-file");
-    assert_eq!(list["agent_lane"]["items"][0]["source"], "api");
+    assert_eq!(list["agent_work"]["items"][0]["fix_kind"], "airlock");
+    assert_eq!(list["agent_work"]["items"][0]["source"], "api");
     assert_eq!(list["operator_deferred"]["count"], 0);
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_clear_agent_lane_is_not_a_repository_conformance_claim() {
+async fn a_clear_agent_work_is_not_a_repository_conformance_claim() {
     let repo = FakeRepo::new("wyrd-company", "example")
         .with_file("LICENSE", "Apache License 2.0")
         .with_file(
@@ -467,8 +513,8 @@ async fn a_clear_agent_lane_is_not_a_repository_conformance_claim() {
 
     let list = agent_work_json(repo, LICENSING_POLICY, 0).await;
 
-    assert_eq!(list["outcome"], "agent_lane_clear");
-    assert_eq!(list["agent_lane"]["count"], 0);
+    assert_eq!(list["outcome"], "agent_work_clear");
+    assert_eq!(list["agent_work"]["count"], 0);
     assert!(list.get("conformant").is_none());
 }
 
@@ -505,7 +551,209 @@ fn agent_work_reports_an_uncommitted_working_tree_as_its_source() {
         list["observation"]["working_tree"]["includes_uncommitted"],
         true
     );
-    assert_eq!(list["agent_lane"]["items"][0]["source"], "working-tree");
+    assert_eq!(list["agent_work"]["items"][0]["source"], "working-tree");
+}
+
+fn renovate_repository(owner: Option<&str>, contents: Option<&str>) -> TempDir {
+    let repository = TempDir::new().unwrap();
+    git(repository.path(), &["init", "-q", "-b", "main"]);
+    if let Some(owner) = owner {
+        git(
+            repository.path(),
+            &[
+                "remote",
+                "add",
+                "origin",
+                &format!("git@github.com:{owner}/sample.git"),
+            ],
+        );
+    }
+    std::fs::write(repository.path().join("seed"), "seed\n").unwrap();
+    if let Some(contents) = contents {
+        std::fs::create_dir_all(repository.path().join(".github")).unwrap();
+        std::fs::write(repository.path().join(".github/renovate.json"), contents).unwrap();
+    }
+    git(repository.path(), &["add", "."]);
+    git(repository.path(), &["commit", "-q", "-m", "fixture"]);
+    repository
+}
+
+fn renovate_policy(preset: Option<&str>) -> String {
+    let mut policy = format!("{FILES_POLICY}exceptions:\n");
+    for rule in airlock_core::rules::in_section(airlock_core::rules::Section::Files) {
+        if rule.id != "REPO-FILE-08" {
+            policy.push_str(&format!(
+                "  {}: {{reason: Focused fixture, severity: none}}\n",
+                rule.id
+            ));
+        }
+    }
+    policy.push_str("  REPO-FILE-08:\n    reason: Fixture configuration\n    severity: blocking\n");
+    if let Some(preset) = preset {
+        policy.push_str(&format!("    renovate-preset: '{}'\n", preset));
+    }
+    policy
+}
+
+fn local_file_json(command: &str, repository: &TempDir, policy: &str, exit: i32) -> Value {
+    let assertion = offline()
+        .args([
+            command,
+            "--working-tree",
+            &repository.path().display().to_string(),
+            "--policy",
+            policy,
+            "--format",
+            "json",
+        ])
+        .assert()
+        .code(exit);
+    json_output(&assertion.get_output().stdout)
+}
+
+#[test]
+fn renovate_missing_file_without_owner_stays_a_gap_after_alignment() {
+    for (severity, exit) in [("blocking", 1), ("advisory", 0)] {
+        let repository = renovate_repository(None, None);
+        let policies = TempDir::new().unwrap();
+        let policy = policy_path(
+            &policies,
+            &renovate_policy(None).replace("severity: blocking", &format!("severity: {severity}")),
+        );
+        for command in ["audit", "align-files", "audit"] {
+            let report = local_file_json(
+                command,
+                &repository,
+                &policy,
+                if command == "align-files" { 0 } else { exit },
+            );
+            if command == "align-files" {
+                assert!(report["operations"]["operations"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .all(|operation| operation["outcome"] != "written"));
+            } else {
+                let result = finding(&report, "REPO-FILE-08");
+                assert_eq!(result["status"], "gap");
+                assert_eq!(result["evidence"]["code"], "file_missing");
+                assert!(report["routed"].as_array().unwrap().is_empty());
+            }
+            assert!(!repository.path().join(".github/renovate.json").exists());
+        }
+    }
+}
+
+#[test]
+fn renovate_present_file_without_owner_routes_only_preset_comparison() {
+    let contents = "{\"extends\":[\"github>example-org/.github\"]}\n";
+    let repository = renovate_repository(None, Some(contents));
+    let policies = TempDir::new().unwrap();
+    let policy = policy_path(&policies, &renovate_policy(None));
+    for command in ["audit", "align-files", "audit"] {
+        let report = local_file_json(command, &repository, &policy, 0);
+        if command == "align-files" {
+            assert!(report["operations"]["operations"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|operation| operation["outcome"] != "written"));
+        } else {
+            let result = finding(&report, "REPO-FILE-08");
+            assert_eq!(result["status"], Value::Null);
+            assert_eq!(result["routing"]["reason"], "needs-repository-owner");
+            assert_eq!(result["fix"], Value::Null);
+            assert!(report["findings"].as_array().unwrap().is_empty());
+        }
+        assert_eq!(
+            std::fs::read_to_string(repository.path().join(".github/renovate.json")).unwrap(),
+            contents
+        );
+    }
+    let status = std::process::Command::new("git")
+        .current_dir(repository.path())
+        .args(["status", "--porcelain"])
+        .output()
+        .unwrap();
+    assert!(status.status.success());
+    assert!(status.stdout.is_empty());
+}
+
+#[test]
+fn renovate_without_owner_preserves_json_and_extends_diagnostics() {
+    for (contents, code, exit) in [
+        ("{", "unparseable_json", 2),
+        ("{\"extends\":[42]}", "malformed_declaration", 2),
+        ("{}", "renovate_extends_nothing", 1),
+        ("{\"extends\":[]}", "renovate_extends_nothing", 1),
+    ] {
+        let repository = renovate_repository(None, Some(contents));
+        let policies = TempDir::new().unwrap();
+        let policy = policy_path(&policies, &renovate_policy(None));
+        let report = local_file_json("audit", &repository, &policy, exit);
+        assert_eq!(finding(&report, "REPO-FILE-08")["evidence"]["code"], code);
+        assert!(report["routed"].as_array().unwrap().is_empty());
+    }
+}
+
+#[test]
+fn renovate_alignment_and_audit_share_compiled_defaults_and_explicit_parameters() {
+    let cases = [
+        (
+            Some("example-org"),
+            None,
+            None,
+            "github>example-org/.github",
+        ),
+        (
+            Some("example-org"),
+            Some("{\"extends\":[\"github>another-org/.github\"],\"enabled\":true}"),
+            None,
+            "github>example-org/.github",
+        ),
+        (Some("unknown"), None, None, "github>unknown/.github"),
+        (
+            None,
+            None,
+            Some("github>another-org/custom"),
+            "github>another-org/custom",
+        ),
+        (
+            None,
+            None,
+            Some("github>{owner}/custom"),
+            "github>{owner}/custom",
+        ),
+        (
+            Some("example-org"),
+            None,
+            Some("github>another-org/custom"),
+            "github>another-org/custom",
+        ),
+    ];
+    for (owner, contents, preset, expected) in cases {
+        let repository = renovate_repository(owner, contents);
+        let policies = TempDir::new().unwrap();
+        let policy = policy_path(&policies, &renovate_policy(preset));
+        let before = local_file_json("audit", &repository, &policy, 1);
+        assert_eq!(finding(&before, "REPO-FILE-08")["status"], "gap");
+        let aligned = local_file_json("align-files", &repository, &policy, 0);
+        assert_eq!(
+            aligned["operations"]["operations"][0]["path"],
+            ".github/renovate.json"
+        );
+        assert_eq!(aligned["operations"]["operations"][0]["outcome"], "written");
+        let written: Value = serde_json::from_slice(
+            &std::fs::read(repository.path().join(".github/renovate.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(written["extends"], serde_json::json!([expected]));
+        if contents.is_some() {
+            assert_eq!(written["enabled"], true);
+        }
+        let after = local_file_json("audit", &repository, &policy, 0);
+        assert_eq!(finding(&after, "REPO-FILE-08")["status"], "met");
+    }
 }
 
 #[test]
@@ -536,12 +784,12 @@ fn align_files_writes_then_reobserves_and_is_idempotent() {
     assert_eq!(output["operations"]["dirty_after"], true);
     assert_eq!(output["operations"]["operations"][0]["path"], "LICENSE");
     assert_eq!(
-        output["operations"]["operations"][0]["remediation_code"],
+        output["operations"]["operations"][0]["fix_code"],
         "add-license-file"
     );
     assert_eq!(output["operations"]["operations"][0]["outcome"], "written");
     assert_eq!(output["reobserved"][0]["rule"], "REPO-LIC-01");
-    assert_eq!(output["reobserved"][0]["status"], "pass");
+    assert_eq!(output["reobserved"][0]["status"], "met");
     assert_eq!(output["reobserved"][0]["source"], "working-tree");
     assert_eq!(output["pull_request"]["state"], "unknown");
     assert!(output["default_branch_observation"]
@@ -608,26 +856,17 @@ async fn an_enabled_manual_rule_does_not_make_the_audit_incomplete() {
     let repo = FakeRepo::new("wyrd-company", "example").with_file("README.md", "# example");
 
     // Manual judgment never gates, even when policy re-grades the rule.
-    let policy = "\
-version: 1
-name: test-policy
-gate: blocking
-capabilities:
-  base: [docs]
-checks:
-  REPO-DOCS-05:
-    severity: blocking
-";
+    let policy = "# fixture-sections: docs\nversion: 0.6.0\nexceptions:\n  REPO-DOCS-05:\n    reason: Fixture configuration\n    severity: blocking\n";
 
     let report = audit_json(repo, policy, 0).await;
     assert_eq!(report["outcome"], "conformant");
     assert_eq!(report["complete"], true);
-    assert_eq!(finding(&report, "REPO-DOCS-05")["status"], "manual");
+    assert_eq!(finding(&report, "REPO-DOCS-05")["status"], Value::Null);
     assert!(finding(&report, "REPO-DOCS-05")["evidence"]["detail"]
         .as_str()
         .unwrap()
         .contains("Partial validation"));
-    assert_eq!(report["summary"]["unimplemented"], 0);
+    assert_eq!(report["summary"]["run_errors"], 0);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -640,22 +879,16 @@ async fn a_plan_limitation_makes_the_audit_incomplete_rather_than_passing() {
         }),
     ));
 
-    let policy = "\
-version: 1
-name: test-policy
-gate: blocking
-capabilities:
-  base: [git]
-";
+    let policy = "# fixture-sections: git\nversion: 0.6.0\n";
 
     let report = audit_json(repo, policy, 2).await;
     assert_eq!(report["outcome"], "incomplete");
     let git02 = finding(&report, "REPO-GIT-02");
-    assert_eq!(git02["status"], "error");
+    assert_eq!(git02["status"], Value::Null);
     assert_eq!(git02["error"]["cause"], "plan_limitation");
     assert_eq!(git02["error"]["status"], 403);
     assert_eq!(git02["error"]["request_id"], "FIXT:0001");
-    assert_eq!(git02["remediation"]["action_group"], "plan_gate");
+    assert_eq!(git02["fix"]["fix_group"], "plan_gate");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -667,18 +900,12 @@ async fn agent_work_cannot_settle_when_the_audit_is_incomplete() {
             "documentation_url": "https://docs.github.com/rest/repos/rules"
         }),
     ));
-    let policy = "\
-version: 1
-name: test-policy
-gate: blocking
-capabilities:
-  base: [git]
-";
+    let policy = "# fixture-sections: git\nversion: 0.6.0\n";
 
     let list = agent_work_json(repo, policy, 2).await;
 
     assert_eq!(list["outcome"], "could_not_settle");
-    assert!(list["unsettled"]["items"]
+    assert!(list["run_errors"]["items"]
         .as_array()
         .unwrap()
         .iter()
@@ -689,21 +916,20 @@ capabilities:
 // Suppression authority
 // ---------------------------------------------------------------------------
 
-const SUPPRESSION_REQUEST: &str = "\
-version: 1
-suppress:
-  - rule: REPO-LIC-01
-    reason: \"the licence is being chosen\"
-";
+const SUPPRESSION_REQUEST: &str = "version: 0.6.0\nexceptions:\n  REPO-LIC-01: {reason: the licence is being chosen, severity: none}\n";
 
 #[tokio::test(flavor = "multi_thread")]
 async fn an_authorised_suppression_request_is_honoured() {
     let repo = FakeRepo::new("wyrd-company", "example")
+        .with_file(
+            "Cargo.toml",
+            "[package]\nname = \"example\"\nlicense = \"Apache-2.0\"\n",
+        )
         .with_file(".github/airlock.yml", SUPPRESSION_REQUEST);
-    let policy = format!("{LICENSING_POLICY}suppressions:\n  allow-repo-requests: [REPO-LIC-01]\n");
+    let policy = LICENSING_POLICY.to_owned();
     let report = audit_json(repo, &policy, 0).await;
     let lic01 = finding(&report, "REPO-LIC-01");
-    assert_eq!(lic01["status"], "suppressed");
+    assert_eq!(lic01["status"], Value::Null);
     assert_eq!(lic01["suppression"]["source"], "repository_request");
     assert_eq!(
         lic01["suppression"]["requested_reason"],
@@ -712,15 +938,19 @@ async fn an_authorised_suppression_request_is_honoured() {
     assert!(lic01["suppression"]["authorized_by"]
         .as_str()
         .unwrap()
-        .contains("allow-repo-requests"));
+        .contains("exceptions"));
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn an_unauthorised_suppression_request_changes_nothing() {
     let repo = FakeRepo::new("wyrd-company", "example")
+        .with_file(
+            "Cargo.toml",
+            "[package]\nname = \"example\"\nlicense = \"Apache-2.0\"\n",
+        )
         .with_file(".github/airlock.yml", SUPPRESSION_REQUEST);
-    let report = audit_json(repo, LICENSING_POLICY, 1).await;
-    assert_eq!(finding(&report, "REPO-LIC-01")["status"], "fail");
+    let report = audit_json(repo, &format!("{LICENSING_POLICY}exceptions:\n  REPO-LIC-01: {{reason: Organization decision, allow-override: false}}\n"), 1).await;
+    assert_eq!(finding(&report, "REPO-LIC-01")["status"], "gap");
     let observations = report["policy_observations"].as_array().unwrap();
     assert_eq!(observations.len(), 1);
     assert_eq!(observations[0]["code"], "unauthorized_suppression_request");
@@ -729,16 +959,24 @@ async fn an_unauthorised_suppression_request_changes_nothing() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_policy_suppression_is_recorded_with_its_authority() {
-    let repo = FakeRepo::new("wyrd-company", "example");
-    let policy = format!(
-        "{LICENSING_POLICY}suppressions:\n  direct:\n    - rule: REPO-LIC-01\n      repository: \
-         wyrd-company/example\n      reason: \"the licence lands with the first release\"\n"
+    let repo = FakeRepo::new("wyrd-company", "example").with_file(
+        "Cargo.toml",
+        "[package]\nname = \"example\"\nlicense = \"Apache-2.0\"\n",
     );
+    let policy = format!("{LICENSING_POLICY}exceptions:\n  REPO-LIC-01:\n    reason: Default license policy\n    repositories:\n      wyrd-company/example: {{reason: the licence lands with the first release, severity: none}}\n");
 
     let report = audit_json(repo, &policy, 0).await;
     let lic01 = finding(&report, "REPO-LIC-01");
-    assert_eq!(lic01["status"], "suppressed");
+    assert_eq!(lic01["status"], Value::Null);
     assert_eq!(lic01["suppression"]["source"], "policy");
+    assert_eq!(lic01["severity"], "none");
+    let effective = report["effective_policy"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|rule| rule["rule"] == "REPO-LIC-01")
+        .unwrap();
+    assert_eq!(effective["severity"], "none");
     assert_eq!(
         lic01["suppression"]["policy_reason"],
         "the licence lands with the first release"
@@ -751,9 +989,14 @@ async fn a_policy_suppression_is_recorded_with_its_authority() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn the_default_policy_comes_from_the_owners_dot_github_repository() {
-    let audited = FakeRepo::new("wyrd-company", "example").with_file("LICENSE", "Apache");
-    let policy_repo =
-        FakeRepo::new("wyrd-company", ".github").with_file("airlock/policy.yml", LICENSING_POLICY);
+    let audited = FakeRepo::new("wyrd-company", "example")
+        .with_file(
+            "Cargo.toml",
+            "[package]\nname = \"example\"\nlicense = \"Apache-2.0\"\n",
+        )
+        .with_file("LICENSE", "Apache");
+    let policy_repo = FakeRepo::new("wyrd-company", ".github")
+        .with_file(".github/airlock.yml", &fixture_policy(LICENSING_POLICY));
     let server = support::start(&[audited, policy_repo]).await;
     let config = TempDir::new().unwrap();
 
@@ -765,7 +1008,7 @@ async fn the_default_policy_comes_from_the_owners_dot_github_repository() {
     let report = json_output(&assertion.get_output().stdout);
     assert_eq!(
         report["policy"]["source"],
-        "wyrd-company/.github:airlock/policy.yml"
+        "wyrd-company/.github:.github/airlock.yml"
     );
     assert_eq!(report["policy"]["commit"], support::COMMIT);
     assert!(report["policy"]["bundle_digest"]
@@ -779,7 +1022,7 @@ async fn the_default_policy_comes_from_the_owners_dot_github_repository() {
     assert_eq!(sources[0]["name"], "policy");
     assert_eq!(
         sources[0]["source"],
-        "wyrd-company/.github:airlock/policy.yml"
+        "wyrd-company/.github:.github/airlock.yml"
     );
     assert_eq!(sources[0]["commit"], support::COMMIT);
     assert!(sources[0]["blob_sha"].is_string());
@@ -809,7 +1052,7 @@ async fn an_unknown_rule_in_the_policy_is_an_operational_error() {
     let config = TempDir::new().unwrap();
     let policies = TempDir::new().unwrap();
 
-    let policy = format!("{LICENSING_POLICY}checks:\n  REPO-NOPE-99:\n    enabled: false\n");
+    let policy = format!("{LICENSING_POLICY}exceptions:\n  REPO-NOPE-99:\n    reason: Unknown rule fixture\n    severity: none\n");
 
     airlock(&server, &config)
         .args([
@@ -826,12 +1069,12 @@ async fn an_unknown_rule_in_the_policy_is_an_operational_error() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn an_incompatible_registry_requirement_is_an_operational_error() {
+async fn an_incompatible_rules_requirement_is_an_operational_error() {
     let server = support::start(&[FakeRepo::new("wyrd-company", "example")]).await;
     let config = TempDir::new().unwrap();
     let policies = TempDir::new().unwrap();
 
-    let policy = format!("{LICENSING_POLICY}requires-registry: \">=9.0\"\n");
+    let policy = format!("{LICENSING_POLICY}requires-rules: \">=9.0\"\n");
 
     airlock(&server, &config)
         .args([
@@ -842,7 +1085,7 @@ async fn an_incompatible_registry_requirement_is_an_operational_error() {
         ])
         .assert()
         .code(2)
-        .stderr(contains("requires-registry"));
+        .stderr(contains("requires-rules"));
 }
 
 // ---------------------------------------------------------------------------
@@ -855,22 +1098,16 @@ async fn an_adversarial_policy_is_refused_rather_than_parsed() {
     let config = TempDir::new().unwrap();
 
     let bomb = format!(
-        "version: 1\nname: a\ngate: blocking\ncapabilities:\n  base: [licensing]\n{}",
+        "# fixture-sections: licensing\nversion: 0.6.0\n{}",
         alias_bomb()
     );
     let cases: &[(&str, &str)] = &[
-        (
-            "duplicate keys",
-            "version: 1\nname: a\nname: b\ngate: blocking\ncapabilities:\n  base: [licensing]\n",
-        ),
-        (
-            "a custom tag",
-            "version: 1\nname: !surprise a\ngate: blocking\ncapabilities:\n  base: [licensing]\n",
-        ),
+        ("duplicate keys", "version: 0.6.0\nversion: 0.7.0\n"),
+        ("a custom tag", "version: !surprise 0.6.0\n"),
         ("an alias bomb", &bomb),
         (
             "a non-string key",
-            "version: 1\nname: a\ngate: blocking\ncapabilities:\n  base: [licensing]\n1: two\n",
+            "# fixture-sections: licensing\nversion: 0.6.0\n1: two\n",
         ),
     ];
 
@@ -1036,7 +1273,10 @@ async fn auth_token_emits_nothing_when_the_stored_profile_is_refused() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn text_output_renders_the_same_conclusion_as_json() {
-    let repo = FakeRepo::new("wyrd-company", "example");
+    let repo = FakeRepo::new("wyrd-company", "example").with_file(
+        "Cargo.toml",
+        "[package]\nname = \"example\"\nlicense = \"Apache-2.0\"\n",
+    );
     let server = support::start(&[repo]).await;
     let config = TempDir::new().unwrap();
     let policies = TempDir::new().unwrap();
@@ -1062,7 +1302,7 @@ async fn text_output_renders_the_same_conclusion_as_json() {
 
 /// The policy in `docs/examples/` is the one the operator will move into
 /// `wyrd-company/.github`. If it stops compiling against this binary's
-/// registry, dogfooding breaks the moment it is moved — so it is compiled
+/// rules, dogfooding breaks the moment it is moved — so it is compiled
 /// here, against the fixture GitHub that serves its reference data.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_candidate_organisation_policy_compiles_and_resolves_its_reference_data() {
@@ -1071,16 +1311,15 @@ async fn the_candidate_organisation_policy_compiles_and_resolves_its_reference_d
         .and_then(std::path::Path::parent)
         .expect("the workspace root is two levels above the cli crate")
         .to_path_buf();
-    let policy = repository_root.join("docs/examples/wyrd-policy.yml");
-    let topics = std::fs::read_to_string(repository_root.join("docs/examples/wyrd-topics.yml"))
-        .expect("the candidate topic vocabulary is committed");
+    let policy = repository_root.join("docs/examples/org-airlock.yml");
+    let topics = "artifact-type: [cli]\necosystem: [rust]\n";
 
     let audited = FakeRepo::new("wyrd-company", "example")
         .with_custom_property("release", "false")
         .with_file("LICENSE", "Apache License 2.0")
         .with_file("README.md", "# example");
     let policy_repo =
-        FakeRepo::new("wyrd-company", ".github").with_file("airlock/topics.yml", &topics);
+        FakeRepo::new("wyrd-company", ".github").with_file("airlock/topics.yml", topics);
     let server = support::start(&[audited, policy_repo]).await;
     let config = TempDir::new().unwrap();
 
@@ -1103,37 +1342,35 @@ async fn the_candidate_organisation_policy_compiles_and_resolves_its_reference_d
     );
 
     let report = json_output(&output.stdout);
-    assert_eq!(report["policy"]["name"], "wyrd-company");
+    assert_eq!(report["policy"]["name"], policy.display().to_string());
     // The reference data was pinned into the bundle, not merely mentioned.
     assert!(report["policy"]["bundle_digest"]
         .as_str()
         .unwrap()
         .starts_with("sha256:"));
     // Release rules are skipped where the organization declares release absent.
-    assert_eq!(finding(&report, "REPO-REL-01")["status"], "skipped");
+    assert_eq!(finding(&report, "REPO-REL-01")["status"], "gap");
 }
 
 // ---------------------------------------------------------------------------
 // What requires admin access to verify
 // ---------------------------------------------------------------------------
 
-/// The git section under the gate the standards policy declares. The three
+/// The git section under the gate the rules policy declares. The three
 /// merge-behaviour rules in it are graded `required`, so under this gate they
 /// would stop the run if an unanswered question stopped it regardless of why
 /// it was unanswered.
-const GIT_POLICY: &str = "\
-version: 1
-name: test-policy
-gate: required
-capabilities:
-  base: [git]
-";
+const GIT_POLICY: &str = "# fixture-sections: git\nversion: 0.6.0\n";
 
 /// The shape of every scheduled run: read-only facts, merge settings
 /// undisclosed because GitHub discloses them to write-capable tokens only, and
 /// everything else in order.
 fn scheduled_audit_repo() -> FakeRepo {
     FakeRepo::new("wyrd-company", "example")
+        .with_file(
+            ".intentional/config.yml",
+            "release-units:\n  sample:\n    path: .\n",
+        )
         .with_conforming_org_ruleset()
         .with_undisclosed_merge_settings()
 }
@@ -1149,11 +1386,11 @@ async fn a_scheduled_audit_is_not_failed_by_settings_that_require_admin_access()
 
     assert_eq!(report["outcome"], "conformant");
     assert_eq!(report["complete"], true);
-    assert_eq!(report["summary"]["admin-only"], 3);
+    assert_eq!(report["summary"]["routed"], 3);
     for rule in ["REPO-GIT-04", "REPO-GIT-05", "REPO-GIT-06"] {
         let finding = finding(&report, rule);
-        assert_eq!(finding["status"], "admin-only", "{rule}");
-        assert_ne!(finding["status"], "pass", "{rule}");
+        assert_eq!(finding["status"], Value::Null, "{rule}");
+        assert_ne!(finding["status"], "met", "{rule}");
         assert_eq!(
             finding["evidence"]["code"], "merge_settings_unavailable",
             "{rule}"
@@ -1162,23 +1399,24 @@ async fn a_scheduled_audit_is_not_failed_by_settings_that_require_admin_access()
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_truncated_tree_still_stops_a_run_whose_only_other_gaps_are_admin_only() {
-    // A truncated tree is a run that fell short of what it can normally do:
-    // the capability condition that selects the release rules was never
-    // settled. That is circumstantial, and it still exits 2 — the structural
-    // gaps sitting beside it do not soften it, and it does not gate them.
-    let repo = scheduled_audit_repo().with_truncated_tree();
+async fn a_missing_release_input_still_stops_a_run_beside_routed_settings() {
+    // A truncated tree cannot establish whether a scope declaration is absent.
+    // That failed read stays a run error, beside the declared disclosure gates.
+    let mut repo = scheduled_audit_repo().with_truncated_tree();
+    repo.files
+        .retain(|(path, _)| path != ".intentional/config.yml");
     let report = audit_json(repo, GIT_POLICY, 2).await;
 
     assert_eq!(report["outcome"], "incomplete");
     assert_eq!(report["complete"], false);
     assert_eq!(
-        report["summary"]["admin-only"], 3,
+        report["summary"]["routed"], 3,
         "the structural gaps are still reported; they are simply not what stopped this"
     );
     let git09 = finding(&report, "REPO-GIT-09");
-    assert_eq!(git09["status"], "inconclusive");
-    assert_eq!(git09["evidence"]["code"], "condition_undecided");
+    assert_eq!(git09["status"], Value::Null);
+    assert_eq!(git09["evidence"]["code"], "tree_truncated");
+    assert_eq!(report["summary"]["out_of_scope"], 0);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1191,43 +1429,43 @@ async fn a_transient_api_failure_still_stops_a_run_whose_other_gaps_are_admin_on
 
     assert_eq!(report["outcome"], "incomplete");
     assert_eq!(report["complete"], false);
-    assert_eq!(report["summary"]["admin-only"], 3);
-    assert_eq!(finding(&report, "REPO-GIT-02")["status"], "error");
+    assert_eq!(report["summary"]["routed"], 3);
+    assert_eq!(finding(&report, "REPO-GIT-02")["status"], Value::Null);
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn agent_work_names_admin_only_gaps_as_their_own_group_without_gating_on_them() {
     let list = agent_work_json(scheduled_audit_repo(), GIT_POLICY, 0).await;
 
-    assert_eq!(list["outcome"], "agent_lane_clear");
-    assert_eq!(list["admin_only"]["count"], 3);
+    assert_eq!(list["outcome"], "agent_work_clear");
+    assert_eq!(list["routed"]["count"], 3);
     assert_eq!(
-        list["unsettled"]["count"], 0,
+        list["run_errors"]["count"], 0,
         "a gap that requires admin access is not a question to ask again here"
     );
-    for item in list["admin_only"]["items"].as_array().unwrap() {
-        assert_eq!(item["status"], "admin-only");
-        assert_eq!(item["undecided"], "structural");
+    for item in list["routed"]["items"].as_array().unwrap() {
+        assert_eq!(item["status"], Value::Null);
+        assert!(item.get("undecided").is_none());
         assert_eq!(item["gating"], false);
         assert_eq!(item["evidence_code"], "merge_settings_unavailable");
         assert_eq!(
             item["verified_by"], "interactive-session",
-            "the group carries where the answer is taken, from the registry declaration"
+            "the group carries where the answer is taken, from the rules declaration"
         );
     }
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn plan_names_what_requires_admin_access_to_verify() {
-    let text = plan_text(scheduled_audit_repo(), GIT_POLICY).await;
+async fn audit_names_what_requires_admin_access_to_verify() {
+    let text = audit_text(scheduled_audit_repo(), GIT_POLICY).await;
 
-    assert!(text.contains("admin-only (3)"), "{text}");
+    assert!(text.contains("routed: 3"), "{text}");
     for rule in ["REPO-GIT-04", "REPO-GIT-05", "REPO-GIT-06"] {
         assert!(text.contains(rule), "{rule} must be named: {text}");
     }
-    // The guidance is the registry declaration's sentence, not one this test
+    // The guidance is the rules declaration's sentence, not one this test
     // or the renderer wrote.
-    let surface = airlock_core::registry::MERGE_SETTINGS_DISCLOSURE.verified_by;
+    let surface = airlock_core::rules::MERGE_SETTINGS_DISCLOSURE.verified_by;
     assert!(text.contains(surface.code()), "{text}");
     assert!(
         text.contains(surface.guidance()),
@@ -1237,11 +1475,11 @@ async fn plan_names_what_requires_admin_access_to_verify() {
     // say that nothing the read-only surface could ask went unanswered, and it
     // may not say that everything was decided.
     assert!(
-        text.contains("Every question this read-only surface can ask was answered"),
+        text.contains("run errors: 0"),
         "no circumstantial question was left open: {text}"
     );
     assert!(
-        !text.contains("Every rule the policy asked about was decided"),
+        !text.contains("Every rule was evaluated"),
         "three rules remain undecided, so the plan must not claim otherwise: {text}"
     );
 }
@@ -1253,13 +1491,7 @@ async fn plan_names_what_requires_admin_access_to_verify() {
 /// A policy over the files section, whose rules include two negative
 /// assertions — "no harness configuration" and "no CODEOWNERS" — that a
 /// partial tree cannot support.
-const FILES_POLICY: &str = "\
-version: 1
-name: test-policy
-gate: required
-capabilities:
-  base: [files]
-";
+const FILES_POLICY: &str = "# fixture-sections: files\nversion: 0.6.0\n";
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_truncated_tree_cannot_produce_a_clean_audit() {
@@ -1277,7 +1509,7 @@ async fn a_truncated_tree_cannot_produce_a_clean_audit() {
         .with_file(".config/lefthook.yml", "pre-commit:\n  jobs: []\n")
         .with_file("AGENTS.md", "guidance")
         .with_file(".devcontainer/devcontainer.json", "{}")
-        .with_file(".github/repo-settings.yml", "description: x\n")
+        .with_file(".github/airlock.yml", "version: 0.6.0\ndescription: x\n")
         .with_file(
             ".github/renovate.json",
             "{\"extends\":[\"github>owner/.github\"]}",
@@ -1297,7 +1529,7 @@ async fn a_truncated_tree_cannot_produce_a_clean_audit() {
     // support, and they must not read as satisfied.
     for rule in ["REPO-FILE-13", "REPO-FILE-14"] {
         let finding = finding(&report, rule);
-        assert_eq!(finding["status"], "inconclusive", "{rule}");
+        assert_eq!(finding["status"], Value::Null, "{rule}");
         assert_eq!(finding["evidence"]["code"], "tree_truncated", "{rule}");
     }
 }
@@ -1334,15 +1566,13 @@ async fn every_policy_reference_is_resolved_and_pinned_into_the_bundle() {
     let filler = "x".repeat(4096);
     let policy_repo = FakeRepo::new("wyrd-company", ".github")
         .with_file(
-            "airlock/policy.yml",
+            ".github/airlock.yml",
             &format!(
-                "{LICENSING_POLICY}reference-data:\n  \
-                 first: wyrd-company/.github:airlock/first.yml\n  \
-                 second: wyrd-company/.github:airlock/second.yml\n"
+                "{LICENSING_POLICY}exceptions:\n  REPO-META-07: {{reason: Vocabulary, topics: wyrd-company/.github:airlock/first.yml}}\n  REPO-META-09: {{reason: Vocabulary, topics: wyrd-company/.github:airlock/second.yml}}\n"
             ),
         )
-        .with_file("airlock/first.yml", &format!("padding: {filler}\n"))
-        .with_file("airlock/second.yml", &format!("padding: {filler}\n"));
+        .with_file("airlock/first.yml", &format!("padding: [{filler}]\n"))
+        .with_file("airlock/second.yml", &format!("padding: [{filler}]\n"));
     let server = support::start(&[audited, policy_repo]).await;
     let config = TempDir::new().unwrap();
 
@@ -1366,8 +1596,7 @@ async fn every_policy_reference_is_resolved_and_pinned_into_the_bundle() {
         .map(|source| source["name"].as_str().unwrap())
         .collect();
     assert!(names.contains(&"policy"));
-    assert!(names.contains(&"first"));
-    assert!(names.contains(&"second"));
+    assert_eq!(names.iter().filter(|name| **name == "topics").count(), 2);
     for source in sources {
         assert!(source["content_digest"]
             .as_str()
@@ -1375,25 +1604,20 @@ async fn every_policy_reference_is_resolved_and_pinned_into_the_bundle() {
             .starts_with("sha256:"));
     }
     // The two references are remote, so they pin to a commit and a blob.
-    for name in ["first", "second"] {
-        let source = sources
-            .iter()
-            .find(|source| source["name"] == name)
-            .unwrap();
+    for source in sources.iter().filter(|source| source["name"] == "topics") {
         assert_eq!(source["commit"], support::COMMIT);
-        assert!(source["blob_sha"].is_string(), "{name}");
+        assert!(source["blob_sha"].is_string());
     }
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn an_unset_property_reports_the_capability_as_undeclared() {
+async fn a_truncated_input_remains_a_run_error_without_apply_selection() {
     let repository_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(std::path::Path::parent)
         .expect("the workspace root is two levels above the cli crate")
         .to_path_buf();
-    let topics = std::fs::read_to_string(repository_root.join("docs/examples/wyrd-topics.yml"))
-        .expect("the candidate topic vocabulary is committed");
+    let topics = "artifact-type: [cli]\necosystem: [rust]\n";
 
     let audited = FakeRepo::new("wyrd-company", "example")
         .with_null_custom_property("unrelated-null")
@@ -1402,7 +1626,7 @@ async fn an_unset_property_reports_the_capability_as_undeclared() {
         .with_file("LICENSE", "Apache License 2.0")
         .with_file("README.md", "# example");
     let policy_repo =
-        FakeRepo::new("wyrd-company", ".github").with_file("airlock/topics.yml", &topics);
+        FakeRepo::new("wyrd-company", ".github").with_file("airlock/topics.yml", topics);
     let server = support::start(&[audited, policy_repo]).await;
     let config = TempDir::new().unwrap();
 
@@ -1412,7 +1636,7 @@ async fn an_unset_property_reports_the_capability_as_undeclared() {
             "wyrd-company/example",
             "--policy",
             &repository_root
-                .join("docs/examples/wyrd-policy.yml")
+                .join("docs/examples/org-airlock.yml")
                 .display()
                 .to_string(),
             "--format",
@@ -1424,43 +1648,25 @@ async fn an_unset_property_reports_the_capability_as_undeclared() {
     let report = json_output(&assertion.get_output().stdout);
     assert_eq!(report["outcome"], "incomplete");
     assert_eq!(report["complete"], false);
-    assert_eq!(
-        report["summary"]["skipped"], 0,
-        "an undeclared capability may not be skipped"
-    );
-    for rule in ["REPO-REL-01", "REPO-REL-04", "REPO-REL-07"] {
-        let finding = finding(&report, rule);
-        assert_eq!(finding["status"], "inconclusive", "{rule}");
-        assert_eq!(
-            finding["evidence"]["code"], "capability_undeclared",
-            "{rule}"
-        );
-        assert_eq!(finding["evidence"]["capability"]["property"], "release");
-        assert_eq!(finding["evidence"]["capability"]["value"], "true");
-    }
-    for rule in ["REPO-GIT-09", "REPO-TASK-04", "REPO-LIC-04"] {
-        let finding = finding(&report, rule);
-        assert_eq!(finding["status"], "inconclusive", "{rule}");
-        assert_eq!(finding["evidence"]["code"], "condition_undecided", "{rule}");
-    }
+    assert!(report["summary"].get("skipped").is_none());
+    assert!(!report["run_errors"].as_array().unwrap().is_empty());
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_property_that_declares_a_capability_absent_skips_its_rules() {
+async fn declared_properties_do_not_select_rules_through_configuration() {
     let repository_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(std::path::Path::parent)
         .expect("the workspace root is two levels above the cli crate")
         .to_path_buf();
-    let topics = std::fs::read_to_string(repository_root.join("docs/examples/wyrd-topics.yml"))
-        .expect("the candidate topic vocabulary is committed");
+    let topics = "artifact-type: [cli]\necosystem: [rust]\n";
 
     let audited = FakeRepo::new("wyrd-company", "example")
         .with_custom_property("release", "false")
         .with_file("LICENSE", "Apache License 2.0")
         .with_file("README.md", "# example");
     let policy_repo =
-        FakeRepo::new("wyrd-company", ".github").with_file("airlock/topics.yml", &topics);
+        FakeRepo::new("wyrd-company", ".github").with_file("airlock/topics.yml", topics);
     let server = support::start(&[audited, policy_repo]).await;
     let config = TempDir::new().unwrap();
 
@@ -1470,7 +1676,7 @@ async fn a_property_that_declares_a_capability_absent_skips_its_rules() {
             "wyrd-company/example",
             "--policy",
             &repository_root
-                .join("docs/examples/wyrd-policy.yml")
+                .join("docs/examples/org-airlock.yml")
                 .display()
                 .to_string(),
             "--format",
@@ -1479,19 +1685,31 @@ async fn a_property_that_declares_a_capability_absent_skips_its_rules() {
         .assert();
 
     let report = json_output(&assertion.get_output().stdout);
-    let rel01 = finding(&report, "REPO-REL-01");
-    assert_eq!(rel01["status"], "skipped");
-    assert_eq!(rel01["evidence"]["code"], "condition_not_met");
-    for rule in ["REPO-GIT-09", "REPO-TASK-04", "REPO-LIC-04"] {
-        let finding = finding(&report, rule);
-        assert_eq!(finding["status"], "skipped", "{rule}");
-        assert_eq!(finding["evidence"]["code"], "condition_not_met", "{rule}");
-        assert!(
-            finding["evidence"]["detail"]
-                .as_str()
-                .unwrap()
-                .contains("release-units-declared"),
-            "{rule}"
-        );
-    }
+    assert!(report["summary"].get("skipped").is_none());
+    assert_eq!(finding(&report, "REPO-REL-01")["status"], "gap");
+    assert_eq!(assertion.get_output().status.code(), Some(1));
+    assert_eq!(report["summary"]["run_errors"], 0);
+    assert_eq!(report["summary"]["out_of_scope"], 7);
+    let mut out_of_scope: Vec<_> = report["out_of_scope"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|finding| finding["rule"].as_str().unwrap())
+        .collect();
+    out_of_scope.sort_unstable();
+    assert_eq!(
+        out_of_scope,
+        [
+            "REPO-GIT-09",
+            "REPO-LIC-04",
+            "REPO-REL-02",
+            "REPO-REL-03",
+            "REPO-REL-08",
+            "REPO-TASK-04",
+            "REPO-TPL-01"
+        ]
+    );
+    let scoped = finding(&report, "REPO-GIT-09");
+    assert_eq!(scoped["status"], Value::Null);
+    assert_eq!(scoped["routing"]["reason"], "out-of-scope");
 }
