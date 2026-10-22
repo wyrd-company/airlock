@@ -89,6 +89,23 @@ describe("local report service", () => {
     expect(result.rule.instances[0].conditions[0].observed).toBeNull();
     expect(organization.repositories[0].incomplete).toBe(1);
     expect(organization.repositories[0].blocking).toBe(3);
+    expect(organization.repositories[0].advisory).toBe(2);
+    for (const flavor of ["waived", "not-applicable"]) {
+      const passed = organization.repositories[0].results.find(
+        (value: { rule: { id: string } }) => value.rule.id === flavor,
+      );
+      expect(passed.rule.result).toBe("pass");
+      expect(passed.rule.flavor).toBe(flavor);
+      expect(passed.groups).toEqual([]);
+    }
+    const { organizations } = await (
+      await localService(request("/api/organizations"))
+    ).json();
+    expect(organizations[0]).toMatchObject({
+      blocking: 3,
+      advisory: 3,
+      incomplete: 1,
+    });
   });
   it("refuses missing/cross-org paths and makes HEAD side effect free", async () => {
     expect(

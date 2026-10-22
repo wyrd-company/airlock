@@ -10,6 +10,16 @@ import {
   type ResultView,
 } from "../shared/report.ts";
 
+import {
+  filterRepositories,
+  partitionResults,
+  resultFilters,
+  observedRuleCatalog,
+  incompleteLabel,
+  type ResultFilter,
+  type ResultSort,
+} from "./view.ts";
+
 type Section = "repos" | "rules" | "assignments" | "pull-requests";
 interface Route {
   organization?: string;
@@ -249,7 +259,7 @@ function Overview({ summaries }: { summaries: OrganizationSummary[] }) {
                 className={`nav-dot ${org.blocking || org.incomplete ? "red" : "green"}`}
               />
               {org.incomplete
-                ? `${org.incomplete} result couldn't be evaluated`
+                ? incompleteLabel(org.incomplete)
                 : org.blocking
                   ? "Settings and files need attention"
                   : "No blocking results"}
@@ -401,82 +411,12 @@ function Organization({ route }: { route: Route }) {
               onChange={(event) => setSearch(event.target.value)}
             />
           </div>
-          <div className="repo-table">
-            <div className="repo-table-head">
-              <span>REPOSITORY</span>
-              <span>MATURITY</span>
-              <span>RESULTS</span>
-              <span>ASSIGNMENT</span>
-              <span />
-            </div>
-            {org.repositories
-              .filter(
-                (repo) =>
-                  repo.repository
-                    .toLowerCase()
-                    .includes(search.toLowerCase()) &&
-                  (filter === "all" ||
-                    repo.results.some(
-                      (result) =>
-                        result.rule.result === "fail" &&
-                        result.groups.includes(filter),
-                    )),
-              )
-              .map((repo) => (
-                <a
-                  className="repo-row"
-                  key={repo.repository}
-                  href={href(
-                    org.account,
-                    "repos",
-                    repo.repository.split("/")[1],
-                  )}
-                >
-                  <div className="repo-name">
-                    <span
-                      className={`repo-indicator ${repo.blocking ? "red" : repo.advisory ? "amber" : "green"}`}
-                    />
-                    <strong>{repo.repository.split("/")[1]}</strong>
-                    <small>
-                      {repo.incomplete
-                        ? `${repo.incomplete} result couldn't be evaluated`
-                        : repo.blocking + repo.advisory
-                          ? "Has open gaps"
-                          : "All evaluated rules pass"}
-                    </small>
-                  </div>
-                  <span>
-                    <Tag>{repo.maturity}</Tag>
-                  </span>
-                  <div className="row-counts">
-                    <Count
-                      value={repo.blocking}
-                      tone="blocking"
-                      label="blocking"
-                    />
-                    <Count
-                      value={repo.advisory}
-                      tone="advisory"
-                      label="advisory"
-                    />
-                  </div>
-                  <span className="assignment-name">
-                    {repo.assignments.join(", ")}
-                  </span>
-                  <Arrow />
-                </a>
-              ))}
-          </div>
-          {!org.repositories.some(
-            (repo) =>
-              repo.repository.toLowerCase().includes(search.toLowerCase()) &&
-              (filter === "all" ||
-                repo.results.some(
-                  (result) =>
-                    result.rule.result === "fail" &&
-                    result.groups.includes(filter),
-                )),
-          ) && <div className="empty">No repositories match this view.</div>}
+          <RepositoryTable
+            account={org.account}
+            repositories={org.repositories}
+            search={search}
+            filter={filter}
+          />
           {org.unassigned.length > 0 && (
             <section className="unassigned">
               <h2>
@@ -516,6 +456,68 @@ function Organization({ route }: { route: Route }) {
     </>
   );
 }
+export function RepositoryTable({
+  account,
+  repositories,
+  search,
+  filter,
+}: {
+  account: string;
+  repositories: RepositoryView[];
+  search: string;
+  filter: "all" | ResultGroup;
+}) {
+  const visible = filterRepositories(repositories, search, filter);
+  return (
+    <>
+      <div className="repo-table">
+        <div className="repo-table-head">
+          <span>REPOSITORY</span>
+          <span>MATURITY</span>
+          <span>RESULTS</span>
+          <span>ASSIGNMENT</span>
+          <span />
+        </div>
+        {visible.map((repo) => (
+          <a
+            className="repo-row"
+            key={repo.repository}
+            href={href(account, "repos", repo.repository.split("/")[1])}
+          >
+            <div className="repo-name">
+              <span
+                className={`repo-indicator ${repo.blocking ? "red" : repo.advisory ? "amber" : "green"}`}
+              />
+              <strong>{repo.repository.split("/")[1]}</strong>
+              <small>
+                {repo.incomplete
+                  ? incompleteLabel(repo.incomplete)
+                  : repo.blocking + repo.advisory
+                    ? "Has open gaps"
+                    : "All evaluated rules pass"}
+              </small>
+            </div>
+            <span>
+              <Tag>{repo.maturity}</Tag>
+            </span>
+            <div className="row-counts">
+              <Count value={repo.blocking} tone="blocking" label="blocking" />
+              <Count value={repo.advisory} tone="advisory" label="advisory" />
+            </div>
+            <span className="assignment-name">
+              {repo.assignments.join(", ")}
+            </span>
+            <Arrow />
+          </a>
+        ))}
+      </div>
+      {visible.length === 0 && (
+        <div className="empty">No repositories match this view.</div>
+      )}
+    </>
+  );
+}
+
 function Repository({
   org,
   repo,
@@ -525,11 +527,10 @@ function Repository({
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [review, setReview] = useState(false);
+  const [resultFilter, setResultFilter] = useState<ResultFilter>("all");
+  const [resultSort, setResultSort] = useState<ResultSort>("report");
   const failing = repo.results.filter(
     (result) => result.rule.result === "fail",
-  );
-  const passing = repo.results.filter(
-    (result) => result.rule.result === "pass",
   );
   function toggle(id: string) {
     setSelected((current) => {
@@ -572,56 +573,47 @@ function Repository({
           )}
         </span>
       </div>
-      {groupOrder.map((group) => {
-        const results = failing.filter((result) => result.groups[0] === group);
-        if (!results.length) return null;
-        return (
-          <section className="result-group" key={group}>
-            <div className="section-heading">
-              <h3>
-                {groupLabels[group]} <span>{results.length}</span>
-              </h3>
-              {group === "you" ? (
-                <button
-                  className="primary-button"
-                  disabled={selected.size === 0}
-                  onClick={() => setReview(true)}
-                >
-                  Review fixes{" "}
-                  {selected.size > 0 && <span>{selected.size}</span>}{" "}
-                  <span aria-hidden="true">→</span>
-                </button>
-              ) : (
-                <span>
-                  {group === "airlock-pr" || group === "agent"
-                    ? "File changes through a pull request"
-                    : group === "not-evaluated"
-                      ? "An evaluation needs attention"
-                      : "No automatic fix"}
-                </span>
-              )}
-            </div>
-            {results.map((result) => (
-              <RuleRow
-                key={result.rule.id}
-                result={result}
-                selectable={group === "you"}
-                selected={selected.has(result.rule.id)}
-                toggle={() => toggle(result.rule.id)}
-              />
+      <div className="toolbar result-controls">
+        <label>
+          Filter results{" "}
+          <select
+            aria-label="Filter results"
+            value={resultFilter}
+            onChange={(event) => {
+              setResultFilter(event.target.value as ResultFilter);
+              setSelected(new Set());
+            }}
+          >
+            {resultFilters.map(([value, label]) => (
+              <option value={value} key={value}>
+                {label}
+              </option>
             ))}
-          </section>
-        );
-      })}
-      <details className="passes">
-        <summary>
-          <span className="nav-dot green" /> Passing rules{" "}
-          <span>{passing.length}</span>
-        </summary>
-        {passing.map((result) => (
-          <RuleRow key={result.rule.id} result={result} />
-        ))}
-      </details>
+          </select>
+        </label>
+        <label>
+          Sort results{" "}
+          <select
+            aria-label="Sort results"
+            value={resultSort}
+            onChange={(event) =>
+              setResultSort(event.target.value as ResultSort)
+            }
+          >
+            <option value="report">Report order</option>
+            <option value="severity">Severity</option>
+            <option value="rule">Rule ID</option>
+          </select>
+        </label>
+      </div>
+      <RepositoryResults
+        results={repo.results}
+        filter={resultFilter}
+        sort={resultSort}
+        selected={selected}
+        onToggle={toggle}
+        onReview={() => setReview(true)}
+      />
       {review && (
         <Modal title="Review settings fixes" onClose={() => setReview(false)}>
           <p>
@@ -654,6 +646,84 @@ function Repository({
     </div>
   );
 }
+export function RepositoryResults({
+  results,
+  filter,
+  sort,
+  selected,
+  onToggle,
+  onReview,
+}: {
+  results: ResultView[];
+  filter: ResultFilter;
+  sort: ResultSort;
+  selected: Set<string>;
+  onToggle: (id: string) => void;
+  onReview: () => void;
+}) {
+  const partition = partitionResults(results, filter, sort);
+  return (
+    <>
+      <p className="results-summary" role="status">
+        Showing {partition.count} of {results.length} results
+      </p>
+      {partition.groups.map(({ group, results }) => {
+        if (!results.length) return null;
+        return (
+          <section
+            className="result-group"
+            data-result-group={group}
+            key={group}
+          >
+            <div className="section-heading">
+              <h3>
+                {groupLabels[group]} <span>{results.length}</span>
+              </h3>
+              {group === "you" ? (
+                <button
+                  className="primary-button"
+                  disabled={selected.size === 0}
+                  onClick={onReview}
+                >
+                  Review fixes{" "}
+                  {selected.size > 0 && <span>{selected.size}</span>}{" "}
+                  <span aria-hidden="true">→</span>
+                </button>
+              ) : (
+                <span>
+                  {group === "airlock-pr" || group === "agent"
+                    ? "File changes through a pull request"
+                    : group === "not-evaluated"
+                      ? "An evaluation needs attention"
+                      : "No automatic fix"}
+                </span>
+              )}
+            </div>
+            {results.map((result) => (
+              <RuleRow
+                key={result.rule.id}
+                result={result}
+                selectable={group === "you"}
+                selected={selected.has(result.rule.id)}
+                toggle={() => onToggle(result.rule.id)}
+              />
+            ))}
+          </section>
+        );
+      })}
+      <details className="passes">
+        <summary>
+          <span className="nav-dot green" /> Passing rules{" "}
+          <span>{partition.passing.length}</span>
+        </summary>
+        {partition.passing.map((result) => (
+          <RuleRow key={result.rule.id} result={result} />
+        ))}
+      </details>
+    </>
+  );
+}
+
 export function RuleRow({
   result,
   selectable = false,
@@ -781,20 +851,14 @@ export function RuleRow({
     </div>
   );
 }
-function RuleCatalog({
+export function RuleCatalog({
   org,
   onProposal,
 }: {
   org: OrganizationView;
   onProposal: () => void;
 }) {
-  const rules = [
-    ...new Map(
-      org.repositories.flatMap((repo) =>
-        repo.results.map((result) => [result.rule.id, result.rule] as const),
-      ),
-    ).values(),
-  ];
+  const rules = observedRuleCatalog(org.repositories);
   return (
     <>
       <div className="section-heading">
@@ -806,25 +870,37 @@ function RuleCatalog({
         </button>
       </div>
       <p className="section-description">
-        Requirements assigned inside {org.account}. Source config:{" "}
+        Observed requirements by repository inside {org.account}. Statements and
+        effective severity belong to each repository. Source config:{" "}
         <Commit value={org.organizationConfig.commit} />
       </p>
-      {rules.map((rule) => (
-        <div className="catalog-row" key={rule.id}>
-          <div>
-            <strong>{rule.statement}</strong>
-            <code>{rule.id}</code>
-          </div>
-          <Tag tone={rule.severity}>{rule.severity}</Tag>
-          <span>
-            {
-              org.repositories.filter((repo) =>
-                repo.rules.some((value) => value.id === rule.id),
-              ).length
-            }{" "}
-            repositories
-          </span>
-        </div>
+      {rules.map(({ id, observations }) => (
+        <details className="catalog-entry" key={id}>
+          <summary>
+            <code>{id}</code>
+            <span>
+              {observations.length}{" "}
+              {observations.length === 1 ? "repository" : "repositories"}
+            </span>
+            <span aria-hidden="true">+</span>
+          </summary>
+          {observations.map((observation) => (
+            <div className="catalog-observation" key={observation.repository}>
+              <a
+                href={href(
+                  org.account,
+                  "repos",
+                  observation.repository.split("/")[1],
+                )}
+              >
+                {observation.repository.split("/")[1]} <Arrow />
+              </a>
+              <Tag>{observation.maturity}</Tag>
+              <Tag tone={observation.severity}>{observation.severity}</Tag>
+              <p>{observation.statement}</p>
+            </div>
+          ))}
+        </details>
       ))}
     </>
   );

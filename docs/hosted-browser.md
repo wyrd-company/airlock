@@ -41,6 +41,11 @@ that list by fixer. Unassigned repositories appear separately and are not gaps.
 Organization sections are Repos, Rules, Assignments, and Pull requests. Results
 are grouped as You, Airlock PR, Agent, Not fixable, and Couldn't evaluate.
 Passing, waived, and not-applicable results are collapsed below failures.
+Repository result filters select all results, failures, passes, incomplete
+results, or failures by severity. Sorting preserves fixer groups and the
+collapsed passing section: report order, severity, or rule id applies within
+each section. Changing a result filter clears fix selection. The shown/total
+count makes filtered results explicit.
 
 One engine result appears as one row. When an engine result has more than one
 fixer, it appears in the first applicable group in the listed order and names
@@ -49,8 +54,10 @@ organization and repository instances, their independent conditions and config
 commits, and relaxation warnings. The browser does not recompute AND results,
 severity, fix derivation, or rule predicates.
 
-The Rules section is a per-id index of observed rules and repository coverage;
-repository result details hold instance-specific requirements. The fixture API
+The Rules section is a per-id index with expandable observations. Each
+observation names its repository, maturity rung, statement and effective
+severity; the index does not choose one repository's values as global values.
+Repository result details hold instance-specific requirements. The fixture API
 has only organization summary, selected organization, and unavailable session
 reads. Mutation requests return an unavailable response even with a token.
 
@@ -62,12 +69,43 @@ merged.
 
 ## Adapter boundaries
 
-`shared/report.ts` is a provisional hosted input and view contract. It follows
-the core workstream's draft result shape without importing its unfinished
-modules or claiming wire compatibility. `projection.ts` maps supplied results;
-`fixtures.ts` is visibly synthetic. A serialized core fixture and a boundary
-validation adapter are required before accepting real core output. Invalid or
-unobserved input must remain incomplete, never become a passing observation.
+`shared/report.ts` defines a synthetic hosted input/view shape. It does not
+match core output. `projection.ts` projects that synthetic shape only;
+`fixtures.ts` supplies local sample data. No real core report is accepted here.
+A boundary adapter and validation against serialized engine output are required
+before connection. Invalid or unobserved input must remain incomplete, never
+become a passing observation.
+
+The core report fixture has these differences that the integration adapter must
+handle explicitly:
+
+- Core has no report `observed_at`. Hosted observation time requires an explicit
+  source; it cannot be invented from a config commit or display placeholder.
+- Core repository entries include `audited_commit`, which the hosted synthetic
+  shape does not carry.
+- Core assignments are objects with `id`, `matched` (`true`, `false`, or `null`)
+  and `diagnostic`; hosted assignments are string ids.
+- Core statement, severity and diagnostic are per instance. Statement can be
+  null. Both shapes retain aggregate effective severity; core also retains each
+  instance's severity. Core reason and relaxation reason are separate nullable
+  fields. The synthetic hosted shape places statement on the aggregate rule,
+  requires an instance reason, and uses a rule-level `detail_code`. Invalid
+  rules have instance `diagnostic.code = invalid-rule` and remain not evaluated.
+- Core fixes are tagged `action` (with `fixer: person|airlock`, `action`, `input`),
+  `agent` (with `guidance`), or `not-fixable` (with `reason`). The synthetic hosted
+  shape uses a UI fixer, an origin and a description. Mapping cannot assume an
+  executable change or reconstruct declaration origin from an absent field.
+- Core condition evidence includes index, result, flavor, diagnostic, expected
+  JSON, probe, pointer, evaluation, `observed_digest`, reason and fix. It does not
+  disclose raw observed contents. The synthetic conditions use display strings
+  `label`, `expected` and `observed`. A digest is not raw observed evidence.
+- Core warnings use `rule`, `code`, `reason`; synthetic warnings use `rule_id`,
+  `code`, `message`.
+- Core lists an unassigned repository both in `repositories` (with zero rules
+  and nonmatching assignment observations) and `unassigned_repositories`. The
+  hosted synthetic list contains assigned repositories only. The adapter must
+  separate these entries; an unassigned repository is not a passing assigned
+  repository and must not inflate assigned counts.
 
 `ReportStore` is an asynchronous read port. Its local implementation copies
 fixtures to prevent a caller from changing stored reports. A live store needs

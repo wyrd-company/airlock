@@ -1,5 +1,5 @@
 // relationships: { implements: ../../../docs/hosted-browser.md }
-// Provisional transport input, deliberately independent of airlock-core's public schema.
+// Synthetic hosted input/view shape. This does not match airlock-core output.
 export type Severity = "none" | "advisory" | "blocking";
 export type Flavor =
   "passed" | "waived" | "not-applicable" | "gap" | "not-evaluated";

@@ -1,7 +1,6 @@
 /* relationships: { implements: ../../../docs/hosted-browser.md } */
-@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;450;500;550;600;650;700&family=IBM+Plex+Mono:wght@400;500&family=Manrope:wght@400;500;600;650;700;750;800&display=swap");
 :root {
-  font-family: "DM Sans", sans-serif;
+  font-family: var(--body);
   color: #29322e;
   background: #f7f7f2;
   font-synthesis: none;
@@ -13,7 +12,10 @@
   --red-bg: #f7e7e1;
   --amber: #906b24;
   --paper: #f7f7f2;
-  --mono: "IBM Plex Mono", monospace;
+  --body: "Candara", "Trebuchet MS", sans-serif;
+  --display: "Avenir Next", "Century Gothic", "Trebuchet MS", sans-serif;
+  --mono:
+    "Cascadia Code", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 }
 * {
   box-sizing: border-box;
@@ -75,7 +77,7 @@ h1,
 h2,
 h3,
 h4 {
-  font-family: "Manrope", sans-serif;
+  font-family: var(--display);
 }
 .shell {
   display: grid;
@@ -98,7 +100,7 @@ h4 {
   align-items: center;
   gap: 11px;
   padding: 0 10px 38px;
-  font-family: "Manrope", sans-serif;
+  font-family: var(--display);
   font-size: 19px;
   font-weight: 800;
   letter-spacing: 3px;
@@ -114,7 +116,7 @@ h4 {
 }
 .brand-mark {
   position: relative;
-  font-family: "Manrope", sans-serif;
+  font-family: var(--display);
   font-size: 41px;
   line-height: 1;
   font-weight: 800;
@@ -291,7 +293,7 @@ h1 {
   border-left: 1px solid var(--line);
 }
 .overview-total strong {
-  font-family: "Manrope", sans-serif;
+  font-family: var(--display);
   font-weight: 500;
   font-size: 60px;
   color: var(--red);
@@ -403,7 +405,7 @@ h1 {
   color: var(--amber);
 }
 .count-label {
-  font-family: "DM Sans", sans-serif;
+  font-family: var(--body);
   font-size: 10px;
   font-weight: 400;
   color: #777e71;
@@ -1363,7 +1365,11 @@ textarea {
     padding: 12px;
   }
   .repo-heading .row-counts {
-    display: none;
+    display: flex;
+    margin-bottom: 16px;
+  }
+  .repo-heading {
+    flex-wrap: wrap;
   }
   .catalog-row {
     gap: 10px;
@@ -1382,4 +1388,73 @@ textarea {
   dialog {
     padding: 22px;
   }
+}
+
+.repo-heading .count-label {
+  display: inline;
+  color: inherit;
+}
+.result-controls {
+  justify-content: flex-start;
+  margin-top: 25px;
+}
+.result-controls label {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.result-controls select {
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 8px;
+  background: #fffef8;
+  color: var(--ink);
+  font: inherit;
+}
+select:focus-visible {
+  outline: 3px solid #a98b45;
+  outline-offset: 4px;
+}
+.results-summary {
+  color: var(--muted);
+  font-size: 11px;
+}
+.catalog-entry {
+  border-bottom: 1px solid var(--line);
+  padding: 0 12px;
+}
+.catalog-entry > summary {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 20px 0;
+  list-style: none;
+  font-size: 11px;
+}
+.catalog-entry > summary code {
+  flex: 1;
+}
+.catalog-entry > summary > span {
+  color: var(--muted);
+}
+.catalog-observation {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 15px;
+  margin-bottom: 12px;
+  background: #edf0e4;
+  border-radius: 4px;
+  font-size: 12px;
+}
+.catalog-observation p {
+  flex-basis: 100%;
+  font-size: 11px;
+  color: var(--muted);
+}
+.catalog-observation a {
+  margin-right: auto;
 }
