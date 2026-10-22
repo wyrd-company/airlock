@@ -74,6 +74,7 @@ dependencies = [
  "anyhow",
  "base64",
  "gix",
+ "globset",
  "hex",
  "ignore",
  "jsonschema",

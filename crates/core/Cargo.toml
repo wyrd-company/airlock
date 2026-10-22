@@ -9,6 +9,7 @@ readme.workspace = true
 repository.workspace = true
 
 [dependencies]
+globset = "0.4"
 base64.workspace = true
 hex.workspace = true
 jsonschema.workspace = true

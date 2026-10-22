@@ -36,7 +36,10 @@ use sha2::{Digest, Sha256};
 pub const RULES_VERSION: &str = "0.6.0";
 
 /// How severely a failure counts.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
+#[serde(rename_all = "kebab-case")]
 pub enum Severity {
     /// Do not evaluate; list the waiver and its reason.
     None,
@@ -388,7 +391,9 @@ pub const MERGE_SETTINGS_DISCLOSURE: DisclosureGate = DisclosureGate {
 pub const DISCLOSURE_GATES: &[&DisclosureGate] = &[&MERGE_SETTINGS_DISCLOSURE];
 
 /// A rule's earliest applicable maturity rung, independent of visibility.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 #[serde(rename_all = "kebab-case")]
 pub enum Lifecycle {
     /// Before the first Intentional baseline tag.
