@@ -1,6 +1,6 @@
 // ---
 // relationships:
-//   references: working-tree
+//   references: audited-revision
 // ---
 
 //! Demand-driven read-only observation adapters. The GitHub adapter accepts

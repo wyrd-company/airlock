@@ -60,7 +60,7 @@ or overrides run.
 The probe provider publishes input and output JSON Schemas. The engine checks
 request inputs before observation and checks returned outputs before use.
 Schema processing is offline. Probes run only for assignment conditions and
-assigned rule conditions. Waived instances do not observe their rule probes.
+active rule conditions. Waived instances do not observe their rule probes.
 The implementation reuses exact same-input observations within one repository
 in one run; it does not cache between runs.
 
@@ -127,10 +127,14 @@ setting derives `set-repository-setting`, fixed by a person. Every other failure
 states that no unambiguous coded fix is available. These are plans; this module
 has no mutating endpoint or fix executor.
 
-A rule can complete missing derived inputs, replace the fix with a coded action
-or agent
+A rule can declare completion, replace the fix with a coded action or agent
 guidance, or block the fix with a reason. Action inputs are schema-checked.
-Identical completion values are accepted. A conflicting known input makes the
+Both current derive actions supply every required input: path and contents for
+`set-file-content`, setting and value for `set-repository-setting`. Completion
+currently confirms identical inputs; there is no missing production input to
+fill. The generic completion planner can fill missing inputs in a partial plan.
+Its pure unit test demonstrates that extension behavior, not a reachable path
+in the current derive catalog. A conflicting known input makes the
 fix plan unavailable with a reason directing the author to an explicit
 `mode: action` replacement. Completion never retargets a known path or setting.
 Unknown action types make the rule invalid. The coded action catalog contains
