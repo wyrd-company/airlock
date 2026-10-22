@@ -99,3 +99,94 @@ describe("fixer projection", () => {
     expect(project(rule).groups).toEqual(["not-evaluated"]);
   });
 });
+
+function orderingReport(
+  entries: { name: string; rules: RuleResult[] }[],
+): OrganizationReport {
+  const report = structuredClone(fixtureReports[0]);
+  report.repositories = entries.map(({ name, rules }) => ({
+    ...report.repositories[0],
+    repository: `example-org/${name}`,
+    repository_config: null,
+    rules,
+    warnings: [],
+  }));
+  return report;
+}
+const blocking = () => syntheticRule("required-setting", ["you"]);
+const advisory = () => ({
+  ...syntheticRule("documentation", ["agent"]),
+  severity: "advisory" as const,
+});
+describe("repository ordering and warning attribution", () => {
+  it("orders advisory gaps before opposing names when blocking counts tie", () => {
+    const report = orderingReport([
+      { name: "a-fewer-gaps", rules: [blocking()] },
+      { name: "z-more-gaps", rules: [blocking(), advisory()] },
+    ]);
+    const rows = projectOrganization(report).repositories;
+    expect(
+      rows.map((row) => [row.blocking, row.advisory, row.incomplete]),
+    ).toEqual([
+      [1, 1, 0],
+      [1, 0, 0],
+    ]);
+    expect(rows.map((row) => row.repository)).toEqual([
+      "example-org/z-more-gaps",
+      "example-org/a-fewer-gaps",
+    ]);
+  });
+  it("orders incomplete results before opposing names when blocking and advisory counts tie", () => {
+    const unknown = blocking();
+    unknown.flavor = "not-evaluated";
+    unknown.instances[0].flavor = "not-evaluated";
+    const report = orderingReport([
+      { name: "a-evaluated", rules: [blocking()] },
+      { name: "z-incomplete", rules: [unknown] },
+    ]);
+    const rows = projectOrganization(report).repositories;
+    expect(
+      rows.map((row) => [row.blocking, row.advisory, row.incomplete]),
+    ).toEqual([
+      [1, 0, 1],
+      [1, 0, 0],
+    ]);
+    expect(rows.map((row) => row.repository)).toEqual([
+      "example-org/z-incomplete",
+      "example-org/a-evaluated",
+    ]);
+  });
+  it("uses repository names only after all failure counts tie", () => {
+    const report = orderingReport([
+      { name: "z-notes", rules: [blocking(), advisory()] },
+      { name: "a-notes", rules: [blocking(), advisory()] },
+    ]);
+    expect(
+      projectOrganization(report).repositories.map((row) => row.repository),
+    ).toEqual(["example-org/a-notes", "example-org/z-notes"]);
+  });
+  it("attaches a relaxation warning only to its matching rule", () => {
+    const report = orderingReport([
+      { name: "field-notes", rules: [blocking(), advisory()] },
+    ]);
+    report.repositories[0].warnings = [
+      {
+        rule_id: "required-setting",
+        code: "relaxation-without-reason",
+        message: "This setting was relaxed without a reason.",
+      },
+      {
+        rule_id: "absent-rule",
+        code: "relaxation-without-reason",
+        message: "A different requirement was relaxed.",
+      },
+    ];
+    const results = projectOrganization(report).repositories[0].results;
+    expect(
+      results.find((row) => row.rule.id === "documentation")!.warnings,
+    ).toEqual([]);
+    expect(
+      results.find((row) => row.rule.id === "required-setting")!.warnings,
+    ).toEqual(["This setting was relaxed without a reason."]);
+  });
+});

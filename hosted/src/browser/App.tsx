@@ -1,5 +1,5 @@
 // relationships: { implements: ../../../docs/hosted-browser.md, references: ../shared/report.ts }
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useReducer, useRef, useState, type ReactNode } from "react";
 import {
   groupLabels,
   groupOrder,
@@ -16,6 +16,7 @@ import {
   resultFilters,
   observedRuleCatalog,
   incompleteLabel,
+  updateResultSelection,
   type ResultFilter,
   type ResultSort,
 } from "./view.ts";
@@ -525,20 +526,17 @@ function Repository({
   org: OrganizationView;
   repo: RepositoryView;
 }) {
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [{ selected, filter: resultFilter }, updateSelection] = useReducer(
+    updateResultSelection,
+    { filter: "all", selected: new Set<string>() },
+  );
   const [review, setReview] = useState(false);
-  const [resultFilter, setResultFilter] = useState<ResultFilter>("all");
   const [resultSort, setResultSort] = useState<ResultSort>("report");
   const failing = repo.results.filter(
     (result) => result.rule.result === "fail",
   );
   function toggle(id: string) {
-    setSelected((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+    updateSelection({ type: "toggle", id });
   }
   return (
     <div className="repository-detail" key={repo.repository}>
@@ -580,8 +578,10 @@ function Repository({
             aria-label="Filter results"
             value={resultFilter}
             onChange={(event) => {
-              setResultFilter(event.target.value as ResultFilter);
-              setSelected(new Set());
+              updateSelection({
+                type: "filter",
+                filter: event.target.value as ResultFilter,
+              });
             }}
           >
             {resultFilters.map(([value, label]) => (

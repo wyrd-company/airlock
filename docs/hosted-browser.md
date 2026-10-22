@@ -36,7 +36,9 @@ credentials, live reads, settings writes, or schedule cadence.
 The cross-organization view contains summary cards only. Selecting an
 organization opens its repositories, sorted by blocking results, advisory
 results, incomplete results, then repository name. Work queue buttons filter
-that list by fixer. Unassigned repositories appear separately and are not gaps.
+that list by fixer. Blocking and advisory counts have visible text labels in
+both repository list rows and detail headings. Unassigned repositories appear
+separately and are not gaps.
 
 Organization sections are Repos, Rules, Assignments, and Pull requests. Results
 are grouped as You, Airlock PR, Agent, Not fixable, and Couldn't evaluate.

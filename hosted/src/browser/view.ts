@@ -91,3 +91,21 @@ export function observedRuleCatalog(repositories: RepositoryView[]) {
 export function incompleteLabel(count: number): string {
   return `${count} ${count === 1 ? "result" : "results"} couldn't be evaluated`;
 }
+
+export interface ResultSelectionState {
+  filter: ResultFilter;
+  selected: Set<string>;
+}
+export function updateResultSelection(
+  state: ResultSelectionState,
+  action:
+    { type: "toggle"; id: string } | { type: "filter"; filter: ResultFilter },
+): ResultSelectionState {
+  if (action.type === "filter") {
+    return { filter: action.filter, selected: new Set<string>() };
+  }
+  const selected = new Set(state.selected);
+  if (selected.has(action.id)) selected.delete(action.id);
+  else selected.add(action.id);
+  return { ...state, selected };
+}

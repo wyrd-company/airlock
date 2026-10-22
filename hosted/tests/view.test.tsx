@@ -11,6 +11,7 @@ import {
   incompleteLabel,
   observedRuleCatalog,
   partitionResults,
+  updateResultSelection,
 } from "../src/browser/view.ts";
 import { projectOrganization } from "../src/service/projection.ts";
 import { fixtureReports } from "../src/service/fixtures.ts";
@@ -246,5 +247,21 @@ describe("observed Rules index", () => {
     expect(
       renderToStaticMarkup(<RuleCatalog org={org} onProposal={() => {}} />),
     ).toBe(html);
+  });
+});
+
+describe("repository fix selection", () => {
+  it("clears an actually selected fix when the result filter changes", () => {
+    const selected = updateResultSelection(
+      { filter: "all", selected: new Set<string>() },
+      { type: "toggle", id: "default-branch-protection" },
+    );
+    expect([...selected.selected]).toEqual(["default-branch-protection"]);
+    const filtered = updateResultSelection(selected, {
+      type: "filter",
+      filter: "pass",
+    });
+    expect(filtered.filter).toBe("pass");
+    expect([...filtered.selected]).toEqual([]);
   });
 });
