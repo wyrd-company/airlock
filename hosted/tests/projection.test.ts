@@ -156,6 +156,26 @@ describe("repository ordering and warning attribution", () => {
       "example-org/a-evaluated",
     ]);
   });
+  it("prioritizes advisory counts over incomplete counts when blocking counts tie", () => {
+    const unknown = blocking();
+    unknown.flavor = "not-evaluated";
+    unknown.instances[0].flavor = "not-evaluated";
+    const report = orderingReport([
+      { name: "a-incomplete", rules: [unknown] },
+      { name: "z-advisory", rules: [blocking(), advisory()] },
+    ]);
+    const rows = projectOrganization(report).repositories;
+    expect(
+      rows.map((row) => [row.blocking, row.advisory, row.incomplete]),
+    ).toEqual([
+      [1, 1, 0],
+      [1, 0, 1],
+    ]);
+    expect(rows.map((row) => row.repository)).toEqual([
+      "example-org/z-advisory",
+      "example-org/a-incomplete",
+    ]);
+  });
   it("uses repository names only after all failure counts tie", () => {
     const report = orderingReport([
       { name: "z-notes", rules: [blocking(), advisory()] },
