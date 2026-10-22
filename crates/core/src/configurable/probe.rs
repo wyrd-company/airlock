@@ -1,19 +1,18 @@
 // ---
 // relationships:
-//   implements: configurable-rules
+//   references: working-tree
 // ---
 
 //! Demand-driven read-only observation adapters. The GitHub adapter accepts
 //! the existing read-only client trait; credential verification stays with the
 //! caller, as with the existing audit. No credential is read by this module.
 
-use super::config::{Lifecycle, ProbeRequest};
+use super::config::{is_commit_oid, Lifecycle, ProbeRequest};
 use crate::{
     github::{CustomPropertyValueKind, GitHub, Tree},
     limits::Limits,
 };
 use serde_json::{json, Value};
-use std::collections::BTreeMap;
 
 #[derive(Debug, Clone)]
 pub struct RepositoryTarget {
@@ -48,7 +47,8 @@ pub trait ProbeProvider {
 pub struct GitHubProbes<'a, G> {
     client: &'a G,
     limits: Limits,
-    trees: BTreeMap<(String, String), Tree>,
+    target: Option<(String, String)>,
+    tree: Option<Tree>,
     bytes_read: usize,
 }
 
@@ -57,13 +57,22 @@ impl<'a, G: GitHub> GitHubProbes<'a, G> {
         Self {
             client,
             limits,
-            trees: BTreeMap::new(),
+            target: None,
+            tree: None,
             bytes_read: 0,
         }
     }
-    async fn file(&mut self, target: &RepositoryTarget, path: &str) -> Result<Value, String> {
+    fn select_target(&mut self, target: &RepositoryTarget) {
         let key = (target.full_name(), target.commit.clone());
-        if !self.trees.contains_key(&key) {
+        if self.target.as_ref() != Some(&key) {
+            self.target = Some(key);
+            self.tree = None;
+            self.bytes_read = 0;
+        }
+    }
+
+    async fn file(&mut self, target: &RepositoryTarget, path: &str) -> Result<Value, String> {
+        if self.tree.is_none() {
             let tree = self
                 .client
                 .tree(&target.owner, &target.name, &target.commit)
@@ -72,9 +81,12 @@ impl<'a, G: GitHub> GitHubProbes<'a, G> {
             if tree.entries.len() > self.limits.max_tree_entries {
                 return Err("tree entry budget exceeded".into());
             }
-            self.trees.insert(key.clone(), tree);
+            self.tree = Some(tree);
         }
-        let tree = &self.trees[&key];
+        let tree = self
+            .tree
+            .as_ref()
+            .expect("current target tree was observed");
         let Some(entry) = tree
             .entries
             .iter()
@@ -137,6 +149,10 @@ impl<G: GitHub> ProbeProvider for GitHubProbes<'_, G> {
         target: &RepositoryTarget,
         request: &ProbeRequest,
     ) -> Result<Value, String> {
+        if !is_commit_oid(&target.commit) {
+            return Err("repository target needs a full hexadecimal commit object id".into());
+        }
+        self.select_target(target);
         match request.kind.as_str() {
             "file-content" => {
                 self.file(

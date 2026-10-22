@@ -1,7 +1,8 @@
 ---
 relationships:
-  implements: configurable-rules
-  references: rule
+  references:
+    - rule
+    - config-source
 ---
 
 # Configurable rules core API
@@ -16,7 +17,14 @@ list retain their existing audit route until integration is selected.
 
 `ConfigSnapshot::load` uses the bounded YAML loader, rejects duplicate keys and
 retains the configuration repository, path and resolved commit. `read_at` reads
-a supplied resolved commit through the existing GitHub client.
+a supplied full hexadecimal commit OID through the existing GitHub client.
+The low-level API accepts 40 or 64 hex digits and rejects branch names, tags,
+abbreviated OIDs and whitespace. Callers resolve an allowed ref once before
+loading its bytes or calling `read_at`; loading, probes and audit never
+re-resolve a ref. The caller must supply bytes from the named commit when using
+`load`. The API validates OID syntax, not remote object existence without a read.
+Accepting a 64-digit OID does not establish that GitHub supports that hash
+format; the backend reports an unsupported or missing object as a read error.
 It returns explicit absence or a snapshot, and reports unreadable or truncated
 input as an error. Callers can change the path; `DEFAULT_CONFIG_PATH` is
 `.github/airlock.yml`. Organization configuration has `rules`,
@@ -40,7 +48,12 @@ have different inputs.
 Organization-owned repository overrides appear under
 `repositories: { account/repository: { rule-id: rule } }`. A replacement needs a
 nonblank reason. A bad replacement is reported as invalid while the original
-organization instance still runs. Overrides apply only to assigned rule ids.
+organization instance still runs. Overrides apply to active rule ids. After a
+repository matches an assignment,
+its local rule definitions also activate ids. An organization definition and
+its repository override for a same-id local definition both apply, even if no
+matching assignment references that id. With no matching assignment, no rules
+or overrides run.
 
 ## Observations and evaluations
 
@@ -55,7 +68,9 @@ The GitHub adapter provides `file-content` (input `path`), `repository`, `topics
 and `custom-properties` (empty inputs). File observations use the existing Git
 tree and blob API client at the resolved commit. The adapter does not follow
 symlinks. A missing entry in a truncated tree is an observation failure, not
-absence. Existing tree, blob and aggregate byte budgets apply. An undisclosed
+absence. Existing tree, blob and aggregate byte budgets apply per repository target.
+Selecting a different repository or commit clears the prior tree and resets the
+byte counter; one repository cannot consume another repository's budget. An undisclosed
 metadata field is omitted; selecting it is not evaluated. Archive and primary
 language facts have no adapter in this increment.
 
@@ -112,8 +127,12 @@ setting derives `set-repository-setting`, fixed by a person. Every other failure
 states that no unambiguous coded fix is available. These are plans; this module
 has no mutating endpoint or fix executor.
 
-A rule can complete derived inputs, replace the fix with a coded action or agent
+A rule can complete missing derived inputs, replace the fix with a coded action
+or agent
 guidance, or block the fix with a reason. Action inputs are schema-checked.
+Identical completion values are accepted. A conflicting known input makes the
+fix plan unavailable with a reason directing the author to an explicit
+`mode: action` replacement. Completion never retargets a known path or setting.
 Unknown action types make the rule invalid. The coded action catalog contains
 only the two actions above. External model-backed evaluation is not registered.
 

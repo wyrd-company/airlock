@@ -1,6 +1,6 @@
 // ---
 // relationships:
-//   verifies: configurable-rules
+//   references: rule
 // ---
 
 use airlock_core::{
@@ -368,7 +368,7 @@ async fn maturity_selects_configured_severity_without_config_edit() {
 
 struct Counting {
     calls: Arc<Mutex<Vec<usize>>>,
-    wrong_size: bool,
+    answer_delta: i8,
 }
 impl Evaluation for Counting {
     fn input_schema(&self) -> Value {
@@ -383,10 +383,7 @@ impl Evaluation for Counting {
         requests: &[EvaluationInput],
     ) -> Vec<Result<Decision, String>> {
         self.calls.lock().unwrap().push(requests.len());
-        if self.wrong_size {
-            return vec![];
-        }
-        requests
+        let mut answers: Vec<_> = requests
             .iter()
             .map(|r| {
                 Ok(Decision {
@@ -394,7 +391,17 @@ impl Evaluation for Counting {
                     reason: "batch result".into(),
                 })
             })
-            .collect()
+            .collect();
+        if self.answer_delta < 0 {
+            answers.pop();
+        }
+        if self.answer_delta > 0 {
+            answers.push(Ok(Decision {
+                passed: true,
+                reason: "extra answer".into(),
+            }));
+        }
+        answers
     }
     fn relaxes(&self, parent: &Value, child: &Value) -> Option<bool> {
         if parent == child {
@@ -412,14 +419,14 @@ async fn evaluation_batches_same_output_and_type_and_routes_each_answer() {
     let mut b = rule(6);
     b["conditions"][0] = condition("/score", "counting", json!(6), json!(6));
     let org = org(json!({"first":a,"second":b}), vec!["first", "second"]);
-    for wrong_size in [false, true] {
+    for answer_delta in [0, -1, 1] {
         let calls = Arc::new(Mutex::new(vec![]));
         let mut evaluations = Evaluations::built_in();
         evaluations.register(
             "counting",
             Box::new(Counting {
                 calls: calls.clone(),
-                wrong_size,
+                answer_delta,
             }),
         );
         let mut facts = Facts {
@@ -430,7 +437,7 @@ async fn evaluation_batches_same_output_and_type_and_routes_each_answer() {
             .await
             .unwrap();
         assert_eq!(*calls.lock().unwrap(), vec![2]);
-        if wrong_size {
+        if answer_delta != 0 {
             assert!(report.repositories[0]
                 .rules
                 .iter()
@@ -742,8 +749,12 @@ async fn fix_declaration_replaces_completes_blocks_or_rejects_unknown_actions() 
     for (id, fix) in [
         ("default", Value::Null),
         (
+            "conflict",
+            json!({"mode":"complete","input":{"path":"assets/other.txt"}}),
+        ),
+        (
             "complete",
-            json!({"mode":"complete","input":{"contents":"completed sample"}}),
+            json!({"mode":"complete","input":{"path":"assets/handbook.txt","contents":"expected sample"}}),
         ),
         (
             "agent",
@@ -768,7 +779,9 @@ async fn fix_declaration_replaces_completes_blocks_or_rejects_unknown_actions() 
     }
     let org = catch_all(
         Value::Object(rules),
-        vec!["default", "complete", "agent", "block", "action", "unknown"],
+        vec![
+            "default", "complete", "conflict", "agent", "block", "action", "unknown",
+        ],
     );
     let client = api_client(&server);
     let mut probes =
@@ -791,7 +804,7 @@ async fn fix_declaration_replaces_completes_blocks_or_rejects_unknown_actions() 
         matches!(&by_id["default"].instances[0].fixes[0],Fix::Action { action,.. } if action=="set-file-content")
     );
     assert!(
-        matches!(&by_id["complete"].instances[0].fixes[0],Fix::Action { input,.. } if input["contents"]=="completed sample")
+        matches!(&by_id["complete"].instances[0].fixes[0],Fix::Action { input,.. } if input["contents"]=="expected sample")
     );
     assert!(
         matches!(&by_id["agent"].instances[0].fixes[0],Fix::Agent {guidance} if guidance=="Write a short sample handbook.")
@@ -801,6 +814,9 @@ async fn fix_declaration_replaces_completes_blocks_or_rejects_unknown_actions() 
     );
     assert!(
         matches!(&by_id["action"].instances[0].fixes[0],Fix::Action { input,.. } if input["contents"]=="declared sample")
+    );
+    assert!(
+        matches!(&by_id["conflict"].instances[0].fixes[0],Fix::NotFixable {reason} if reason.contains("path") && reason.contains("mode: action"))
     );
     assert_eq!(by_id["unknown"].flavor, Flavor::NotEvaluated);
     assert_eq!(
@@ -1014,5 +1030,333 @@ async fn report_contract_fixture_is_serialized_by_the_real_engine() {
     );
     if let Some(destination) = std::env::var_os("AIRLOCK_CONFIGURABLE_FIXTURE_OUTPUT") {
         std::fs::write(destination, encoded).unwrap();
+    }
+}
+
+#[tokio::test]
+async fn excess_batch_answers_fail_every_grouped_rule() {
+    let mut a = rule(5);
+    a["conditions"][0] = condition("/score", "counting", json!(5), json!(5));
+    let mut b = rule(6);
+    b["conditions"][0] = condition("/score", "counting", json!(6), json!(6));
+    let organization = org(json!({"first":a,"second":b}), vec!["first", "second"]);
+    let calls = Arc::new(Mutex::new(vec![]));
+    let mut evaluations = Evaluations::built_in();
+    evaluations.register(
+        "counting",
+        Box::new(Counting {
+            calls: calls.clone(),
+            answer_delta: 1,
+        }),
+    );
+    let mut facts = Facts {
+        score: 5,
+        ..Facts::default()
+    };
+    let report = audit(
+        "sample",
+        &organization,
+        &[input(None)],
+        &mut facts,
+        &evaluations,
+    )
+    .await
+    .unwrap();
+    assert_eq!(*calls.lock().unwrap(), vec![2]);
+    assert_eq!(report.repositories[0].rules.len(), 2);
+    for rule in &report.repositories[0].rules {
+        assert_eq!(rule.flavor, Flavor::NotEvaluated);
+        let condition = &rule.instances[0].conditions[0];
+        assert_eq!(
+            condition.diagnostic.as_ref().unwrap().code,
+            "evaluation-failed"
+        );
+        assert_eq!(
+            condition.diagnostic.as_ref().unwrap().reason,
+            "evaluation returned the wrong batch size"
+        );
+    }
+}
+
+async fn repository_file_mocks(
+    server: &wiremock::MockServer,
+    repo: &str,
+    tree_reads: u64,
+    blob_reads: u64,
+) {
+    use base64::Engine;
+    use wiremock::{
+        matchers::{method, path, query_param},
+        Mock, ResponseTemplate,
+    };
+    Mock::given(method("GET")).and(path(format!("/repos/sample/{repo}/git/trees/{}","c".repeat(40)))).and(query_param("recursive","1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"sha":"c".repeat(40),"tree":[{"path":"assets/handbook.txt","mode":"100644","type":"blob","sha":"d".repeat(40),"size":6}],"truncated":false}))).expect(tree_reads).mount(server).await;
+    Mock::given(method("GET")).and(path(format!("/repos/sample/{repo}/git/blobs/{}","d".repeat(40))))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"sha":"d".repeat(40),"encoding":"base64","content":base64::engine::general_purpose::STANDARD.encode(b"sample"),"size":6}))).expect(blob_reads).mount(server).await;
+}
+
+#[tokio::test]
+async fn repositories_receive_independent_byte_budgets_in_either_order() {
+    let mut outcomes = Vec::new();
+    for reverse in [false, true] {
+        let server = wiremock::MockServer::start().await;
+        repository_file_mocks(&server, "sample-kit", 1, 1).await;
+        repository_file_mocks(&server, "other-kit", 1, 1).await;
+        let organization = catch_all(
+            json!({"handbook":file_rule("/contents",json!("sample"))}),
+            vec!["handbook"],
+        );
+        let first = input(None);
+        let mut second = input(None);
+        second.target.name = "other-kit".into();
+        let inputs = if reverse {
+            vec![second, first]
+        } else {
+            vec![first, second]
+        };
+        let client = api_client(&server);
+        let mut provider = airlock_core::configurable::probe::GitHubProbes::new(
+            &client,
+            airlock_core::limits::Limits {
+                max_blob_bytes: 6,
+                max_total_bytes: 6,
+                ..Default::default()
+            },
+        );
+        let report = audit(
+            "sample",
+            &organization,
+            &inputs,
+            &mut provider,
+            &Evaluations::built_in(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(report.repositories.len(), 2);
+        assert!(report
+            .repositories
+            .iter()
+            .all(|repo| repo.rules[0].flavor == Flavor::Passed));
+        assert_eq!(server.received_requests().await.unwrap().len(), 4);
+        outcomes.push(serde_json::to_value(report).unwrap());
+    }
+    assert_eq!(outcomes[0], outcomes[1]);
+}
+
+#[tokio::test]
+async fn switching_targets_evicts_the_old_tree_instead_of_retaining_every_repository() {
+    let server = wiremock::MockServer::start().await;
+    repository_file_mocks(&server, "sample-kit", 2, 2).await;
+    repository_file_mocks(&server, "other-kit", 1, 1).await;
+    let client = api_client(&server);
+    let mut provider = airlock_core::configurable::probe::GitHubProbes::new(
+        &client,
+        airlock_core::limits::Limits {
+            max_blob_bytes: 6,
+            max_total_bytes: 6,
+            ..Default::default()
+        },
+    );
+    let first = input(None).target;
+    let mut second = first.clone();
+    second.name = "other-kit".into();
+    let request = ProbeRequest {
+        kind: "file-content".into(),
+        input: json!({"path":"assets/handbook.txt"}),
+    };
+    for target in [&first, &second, &first] {
+        assert_eq!(
+            provider.observe(target, &request).await.unwrap()["contents"],
+            "sample"
+        );
+    }
+    assert_eq!(server.received_requests().await.unwrap().len(), 6);
+}
+
+#[tokio::test]
+async fn one_repository_still_enforces_its_aggregate_byte_budget() {
+    let server = wiremock::MockServer::start().await;
+    tree_mock(&server,json!([
+        {"path":"assets/handbook.txt","mode":"100644","type":"blob","sha":"d".repeat(40),"size":6},
+        {"path":"assets/appendix.txt","mode":"100644","type":"blob","sha":"d".repeat(40),"size":6}
+    ]),false).await;
+    blob_mock(&server, b"sample").await;
+    let mut r = file_rule("/exists", json!(true));
+    r["probes"]["second"] = json!({"kind":"file-content","input":{"path":"assets/appendix.txt"}});
+    let mut extra = condition("/exists", "equal", json!(true), json!(true));
+    extra["probe"] = json!("second");
+    r["conditions"].as_array_mut().unwrap().push(extra);
+    let organization = catch_all(json!({"handbook":r}), vec!["handbook"]);
+    let client = api_client(&server);
+    let mut provider = airlock_core::configurable::probe::GitHubProbes::new(
+        &client,
+        airlock_core::limits::Limits {
+            max_blob_bytes: 6,
+            max_total_bytes: 6,
+            ..Default::default()
+        },
+    );
+    let report = audit(
+        "sample",
+        &organization,
+        &[input(None)],
+        &mut provider,
+        &Evaluations::built_in(),
+    )
+    .await
+    .unwrap();
+    let conditions = &only(&report).instances[0].conditions;
+    assert_eq!(conditions[0].flavor, Flavor::Passed);
+    assert_eq!(conditions[1].flavor, Flavor::NotEvaluated);
+    assert_eq!(
+        conditions[1].diagnostic.as_ref().unwrap().reason,
+        "file byte budget exceeded"
+    );
+    assert_eq!(server.received_requests().await.unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn moving_refs_are_rejected_at_every_low_level_boundary_before_observation() {
+    for commit in [
+        "main".to_string(),
+        "release-1".into(),
+        "a".repeat(39),
+        "g".repeat(40),
+        format!(" {}", "a".repeat(40)),
+        "".into(),
+    ] {
+        let server = wiremock::MockServer::start().await;
+        let client = api_client(&server);
+        let mut config_source = source("sample/sample-kit", "a");
+        config_source.commit = commit.clone();
+        assert!(ConfigSnapshot::<OrganizationConfig>::load(
+            config_source.clone(),
+            "rules: {}\nassignments: {}\n",
+            DEFAULT_YAML_LIMITS
+        )
+        .is_err());
+        assert!(ConfigSnapshot::<OrganizationConfig>::read_at(
+            &client,
+            config_source,
+            Default::default()
+        )
+        .await
+        .is_err());
+        let mut provider =
+            airlock_core::configurable::probe::GitHubProbes::new(&client, Default::default());
+        let mut target = input(None).target;
+        target.commit = commit.clone();
+        assert!(provider
+            .observe(
+                &target,
+                &ProbeRequest {
+                    kind: "file-content".into(),
+                    input: json!({"path":"assets/handbook.txt"})
+                }
+            )
+            .await
+            .is_err());
+        let organization = org(json!({"measure":rule(6)}), vec!["measure"]);
+        let mut facts = Facts::default();
+        let mut bad_org = organization.clone();
+        bad_org.source.commit = commit.clone();
+        assert!(audit(
+            "sample",
+            &bad_org,
+            &[input(None)],
+            &mut facts,
+            &Evaluations::built_in()
+        )
+        .await
+        .is_err());
+        let mut bad_repo = input(Some(json!({})));
+        bad_repo.config.as_mut().unwrap().source.commit = commit.clone();
+        assert!(audit(
+            "sample",
+            &organization,
+            &[bad_repo],
+            &mut facts,
+            &Evaluations::built_in()
+        )
+        .await
+        .is_err());
+        assert!(audit(
+            "sample",
+            &organization,
+            &[RepositoryInput {
+                target,
+                config: None
+            }],
+            &mut facts,
+            &Evaluations::built_in()
+        )
+        .await
+        .is_err());
+        assert!(facts.calls.is_empty());
+        assert!(server.received_requests().await.unwrap().is_empty());
+    }
+}
+
+#[test]
+fn configuration_oid_syntax_accepts_full_sha1_and_sha256_without_claiming_remote_existence() {
+    for commit in ["aB".repeat(20), "cD".repeat(32)] {
+        let mut config_source = source("sample/sample-kit", "a");
+        config_source.commit = commit.clone();
+        let loaded = ConfigSnapshot::<OrganizationConfig>::load(
+            config_source,
+            "rules: {}\nassignments: {}\n",
+            DEFAULT_YAML_LIMITS,
+        )
+        .unwrap();
+        assert_eq!(loaded.source.commit, commit);
+    }
+}
+
+#[tokio::test]
+async fn locally_active_same_id_runs_the_org_definition_and_override_only_after_assignment() {
+    for matched in [true, false] {
+        for with_override in [false, true] {
+            let mut organization = org(json!({"shared":rule(6)}), vec![]);
+            organization
+                .document
+                .assignments
+                .get_mut("selected")
+                .unwrap()
+                .conditions[0]
+                .setting = Setting {
+                floor: json!(if matched { "true" } else { "false" }),
+                value: json!(if matched { "true" } else { "false" }),
+            };
+            if with_override {
+                let mut overridden = rule(9);
+                overridden["reason"] = json!("This sample needs a larger measure.");
+                organization.document.repositories.insert(
+                    "sample/sample-kit".into(),
+                    BTreeMap::from([("shared".into(), overridden)]),
+                );
+            }
+            let (report, _) = run(&organization, input(Some(json!({"shared":rule(4)}))), 7).await;
+            if matched {
+                let result = only(&report);
+                assert_eq!(result.instances.len(), 2);
+                assert_eq!(result.instances[0].source, Source::Organization);
+                assert_eq!(result.instances[1].source, Source::Repository);
+                assert_eq!(
+                    result.instances[0].conditions[0].expected,
+                    json!(if with_override { 9 } else { 6 })
+                );
+                assert_eq!(
+                    result.flavor,
+                    if with_override {
+                        Flavor::Gap
+                    } else {
+                        Flavor::Passed
+                    }
+                );
+            } else {
+                assert!(report.repositories[0].rules.is_empty());
+                assert_eq!(report.unassigned_repositories, vec!["sample/sample-kit"]);
+            }
+        }
     }
 }

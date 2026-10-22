@@ -1,6 +1,6 @@
 // ---
 // relationships:
-//   implements: configurable-rules
+//   references: report
 // ---
 
 //! Additive report contract, independent of the current CLI projection.

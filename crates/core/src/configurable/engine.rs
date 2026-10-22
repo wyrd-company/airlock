@@ -1,6 +1,6 @@
 // ---
 // relationships:
-//   implements: configurable-rules
+//   references: rule
 // ---
 
 use super::{
@@ -73,7 +73,7 @@ fn validate_scope(
             .is_some_and(|(owner, name)| {
                 owner.eq_ignore_ascii_case(account) && !name.is_empty() && !name.contains('/')
             })
-            && !source.commit.trim().is_empty()
+            && is_commit_oid(&source.commit)
             && !source.path.trim().is_empty()
     };
     if !source_in_scope(&org.source) {
@@ -92,7 +92,7 @@ fn validate_scope(
         if !target.owner.eq_ignore_ascii_case(account)
             || target.name.is_empty()
             || target.name.contains('/')
-            || target.commit.trim().is_empty()
+            || !is_commit_oid(&target.commit)
         {
             return Err("repository target is outside the account or unpinned".into());
         }

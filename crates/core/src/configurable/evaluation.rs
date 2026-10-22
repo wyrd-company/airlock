@@ -1,6 +1,6 @@
 // ---
 // relationships:
-//   implements: configurable-rules
+//   references: rule
 // ---
 
 //! Pure evaluation registry. An evaluator receives one probe output and a

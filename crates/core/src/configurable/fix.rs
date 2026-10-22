@@ -1,6 +1,6 @@
 // ---
 // relationships:
-//   implements: configurable-rules
+//   references: fix
 // ---
 
 //! Coded fix plans only. Applying them belongs to a separately authorized adapter.
@@ -90,7 +90,14 @@ pub(crate) fn apply(derived: Fix, declaration: Option<&FixDeclaration>) -> Fix {
             {
                 if let (Some(values), Some(extra)) = (input.as_object_mut(), completion.as_object())
                 {
-                    values.extend(extra.clone());
+                    for (key, value) in extra {
+                        if values.get(key).is_some_and(|known| known != value) {
+                            return Fix::NotFixable { reason: format!("fix completion conflicts with derived input {key}; use mode: action for an explicit replacement") };
+                        }
+                    }
+                    for (key, value) in extra {
+                        values.entry(key.clone()).or_insert_with(|| value.clone());
+                    }
                 }
                 action(&kind, input).unwrap_or_else(|reason| Fix::NotFixable { reason })
             } else {
@@ -120,4 +127,60 @@ fn action(kind: &str, input: Value) -> Result<Fix, String> {
         action: kind.into(),
         input,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn completion_fills_missing_plan_inputs_and_accepts_identical_known_values() {
+        let derived = Fix::Action {
+            fixer: Fixer::Airlock,
+            action: "set-file-content".into(),
+            input: json!({"path":"assets/handbook.txt"}),
+        };
+        let completion = FixDeclaration::Complete {
+            input: json!({"path":"assets/handbook.txt","contents":"sample"}),
+        };
+        let completed = apply(derived, Some(&completion));
+        assert!(
+            matches!(completed,Fix::Action {input,..} if input==json!({"path":"assets/handbook.txt","contents":"sample"}))
+        );
+    }
+
+    #[test]
+    fn conflicting_completion_is_unavailable_while_explicit_replacement_can_retarget() {
+        for (action_name, known, conflicting) in [
+            (
+                "set-file-content",
+                json!({"path":"assets/handbook.txt","contents":"sample"}),
+                json!({"path":"assets/other.txt","contents":"sample"}),
+            ),
+            (
+                "set-repository-setting",
+                json!({"setting":"has-wiki","value":false}),
+                json!({"setting":"has-projects","value":false}),
+            ),
+        ] {
+            let derived = Fix::Action {
+                fixer: Fixer::Airlock,
+                action: action_name.into(),
+                input: known,
+            };
+            let completion = FixDeclaration::Complete {
+                input: conflicting.clone(),
+            };
+            assert!(
+                matches!(apply(derived.clone(),Some(&completion)),Fix::NotFixable {reason} if reason.contains("conflicts") && reason.contains("mode: action"))
+            );
+            let replacement = FixDeclaration::Action {
+                action: action_name.into(),
+                input: conflicting.clone(),
+            };
+            assert!(
+                matches!(apply(derived,Some(&replacement)),Fix::Action {input,..} if input==conflicting)
+            );
+        }
+    }
 }

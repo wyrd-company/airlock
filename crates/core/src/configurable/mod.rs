@@ -1,6 +1,6 @@
 // ---
 // relationships:
-//   implements: configurable-rules
+//   references: rule
 // ---
 
 //! Configuration-defined rules over generic read-only probes.
