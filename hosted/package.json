@@ -1,0 +1,33 @@
+{
+  "name": "@airlock/hosted",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0 --port 5178 --strictPort",
+    "build": "vite build",
+    "preview": "wrangler dev --local --ip 0.0.0.0 --port 8788",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --maxWorkers 1",
+    "check": "pnpm format:check && pnpm typecheck && pnpm test && pnpm build",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "dependencies": {
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "prettier": "^3.8.0",
+    "typescript": "^7.0.2",
+    "vite": "8.3.4",
+    "vitest": "^5.0.5",
+    "wrangler": "^4.151.3"
+  },
+  "relationships": {
+    "implements": "../docs/hosted-browser.md"
+  }
+}
