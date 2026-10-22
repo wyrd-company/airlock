@@ -69,6 +69,49 @@ changes must come from a server-side planner that re-observes GitHub state.
 Config proposal drafts remain in their dialog. No proposal is submitted or
 merged.
 
+## Local rule drafts
+
+Inside an organization, open **Rules → Draft rule configuration**. Select the
+organization or a reported repository. Start a complete labeled example or
+paste full YAML and choose **Use pasted source as baseline**. The report supplies
+source references, not editable configuration bytes. Pasted text is unverified
+against those commits; examples are hand-authored sample source.
+
+Edit **Proposed YAML source** to add a rule, change its settings, or add an
+organization assignment reference. Organization rules need an assignment;
+repository rules run only after assignment. The example's unassigned rules
+demonstrate source shapes, including a numeric preservation specimen without
+an observed numeric field. They do not demonstrate successful evaluation.
+
+Inspect the baseline beside the editor, the changed/unchanged indicator, and
+the complete proposed configuration below. The preview contains the current
+editor text, including comments, unknown fields, aliases and malformed bodies.
+Parsing never serializes or rewrites that source. No draft changes the observed
+Rules catalog or calculates an AND result, assignment, fix or audit outcome.
+
+Local checks cover YAML syntax, direct duplicate/non-string mapping keys and
+the selected envelope. Empty/null repository source follows the core's empty-map
+reading. Rule/assignment bodies, probe/evaluation/action registration, floors,
+hierarchy, scope, source authenticity and observations remain unchecked. The
+`yaml` Document API inspects integers as BigInt and does not expand aliases.
+Alias keys/values, tags, scalar-schema differences and expanded core-budget
+parity make these checks limited. Optional inspection stops above the existing
+default 512 KiB or default AST traversal bounds; full editing/preview remains
+available. Local diagnostics never establish engine validity or audit success.
+
+Drafts live only in the open dialog. **Discard draft**, changing target, or closing
+the dialog discards the text. No autosave, durable storage or network draft
+submission exists. Configuration PR submission and operator approval remain
+unavailable. Assignments retains its description-only proposal dialog.
+
+The browser and focused Rust loader tests share the complete YAML examples in
+`hosted/fixtures/rule-drafts/`. The explicit ignored development test
+`local_draft_browser_outputs_load_and_preserve_edits` reads both
+`AIRLOCK_DRAFT_ORG_OUTPUT` and `AIRLOCK_DRAFT_REPO_OUTPUT` as actual browser DOM
+capture paths. Invoke it explicitly with `--ignored --exact`; missing files or
+missing paths fail. Ordinary core test discovery needs no external captures.
+The consumer proves parsed edits and retained fields, not an evaluated audit.
+
 ## Adapter boundaries
 
 `shared/engine-report.ts` describes the Rust Serde input contract.

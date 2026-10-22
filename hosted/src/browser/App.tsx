@@ -1,5 +1,6 @@
 // relationships: { implements: ../../../docs/hosted-browser.md, references: ../shared/report.ts }
 import { useEffect, useReducer, useRef, useState, type ReactNode } from "react";
+import { RuleDraftEditor } from "./RuleDraftEditor.tsx";
 import {
   fixDescription,
   groupLabels,
@@ -296,7 +297,9 @@ function Organization({ route }: { route: Route }) {
   );
   const [filter, setFilter] = useState<"all" | ResultGroup>("all");
   const [search, setSearch] = useState("");
-  const [proposal, setProposal] = useState(false);
+  const [proposal, setProposal] = useState<"rules" | "description" | null>(
+    null,
+  );
   if (error) return <ErrorState message={error} />;
   if (!data)
     return (
@@ -435,9 +438,9 @@ function Organization({ route }: { route: Route }) {
           <UnassignedRepositories repositories={org.unassigned} />
         </>
       ) : route.section === "rules" ? (
-        <RuleCatalog org={org} onProposal={() => setProposal(true)} />
+        <RuleCatalog org={org} onProposal={() => setProposal("rules")} />
       ) : route.section === "assignments" ? (
-        <Assignments org={org} onProposal={() => setProposal(true)} />
+        <Assignments org={org} onProposal={() => setProposal("description")} />
       ) : (
         <div className="empty">
           <span className="empty-mark" aria-hidden="true">
@@ -448,9 +451,17 @@ function Organization({ route }: { route: Route }) {
           <p>Airlock proposes changes. It never merges them.</p>
         </div>
       )}
-      {proposal && (
-        <ProposalDialog organization={org} onClose={() => setProposal(false)} />
-      )}
+      {proposal === "rules" ? (
+        <Modal
+          title="Draft rule configuration"
+          onClose={() => setProposal(null)}
+          wide
+        >
+          <RuleDraftEditor org={org} />
+        </Modal>
+      ) : proposal === "description" ? (
+        <ProposalDialog organization={org} onClose={() => setProposal(null)} />
+      ) : null}
     </>
   );
 }
@@ -904,7 +915,7 @@ export function RuleCatalog({
           Rules <span>{rules.length}</span>
         </h2>
         <button className="secondary-button" onClick={onProposal}>
-          Propose config edit <Arrow />
+          Draft rule configuration <Arrow />
         </button>
       </div>
       <p className="section-description">
@@ -1041,10 +1052,12 @@ function Modal({
   title,
   onClose,
   children,
+  wide = false,
 }: {
   title: string;
   onClose: () => void;
   children: ReactNode;
+  wide?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -1053,7 +1066,12 @@ function Modal({
     return () => dialog.close();
   }, []);
   return (
-    <dialog ref={ref} onCancel={onClose} aria-labelledby="dialog-title">
+    <dialog
+      ref={ref}
+      onCancel={onClose}
+      aria-labelledby="dialog-title"
+      className={wide ? "draft-dialog" : undefined}
+    >
       <div className="dialog-header">
         <span className="eyebrow">
           {title.includes("config")

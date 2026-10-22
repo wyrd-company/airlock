@@ -1360,3 +1360,146 @@ async fn locally_active_same_id_runs_the_org_definition_and_override_only_after_
         }
     }
 }
+
+// The browser imports these hand-authored bytes directly; these are not engine exports.
+const DRAFT_ORGANIZATION: &str =
+    include_str!("../../../hosted/fixtures/rule-drafts/organization.yml");
+const DRAFT_REPOSITORY: &str = include_str!("../../../hosted/fixtures/rule-drafts/repository.yml");
+
+fn draft_org(text: &str) -> ConfigSnapshot<OrganizationConfig> {
+    ConfigSnapshot::load(source("sample/.github", "a"), text, DEFAULT_YAML_LIMITS)
+        .expect("complete organization draft must load")
+}
+fn draft_repo(text: &str) -> ConfigSnapshot<RepositoryConfig> {
+    ConfigSnapshot::load(source("sample/sample-kit", "b"), text, DEFAULT_YAML_LIMITS)
+        .expect("complete repository draft must load")
+}
+fn draft_rule(body: &Value) -> airlock_core::configurable::config::Rule {
+    serde_json::from_value(body.clone()).expect("example rule body must decode")
+}
+
+#[test]
+fn local_draft_examples_load_with_existing_core_types_and_preserve_fields() {
+    use airlock_core::configurable::config::{FixDeclaration, SeveritySchedule};
+    let org = draft_org(DRAFT_ORGANIZATION);
+    let repo = draft_repo(DRAFT_REPOSITORY);
+    assert_eq!(org.document.assignments["sample"].rules, ["sample-note"]);
+    assert!(org.document.assignments["sample"].conditions.is_empty());
+    for body in org
+        .document
+        .rules
+        .values()
+        .chain(repo.document.rules.values())
+    {
+        draft_rule(body);
+    }
+    let note = draft_rule(&org.document.rules["sample-note"]);
+    assert_eq!(note.conditions[0].setting.value, json!("Ready\n"));
+    assert!(matches!(note.fix, Some(FixDeclaration::Complete { .. })));
+    let settings = draft_rule(&org.document.rules["sample-settings"]);
+    assert!(matches!(
+        settings.severity,
+        SeveritySchedule::ByMaturity { .. }
+    ));
+    for (rung, value) in [
+        (Lifecycle::Seeded, Severity::Advisory),
+        (Lifecycle::Building, Severity::Advisory),
+        (Lifecycle::Released, Severity::Blocking),
+        (Lifecycle::Stable, Severity::Blocking),
+    ] {
+        assert_eq!(settings.severity.at(rung).value, value);
+    }
+    assert!(matches!(settings.fix, Some(FixDeclaration::Action { .. })));
+    let guidance = draft_rule(&org.document.rules["sample-guidance"]);
+    assert_eq!(guidance.probes.len(), 2);
+    assert_eq!(guidance.conditions.len(), 2);
+    assert_eq!(guidance.conditions[0].probe, "first");
+    assert!(matches!(guidance.fix, Some(FixDeclaration::Agent { .. })));
+    let number = draft_rule(&org.document.rules["sample-number"]);
+    assert_eq!(
+        number.conditions[0].setting.value.as_i64(),
+        Some(9_007_199_254_740_993)
+    );
+    assert!(matches!(number.fix, Some(FixDeclaration::Block { .. })));
+    let replacement = draft_rule(&org.document.repositories["sample/sample-kit"]["sample-note"]);
+    assert_eq!(
+        replacement.reason.as_deref(),
+        Some("The sample keeps this file elsewhere.")
+    );
+    assert_eq!(replacement.conditions[0].probe, "first");
+    assert_eq!(
+        draft_rule(&repo.document.rules["sample-note"])
+            .reason
+            .as_deref(),
+        Some("The sample uses a local note.")
+    );
+    assert!(draft_repo("").document.rules.is_empty());
+    assert!(draft_repo("null\n").document.rules.is_empty());
+    assert!(ConfigSnapshot::<OrganizationConfig>::load(
+        source("sample/.github", "a"),
+        "rules: {}\n",
+        DEFAULT_YAML_LIMITS
+    )
+    .is_err());
+    let malformed = draft_repo("rules: {broken: 7}\n");
+    assert!(
+        serde_json::from_value::<airlock_core::configurable::config::Rule>(
+            malformed.document.rules["broken"].clone()
+        )
+        .is_err()
+    );
+}
+
+#[test]
+#[ignore = "development consumer: explicitly pass BOTH exact browser DOM capture paths"]
+fn local_draft_browser_outputs_load_and_preserve_edits() {
+    let read = |key: &str| {
+        let path = std::env::var_os(key)
+            .unwrap_or_else(|| panic!("{key} must name an actual browser capture"));
+        std::fs::read_to_string(&path)
+            .unwrap_or_else(|error| panic!("cannot read {key}={path:?}: {error}"))
+    };
+    let org = draft_org(&read("AIRLOCK_DRAFT_ORG_OUTPUT"));
+    let repo = draft_repo(&read("AIRLOCK_DRAFT_REPO_OUTPUT"));
+    let baseline_org = draft_org(DRAFT_ORGANIZATION);
+    let baseline_repo = draft_repo(DRAFT_REPOSITORY);
+    let new_rule = draft_rule(&org.document.rules["sample-added"]);
+    assert_eq!(new_rule.probes["note"].kind, "file-content");
+    assert_eq!(new_rule.probes["note"].input["path"], "added.txt");
+    assert_eq!(new_rule.conditions[0].setting.value, json!("Added\n"));
+    assert_eq!(
+        org.document.assignments["sample"].rules,
+        ["sample-note", "sample-added"]
+    );
+    let edited = draft_rule(&org.document.rules["sample-note"]);
+    assert_eq!(edited.conditions[0].setting.value, json!("Updated\n"));
+    assert_eq!(
+        edited.severity.at(Lifecycle::Building).value,
+        Severity::Blocking
+    );
+    for sibling in ["sample-settings", "sample-guidance", "sample-number"] {
+        assert_eq!(
+            org.document.rules[sibling],
+            baseline_org.document.rules[sibling]
+        );
+    }
+    assert_eq!(
+        serde_json::to_value(&org.document.repositories).unwrap(),
+        serde_json::to_value(&baseline_org.document.repositories).unwrap()
+    );
+    let number = draft_rule(&org.document.rules["sample-number"]);
+    assert_eq!(
+        number.conditions[0].setting.value.as_i64(),
+        Some(9_007_199_254_740_993)
+    );
+    let local = draft_rule(&repo.document.rules["sample-note"]);
+    assert_eq!(local.conditions[0].setting.value, json!("Local update\n"));
+    assert_eq!(
+        local.reason.as_deref(),
+        Some("The sample reviewed its local note.")
+    );
+    assert_eq!(
+        repo.document.rules["sample-sibling"],
+        baseline_repo.document.rules["sample-sibling"]
+    );
+}

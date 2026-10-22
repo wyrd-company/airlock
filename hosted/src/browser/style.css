@@ -1120,6 +1120,85 @@ textarea {
   margin-bottom: 17px;
   line-height: 1.7;
 }
+/* relationships: { implements: ../../../docs/hosted-browser.md } */
+.draft-dialog {
+  max-width: 1100px;
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
+}
+.rule-draft {
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.rule-draft p {
+  margin-block: 12px;
+}
+.rule-draft select {
+  width: 100%;
+  border: 1px solid var(--line);
+  padding: 10px;
+  background: var(--paper);
+  color: var(--ink);
+}
+.draft-source-context,
+.draft-source-context code {
+  overflow-wrap: anywhere;
+}
+.draft-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 20px;
+}
+.draft-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+.draft-columns section,
+.draft-preview {
+  min-width: 0;
+}
+.draft-columns h3,
+.draft-columns .draft-label {
+  margin: 10px 0;
+  font-size: 12px;
+}
+.rule-draft pre,
+.rule-draft textarea {
+  font: 12px/1.7 var(--mono);
+  white-space: pre;
+  overflow: auto;
+  tab-size: 2;
+}
+.rule-draft pre {
+  padding: 12px;
+  background: #fffef8;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  max-height: 480px;
+}
+.draft-checks {
+  padding: 14px;
+  border: 1px solid var(--line);
+}
+.draft-checks ul {
+  padding-left: 20px;
+}
+.draft-checks li {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 700px) {
+  .draft-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .draft-dialog {
+    padding: 16px;
+  }
+}
 @keyframes arrive {
   from {
     opacity: 0;
