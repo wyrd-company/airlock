@@ -16,7 +16,9 @@ Run `task check` before pushing; it is what CI runs. Everything else is in
 ## Constraints that are not negotiable
 
 **The audit never writes.** `airlock audit` and every audit surface hold no
-mutating endpoint and refuse any credential that could write. The interactive
+mutating endpoint and refuse any credential that could write. Central mode's
+only requests that are not reads mint its own installation token and revoke
+it; neither changes a repository or an organization. The interactive
 align session alone may apply settings-level fixes — under an
 operator's device-flow grant held only in memory. It may author the initial
 commit of a repository it is creating. It never modifies an existing
@@ -34,11 +36,17 @@ workflow receives automated settings-write authority.
 **No ambient credentials.** `GH_TOKEN`, `GITHUB_TOKEN`, the `gh` credential
 store, and git credential helpers are off limits as sources and must not be
 mentioned as fallbacks in error messages. Suggesting them defeats the point of
-refusing write access.
+refusing write access. The run's own token reaches Airlock only when a
+workflow passes it explicitly, as the Action's `token` input in repository
+mode.
 
 **A token whose permissions cannot be enumerated is refused.** Unverifiable is
 not a warning path. Adding a token prefix means adding the introspection that
-proves it read-only, or refusing it.
+proves it read-only, or refusing it. An installation token is enumerated in
+two places only: repository mode reads the run token's grant from the job's
+declared permissions (`crates/core/src/workflow_token.rs`), and central mode
+reads its own minted token's grant from the minting response
+(`crates/core/src/central.rs`). Every other surface refuses one.
 
 **Rule identity is compiled in.** Rule ids, statements, and default severities
 live in per-rule modules under `crates/core/src/rules/`, assembled by
@@ -91,7 +99,9 @@ file holds declarations and exception requests. Both accept an Airlock
 generation through `version`. Configuration loading and integration tests
 validate these shapes against the compiled rules.
 
-`action.yml` defines the adopter-facing composite Action.
+`action.yml` defines the adopter-facing composite Action, in repository and
+central mode. `crates/core/src/central_audit.rs` audits every repository
+central mode reaches into one report.
 `scripts/run-action.sh` adapts the CLI exit and report contracts to GitHub
 Actions; `scripts/test-action.sh` pins that adapter behavior.
 

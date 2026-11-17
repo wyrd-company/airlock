@@ -1,0 +1,10 @@
+$schema: https://refinery.systems/ontology/term
+title: Central mode
+description: >-
+  The Airlock Action's audit of every repository of the run's owner, run from the organization's
+  audit repository, signed in as Airlock Safe. It accepts no credential. It exchanges the job's
+  OpenID Connect token for a Key Vault token, has Key Vault sign Airlock Safe's JSON Web Token, and
+  requires GET /app to name Airlock Safe with only read permissions. The owner's installation must
+  reach every repository and match installation-repositories. It mints an installation token whose
+  minting response lists only read permissions, holds it only in memory, and revokes it when the
+  run ends. It writes one report, uploaded as an artifact, whose outcome is the worst repository's.

@@ -107,21 +107,26 @@ screen shows and why.
 ## GitHub Action
 
 The Action audits through the GitHub REST API, so the repository being audited
-does not need to be checked out. Give the step an `AIRLOCK_TOKEN` secret and,
-if the owner does not publish the default policy, name a policy explicitly:
+does not need to be checked out. It runs in one of two modes, set by `mode`.
+Neither reads a secret.
+
+### Repository mode
+
+The default mode audits the repository running the workflow with the run's own
+token. Name a policy explicitly if the owner does not publish the default one:
 
 ```yaml
 permissions:
   contents: read
+  actions: read
+  attestations: read
 
 steps:
   - id: audit
     uses: wyrd-company/airlock@0123456789abcdef0123456789abcdef01234567 # 0.0.1
-    env:
-      AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}
     with:
+      token: ${{ github.token }}
       policy: example-org/.github:.github/airlock.yml
-      ref: ${{ github.sha }}
       format: json
   - if: always() && env.AIRLOCK_FINDINGS != ''
     uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -129,6 +134,101 @@ steps:
       name: airlock-findings
       path: ${{ env.AIRLOCK_FINDINGS }}
 ```
+
+GitHub offers no way to list an installation token's permissions, so Airlock
+reads the run token's grant from where it is declared. It reads the running
+job's `permissions` from the workflow file at `GITHUB_WORKFLOW_SHA`, through
+the API, and uses the workflow's `permissions` when the job declares none. It
+accepts the token only when all of these hold:
+
+- Airlock runs inside GitHub Actions;
+- the audited repository is the run's own, `GITHUB_REPOSITORY`;
+- every declared permission is `read`, or the job declares `read-all`.
+
+It refuses the token for any other level, `write` and `none` included. It also
+refuses it when no permissions are declared, because the token then holds the
+repository's defaults, and for a job that calls a reusable workflow. The
+job's permissions bound only the run's own token. So the Action compares an
+installation token offered as the credential with `github.token`, and refuses
+any other before Airlock runs.
+
+`token` may hold a credential of your own instead, verified as
+[the read path](#the-read-path) describes. `AIRLOCK_TOKEN` in the step's
+environment still works for one. With such a credential, `repository` may name
+another repository.
+
+### Central mode
+
+`mode: central` audits every repository of the run's owner in one run, signed
+in as Airlock Safe. The organization runs it from its audit repository, in a
+job that enters the `airlock-safe` environment and holds only
+`id-token: write`. The environment's variables become the six inputs:
+
+```yaml
+environment:
+  name: airlock-safe
+  deployment: false
+permissions:
+  id-token: write
+
+steps:
+  - uses: wyrd-company/airlock@0123456789abcdef0123456789abcdef01234567 # 0.0.1
+    with:
+      mode: central
+      app-id: ${{ vars.AIRLOCK_SAFE_APP_ID }}
+      key-name: ${{ vars.AIRLOCK_SAFE_KEY_NAME }}
+      installation-repositories: ${{ vars.AIRLOCK_SAFE_INSTALLED_ON }}
+      vault-url: ${{ vars.AZURE_KEY_VAULT_URL }}
+      azure-tenant-id: ${{ vars.AZURE_TENANT_ID }}
+      azure-client-id: ${{ vars.AZURE_CLIENT_ID }}
+```
+
+| Input | Variable | Value |
+| ----- | -------- | ----- |
+| `app-id` | `AIRLOCK_SAFE_APP_ID` | Airlock Safe's App id, `4409712`; any other is refused |
+| `key-name` | `AIRLOCK_SAFE_KEY_NAME` | The Key Vault key that holds Airlock Safe's private key |
+| `installation-repositories` | `AIRLOCK_SAFE_INSTALLED_ON` | `<owner>/*` |
+| `vault-url` | `AZURE_KEY_VAULT_URL` | The vault's `https://` address, with no path |
+| `azure-tenant-id` | `AZURE_TENANT_ID` | The Entra ID tenant |
+| `azure-client-id` | `AZURE_CLIENT_ID` | The client id of the identity whose federated credential trusts the job |
+
+Central mode accepts no credential: a `token` input or `AIRLOCK_TOKEN` is
+refused, and so are `repository` and `ref`. It signs in through these steps,
+and a failure names the step:
+
+1. `inputs`: the six inputs are valid, and the App id is Airlock Safe's.
+2. `azure-sign-in`: Airlock requests the job's OpenID Connect token for the
+   audience `api://AzureADTokenExchange` and exchanges it at Entra ID for a
+   Key Vault token.
+3. `key-vault-sign`: Key Vault signs the SHA-256 digest of Airlock Safe's
+   RS256 JSON Web Token with the key. The token's `iss` is the App id, `iat`
+   is sixty seconds ago and `exp` is 540 seconds ahead. The identity needs
+   only the data action `Microsoft.KeyVault/vaults/keys/sign/action` on the
+   key.
+4. `app-identity`: `GET /app` names id `4409712` and slug `airlock-safe`,
+   with every permission `read`.
+5. `installation-lookup`: Airlock finds the owner's installation of the App.
+6. `installation-scope`: the installation's `repository_selection` is `all`,
+   and `installation-repositories` is `<owner>/*`.
+7. `token-request`: Airlock mints an installation token, and the minting
+   response lists only `read` permissions. A token that lists anything else is
+   revoked and refused.
+
+Airlock then audits every repository the installation lists, in name order,
+against the owner's policy. It writes one report: the verified credential,
+each repository's findings document or the reason it could not be audited,
+and counts. The report's outcome is the worst repository's: incomplete, then
+nonconformant, then conformant. A listing Airlock could not walk to the end,
+an empty listing, or a repository it could not audit makes the run
+incomplete. The report is uploaded as the `airlock-central-report` artifact.
+
+The installation token stays in memory and is revoked when the run ends. If
+revoking fails, Airlock warns and still reports, because the read-only token
+expires on its own within the hour. No message carries a token, an
+assertion, a signature or a request body. A failure names the step, the HTTP
+status and the service's error code.
+
+### Inputs and outputs
 
 Replace the example revision with the full commit SHA for the Action release
 your repository has reviewed, retaining the release version comment.
@@ -146,18 +246,18 @@ the step by default. Set `fail-on-incomplete: "false"` only when the workflow
 must continue despite an unanswered audit; the outputs still say
 `outcome: incomplete` and `complete: false`. Nonconformance always fails.
 
-`AIRLOCK_TOKEN` must be minted by the Airlock Safe GitHub App as described in
-[Provisioning CI](#provisioning-ci). The Action does not use the workflow's
-automatic GitHub token. Before making any audit request, the same verifier as
-the command-line interface enumerates the credential's authority and refuses
-it if any permission is writable or cannot be proved read-only. Airlock has no
-mutating GitHub client methods, and the Action only builds and runs Airlock, so
-it can report changes but can never apply them.
+Before making any audit request, the same verifier as the command-line
+interface enumerates the credential's authority. It refuses the credential if
+any permission is writable or cannot be proved read-only. Airlock has no
+mutating GitHub client methods. In central mode, the only requests that are
+not reads mint and revoke its own installation token. The Action only builds
+and runs Airlock, so it can report changes but can never apply them.
 
-`AIRLOCK_TOKEN` is present in the environment of every composite step,
-including the toolchain setup and cached source build. The positive read-only
-verification is therefore the security boundary; the Action does not claim
-credential isolation from the build it performs.
+The `token` input and the central inputs reach only the audit step. A
+credential set as `AIRLOCK_TOKEN` in the step's environment is present in
+every composite step, including the toolchain setup and cached source build.
+The positive read-only verification is the security boundary; the Action does
+not claim credential isolation from the build it performs.
 
 With no `--policy`, airlock reads `{owner}/.github:.github/airlock.yml` for the
 audited repository's owner. Airlock ships no built-in policy, so a repository
@@ -271,7 +371,7 @@ The tests `decided_outcomes_match_the_integration_base`,
 The binary's exit contract is unconditional. The composite Action retains
 `fail-on-incomplete: "false"` as an adapter override: it maps binary exit `2`
 to Action success while reporting `outcome: incomplete` and `complete: false`.
-The override also covers setup errors such as a missing `AIRLOCK_TOKEN`.
+The override also covers setup errors such as a missing or refused credential.
 `scripts/test-action.sh` verifies this mapping. Blocking Gaps still fail the
 Action.
 
@@ -553,11 +653,15 @@ identity, and neither can reach the other's.
 
 Every subcommand runs on it. Airlock reads a token from `--token`,
 `--token-file`, or `--token-stdin` first, then `AIRLOCK_TOKEN`, then the profile
-written by `airlock auth login`.
+written by `airlock auth login`. `audit --mode central` reads none of these and
+refuses any that is set: it signs in as Airlock Safe, as
+[central mode](#central-mode) describes.
 
 It deliberately ignores `GH_TOKEN`, `GITHUB_TOKEN`, the `gh` credential store,
 and git credential helpers. A tool that refuses write access should not quietly
-pick up the write-capable credential already sitting in your environment.
+pick up the write-capable credential already sitting in your environment. The
+run's own token reaches Airlock only when a workflow hands it over explicitly,
+as the Action's `token` input or on standard input.
 
 `--token` puts a credential in your shell history and in process listings.
 Prefer `--token-file` or `--token-stdin`.
@@ -575,10 +679,14 @@ grant and every entry in that list is a read.
   unknown scope is refused rather than assumed safe, a missing header is an
   unread grant rather than an empty one, and a response carrying the header
   twice has no single answer and is refused too.
-- **`github_pat_`**, **`ghs_`**, and unknown prefixes are refused as
-  unverifiable. GitHub offers no way to enumerate a fine-grained token's
-  permissions, and probing for write access would break the read-only contract
-  airlock exists to keep.
+- **`ghs_`**, an installation token, is accepted only by
+  `audit --mode repository`, as the run's own token. Its grant is the running
+  job's declared permissions, as [repository mode](#repository-mode)
+  describes. Every other surface refuses it: GitHub states an installation
+  token's permissions only in the response that minted it.
+- **`github_pat_`** and unknown prefixes are refused as unverifiable. GitHub
+  offers no way to enumerate a fine-grained token's permissions, and probing
+  for write access would break the read-only contract airlock exists to keep.
 
 `airlock auth status` says which source would be used and what it grants.
 `airlock auth login` runs the device flow and stores the result at
@@ -586,13 +694,24 @@ grant and every entry in that list is a read.
 written to it, replaced atomically, and refused on later runs if it has become
 a symlink or readable by anyone but you.
 `airlock auth token --profile <name>` verifies a stored profile and writes only
-its token to standard output; see [Provisioning CI](#provisioning-ci).
+its token to standard output; see
+[A long-lived credential of your own](#a-long-lived-credential-of-your-own).
 
-### Provisioning CI
+### Airlock's own CI
 
-The repository's dogfood job accepts only an `AIRLOCK_TOKEN` minted by the
-Airlock Safe GitHub App. The supported CI credential is a non-expiring `ghu_`
-user access token:
+Airlock's workflows hold no Airlock credential and read no secret. `audit.yml`
+runs the Action in repository mode with `token: ${{ github.token }}`. The CI
+`dogfood` job pipes `github.token` to `task dogfood:ci`, which runs
+`airlock audit --mode repository --token-stdin` on the binary it builds. Each
+job declares only `read` permissions, which is what lets Airlock accept the
+run's token.
+
+### A long-lived credential of your own
+
+A repository outside an organization's central audit can give the Action an
+Airlock Safe user token of its own, stored as a secret. Repositories on the
+delivery standard hold no repository secret and use repository mode instead.
+The supported credential is a non-expiring `ghu_` user access token:
 
 1. An operator disables **Expire user authorization tokens** in the Airlock
    Safe app's optional features.
@@ -602,12 +721,12 @@ user access token:
 3. The operator runs `airlock auth token --profile ci`. Airlock verifies the
    stored token is Airlock-Safe-issued and wholly read-only before writing only
    the token to standard output.
-4. The operator pipes that value into the `AIRLOCK_TOKEN` Actions repository
-   secret for `wyrd-company/airlock`:
+4. The operator pipes that value into an Actions secret of the repository,
+   and the workflow gives it to the Action as `token`:
 
    ```bash
    airlock auth token --profile ci |
-     gh secret set AIRLOCK_TOKEN --repo wyrd-company/airlock
+     gh secret set AIRLOCK_TOKEN --repo example-org/example
    ```
 
    If the receiving command exits before reading the token, Airlock follows
@@ -615,9 +734,7 @@ user access token:
    commonly reported by shells as status 141) rather than printing a panic.
 
 Treat the output of `airlock auth token` as a secret: keep it out of shell
-history, logs, and shared terminals. The dogfood job runs the real audit
-whenever the repository secret is present and reports a graceful skip when it
-is absent.
+history, logs, and shared terminals.
 
 This chooses a long-lived credential to avoid giving CI any write authority.
 GitHub rotates refresh tokens on every exchange, so refreshing in a job would
