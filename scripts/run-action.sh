@@ -3,9 +3,20 @@ set -euo pipefail
 
 # Binary contract: 0 no blocking gaps, 1 blocking gaps, 2 a run error.
 # The Action alone may map exit 2 to success with fail-on-incomplete:false;
-# that override includes setup errors such as a missing AIRLOCK_TOKEN.
+# that override includes setup errors such as a missing credential.
 # Waived, routed, unbuilt, and out-of-scope rules do not alter the binary exit status.
+#
+# Two modes. Repository mode audits one repository with the token input,
+# which is the run's own GITHUB_TOKEN, or with AIRLOCK_TOKEN. Central mode
+# audits every repository of the run's owner, signed in as Airlock Safe, and
+# accepts no credential at all.
 
+# The run's own token, given only so an installation token can be compared
+# with it. Airlock never receives it under this name.
+run_token=${AIRLOCK_RUN_TOKEN:-}
+unset AIRLOCK_RUN_TOKEN
+
+mode=${INPUT_MODE:-repository}
 repository=${INPUT_REPOSITORY:-${GITHUB_REPOSITORY:-}}
 policy=${INPUT_POLICY:-}
 reference=${INPUT_REF:-}
@@ -28,6 +39,11 @@ case "$fail_on_incomplete" in
     fail_on_incomplete=true
     validation_error="fail-on-incomplete must be 'true' or 'false'."
     ;;
+esac
+
+case "$mode" in
+  repository | central) ;;
+  *) validation_error="mode must be 'repository' or 'central'." ;;
 esac
 
 invocation=${GITHUB_ACTION:-airlock}
@@ -75,17 +91,49 @@ if [[ -n ${validation_error:-} ]]; then
   finish_incomplete "$validation_error"
 fi
 
-if [[ -z ${AIRLOCK_TOKEN:-} ]]; then
-  finish_incomplete "AIRLOCK_TOKEN is required and must be a credential Airlock can prove is read-only."
+if [[ "$mode" == central ]]; then
+  # Central mode signs for itself. A credential handed to it is refused
+  # rather than ignored.
+  if [[ -n ${INPUT_TOKEN:-} || -n ${AIRLOCK_TOKEN:-} ]]; then
+    finish_incomplete "central mode accepts no credential; remove the token input and AIRLOCK_TOKEN."
+  fi
+  unset AIRLOCK_TOKEN
+  if [[ -n ${INPUT_REPOSITORY:-} || -n "$reference" ]]; then
+    finish_incomplete "central mode audits every repository of the run's owner; repository and ref do not apply."
+  fi
+  owner=${GITHUB_REPOSITORY_OWNER:-}
+  if [[ -z "$owner" ]]; then
+    finish_incomplete "central mode needs GITHUB_REPOSITORY_OWNER."
+  fi
+  args=(
+    audit "$owner" --mode central --format "$format"
+    --app-id "${INPUT_APP_ID:-}"
+    --key-name "${INPUT_KEY_NAME:-}"
+    --installation-repositories "${INPUT_INSTALLATION_REPOSITORIES:-}"
+    --vault-url "${INPUT_VAULT_URL:-}"
+    --azure-tenant-id "${INPUT_AZURE_TENANT_ID:-}"
+    --azure-client-id "${INPUT_AZURE_CLIENT_ID:-}"
+  )
+else
+  if [[ -n ${INPUT_TOKEN:-} ]]; then
+    export AIRLOCK_TOKEN=$INPUT_TOKEN
+  fi
+  if [[ -z ${AIRLOCK_TOKEN:-} ]]; then
+    finish_incomplete "repository mode needs the token input, the run's own token, or AIRLOCK_TOKEN, a credential Airlock can prove is read-only."
+  fi
+  # Airlock reads an installation token's grant from the job's declared
+  # permissions, which bound only the run's own token. Any other installation
+  # token would be judged by permissions that are not its own.
+  if [[ $AIRLOCK_TOKEN == ghs_* && $AIRLOCK_TOKEN != "$run_token" ]]; then
+    finish_incomplete "the credential is an installation token other than this run's own; repository mode accepts only the run's GITHUB_TOKEN."
+  fi
+  if [[ -z "$repository" ]]; then
+    finish_incomplete "repository is required when GITHUB_REPOSITORY is unavailable."
+  fi
+  args=(audit "$repository" --mode repository --format "$format")
+  [[ -z "$reference" ]] || args+=(--ref "$reference")
 fi
-
-if [[ -z "$repository" ]]; then
-  finish_incomplete "repository is required when GITHUB_REPOSITORY is unavailable."
-fi
-
-args=(audit "$repository" --format "$format")
 [[ -z "$policy" ]] || args+=(--policy "$policy")
-[[ -z "$reference" ]] || args+=(--ref "$reference")
 
 set +e
 "$airlock_bin" "${args[@]}" >"$findings_location"
