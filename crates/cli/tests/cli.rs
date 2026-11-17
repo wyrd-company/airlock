@@ -563,6 +563,15 @@ async fn repository_mode_audits_with_the_runs_read_only_token() {
     let report = json_output(&output.stdout);
     assert_eq!(report["outcome"], "conformant");
     assert_eq!(finding(&report, "REPO-LIC-01")["status"], "met");
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        !combined.contains(RUN_TOKEN),
+        "the run's token is never printed"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
