@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 
 use base64::Engine as _;
 use serde_json::{json, Value};
-use wiremock::matchers::{method, path};
+use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 /// The commit every fixture repository is audited at.
@@ -344,6 +344,31 @@ async fn mount_response(server: &MockServer, route: &str, response: &Response) {
     Mock::given(method("GET"))
         .and(path(route.to_owned()))
         .respond_with(response.template())
+        .mount(server)
+        .await;
+}
+
+/// Serve one workflow file at a commit, as the contents endpoint answers it.
+pub async fn mount_workflow_at(
+    server: &MockServer,
+    repository: &str,
+    workflow_path: &str,
+    commit: &str,
+    content: &str,
+) {
+    Mock::given(method("GET"))
+        .and(path(format!(
+            "/repos/{repository}/contents/{workflow_path}"
+        )))
+        .and(query_param("ref", commit))
+        .respond_with(
+            Response::Ok(json!({
+                "type": "file",
+                "encoding": "base64",
+                "content": base64(content),
+            }))
+            .template(),
+        )
         .mount(server)
         .await;
 }

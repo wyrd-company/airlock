@@ -465,6 +465,209 @@ async fn audit_refuses_a_credential_it_cannot_prove_read_only() {
         .stderr(contains("airlock auth login"));
 }
 
+// ---------------------------------------------------------------------------
+// Repository mode: the run's own token
+// ---------------------------------------------------------------------------
+
+const RUN_TOKEN: &str = "ghs_fixture_run_token";
+const RUN_WORKFLOW_SHA: &str = "2222222222222222222222222222222222222222";
+
+/// The variables GitHub Actions sets for a run of `audit.yml` job `audit`.
+fn actions_run<'a>(command: &'a mut Command, repository: &str) -> &'a mut Command {
+    command
+        .env("GITHUB_ACTIONS", "true")
+        .env("GITHUB_REPOSITORY", repository)
+        .env(
+            "GITHUB_WORKFLOW_REF",
+            format!("{repository}/.github/workflows/audit.yml@refs/heads/main"),
+        )
+        .env("GITHUB_WORKFLOW_SHA", RUN_WORKFLOW_SHA)
+        .env("GITHUB_JOB", "audit")
+        .env("AIRLOCK_TOKEN", RUN_TOKEN)
+}
+
+/// A command with every Actions variable removed, so a test that means
+/// "outside Actions" stays outside even when the suite runs in CI.
+fn outside_actions(command: &mut Command) -> &mut Command {
+    for name in airlock_core::workflow_token::ACTIONS_VARIABLES {
+        command.env_remove(name);
+    }
+    command
+}
+
+const READING_AUDIT_JOB: &str = "\
+permissions: {}
+jobs:
+  audit:
+    permissions:
+      contents: read
+      actions: read
+      attestations: read
+    steps:
+      - uses: wyrd-company/airlock@0123456789abcdef0123456789abcdef01234567 # 1.0.0
+        with:
+          token: ${{ github.token }}
+";
+
+fn licensed_repo() -> FakeRepo {
+    FakeRepo::new("wyrd-company", "example")
+        .with_file("LICENSE", "Apache License 2.0")
+        .with_file(
+            "Cargo.toml",
+            "[package]\nname = \"example\"\nlicense = \"Apache-2.0\"\n",
+        )
+}
+
+async fn repository_mode(workflow: &str, repository: &str, target: &str) -> std::process::Output {
+    let server = support::start(&[licensed_repo()]).await;
+    support::mount_workflow_at(
+        &server,
+        repository,
+        ".github/workflows/audit.yml",
+        RUN_WORKFLOW_SHA,
+        workflow,
+    )
+    .await;
+    let config = TempDir::new().unwrap();
+    let policies = TempDir::new().unwrap();
+    let mut command = airlock(&server, &config);
+    actions_run(&mut command, repository)
+        .args([
+            "audit",
+            target,
+            "--mode",
+            "repository",
+            "--format",
+            "json",
+            "--policy",
+            &policy_path(&policies, LICENSING_POLICY),
+        ])
+        .output()
+        .expect("airlock runs")
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn repository_mode_audits_with_the_runs_read_only_token() {
+    let output = repository_mode(
+        READING_AUDIT_JOB,
+        "wyrd-company/example",
+        "wyrd-company/example",
+    )
+    .await;
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report = json_output(&output.stdout);
+    assert_eq!(report["outcome"], "conformant");
+    assert_eq!(finding(&report, "REPO-LIC-01")["status"], "met");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn repository_mode_refuses_a_job_with_a_write_permission() {
+    let output = repository_mode(
+        "\
+jobs:
+  audit:
+    permissions:
+      contents: read
+      pull-requests: write
+    steps: []
+",
+        "wyrd-company/example",
+        "wyrd-company/example",
+    )
+    .await;
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("write_permission"), "{stderr}");
+    assert!(stderr.contains("pull-requests=write"), "{stderr}");
+    assert!(output.stdout.is_empty(), "nothing is audited");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn repository_mode_audits_only_the_runs_repository() {
+    let output = repository_mode(
+        READING_AUDIT_JOB,
+        "wyrd-company/other",
+        "wyrd-company/example",
+    )
+    .await;
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("foreign_repository"), "{stderr}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn repository_mode_refuses_to_run_outside_actions() {
+    let server = support::start(&[licensed_repo()]).await;
+    let config = TempDir::new().unwrap();
+    let policies = TempDir::new().unwrap();
+    let mut command = airlock(&server, &config);
+    let assertion = outside_actions(&mut command)
+        .env("AIRLOCK_TOKEN", RUN_TOKEN)
+        .args([
+            "audit",
+            "wyrd-company/example",
+            "--mode",
+            "repository",
+            "--policy",
+            &policy_path(&policies, LICENSING_POLICY),
+        ])
+        .assert()
+        .code(2)
+        .stderr(contains("outside_actions"));
+    assert!(assertion.get_output().stdout.is_empty());
+    assert!(
+        server
+            .received_requests()
+            .await
+            .unwrap_or_default()
+            .is_empty(),
+        "the refusal comes before any request"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_installation_token_is_refused_in_every_other_mode() {
+    let server = support::start(&[licensed_repo()]).await;
+    support::mount_workflow_at(
+        &server,
+        "wyrd-company/example",
+        ".github/workflows/audit.yml",
+        RUN_WORKFLOW_SHA,
+        READING_AUDIT_JOB,
+    )
+    .await;
+    let config = TempDir::new().unwrap();
+    let policies = TempDir::new().unwrap();
+    let policy = policy_path(&policies, LICENSING_POLICY);
+
+    // Inside a described Actions run, with a read-only job: only the mode is
+    // missing, and that alone refuses the token.
+    for args in [
+        vec!["audit", "wyrd-company/example", "--policy", &policy],
+        vec!["agent-work", "wyrd-company/example", "--policy", &policy],
+        vec!["auth", "status"],
+    ] {
+        let mut command = airlock(&server, &config);
+        let output = actions_run(&mut command, "wyrd-company/example")
+            .args(&args)
+            .output()
+            .expect("airlock runs");
+        assert_eq!(output.status.code(), Some(2), "{args:?}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("unverifiable_installation_token"),
+            "{args:?}: {stderr}"
+        );
+        let combined = format!("{}{stderr}", String::from_utf8_lossy(&output.stdout));
+        assert!(!combined.contains(RUN_TOKEN), "{args:?}");
+    }
+}
+
 #[test]
 fn retired_plan_command_is_not_a_machine_or_human_surface() {
     offline()
