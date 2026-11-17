@@ -21,11 +21,12 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use airlock_core::audit::{self, AuditOptions};
-use airlock_core::auth::{self, VerifiedGrant, AIRLOCK_SAFE_CLIENT_ID};
+use airlock_core::auth::{self, Admission, VerifiedGrant, AIRLOCK_SAFE_CLIENT_ID};
 use airlock_core::github::{GitHub, RestClient, RestClientConfig};
 use airlock_core::limits::Limits;
 use airlock_core::policy::{self, PolicySource};
 use airlock_core::render;
+use airlock_core::workflow_token::ActionsRun;
 use anyhow::{bail, Context as _, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use serde::Serialize;
@@ -145,6 +146,22 @@ struct AuditArgs {
     /// Print the rules and exit, without auditing anything.
     #[arg(long)]
     list_rules: bool,
+
+    /// How the Airlock Action runs this audit.
+    ///
+    /// `repository` admits the run's own `GITHUB_TOKEN`, inside GitHub
+    /// Actions only, for the run's repository only, and only when the job's
+    /// declared permissions are all `read`. Without it, an installation token
+    /// is refused.
+    #[arg(long, value_enum, conflicts_with = "working_tree")]
+    mode: Option<AuditMode>,
+}
+
+/// The Action's modes, as `--mode` names them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum AuditMode {
+    /// One repository, with the run's own token.
+    Repository,
 }
 
 #[derive(Debug, Args)]
@@ -369,7 +386,7 @@ struct AlignFilesOutput {
 async fn align_files_command(args: AlignFilesArgs, interactive: bool) -> Result<u8> {
     let format = resolved_format(args.format, interactive);
     let repository = args.repository();
-    let observed = repository_report_with_client(args.target.as_deref(), &repository).await?;
+    let observed = repository_report_with_client(args.target.as_deref(), &repository, None).await?;
     let pull_request = observe_pull_request(
         args.target.as_deref(),
         observed.report.repository.default_branch.as_str(),
@@ -587,7 +604,9 @@ async fn audit_command(args: AuditArgs, interactive: bool) -> Result<u8> {
         return Ok(0);
     }
 
-    let report = repository_report(args.target.as_deref(), &args.repository).await?;
+    let report = repository_report_with_client(args.target.as_deref(), &args.repository, args.mode)
+        .await?
+        .report;
     render_report(&report, format)?;
     Ok(report.exit_code())
 }
@@ -624,7 +643,9 @@ async fn repository_report(
     target: Option<&str>,
     args: &RepositoryArgs,
 ) -> Result<airlock_core::findings::Report> {
-    Ok(repository_report_with_client(target, args).await?.report)
+    Ok(repository_report_with_client(target, args, None)
+        .await?
+        .report)
 }
 
 struct RepositoryObservation {
@@ -635,6 +656,7 @@ struct RepositoryObservation {
 async fn repository_report_with_client(
     target: Option<&str>,
     args: &RepositoryArgs,
+    mode: Option<AuditMode>,
 ) -> Result<RepositoryObservation> {
     // A working tree with no repository target is a local-only audit: no
     // credential, no API, platform rules reported as not observed.
@@ -655,6 +677,16 @@ async fn repository_report_with_client(
     };
     let (owner, repo) = split_target(target)?;
 
+    // Repository mode is a fact about where Airlock runs, so it is settled
+    // before any credential is read.
+    let run = match mode {
+        Some(AuditMode::Repository) => Some(
+            ActionsRun::from_lookup(|name| std::env::var(name).ok())
+                .context("repository mode was refused")?,
+        ),
+        None => None,
+    };
+
     let inputs = CredentialInputs {
         token: args.token.clone(),
         token_file: args.token_file.clone(),
@@ -669,7 +701,11 @@ async fn repository_report_with_client(
     let client = RestClient::new(credential.token.clone(), client_config(limits))
         .context("cannot build the github client")?;
 
-    let grant = auth::verify(&credential.token, &client)
+    let admission = match &run {
+        Some(run) => Admission::Repository { run, owner, repo },
+        None => Admission::Standard,
+    };
+    let grant = auth::verify_for(&credential.token, &client, admission)
         .await
         .with_context(|| {
             format!(
@@ -874,6 +910,15 @@ fn print_grant(grant: &VerifiedGrant) {
             installation.id,
             installation.account.as_deref().unwrap_or("an account"),
             installation.permissions.join(", ")
+        );
+    }
+    if let Some(run) = &grant.run {
+        println!(
+            "job {} of {} in {}: {}",
+            run.job,
+            run.workflow,
+            run.repository,
+            run.permissions.join(", ")
         );
     }
 }
