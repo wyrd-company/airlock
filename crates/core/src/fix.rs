@@ -140,7 +140,7 @@ fix_groups! {
     REWRITE_OR_PREVENT_MERGES => "rewrite_or_prevent_merges",
     RUN_ALIGN => "run_align",
     SCOPE_TAGS => "scope_tags",
-    SUPPLY_AIRLOCK_TOKEN => "supply_airlock_token",
+    SUPPLY_RUN_TOKEN => "supply_run_token",
     SET_INCLUDE_DIR => "set_include_dir",
     SHORTEN_DESCRIPTION => "shorten_description",
     SINGLE_SENTENCE_DESCRIPTION => "single_sentence_description",

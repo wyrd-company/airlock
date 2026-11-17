@@ -126,16 +126,19 @@ on:
 permissions: {}
 
 jobs:
+  # Repository mode on the run's own token: Airlock reads these permissions
+  # from this file and accepts the token only because each one is read.
   audit:
     permissions:
       contents: read
+      actions: read
+      attestations: read
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
       # Replace this placeholder with the full SHA of a released Airlock version.
       - uses: wyrd-company/airlock@0123456789abcdef0123456789abcdef01234567 # 0.0.1
-        env:
-          AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}
+        with:
+          token: ${{ github.token }}
 ";
 const TITLE_WORKFLOW: &str = "\
 name: Pull request title
@@ -536,7 +539,7 @@ fn author_for(
         "add-pull-request-trigger"
         | "empty-workflow-permissions"
         | "add-ci-concurrency-group"
-        | "supply-airlock-token"
+        | "supply-run-token"
         | "add-tag-trigger"
         | "add-push-trigger"
         | "set-cd-concurrency" => workflow_transform_operations(finding, facts, code),
@@ -607,7 +610,7 @@ fn deterministic_author(
         | "empty-workflow-permissions"
         | "pin-actions-to-shas"
         | "add-ci-concurrency-group"
-        | "supply-airlock-token"
+        | "supply-run-token"
         | "add-tag-trigger"
         | "add-push-trigger"
         | "set-cd-concurrency"
@@ -976,8 +979,8 @@ fn pin_actions(text: &str) -> std::result::Result<Option<String>, String> {
 }
 
 fn transform_workflow(text: &str, code: &str) -> Option<String> {
-    if code == "supply-airlock-token" {
-        return supply_airlock_token(text);
+    if code == "supply-run-token" {
+        return supply_run_token(text);
     }
     let mut value: serde_norway::Value = serde_norway::from_str(text).ok()?;
     let root = value.as_mapping_mut()?;
@@ -1025,58 +1028,86 @@ fn transform_workflow(text: &str, code: &str) -> Option<String> {
     Some(patch_top_level_keys(text, &value, changed))
 }
 
-fn supply_airlock_token(text: &str) -> Option<String> {
-    if text.contains("AIRLOCK_TOKEN:") {
-        return Some(text.to_owned());
-    }
-    let mut lines: Vec<String> = text.lines().map(ToOwned::to_owned).collect();
+/// Give the Airlock step the run's own token, and take `AIRLOCK_TOKEN` away.
+///
+/// A line edit rather than a YAML round trip, so the workflow's comments and
+/// pins survive. The token goes under the step's `with:`, which is created
+/// when absent; every `AIRLOCK_TOKEN:` entry is removed, and an `env:` left
+/// empty by that goes with it.
+fn supply_run_token(text: &str) -> Option<String> {
+    let mut lines: Vec<String> = text
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("AIRLOCK_TOKEN:"))
+        .map(ToOwned::to_owned)
+        .collect();
     let uses_index = lines.iter().position(|line| {
         line.trim_start()
             .trim_start_matches("- ")
             .strip_prefix("uses:")
-            .is_some_and(|uses| uses.contains("/airlock"))
+            .is_some_and(|uses| uses.contains("/airlock") || uses.trim() == "./")
     })?;
     let indentation = lines[uses_index].len() - lines[uses_index].trim_start().len();
-    let step_end = lines
-        .iter()
-        .enumerate()
-        .skip(uses_index + 1)
-        .find(|(_, line)| {
-            let trimmed = line.trim_start();
-            let indent = line.len() - trimmed.len();
-            indent <= indentation && trimmed.starts_with("- ")
-        })
-        .map_or(lines.len(), |(index, _)| index);
-    let env_index = lines
-        .iter()
-        .enumerate()
-        .take(step_end)
-        .skip(uses_index + 1)
-        .find(|(_, line)| {
-            let trimmed = line.trim_start();
-            let indent = line.len() - trimmed.len();
-            indent == indentation + 2 && trimmed.starts_with("env:")
-        })
-        .map(|(index, _)| index);
-    let insertion = if let Some(env_index) = env_index {
-        (
-            env_index + 1,
-            format!(
-                "{}AIRLOCK_TOKEN: ${{{{ secrets.AIRLOCK_TOKEN }}}}",
-                " ".repeat(indentation + 4)
-            ),
-        )
-    } else {
-        (
-            uses_index + 1,
-            format!(
-                "{}env:\n{}AIRLOCK_TOKEN: ${{{{ secrets.AIRLOCK_TOKEN }}}}",
-                " ".repeat(indentation + 2),
-                " ".repeat(indentation + 4)
-            ),
-        )
+    let step_end = |lines: &[String]| {
+        lines
+            .iter()
+            .enumerate()
+            .skip(uses_index + 1)
+            .find(|(_, line)| {
+                let trimmed = line.trim_start();
+                let indent = line.len() - trimmed.len();
+                !trimmed.is_empty() && indent <= indentation
+            })
+            .map_or(lines.len(), |(index, _)| index)
     };
-    lines.insert(insertion.0, insertion.1);
+    let key_at = |lines: &[String], key: &str| {
+        lines
+            .iter()
+            .enumerate()
+            .take(step_end(lines))
+            .skip(uses_index + 1)
+            .find(|(_, line)| {
+                let trimmed = line.trim_start();
+                let indent = line.len() - trimmed.len();
+                indent == indentation + 2 && trimmed.starts_with(key)
+            })
+            .map(|(index, _)| index)
+    };
+
+    // An `env:` with nothing left under it would be `env: null`.
+    if let Some(env_index) = key_at(&lines, "env:") {
+        let emptied = lines
+            .get(env_index + 1)
+            .is_none_or(|next| next.len() - next.trim_start().len() <= indentation + 2);
+        if emptied && lines[env_index].trim() == "env:" {
+            lines.remove(env_index);
+        }
+    }
+
+    let token = format!(
+        "{}token: ${{{{ github.token }}}}",
+        " ".repeat(indentation + 4)
+    );
+    match key_at(&lines, "with:") {
+        Some(with_index) => {
+            let end = step_end(&lines);
+            let existing = lines
+                .iter()
+                .enumerate()
+                .take(end)
+                .skip(with_index + 1)
+                .find(|(_, line)| line.trim_start().starts_with("token:"))
+                .map(|(index, _)| index);
+            match existing {
+                Some(index) => lines[index] = token,
+                None => lines.insert(with_index + 1, token),
+            }
+        }
+        None => {
+            let end = step_end(&lines);
+            lines.insert(end, token);
+            lines.insert(end, format!("{}with:", " ".repeat(indentation + 2)));
+        }
+    }
     Some(format!("{}\n", lines.join("\n")))
 }
 
@@ -1347,7 +1378,7 @@ pub fn implemented_codes() -> BTreeSet<&'static str> {
         "pin-actions-to-shas",
         "add-ci-concurrency-group",
         "add-title-check",
-        "supply-airlock-token",
+        "supply-run-token",
         "add-tag-trigger",
         "add-push-trigger",
         "set-cd-concurrency",
@@ -1656,6 +1687,84 @@ jobs:
         assert!(transformed.contains("# workflow comment"));
         assert!(transformed.contains("# v4"));
         assert!(transformed.contains("permissions: {}"));
+    }
+
+    #[test]
+    fn supply_run_token_replaces_the_airlock_token_secret_with_the_runs_token() {
+        let workflow = "\
+on: workflow_dispatch
+permissions: {}
+jobs:
+  audit:
+    permissions:
+      contents: read
+    steps:
+      # the pinned audit
+      - uses: wyrd-company/airlock@0123456789abcdef0123456789abcdef01234567 # 0.0.1
+        env:
+          AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}
+      - run: echo done
+";
+        let transformed = transform_workflow(workflow, "supply-run-token").unwrap();
+        assert_eq!(
+            transformed,
+            "\
+on: workflow_dispatch
+permissions: {}
+jobs:
+  audit:
+    permissions:
+      contents: read
+    steps:
+      # the pinned audit
+      - uses: wyrd-company/airlock@0123456789abcdef0123456789abcdef01234567 # 0.0.1
+        with:
+          token: ${{ github.token }}
+      - run: echo done
+"
+        );
+        assert_eq!(
+            transform_workflow(&transformed, "supply-run-token").unwrap(),
+            transformed,
+            "a second application changes nothing"
+        );
+    }
+
+    #[test]
+    fn supply_run_token_keeps_other_inputs_and_environment() {
+        let workflow = "\
+jobs:
+  audit:
+    steps:
+      - uses: wyrd-company/airlock@0123456789abcdef0123456789abcdef01234567
+        env:
+          AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}
+          OTHER: value
+        with:
+          format: json
+          token: ${{ secrets.AIRLOCK_TOKEN }}
+";
+        let transformed = transform_workflow(workflow, "supply-run-token").unwrap();
+        assert_eq!(
+            transformed,
+            "\
+jobs:
+  audit:
+    steps:
+      - uses: wyrd-company/airlock@0123456789abcdef0123456789abcdef01234567
+        env:
+          OTHER: value
+        with:
+          format: json
+          token: ${{ github.token }}
+"
+        );
+    }
+
+    #[test]
+    fn the_audit_workflow_template_runs_in_repository_mode_on_the_runs_token() {
+        assert!(AUDIT_WORKFLOW.contains("token: ${{ github.token }}"));
+        assert!(!AUDIT_WORKFLOW.contains("AIRLOCK_TOKEN"));
     }
 
     #[test]
