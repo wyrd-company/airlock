@@ -38,6 +38,7 @@ pub mod render;
 pub mod rules;
 pub mod skill;
 pub mod snapshot;
+pub mod workflow_token;
 pub mod worklist;
 pub mod worktree;
 pub mod yaml;

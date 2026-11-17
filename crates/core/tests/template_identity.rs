@@ -199,6 +199,7 @@ impl Fixture {
             login: None,
             scopes: vec!["read:user".into()],
             installations: vec![],
+            run: None,
         };
         audit::run(
             &client,

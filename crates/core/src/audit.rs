@@ -1123,6 +1123,7 @@ mod tests {
                 account: Some("other-owner".to_owned()),
                 permissions: vec!["metadata=read".to_owned()],
             }],
+            run: None,
         };
         let message = repository_error("owner", "name", &error, Some(&grant)).to_string();
         assert!(message.contains("does not exist"));

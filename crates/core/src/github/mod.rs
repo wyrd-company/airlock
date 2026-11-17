@@ -657,6 +657,38 @@ pub trait GitHub {
 
     /// Fetch the authenticated user and the scope header GitHub returned.
     async fn authenticated_user(&self) -> ApiResult<AuthenticatedUser>;
+
+    /// Read one file's bytes at an exact commit.
+    ///
+    /// Repository mode reads the running workflow at `GITHUB_WORKFLOW_SHA`
+    /// through this, so a checkout an earlier step changed cannot answer for
+    /// the file GitHub ran.
+    async fn file_at_commit(
+        &self,
+        owner: &str,
+        repo: &str,
+        commit: &str,
+        path: &str,
+    ) -> ApiResult<Vec<u8>> {
+        Err(ApiError::local(
+            ErrorCause::Transport,
+            format!("GET /repos/{owner}/{repo}/contents/{path}?ref={commit}"),
+            "this GitHub client does not implement reading a file at a commit",
+        ))
+    }
+
+    /// List every repository the credential's own installation reaches.
+    ///
+    /// Only an installation token can answer this, through
+    /// `GET /installation/repositories`. The central run reads it to know
+    /// which repositories it audits.
+    async fn token_repositories(&self) -> ApiResult<InstallationRepositories> {
+        Err(ApiError::local(
+            ErrorCause::Transport,
+            "GET /installation/repositories",
+            "this GitHub client does not implement the installation repository listing",
+        ))
+    }
 }
 
 #[cfg(test)]

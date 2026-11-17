@@ -2992,6 +2992,7 @@ fn write_grant() -> VerifiedGrant {
                 .map(|permission| format!("{}={}", permission.name, permission.level))
                 .collect(),
         }],
+        run: None,
     }
 }
 
