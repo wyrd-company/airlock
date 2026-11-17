@@ -25,6 +25,7 @@ mod template_identity;
 pub mod alignment;
 pub mod audit;
 pub mod auth;
+pub mod central;
 pub mod checks;
 pub mod configurable;
 pub mod error;
