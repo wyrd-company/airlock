@@ -2,8 +2,54 @@ name: Airlock audit
 description: Audit a GitHub repository with a credential Airlock proves is read-only
 
 inputs:
+  mode:
+    description: >-
+      repository audits one repository with the token input or AIRLOCK_TOKEN;
+      central audits every repository of the run's owner, signed in as
+      Airlock Safe through Azure Key Vault, and accepts no credential
+    required: false
+    default: repository
+  token:
+    description: >-
+      Repository mode: the run's own token, as github.token. Airlock accepts
+      it only inside Actions, for the run's repository, when every permission
+      the job declares is read
+    required: false
+    default: ""
+  app-id:
+    description: Central mode, from AIRLOCK_SAFE_APP_ID; Airlock Safe's App id
+    required: false
+    default: ""
+  key-name:
+    description: >-
+      Central mode, from AIRLOCK_SAFE_KEY_NAME; the Key Vault key that holds
+      Airlock Safe's private key
+    required: false
+    default: ""
+  installation-repositories:
+    description: >-
+      Central mode, from AIRLOCK_SAFE_INSTALLED_ON; every repository the
+      installation may reach, which is <owner>/*
+    required: false
+    default: ""
+  vault-url:
+    description: Central mode, from AZURE_KEY_VAULT_URL; the vault's https:// address
+    required: false
+    default: ""
+  azure-tenant-id:
+    description: Central mode, from AZURE_TENANT_ID; the Entra ID tenant
+    required: false
+    default: ""
+  azure-client-id:
+    description: >-
+      Central mode, from AZURE_CLIENT_ID; the client id of the identity whose
+      federated credential trusts the job
+    required: false
+    default: ""
   repository:
-    description: Repository to audit as owner/repo; defaults to the current repository
+    description: >-
+      Repository mode: repository to audit as owner/repo; defaults to the
+      current repository
     required: false
     default: ""
   policy:
@@ -11,7 +57,9 @@ inputs:
     required: false
     default: ""
   ref:
-    description: Commit, branch, or tag to audit; defaults to the repository's default branch
+    description: >-
+      Repository mode: commit, branch, or tag to audit; defaults to the
+      repository's default branch
     required: false
     default: ""
   format:
@@ -33,7 +81,10 @@ outputs:
     description: Whether the audit completed without a run error
     value: ${{ steps.audit.outputs.complete }}
   findings-location:
-    description: Absolute path to the findings document on the runner
+    description: >-
+      Absolute path to the findings document on the runner; in central mode,
+      the one report, which is also uploaded as the airlock-central-report
+      artifact
     value: ${{ steps.audit.outputs.findings-location }}
 
 runs:
@@ -57,10 +108,28 @@ runs:
       id: audit
       shell: bash
       env:
+        INPUT_MODE: ${{ inputs.mode }}
+        INPUT_TOKEN: ${{ inputs.token }}
+        INPUT_APP_ID: ${{ inputs.app-id }}
+        INPUT_KEY_NAME: ${{ inputs.key-name }}
+        INPUT_INSTALLATION_REPOSITORIES: ${{ inputs.installation-repositories }}
+        INPUT_VAULT_URL: ${{ inputs.vault-url }}
+        INPUT_AZURE_TENANT_ID: ${{ inputs.azure-tenant-id }}
+        INPUT_AZURE_CLIENT_ID: ${{ inputs.azure-client-id }}
         INPUT_REPOSITORY: ${{ inputs.repository }}
         INPUT_POLICY: ${{ inputs.policy }}
         INPUT_REF: ${{ inputs.ref }}
         INPUT_FORMAT: ${{ inputs.format }}
         INPUT_FAIL_ON_INCOMPLETE: ${{ inputs.fail-on-incomplete }}
+        # Only compared with an installation token offered as the credential;
+        # the script unsets it before Airlock runs.
+        AIRLOCK_RUN_TOKEN: ${{ github.token }}
         AIRLOCK_BIN: ${{ github.action_path }}/target/release/airlock
       run: "$GITHUB_ACTION_PATH/scripts/run-action.sh"
+    - name: Upload the central report
+      if: always() && inputs.mode == 'central' && steps.audit.outputs.findings-location != ''
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      with:
+        name: airlock-central-report
+        path: ${{ steps.audit.outputs.findings-location }}
+        if-no-files-found: error

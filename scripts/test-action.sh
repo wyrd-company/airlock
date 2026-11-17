@@ -8,8 +8,13 @@ trap 'rm -rf "$test_root"' EXIT
 fake_airlock="$test_root/airlock"
 cat >"$fake_airlock" <<'EOF'
 #!/usr/bin/env bash
-printf '{"outcome":"%s","complete":%s}\n' "$FAKE_OUTCOME" "$FAKE_COMPLETE"
-exit "$FAKE_STATUS"
+if [[ -n ${FAKE_RECORD:-} ]]; then
+  printf '%s\n' "$@" >"$FAKE_RECORD.args"
+  printf 'AIRLOCK_TOKEN=%s\nAIRLOCK_RUN_TOKEN=%s\n' \
+    "${AIRLOCK_TOKEN-unset}" "${AIRLOCK_RUN_TOKEN-unset}" >"$FAKE_RECORD.env"
+fi
+printf '{"outcome":"%s","complete":%s}\n' "${FAKE_OUTCOME:-conformant}" "${FAKE_COMPLETE:-true}"
+exit "${FAKE_STATUS:-0}"
 EOF
 chmod +x "$fake_airlock"
 
@@ -123,3 +128,103 @@ done
 first_location=$(sed -n 's/^findings-location=//p' "$first_output")
 second_location=$(sed -n 's/^findings-location=//p' "$second_output")
 [[ "$first_location" != "$second_location" ]]
+
+# Run the adapter with the fake binary recording what it received.
+# Arguments are NAME=VALUE environment entries; the status is returned.
+run_recorded() {
+  local name=$1
+  shift
+  set +e
+  env -u AIRLOCK_TOKEN -u AIRLOCK_RUN_TOKEN \
+    AIRLOCK_BIN="$fake_airlock" \
+    FAKE_RECORD="$test_root/$name" \
+    INPUT_FORMAT=json \
+    INPUT_FAIL_ON_INCOMPLETE=true \
+    RUNNER_TEMP="$test_root" \
+    GITHUB_ACTION="$name" \
+    GITHUB_OUTPUT="$test_root/output-$name" \
+    GITHUB_ENV="$test_root/environment-$name" \
+    "$@" "$root/scripts/run-action.sh" >/dev/null 2>&1
+  local status=$?
+  set -e
+  return "$status"
+}
+
+# Repository mode passes the run's own token to Airlock as AIRLOCK_TOKEN, and
+# never the comparison copy.
+run_recorded repository-run-token \
+  GITHUB_REPOSITORY=example/repository \
+  INPUT_TOKEN=ghs_run AIRLOCK_RUN_TOKEN=ghs_run
+grep -qx -- '--mode' "$test_root/repository-run-token.args"
+grep -qx 'repository' "$test_root/repository-run-token.args"
+grep -qx 'example/repository' "$test_root/repository-run-token.args"
+grep -qx 'AIRLOCK_TOKEN=ghs_run' "$test_root/repository-run-token.env"
+grep -qx 'AIRLOCK_RUN_TOKEN=unset' "$test_root/repository-run-token.env"
+
+# Another installation token is refused before Airlock runs, whether it
+# arrives as the token input or as AIRLOCK_TOKEN.
+for source in INPUT_TOKEN AIRLOCK_TOKEN; do
+  if run_recorded "foreign-$source" \
+    GITHUB_REPOSITORY=example/repository \
+    "$source=ghs_another_app" AIRLOCK_RUN_TOKEN=ghs_run; then
+    echo "a foreign installation token from $source was not refused" >&2
+    exit 1
+  fi
+  [[ ! -e "$test_root/foreign-$source.args" ]]
+  grep -qE '^outcome=incomplete$' "$test_root/output-foreign-$source"
+done
+
+# A user token supplied as AIRLOCK_TOKEN keeps working in repository mode.
+run_recorded repository-user-token \
+  GITHUB_REPOSITORY=example/repository \
+  AIRLOCK_TOKEN=ghu_fixture AIRLOCK_RUN_TOKEN=ghs_run
+grep -qx 'AIRLOCK_TOKEN=ghu_fixture' "$test_root/repository-user-token.env"
+
+# Central mode audits the run's owner with the six inputs and no credential.
+run_recorded central \
+  INPUT_MODE=central GITHUB_REPOSITORY_OWNER=example AIRLOCK_RUN_TOKEN=ghs_run \
+  INPUT_APP_ID=4409712 INPUT_KEY_NAME=airlock-safe \
+  INPUT_INSTALLATION_REPOSITORIES='example/*' \
+  INPUT_VAULT_URL=https://example.vault.azure.net \
+  INPUT_AZURE_TENANT_ID=tenant INPUT_AZURE_CLIENT_ID=client
+expected_central_args="audit
+example
+--mode
+central
+--format
+json
+--app-id
+4409712
+--key-name
+airlock-safe
+--installation-repositories
+example/*
+--vault-url
+https://example.vault.azure.net
+--azure-tenant-id
+tenant
+--azure-client-id
+client"
+[[ "$(cat "$test_root/central.args")" == "$expected_central_args" ]]
+grep -qx 'AIRLOCK_TOKEN=unset' "$test_root/central.env"
+grep -qx 'AIRLOCK_RUN_TOKEN=unset' "$test_root/central.env"
+
+# Central mode refuses any credential, a repository and a ref.
+for refused in INPUT_TOKEN=ghs_run AIRLOCK_TOKEN=ghu_fixture \
+  INPUT_REPOSITORY=example/repository INPUT_REF=main; do
+  name="central-refuses-${refused%%=*}"
+  if run_recorded "$name" \
+    INPUT_MODE=central GITHUB_REPOSITORY_OWNER=example "$refused"; then
+    echo "central mode accepted $refused" >&2
+    exit 1
+  fi
+  [[ ! -e "$test_root/$name.args" ]]
+  grep -qE '^outcome=incomplete$' "$test_root/output-$name"
+done
+
+# An unknown mode is a validation error.
+if run_recorded unknown-mode INPUT_MODE=organization AIRLOCK_TOKEN=ghu_fixture; then
+  echo "an unknown mode was accepted" >&2
+  exit 1
+fi
+[[ ! -e "$test_root/unknown-mode.args" ]]
