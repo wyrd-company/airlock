@@ -95,20 +95,24 @@ tasks:
 
   dogfood:
     desc: Audit this repository with the binary it builds
-    # Deliberately absent from `check`: it needs AIRLOCK_TOKEN, a credential
-    # `task check` has no business requiring on a contributor's machine.
+    # Deliberately absent from `check`: it needs a read-only credential
+    # (`airlock auth login`, or AIRLOCK_TOKEN), which `task check` has no
+    # business requiring on a contributor's machine.
     cmds:
       - cargo run --quiet -p airlock-cli -- audit wyrd-company/airlock --format json
 
-  dogfood:when-provisioned:
-    desc: Run the dogfood audit when CI has its read-only credential
+  dogfood:ci:
+    desc: >-
+      Audit the running repository in repository mode, with the run's own
+      token from RUN_TOKEN on standard input; runs only inside GitHub Actions
+    requires:
+      vars:
+        - GITHUB_REPOSITORY
+        - RUN_TOKEN
     cmds:
-      - |
-        if [ -n "${AIRLOCK_TOKEN:-}" ]; then
-          task dogfood
-        else
-          echo "AIRLOCK_TOKEN is not provisioned; skipping the dogfood audit."
-        fi
+      - >-
+        printenv RUN_TOKEN | cargo run --quiet -p airlock-cli --
+        audit "$GITHUB_REPOSITORY" --mode repository --format json --token-stdin
 
   check:
     desc: Everything CI runs that needs no secret — run this before pushing

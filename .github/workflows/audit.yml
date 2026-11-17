@@ -12,12 +12,17 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Repository mode on the run's own token. Airlock reads this job's
+  # permissions from this file at GITHUB_WORKFLOW_SHA and accepts the token
+  # only because every one of them is read. No secret is read.
   audit:
     name: Audit this repository
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
       contents: read
+      actions: read
+      attestations: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -26,9 +31,9 @@ jobs:
       - name: Run Airlock
         id: airlock
         uses: ./
-        env:
-          AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}
         with:
+          mode: repository
+          token: ${{ github.token }}
           format: json
       - name: Attach findings
         if: always() && env.AIRLOCK_FINDINGS != ''
