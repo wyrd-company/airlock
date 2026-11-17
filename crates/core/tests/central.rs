@@ -4,12 +4,16 @@
 //! endpoint. Every credential it hands out is a distinct marker, so a test can
 //! show that no message carries a token, an assertion or a signature.
 
+use airlock_core::audit::AuditOptions;
 use airlock_core::auth::{TokenKind, AIRLOCK_SAFE_APP_ID};
 use airlock_core::central::{
     jwt_signing_input, sign_in, CentralConfig, CentralError, CentralInputs, Endpoints, OidcRequest,
     Step,
 };
+use airlock_core::findings::AuditResult;
+use airlock_core::github::RestClientConfig;
 use airlock_core::limits::Limits;
+use airlock_core::policy::PolicySource;
 use airlock_core::rules::CredentialCapability;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
@@ -550,4 +554,78 @@ async fn a_minted_token_listing_no_permissions_is_refused() {
         .await;
     let error = refused(&server).await;
     assert_eq!(error.step, Step::TokenRequest);
+}
+
+#[tokio::test]
+async fn an_installation_of_another_app_stops_at_installation_lookup() {
+    let server = fake().await;
+    let mut foreign = installation("all");
+    foreign["app_id"] = json!(4_409_767);
+    Mock::given(method("GET"))
+        .and(path("/orgs/wyrd-company/installation"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(foreign))
+        .mount(&server)
+        .await;
+    let error = refused(&server).await;
+    assert_eq!(error.step, Step::InstallationLookup);
+}
+
+#[tokio::test]
+async fn a_listing_cut_short_makes_the_central_run_incomplete() {
+    let server = fake().await;
+    // One page that links to a second: with a one-page budget the walk stops
+    // there, so a repository the installation reaches is never seen.
+    Mock::given(method("GET"))
+        .and(path("/installation/repositories"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header(
+                    "link",
+                    format!(
+                        "<{}/installation/repositories?page=2>; rel=\"next\"",
+                        server.uri()
+                    )
+                    .as_str(),
+                )
+                .set_body_json(json!({ "total_count": 1, "repositories": [] })),
+        )
+        .mount(&server)
+        .await;
+    let session = sign_in(
+        &config(&server),
+        &oidc(&server),
+        &endpoints(&server),
+        Limits::default(),
+    )
+    .await
+    .expect("the sign-in succeeds");
+
+    let policies = tempfile::tempdir().unwrap();
+    let policy = policies.path().join("policy.yml");
+    std::fs::write(&policy, "version: 0.6.0\n").unwrap();
+    let limits = Limits {
+        max_pages: 1,
+        ..Limits::default()
+    };
+    let report = airlock_core::central_audit::run(
+        &session,
+        "wyrd-company",
+        &RestClientConfig {
+            base_url: server.uri(),
+            max_rate_limit_retries: 0,
+            ..RestClientConfig::from_limits(limits)
+        },
+        Some(PolicySource::parse(&policy.display().to_string()).unwrap()),
+        &AuditOptions {
+            limits,
+            version: "0.0.0".to_owned(),
+            ..AuditOptions::default()
+        },
+    )
+    .await
+    .expect("the run reports");
+    assert_eq!(report.outcome, AuditResult::Incomplete);
+    assert!(!report.complete);
+    assert_eq!(report.exit_code(), 2);
+    assert!(report.run_errors[0].contains("page budget"), "{report:?}");
 }
