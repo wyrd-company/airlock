@@ -1144,6 +1144,7 @@ async fn template_identity_credentialed_working_tree_reads_the_configured_local_
         login: None,
         scopes: vec!["read:user".into()],
         installations: Vec::new(),
+        run: None,
     };
     let mut audit_options = options();
     audit_options.working_tree = Some(repo.path().to_path_buf());

@@ -1184,10 +1184,88 @@ impl GitHub for RestClient {
         installation_id: u64,
     ) -> ApiResult<InstallationRepositories> {
         let endpoint = "GET /user/installations/{installation_id}/repositories".to_owned();
-        let mut url = format!(
+        let url = format!(
             "{}/user/installations/{installation_id}/repositories?per_page=100",
             self.config.base_url
         );
+        self.walk_installation_repositories(&endpoint, url).await
+    }
+
+    async fn token_repositories(&self) -> ApiResult<InstallationRepositories> {
+        let endpoint = "GET /installation/repositories".to_owned();
+        let url = format!(
+            "{}/installation/repositories?per_page=100",
+            self.config.base_url
+        );
+        self.walk_installation_repositories(&endpoint, url).await
+    }
+
+    async fn file_at_commit(
+        &self,
+        owner: &str,
+        repo: &str,
+        commit: &str,
+        path: &str,
+    ) -> ApiResult<Vec<u8>> {
+        let endpoint = format!("GET /repos/{owner}/{repo}/contents/{path}?ref={commit}");
+        let encoded_path = path
+            .split('/')
+            .map(encode_segment)
+            .collect::<Vec<_>>()
+            .join("/");
+        let request = format!(
+            "/repos/{}/{}/contents/{encoded_path}?ref={}",
+            encode_segment(owner),
+            encode_segment(repo),
+            encode_segment(commit)
+        );
+        let (value, _) = self.get_json(&endpoint, &request).await?;
+        // A directory answers with an array and a symlink or submodule with
+        // another type. Neither is the file that was asked for.
+        if optional_string(&value, "type").as_deref() != Some("file") {
+            return Err(malformed(&endpoint, "the path is not a regular file"));
+        }
+        let content = require_string(&endpoint, &value, "content")?;
+        match optional_string(&value, "encoding").as_deref() {
+            Some("base64") => {
+                let stripped: String = content
+                    .chars()
+                    .filter(|c| !c.is_ascii_whitespace())
+                    .collect();
+                base64::engine::general_purpose::STANDARD
+                    .decode(stripped)
+                    .map_err(|error| {
+                        malformed(&endpoint, format!("file content was not base64: {error}"))
+                    })
+            }
+            // GitHub answers `none` for a file too large to inline, and an
+            // unread file is not an empty one.
+            other => Err(malformed(
+                &endpoint,
+                format!("unsupported file encoding `{}`", other.unwrap_or("absent")),
+            )),
+        }
+    }
+
+    async fn authenticated_user(&self) -> ApiResult<AuthenticatedUser> {
+        let endpoint = "GET /user".to_owned();
+        let (value, raw) = self.get_json(&endpoint, "/user").await?;
+        Ok(AuthenticatedUser {
+            login: require_string(&endpoint, &value, "login")?,
+            oauth_scopes: OAuthScopeHeader::from_values(raw.all("x-oauth-scopes")),
+        })
+    }
+}
+
+impl RestClient {
+    /// Walk one installation repository listing, which both the user-token and
+    /// the installation-token endpoints answer in the same shape.
+    async fn walk_installation_repositories(
+        &self,
+        endpoint: &str,
+        mut url: String,
+    ) -> ApiResult<InstallationRepositories> {
+        let endpoint = endpoint.to_owned();
         let mut repositories = Vec::new();
         // GitHub's own count, taken from the first page. A later page repeating
         // a different one is not averaged or overwritten: the first answer is
@@ -1223,15 +1301,6 @@ impl GitHub for RestClient {
             total_count: total_count.unwrap_or(repositories.len() as u64),
             repositories,
             truncated: true,
-        })
-    }
-
-    async fn authenticated_user(&self) -> ApiResult<AuthenticatedUser> {
-        let endpoint = "GET /user".to_owned();
-        let (value, raw) = self.get_json(&endpoint, "/user").await?;
-        Ok(AuthenticatedUser {
-            login: require_string(&endpoint, &value, "login")?,
-            oauth_scopes: OAuthScopeHeader::from_values(raw.all("x-oauth-scopes")),
         })
     }
 }

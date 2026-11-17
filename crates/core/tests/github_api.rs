@@ -3,12 +3,17 @@
 //! Every response here is a fixture served by `wiremock`. Nothing in this file
 //! reaches `api.github.com`.
 
-use airlock_core::auth::{verify, TokenKind, AIRLOCK_SAFE_APP_ID, AIRLOCK_SAFE_APP_SLUG};
+use airlock_core::auth::{
+    verify, verify_for, Admission, TokenKind, AIRLOCK_SAFE_APP_ID, AIRLOCK_SAFE_APP_SLUG,
+};
 use airlock_core::github::{
     AccountKind, ErrorCause, GitHub, OAuthScopeHeader, RepositorySelection, RestClient,
     RestClientConfig,
 };
 use airlock_core::limits::Limits;
+use airlock_core::rules::CredentialCapability;
+use airlock_core::workflow_token::ActionsRun;
+use base64::Engine as _;
 use serde_json::{json, Value};
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -820,6 +825,193 @@ async fn unverifiable_token_kinds_are_refused_without_any_request() {
         let refusal = verify(token, &client(&server)).await.unwrap_err();
         assert_eq!(refusal.code.code(), code, "{token}");
     }
+}
+
+// ---------------------------------------------------------------------------
+// Repository mode: the run's own token
+// ---------------------------------------------------------------------------
+
+const RUN_SHA: &str = "0123456789abcdef0123456789abcdef01234567";
+
+fn run_in(repository: &str) -> ActionsRun {
+    let variables = [
+        ("GITHUB_ACTIONS", "true".to_owned()),
+        ("GITHUB_REPOSITORY", repository.to_owned()),
+        (
+            "GITHUB_WORKFLOW_REF",
+            format!("{repository}/.github/workflows/audit.yml@refs/heads/main"),
+        ),
+        ("GITHUB_WORKFLOW_SHA", RUN_SHA.to_owned()),
+        ("GITHUB_JOB", "audit".to_owned()),
+    ];
+    ActionsRun::from_lookup(|name| {
+        variables
+            .iter()
+            .find(|(variable, _)| *variable == name)
+            .map(|(_, value)| value.clone())
+    })
+    .expect("the run is described")
+}
+
+async fn mount_workflow(server: &MockServer, workflow: &str) {
+    Mock::given(method("GET"))
+        .and(path(
+            "/repos/owner/name/contents/.github/workflows/audit.yml",
+        ))
+        .and(query_param("ref", RUN_SHA))
+        .respond_with(
+            quota_headers(ResponseTemplate::new(200)).set_body_json(json!({
+                "type": "file",
+                "encoding": "base64",
+                "content": base64::engine::general_purpose::STANDARD.encode(workflow),
+            })),
+        )
+        .mount(server)
+        .await;
+}
+
+fn run_token_client(server: &MockServer) -> RestClient {
+    RestClient::new(
+        "ghs_runtoken",
+        RestClientConfig {
+            base_url: server.uri(),
+            max_rate_limit_retries: 0,
+            ..RestClientConfig::default()
+        },
+    )
+    .expect("the client builds")
+}
+
+const READING_JOB: &str = "\
+permissions: {}
+jobs:
+  audit:
+    permissions:
+      contents: read
+      actions: read
+      attestations: read
+    steps:
+      - uses: wyrd-company/airlock@0123456789abcdef0123456789abcdef01234567 # 1.0.0
+";
+
+#[tokio::test]
+async fn the_runs_token_is_accepted_when_its_job_declares_only_reads() {
+    let server = MockServer::start().await;
+    mount_workflow(&server, READING_JOB).await;
+    let run = run_in("owner/name");
+
+    let grant = verify_for(
+        "ghs_runtoken",
+        &run_token_client(&server),
+        Admission::Repository {
+            run: &run,
+            owner: "owner",
+            repo: "name",
+        },
+    )
+    .await
+    .expect("the run's read-only token is accepted");
+
+    assert_eq!(grant.kind, TokenKind::Installation);
+    let run_grant = grant.run.as_ref().expect("the grant names its job");
+    assert_eq!(run_grant.job, "audit");
+    assert_eq!(
+        run_grant.workflow,
+        format!(".github/workflows/audit.yml@{RUN_SHA}")
+    );
+    assert_eq!(
+        run_grant.permissions,
+        vec!["contents=read", "actions=read", "attestations=read"]
+    );
+    assert_eq!(grant.capability(), CredentialCapability::ReadOnly);
+}
+
+#[tokio::test]
+async fn the_runs_token_is_refused_when_its_job_holds_a_write_permission() {
+    let server = MockServer::start().await;
+    mount_workflow(
+        &server,
+        "\
+jobs:
+  audit:
+    permissions:
+      contents: write
+    steps: []
+",
+    )
+    .await;
+    let run = run_in("owner/name");
+
+    let refusal = verify_for(
+        "ghs_runtoken",
+        &run_token_client(&server),
+        Admission::Repository {
+            run: &run,
+            owner: "owner",
+            repo: "name",
+        },
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(refusal.code.code(), "write_permission");
+    assert!(refusal.detail.contains("contents=write"), "{refusal}");
+}
+
+#[tokio::test]
+async fn the_runs_token_audits_only_the_runs_repository() {
+    let server = MockServer::start().await;
+    // No workflow is mounted: the refusal comes before any request.
+    let run = run_in("owner/name");
+    let refusal = verify_for(
+        "ghs_runtoken",
+        &run_token_client(&server),
+        Admission::Repository {
+            run: &run,
+            owner: "owner",
+            repo: "other",
+        },
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(refusal.code.code(), "foreign_repository");
+}
+
+#[tokio::test]
+async fn an_unreadable_workflow_file_is_refused_not_assumed() {
+    let server = MockServer::start().await;
+    // The contents endpoint 404s: nothing is mounted.
+    let run = run_in("owner/name");
+    let refusal = verify_for(
+        "ghs_runtoken",
+        &run_token_client(&server),
+        Admission::Repository {
+            run: &run,
+            owner: "owner",
+            repo: "name",
+        },
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(refusal.code.code(), "workflow_unreadable");
+}
+
+#[tokio::test]
+async fn an_installation_token_outside_repository_mode_is_refused_without_a_request() {
+    let server = MockServer::start().await;
+    mount_workflow(&server, READING_JOB).await;
+    let refusal = verify_for(
+        "ghs_runtoken",
+        &run_token_client(&server),
+        Admission::Standard,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(refusal.code.code(), "unverifiable_installation_token");
+    assert!(server
+        .received_requests()
+        .await
+        .unwrap_or_default()
+        .is_empty());
 }
 
 // ---------------------------------------------------------------------------
