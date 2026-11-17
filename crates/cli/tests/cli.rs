@@ -668,6 +668,256 @@ async fn an_installation_token_is_refused_in_every_other_mode() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Central mode: Airlock Safe through Key Vault
+// ---------------------------------------------------------------------------
+
+/// A central-mode invocation inside a job with `id-token: write`, against the
+/// fake services, with no credential offered. Its output is JSON, as for any
+/// invocation whose standard output is not a terminal.
+fn central(server: &MockServer, config: &TempDir, policy: &str) -> Command {
+    let mut command = airlock(server, config);
+    command
+        .env_remove("AIRLOCK_TOKEN")
+        .env("GITHUB_ACTIONS", "true")
+        .env(
+            "ACTIONS_ID_TOKEN_REQUEST_URL",
+            format!("{}/oidc?api-version=2.0", server.uri()),
+        )
+        .env(
+            "ACTIONS_ID_TOKEN_REQUEST_TOKEN",
+            support::central::OIDC_REQUEST_TOKEN,
+        )
+        .env("AIRLOCK_AZURE_LOGIN_URL", server.uri())
+        .args([
+            "audit",
+            "wyrd-company",
+            "--mode",
+            "central",
+            "--policy",
+            policy,
+            "--app-id",
+            "4409712",
+            "--key-name",
+            "airlock-safe",
+            "--installation-repositories",
+            "wyrd-company/*",
+            "--vault-url",
+            &server.uri(),
+            "--azure-tenant-id",
+            support::central::TENANT,
+            "--azure-client-id",
+            support::central::CLIENT,
+        ]);
+    command
+}
+
+fn assert_prints_no_secret(output: &std::process::Output) {
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    for secret in support::central::secrets() {
+        assert!(!combined.contains(&secret), "output leaks {secret}");
+    }
+}
+
+async fn central_server() -> MockServer {
+    let unlicensed = FakeRepo::new("wyrd-company", "unlicensed").with_file(
+        "Cargo.toml",
+        "[package]\nname = \"unlicensed\"\nlicense = \"Apache-2.0\"\n",
+    );
+    let server = support::start(&[licensed_repo(), unlicensed]).await;
+    support::central::mount(
+        &server,
+        &[("wyrd-company", "unlicensed"), ("wyrd-company", "example")],
+    )
+    .await;
+    server
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn central_mode_audits_every_reached_repository_into_one_report() {
+    let server = central_server().await;
+    let config = TempDir::new().unwrap();
+    let policies = TempDir::new().unwrap();
+    let output = central(&server, &config, &policy_path(&policies, LICENSING_POLICY))
+        .output()
+        .expect("airlock runs");
+
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "a blocking gap in one repository fails the run: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_prints_no_secret(&output);
+    let report = json_output(&output.stdout);
+    assert_eq!(report["mode"], "central");
+    assert_eq!(report["owner"], "wyrd-company");
+    assert_eq!(report["credential"]["app_slug"], "airlock-safe");
+    assert_eq!(report["credential"]["installation_id"], 77);
+    assert_eq!(report["outcome"], "nonconformant");
+    assert_eq!(report["summary"]["reached"], 2);
+    let repositories = report["repositories"].as_array().unwrap();
+    assert_eq!(repositories.len(), 2);
+    assert_eq!(repositories[0]["repository"], "wyrd-company/example");
+    assert_eq!(repositories[0]["outcome"], "conformant");
+    assert_eq!(repositories[1]["repository"], "wyrd-company/unlicensed");
+    assert_eq!(repositories[1]["outcome"], "nonconformant");
+    assert_eq!(
+        finding(&repositories[1]["report"], "REPO-LIC-01")["status"],
+        "gap"
+    );
+
+    let revoked = server
+        .received_requests()
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|request| {
+            request.method.as_str() == "DELETE" && request.url.path() == "/installation/token"
+        })
+        .count();
+    assert_eq!(revoked, 1, "the minted token is revoked when the run ends");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn central_mode_renders_text_with_each_repository_under_its_name() {
+    let server = central_server().await;
+    let config = TempDir::new().unwrap();
+    let policies = TempDir::new().unwrap();
+    let output = central(&server, &config, &policy_path(&policies, LICENSING_POLICY))
+        .args(["--format", "text"])
+        .output()
+        .expect("airlock runs");
+    assert_eq!(output.status.code(), Some(1));
+    assert_prints_no_secret(&output);
+    let text = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        text.starts_with(
+            "Central audit of wyrd-company as airlock-safe (installation 77): nonconformant"
+        ),
+        "{text}"
+    );
+    assert!(
+        text.contains("== wyrd-company/example (conformant)"),
+        "{text}"
+    );
+    assert!(
+        text.contains("== wyrd-company/unlicensed (nonconformant)"),
+        "{text}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_repository_central_mode_cannot_audit_makes_the_run_incomplete() {
+    let server = support::start(&[licensed_repo()]).await;
+    // The installation reaches a repository the fake GitHub cannot serve.
+    support::central::mount(
+        &server,
+        &[("wyrd-company", "example"), ("wyrd-company", "vanished")],
+    )
+    .await;
+    let config = TempDir::new().unwrap();
+    let policies = TempDir::new().unwrap();
+    let output = central(&server, &config, &policy_path(&policies, LICENSING_POLICY))
+        .output()
+        .expect("airlock runs");
+    assert_eq!(output.status.code(), Some(2));
+    let report = json_output(&output.stdout);
+    assert_eq!(report["outcome"], "incomplete");
+    assert_eq!(report["complete"], false);
+    assert_eq!(report["summary"]["incomplete"], 1);
+    let vanished = &report["repositories"][1];
+    assert_eq!(vanished["repository"], "wyrd-company/vanished");
+    assert_eq!(vanished["outcome"], "incomplete");
+    assert!(vanished["error"].is_string());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn central_mode_accepts_no_other_credential() {
+    let server = central_server().await;
+    let config = TempDir::new().unwrap();
+    let policies = TempDir::new().unwrap();
+    let policy = policy_path(&policies, LICENSING_POLICY);
+
+    let mut from_environment = central(&server, &config, &policy);
+    from_environment.env("AIRLOCK_TOKEN", "ghu_fixture_token");
+    let mut from_flag = central(&server, &config, &policy);
+    from_flag.args(["--token", "ghu_fixture_token"]);
+    for mut command in [from_environment, from_flag] {
+        command
+            .assert()
+            .code(2)
+            .stderr(contains("central mode accepts no credential"));
+    }
+    assert!(
+        server
+            .received_requests()
+            .await
+            .unwrap_or_default()
+            .is_empty(),
+        "nothing is requested with or without the offered credential"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_central_refusal_names_its_step_and_prints_no_secret() {
+    let server = central_server().await;
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .and(wiremock::matchers::path("/keys/airlock-safe//sign"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(403).set_body_json(serde_json::json!({
+                "error": { "code": "Forbidden", "message": "denied" }
+            })),
+        )
+        .mount(&server)
+        .await;
+    let config = TempDir::new().unwrap();
+    let policies = TempDir::new().unwrap();
+    let output = central(&server, &config, &policy_path(&policies, LICENSING_POLICY))
+        .output()
+        .expect("airlock runs");
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("key-vault-sign"), "{stderr}");
+    assert!(stderr.contains("http 403, Forbidden"), "{stderr}");
+    assert_prints_no_secret(&output);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn central_mode_needs_a_job_that_can_request_an_oidc_token() {
+    let server = central_server().await;
+    let config = TempDir::new().unwrap();
+    let policies = TempDir::new().unwrap();
+    central(&server, &config, &policy_path(&policies, LICENSING_POLICY))
+        .env_remove("ACTIONS_ID_TOKEN_REQUEST_URL")
+        .env_remove("ACTIONS_ID_TOKEN_REQUEST_TOKEN")
+        .assert()
+        .code(2)
+        .stderr(contains("azure-sign-in"))
+        .stderr(contains("id-token: write"));
+}
+
+#[test]
+fn central_inputs_apply_only_to_central_mode() {
+    offline()
+        .args([
+            "audit",
+            "wyrd-company/example",
+            "--app-id",
+            "4409712",
+            "--policy",
+            "./policy.yml",
+        ])
+        .assert()
+        .code(2)
+        .stderr(contains("apply only to `--mode central`"));
+}
+
 #[test]
 fn retired_plan_command_is_not_a_machine_or_human_surface() {
     offline()

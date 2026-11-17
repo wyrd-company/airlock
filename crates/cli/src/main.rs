@@ -22,6 +22,8 @@ use std::process::ExitCode;
 
 use airlock_core::audit::{self, AuditOptions};
 use airlock_core::auth::{self, Admission, VerifiedGrant, AIRLOCK_SAFE_CLIENT_ID};
+use airlock_core::central::{self, CentralConfig, CentralInputs, Endpoints, OidcRequest};
+use airlock_core::central_audit;
 use airlock_core::github::{GitHub, RestClient, RestClientConfig};
 use airlock_core::limits::Limits;
 use airlock_core::policy::{self, PolicySource};
@@ -48,6 +50,9 @@ const API_URL_OVERRIDE: &str = "AIRLOCK_GITHUB_API_URL";
 
 /// Overrides the GitHub OAuth host, for the same reason.
 const LOGIN_URL_OVERRIDE: &str = "AIRLOCK_GITHUB_LOGIN_URL";
+
+/// Overrides Entra ID's sign-in host, for the same reason.
+const AZURE_LOGIN_URL_OVERRIDE: &str = "AIRLOCK_AZURE_LOGIN_URL";
 
 #[derive(Debug, Parser)]
 #[command(
@@ -153,8 +158,16 @@ struct AuditArgs {
     /// Actions only, for the run's repository only, and only when the job's
     /// declared permissions are all `read`. Without it, an installation token
     /// is refused.
+    ///
+    /// `central` takes an owner rather than a repository, accepts no
+    /// credential, and signs in as Airlock Safe through Azure Key Vault with
+    /// the job's OpenID Connect token. It audits every repository the
+    /// installation reaches into one report.
     #[arg(long, value_enum, conflicts_with = "working_tree")]
     mode: Option<AuditMode>,
+
+    #[command(flatten)]
+    central: CentralArgs,
 }
 
 /// The Action's modes, as `--mode` names them.
@@ -162,6 +175,67 @@ struct AuditArgs {
 enum AuditMode {
     /// One repository, with the run's own token.
     Repository,
+    /// Every repository of an owner, signed in as Airlock Safe.
+    Central,
+}
+
+/// Central mode's inputs, as the audit repository's `airlock-safe`
+/// environment holds them.
+#[derive(Debug, Args, Default)]
+struct CentralArgs {
+    /// Central mode: Airlock Safe's App id (`AIRLOCK_SAFE_APP_ID`).
+    #[arg(long)]
+    app_id: Option<String>,
+
+    /// Central mode: the Key Vault key holding the App's private key
+    /// (`AIRLOCK_SAFE_KEY_NAME`).
+    #[arg(long)]
+    key_name: Option<String>,
+
+    /// Central mode: every repository the installation may reach, which is
+    /// `<owner>/*` (`AIRLOCK_SAFE_INSTALLED_ON`).
+    #[arg(long)]
+    installation_repositories: Option<String>,
+
+    /// Central mode: the vault's `https://` address (`AZURE_KEY_VAULT_URL`).
+    #[arg(long)]
+    vault_url: Option<String>,
+
+    /// Central mode: the Entra ID tenant (`AZURE_TENANT_ID`).
+    #[arg(long)]
+    azure_tenant_id: Option<String>,
+
+    /// Central mode: the client id of the identity that trusts the job
+    /// (`AZURE_CLIENT_ID`).
+    #[arg(long)]
+    azure_client_id: Option<String>,
+}
+
+impl CentralArgs {
+    fn any(&self) -> bool {
+        [
+            &self.app_id,
+            &self.key_name,
+            &self.installation_repositories,
+            &self.vault_url,
+            &self.azure_tenant_id,
+            &self.azure_client_id,
+        ]
+        .iter()
+        .any(|value| value.is_some())
+    }
+
+    fn inputs(&self) -> CentralInputs {
+        let value = |field: &Option<String>| field.clone().unwrap_or_default();
+        CentralInputs {
+            app_id: value(&self.app_id),
+            key_name: value(&self.key_name),
+            installation_repositories: value(&self.installation_repositories),
+            vault_url: value(&self.vault_url),
+            azure_tenant_id: value(&self.azure_tenant_id),
+            azure_client_id: value(&self.azure_client_id),
+        }
+    }
 }
 
 #[derive(Debug, Args)]
@@ -604,6 +678,13 @@ async fn audit_command(args: AuditArgs, interactive: bool) -> Result<u8> {
         return Ok(0);
     }
 
+    if args.mode == Some(AuditMode::Central) {
+        return central_command(&args, format).await;
+    }
+    if args.central.any() {
+        bail!("the central inputs (--app-id and the rest) apply only to `--mode central`.");
+    }
+
     let report = repository_report_with_client(args.target.as_deref(), &args.repository, args.mode)
         .await?
         .report;
@@ -684,6 +765,7 @@ async fn repository_report_with_client(
             ActionsRun::from_lookup(|name| std::env::var(name).ok())
                 .context("repository mode was refused")?,
         ),
+        Some(AuditMode::Central) => bail!("central mode audits an owner, not one repository."),
         None => None,
     };
 
@@ -773,6 +855,88 @@ async fn local_audit(args: &RepositoryArgs, root: &Path) -> Result<airlock_core:
     let report = audit::run_local(&policy, &options, root)
         .with_context(|| format!("cannot audit the working tree at {}", root.display()))?;
     Ok(report)
+}
+
+/// Central mode: sign in as Airlock Safe and audit every repository of the
+/// owner into one report.
+async fn central_command(args: &AuditArgs, format: Format) -> Result<u8> {
+    let Some(owner) = args.target.as_deref() else {
+        bail!("central mode needs the owner to audit.");
+    };
+    if owner.contains('/') {
+        bail!("central mode audits an owner, not `{owner}`. Name the owner alone.");
+    }
+    if args.repository.reference.is_some() {
+        bail!("central mode audits each repository's default branch; `--ref` does not apply.");
+    }
+
+    // Central mode signs for itself, so a credential offered to it is one it
+    // would have to ignore, and ignoring a credential is how a run ends up on
+    // the wrong one.
+    let environment = std::env::var(credential::TOKEN_ENVIRONMENT_VARIABLE).ok();
+    let offered = args.repository.token.is_some()
+        || args.repository.token_file.is_some()
+        || args.repository.token_stdin
+        || environment.is_some_and(|value| !value.trim().is_empty());
+    if offered {
+        bail!(
+            "central mode accepts no credential: it signs in as Airlock Safe through Key Vault. \
+             Remove --token, --token-file, --token-stdin and {}.",
+            credential::TOKEN_ENVIRONMENT_VARIABLE
+        );
+    }
+
+    let stopped = |error: central::CentralError| anyhow::anyhow!("central mode stopped at {error}");
+    let config = CentralConfig::parse(owner, &args.central.inputs()).map_err(stopped)?;
+    let oidc = OidcRequest::from_lookup(|name| std::env::var(name).ok()).map_err(stopped)?;
+    let endpoints = Endpoints {
+        github_api: api_base(),
+        azure_login: std::env::var(AZURE_LOGIN_URL_OVERRIDE)
+            .unwrap_or_else(|_| central::AZURE_LOGIN_BASE.to_owned()),
+    };
+    let limits = Limits::default();
+    let session = central::sign_in(&config, &oidc, &endpoints, limits)
+        .await
+        .map_err(stopped)?;
+
+    let policy_source = match &args.repository.policy {
+        Some(value) => Some(
+            PolicySource::parse(value)
+                .with_context(|| format!("cannot read `--policy {value}`"))?,
+        ),
+        None => None,
+    };
+    let options = AuditOptions {
+        reference: None,
+        limits,
+        version: VERSION.to_owned(),
+        working_tree: None,
+    };
+    let result = central_audit::run(
+        &session,
+        owner,
+        &client_config(limits),
+        policy_source,
+        &options,
+    )
+    .await;
+
+    // The token is revoked whatever the audit concluded. A failed revocation
+    // leaves a read-only token to expire on its own, which is worth saying
+    // and not worth failing an audit that completed.
+    if let Err(error) = session.revoke().await {
+        eprintln!("warning: {error}");
+    }
+
+    let report = result.with_context(|| format!("cannot audit the repositories of {owner}"))?;
+    match format {
+        Format::Text => print!("{}", report.text()),
+        Format::Json => println!(
+            "{}",
+            serde_json::to_string_pretty(&report).context("cannot render the central report")?
+        ),
+    }
+    Ok(report.exit_code())
 }
 
 fn split_target(target: &str) -> Result<(&str, &str)> {
