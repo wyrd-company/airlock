@@ -108,14 +108,11 @@ jobs:
           PR_TITLE: ${{ github.event.pull_request.title }}
         run: task lint:commit-msg -- "$PR_TITLE"
 
-  # Airlock audits airlock. The job is present before the credential is: the
-  # audit step is skipped until an operator provisions the AIRLOCK_TOKEN
-  # secret, so the workflow is honest about what it is and is not checking
-  # rather than failing every run until then.
-  #
-  # AIRLOCK_TOKEN is read-only by construction — airlock refuses any token it
-  # cannot prove carries no write permission — so it is the one secret this
-  # workflow can hold without widening its blast radius.
+  # Airlock audits airlock, in repository mode on the run's own token. The
+  # job declares only `contents: read`, which is how Airlock enumerates that
+  # token's grant: it reads these permissions from this file at
+  # GITHUB_WORKFLOW_SHA and refuses the token if any is not read. The
+  # workflow reads no secret.
   dogfood:
     name: Audit this repository
     runs-on: ubuntu-latest
@@ -130,10 +127,10 @@ jobs:
           toolchain: stable
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - uses: go-task/setup-task@01a4adf9db2d14c1de7a560f09170b6e0df736aa # v2
-      - name: Run dogfood audit when provisioned
+      - name: Run dogfood audit
         env:
-          AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}
-        run: task dogfood:when-provisioned
+          RUN_TOKEN: ${{ github.token }}
+        run: task dogfood:ci
 
 # Jobs are decomposed so a failure is legible on the pull request, and every job
 # invokes a task rather than a raw command so `task check` locally and CI cannot
