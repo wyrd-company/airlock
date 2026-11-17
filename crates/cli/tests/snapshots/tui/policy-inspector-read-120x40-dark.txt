@@ -5,7 +5,7 @@ AIRLOCK 0.0.0  …ions › repositories › findings › policy inspector  no cr
 EFFECTIVE POLICY  9 rules · 6 sections                                                                                  
                                                                                                                         
 RULES DIGEST                                                                                                            
-digest          sha256:65f08de5f4c91360008b07b4c4612ff2c3f4d980b9e48efd4dcea0f55d331037                                 
+digest          sha256:ff76f89aa8c199e99d8c781811e2e79615f11cd5dca1fb1a5ed27481d10ce3f1                                 
 computed over   every rule the compiled rules declare: its id, its statement, its default severity, earliest maturity   
                 rung, unbuilt boundary, release-unit scope, required topic categories, since release and override       
                 permission.                                                                                             
@@ -22,7 +22,7 @@ suppressions    policy · 1 rule(s) · — policy-sourced, not rules
 RUN PROVENANCE                                                                                                          
 airlock         0.0.0                                                                                                   
 rules           0.6.0                                                                                                   
-digest          sha256:65f08de5f4c91360008b07b4c4612ff2c3f4d980b9e48efd4dcea0f55d331037                                 
+digest          sha256:ff76f89aa8c199e99d8c781811e2e79615f11cd5dca1fb1a5ed27481d10ce3f1                                 
 schema          2                                                                                                       
 commit          aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa                                                                
 observed        2026-01-02T03:04:05Z                                                                                    
@@ -39,7 +39,7 @@ RULES
 — 0 lines above · 2 below · ↑↓ moves the window —                                                                       
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 esc back · ↑↓ move · y copy digest · t theme · ctrl-c exit                                                              
-rules 0.6.0 · sha256:65f08de5… · 9 rules · 6 sections                                                                   
+rules 0.6.0 · sha256:ff76f89a… · 9 rules · 6 sections                                                                   
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc

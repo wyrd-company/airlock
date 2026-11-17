@@ -1,7 +1,7 @@
 # Conformance Checklist
 
 This reference is generated from Airlock rules **0.6.0**
-(`sha256:65f08de5f4c91360008b07b4c4612ff2c3f4d980b9e48efd4dcea0f55d331037`).
+(`sha256:ff76f89aa8c199e99d8c781811e2e79615f11cd5dca1fb1a5ed27481d10ce3f1`).
 The rules are authoritative for every rule id, statement, default
 severity, section, and declared gates in this document.
 
@@ -123,7 +123,7 @@ is not a meaningful finding.
 | `REPO-CI-06` | A `concurrency` group with `cancel-in-progress` covers pull requests | Advisory | Compiled check | Workflow contents | seeded |
 | `REPO-CI-07` | Every job invokes a task rather than a raw command | Advisory | Compiled check | Workflow contents | seeded |
 | `REPO-CI-08` | A required check validates pull request title format | Advisory | Compiled check with an unbuilt gate | Workflow contents and ruleset | seeded |
-| `REPO-CI-09` | The scheduled audit workflow supplies `secrets.AIRLOCK_TOKEN` to the Airlock audit action | Advisory | Compiled check | Workflow contents and repository identity | seeded |
+| `REPO-CI-09` | The scheduled audit workflow runs the Airlock audit action in repository mode with the run's own `GITHUB_TOKEN`, or in central mode with the `airlock-safe` variables, and reads no `AIRLOCK_TOKEN` secret | Advisory | Compiled check | Workflow contents and repository identity | seeded |
 | `REPO-CI-10` | No workflow mutates repository settings | Advisory | Compiled check with an unbuilt gate | Workflow contents | seeded |
 | `REPO-CD-01` | A repository that delivers anything has `.github/workflows/cd.yml` | Advisory | Compiled check with an unbuilt gate | File presence | seeded |
 | `REPO-CD-02` | A repository publishing a versioned artifact triggers CD on tags matching `[0-9]*.[0-9]*.[0-9]*` | Advisory | Compiled check with an unbuilt gate | Workflow contents | seeded |

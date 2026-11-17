@@ -428,7 +428,26 @@ pub(super) fn pull_request_title_check(context: &AuditContext) -> Verdict {
     )
 }
 
-pub(super) fn audit_uses_airlock_token(context: &AuditContext) -> Verdict {
+/// The central inputs and the `airlock-safe` variable each must come from.
+const CENTRAL_INPUTS: &[(&str, &str)] = &[
+    ("app-id", "vars.AIRLOCK_SAFE_APP_ID"),
+    ("key-name", "vars.AIRLOCK_SAFE_KEY_NAME"),
+    (
+        "installation-repositories",
+        "vars.AIRLOCK_SAFE_INSTALLED_ON",
+    ),
+    ("vault-url", "vars.AZURE_KEY_VAULT_URL"),
+    ("azure-tenant-id", "vars.AZURE_TENANT_ID"),
+    ("azure-client-id", "vars.AZURE_CLIENT_ID"),
+];
+
+/// The expressions that are the run's own token.
+fn is_run_token(value: &str) -> bool {
+    let compact: String = value.chars().filter(|c| !c.is_whitespace()).collect();
+    compact == "${{github.token}}" || compact == "${{secrets.GITHUB_TOKEN}}"
+}
+
+pub(super) fn audit_runs_on_its_mode_credential(context: &AuditContext) -> Verdict {
     let Some(workflow) = context.workflow("audit.yml") else {
         return Verdict::fail(
             "no_audit_workflow",
@@ -446,6 +465,21 @@ pub(super) fn audit_uses_airlock_token(context: &AuditContext) -> Verdict {
             format!("{} could not be parsed", workflow.path),
         );
     };
+
+    // The repository secret is what the delivery standard's floor forbids,
+    // so it fails wherever the workflow names it, not only on the step.
+    if workflow.text.contains("secrets.AIRLOCK_TOKEN") {
+        return Verdict::fail_at(
+            "audit_reads_airlock_token",
+            &workflow.path,
+            "the audit workflow reads secrets.AIRLOCK_TOKEN, a repository secret",
+            Fix::new(
+                FixGroup::SUPPLY_RUN_TOKEN,
+                "Remove `AIRLOCK_TOKEN` and give the Airlock action `token: ${{ github.token }}` \
+                 in repository mode.",
+            ),
+        );
+    }
 
     let steps: Vec<&Yaml> = document
         .get("jobs")
@@ -476,34 +510,70 @@ pub(super) fn audit_uses_airlock_token(context: &AuditContext) -> Verdict {
             "audit_action_missing",
             format!("{} does not invoke the Airlock audit action", workflow.path),
             Fix::new(
-                FixGroup::SUPPLY_AIRLOCK_TOKEN,
-                "Invoke the canonical Airlock audit action and supply `secrets.AIRLOCK_TOKEN`.",
+                FixGroup::SUPPLY_RUN_TOKEN,
+                "Invoke the canonical Airlock audit action in repository mode with \
+                 `token: ${{ github.token }}`.",
             ),
         );
     }
 
-    let has_airlock_token = audit_steps.iter().any(|step| {
-        step.get("env")
-            .and_then(|env| env.get("AIRLOCK_TOKEN"))
-            .and_then(Yaml::as_str)
-            .is_some_and(|value| value.contains("secrets.AIRLOCK_TOKEN"))
-    });
+    let mut gaps = Vec::new();
+    let mut modes = Vec::new();
+    for step in &audit_steps {
+        let with = step.get("with");
+        let input = |name: &str| with.and_then(|with| with.get(name)).and_then(Yaml::as_str);
+        match input("mode").unwrap_or("repository") {
+            "repository" => {
+                if input("token").is_some_and(is_run_token) {
+                    modes.push("repository mode with the run's own token");
+                } else {
+                    gaps.push(
+                        "a repository-mode Airlock step does not receive `token: ${{ github.token \
+                         }}`"
+                        .to_owned(),
+                    );
+                }
+            }
+            "central" => {
+                let missing: Vec<&str> = CENTRAL_INPUTS
+                    .iter()
+                    .filter(|(name, variable)| {
+                        !input(name).is_some_and(|value| value.contains(variable))
+                    })
+                    .map(|(name, _)| *name)
+                    .collect();
+                if input("token").is_some() {
+                    gaps.push("a central-mode Airlock step receives a token".to_owned());
+                } else if missing.is_empty() {
+                    modes.push("central mode with the airlock-safe variables");
+                } else {
+                    gaps.push(format!(
+                        "a central-mode Airlock step does not take {} from the airlock-safe \
+                         variables",
+                        missing.join(", ")
+                    ));
+                }
+            }
+            other => gaps.push(format!("an Airlock step names the unknown mode `{other}`")),
+        }
+    }
 
-    if has_airlock_token {
+    if gaps.is_empty() {
+        modes.dedup();
         Verdict::pass_at(
-            "audit_uses_airlock_token",
+            "audit_uses_mode_credential",
             &workflow.path,
-            "the Airlock audit action receives secrets.AIRLOCK_TOKEN as AIRLOCK_TOKEN",
+            format!("the Airlock audit action runs in {}", modes.join(" and ")),
         )
     } else {
         Verdict::fail_at(
-            "audit_token_missing",
+            "audit_mode_credential_missing",
             &workflow.path,
-            "the Airlock audit action does not receive secrets.AIRLOCK_TOKEN as AIRLOCK_TOKEN",
+            gaps.join("; "),
             Fix::new(
-                FixGroup::SUPPLY_AIRLOCK_TOKEN,
-                "Set the action step's `AIRLOCK_TOKEN` environment variable to \
-                 `${{ secrets.AIRLOCK_TOKEN }}`.",
+                FixGroup::SUPPLY_RUN_TOKEN,
+                "Give the Airlock action `token: ${{ github.token }}` in repository mode, or, in \
+                 the audit repository, `mode: central` with the six airlock-safe variables.",
             ),
         )
     }
@@ -736,9 +806,7 @@ jobs:
         );
     }
 
-    #[test]
-    fn the_canonical_repository_may_invoke_its_local_audit_action() {
-        let configured = "\
+    const REPOSITORY_MODE: &str = "\
 on: workflow_dispatch
 permissions: {}
 jobs:
@@ -746,93 +814,68 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: ./
-        env:
-          AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}
+      - uses: wyrd-company/airlock@0123456789abcdef0123456789abcdef01234567
+        with:
+          token: ${{ github.token }}
 ";
+
+    const CENTRAL_MODE: &str = "\
+on: workflow_dispatch
+permissions: {}
+jobs:
+  audit:
+    environment:
+      name: airlock-safe
+      deployment: false
+    permissions:
+      id-token: write
+    steps:
+      - uses: wyrd-company/airlock@0123456789abcdef0123456789abcdef01234567
+        with:
+          mode: central
+          app-id: ${{ vars.AIRLOCK_SAFE_APP_ID }}
+          key-name: ${{ vars.AIRLOCK_SAFE_KEY_NAME }}
+          installation-repositories: ${{ vars.AIRLOCK_SAFE_INSTALLED_ON }}
+          vault-url: ${{ vars.AZURE_KEY_VAULT_URL }}
+          azure-tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          azure-client-id: ${{ vars.AZURE_CLIENT_ID }}
+";
+
+    fn ci09(workflow: &str) -> Verdict {
+        CheckFixture::new(&[(".github/workflows/audit.yml", workflow)]).verdict("REPO-CI-09")
+    }
+
+    fn ci09_code(workflow: &str) -> (Option<Status>, String) {
+        let verdict = ci09(workflow);
+        (verdict.status, verdict.evidence.unwrap().code)
+    }
+
+    #[test]
+    fn repository_mode_with_the_runs_own_token_meets_the_rule() {
         assert_eq!(
-            evaluate_for_repository(
-                "REPO-CI-09",
-                "wyrd-company/airlock",
-                &[(".github/workflows/audit.yml", configured)]
-            )
-            .status,
-            Some(Status::Met)
+            ci09_code(REPOSITORY_MODE),
+            (Some(Status::Met), "audit_uses_mode_credential".to_owned())
         );
+        let secret_form = REPOSITORY_MODE.replace("github.token", "secrets.GITHUB_TOKEN");
+        assert_eq!(ci09(&secret_form).status, Some(Status::Met));
+        let explicit = REPOSITORY_MODE.replace(
+            "        with:\n",
+            "        with:\n          mode: repository\n",
+        );
+        assert_eq!(ci09(&explicit).status, Some(Status::Met));
     }
 
     #[test]
-    fn the_canonical_local_action_must_receive_airlock_token() {
-        let workflow = "\
-on: workflow_dispatch
-permissions: {}
-jobs:
-  audit:
-    permissions:
-      contents: read
-    steps:
-      - uses: ./
-";
-        let verdict = evaluate_for_repository(
-            "REPO-CI-09",
-            "wyrd-company/airlock",
-            &[(".github/workflows/audit.yml", workflow)],
-        );
-        assert_eq!(verdict.status, Some(Status::Gap));
-        assert_eq!(verdict.evidence.unwrap().code, "audit_token_missing");
-    }
-
-    #[test]
-    fn another_repository_cannot_invoke_a_local_action_as_airlock() {
-        let workflow = "\
-on: workflow_dispatch
-permissions: {}
-jobs:
-  audit:
-    permissions:
-      contents: read
-    steps:
-      - uses: ./
-        env:
-          AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}
-";
+    fn central_mode_with_the_airlock_safe_variables_meets_the_rule() {
         assert_eq!(
-            evaluate_for_repository(
-                "REPO-CI-09",
-                "example/example",
-                &[(".github/workflows/audit.yml", workflow)]
-            )
-            .status,
-            Some(Status::Gap)
+            ci09_code(CENTRAL_MODE),
+            (Some(Status::Met), "audit_uses_mode_credential".to_owned())
         );
     }
 
     #[test]
-    fn the_canonical_repository_may_only_use_the_exact_local_self_reference() {
-        let workflow = "\
-on: workflow_dispatch
-permissions: {}
-jobs:
-  audit:
-    permissions:
-      contents: read
-    steps:
-      - uses: ./.github/actions/audit
-        env:
-          AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}
-";
-        let verdict = evaluate_for_repository(
-            "REPO-CI-09",
-            "wyrd-company/airlock",
-            &[(".github/workflows/audit.yml", workflow)],
-        );
-        assert_eq!(verdict.status, Some(Status::Gap));
-        assert_eq!(verdict.evidence.unwrap().code, "audit_action_missing");
-    }
-
-    #[test]
-    fn a_remote_airlock_action_must_receive_airlock_token() {
-        let configured = "\
+    fn the_airlock_token_secret_fails_the_rule_wherever_it_is_read() {
+        let step_env = "\
 on: workflow_dispatch
 permissions: {}
 jobs:
@@ -844,36 +887,122 @@ jobs:
         env:
           AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}
 ";
-        let fixture = CheckFixture::new(&[(".github/workflows/audit.yml", configured)]);
-        assert_eq!(fixture.verdict("REPO-CI-09").status, Some(Status::Met));
-
-        let unconfigured = configured.replace(
-            "        env:\n          AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}\n",
-            "",
+        assert_eq!(
+            ci09_code(step_env),
+            (Some(Status::Gap), "audit_reads_airlock_token".to_owned())
         );
-        let fixture = CheckFixture::new(&[(".github/workflows/audit.yml", &unconfigured)]);
-        let verdict = fixture.verdict("REPO-CI-09");
-        assert_eq!(verdict.status, Some(Status::Gap));
-        assert_eq!(verdict.evidence.unwrap().code, "audit_token_missing");
+        let beside_the_run_token = REPOSITORY_MODE.replace(
+            "permissions: {}\n",
+            "permissions: {}\nenv:\n  AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}\n",
+        );
+        assert_eq!(
+            ci09_code(&beside_the_run_token),
+            (Some(Status::Gap), "audit_reads_airlock_token".to_owned())
+        );
     }
 
     #[test]
-    fn checkout_with_airlock_token_is_not_the_airlock_action() {
-        let workflow = "\
-on: workflow_dispatch
-permissions: {}
-jobs:
-  audit:
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-        env:
-          AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}
-";
+    fn repository_mode_without_the_runs_own_token_fails_the_rule() {
+        for token in [
+            "",
+            "          token: ${{ secrets.OTHER_TOKEN }}\n",
+            "          token: ${{ steps.app.outputs.token }}\n",
+        ] {
+            let workflow = REPOSITORY_MODE.replace("          token: ${{ github.token }}\n", token);
+            assert_eq!(
+                ci09_code(&workflow),
+                (
+                    Some(Status::Gap),
+                    "audit_mode_credential_missing".to_owned()
+                ),
+                "{token}"
+            );
+        }
+    }
+
+    #[test]
+    fn central_mode_without_its_variables_or_with_a_token_fails_the_rule() {
+        let missing = CENTRAL_MODE.replace(
+            "          vault-url: ${{ vars.AZURE_KEY_VAULT_URL }}\n",
+            "          vault-url: https://example.vault.azure.net\n",
+        );
+        let verdict = ci09(&missing);
+        assert_eq!(verdict.status, Some(Status::Gap));
+        assert!(
+            verdict.evidence.unwrap().detail.contains("vault-url"),
+            "the missing input is named"
+        );
+        let with_token = CENTRAL_MODE.replace(
+            "          mode: central\n",
+            "          mode: central\n          token: ${{ github.token }}\n",
+        );
+        assert_eq!(ci09(&with_token).status, Some(Status::Gap));
+        let unknown = CENTRAL_MODE.replace("mode: central", "mode: organization");
+        assert_eq!(ci09(&unknown).status, Some(Status::Gap));
+    }
+
+    #[test]
+    fn the_canonical_repository_may_invoke_its_local_audit_action() {
+        let configured = REPOSITORY_MODE.replace(
+            "wyrd-company/airlock@0123456789abcdef0123456789abcdef01234567",
+            "./",
+        );
         assert_eq!(
-            verdict("REPO-CI-09", &[(".github/workflows/audit.yml", workflow)]),
+            evaluate_for_repository(
+                "REPO-CI-09",
+                "wyrd-company/airlock",
+                &[(".github/workflows/audit.yml", &configured)]
+            )
+            .status,
+            Some(Status::Met)
+        );
+        let verdict = evaluate_for_repository(
+            "REPO-CI-09",
+            "example/example",
+            &[(".github/workflows/audit.yml", &configured)],
+        );
+        assert_eq!(verdict.status, Some(Status::Gap));
+        assert_eq!(verdict.evidence.unwrap().code, "audit_action_missing");
+    }
+
+    #[test]
+    fn the_canonical_repository_may_only_use_the_exact_local_self_reference() {
+        let workflow = REPOSITORY_MODE.replace(
+            "wyrd-company/airlock@0123456789abcdef0123456789abcdef01234567",
+            "./.github/actions/audit",
+        );
+        let verdict = evaluate_for_repository(
+            "REPO-CI-09",
+            "wyrd-company/airlock",
+            &[(".github/workflows/audit.yml", &workflow)],
+        );
+        assert_eq!(verdict.status, Some(Status::Gap));
+        assert_eq!(verdict.evidence.unwrap().code, "audit_action_missing");
+    }
+
+    #[test]
+    fn checkout_with_the_runs_token_is_not_the_airlock_action() {
+        let workflow = REPOSITORY_MODE.replace(
+            "wyrd-company/airlock@0123456789abcdef0123456789abcdef01234567",
+            "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+        );
+        assert_eq!(
+            verdict("REPO-CI-09", &[(".github/workflows/audit.yml", &workflow)]),
             Some(Status::Gap)
+        );
+    }
+
+    #[test]
+    fn airlocks_own_audit_workflow_meets_the_restated_rule() {
+        let own = include_str!("../../../../../.github/workflows/audit.yml");
+        assert_eq!(
+            evaluate_for_repository(
+                "REPO-CI-09",
+                "wyrd-company/airlock",
+                &[(".github/workflows/audit.yml", own)]
+            )
+            .status,
+            Some(Status::Met)
         );
     }
 
