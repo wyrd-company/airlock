@@ -67,7 +67,9 @@ inputs:
     required: false
     default: json
   fail-on-incomplete:
-    description: Whether binary exit 2 fails the Action; false maps it to success, including missing-token errors
+    description: >-
+      Repository mode: whether binary exit 2 fails the Action; false maps it to
+      success, including missing-token errors. Central mode refuses false
     required: false
     default: "true"
 
