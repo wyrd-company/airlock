@@ -408,6 +408,19 @@ pub struct Row {
 }
 
 impl Row {
+    /// An undeclared input may be supplied without turning its row into a Gap.
+    pub fn classification_property(&self) -> Option<airlock_core::classification::Property> {
+        if self.group != Group::OutOfScope || self.status.is_some() {
+            return None;
+        }
+        let property = airlock_core::classification::Property::from_undeclared_code(
+            &self.detail.evidence.as_ref()?.code,
+        )?;
+        airlock_core::classification::Property::required_by(&self.rule)
+            .contains(&property)
+            .then_some(property)
+    }
+
     /// Whether this row actually gates the run.
     ///
     /// Severity times status, never status alone: a failure at a severity the
@@ -636,6 +649,17 @@ fn row(
 ) -> Row {
     let severity = Severity::parse(&finding.severity).unwrap_or(Severity::Advisory);
     let group = group_of(finding);
+    let classification = finding
+        .routing
+        .as_ref()
+        .filter(|route| route.reason == "out-of-scope")
+        .and_then(|_| finding.evidence.as_ref())
+        .and_then(|evidence| {
+            airlock_core::classification::Property::from_undeclared_code(&evidence.code)
+        })
+        .filter(|property| {
+            airlock_core::classification::Property::required_by(&finding.rule).contains(property)
+        });
     let declaration = finding
         .evidence
         .as_ref()
@@ -662,27 +686,42 @@ fn row(
         delivery: deliveries.get(&finding.rule),
         note: note_of(finding, group, severity),
         detail: Detail::of(finding, effective_policy),
-        fix: declaration.map_or_else(
-            || finding.fix_class.code.as_ref().map(|value| drawable(value)),
-            |_| Some("declare-capability-property".to_owned()),
-        ),
-        change: declaration.map_or_else(
-            || {
-                finding
-                    .fix_class
-                    .change
-                    .as_ref()
-                    .map(|value| sanitize(value, REASON_LIMIT))
-            },
-            |declaration| {
-                Some(format!(
-                    "set organization custom property `{}` to `{}` for this repository",
-                    drawable(&declaration.property),
-                    drawable(&declaration.value)
-                ))
-            },
-        ),
-        reversible: declaration.map_or(finding.fix_class.reversible, |_| Some(false)),
+        fix: if classification.is_some() {
+            Some("declare-classification".to_owned())
+        } else {
+            declaration.map_or_else(
+                || finding.fix_class.code.as_ref().map(|value| drawable(value)),
+                |_| Some("declare-capability-property".to_owned()),
+            )
+        },
+        change: if let Some(property) = classification {
+            Some(format!(
+                "declare organization property `{}` from the operator's answer",
+                property.name()
+            ))
+        } else {
+            declaration.map_or_else(
+                || {
+                    finding
+                        .fix_class
+                        .change
+                        .as_ref()
+                        .map(|value| sanitize(value, REASON_LIMIT))
+                },
+                |declaration| {
+                    Some(format!(
+                        "set organization custom property `{}` to `{}` for this repository",
+                        drawable(&declaration.property),
+                        drawable(&declaration.value)
+                    ))
+                },
+            )
+        },
+        reversible: if classification.is_some() {
+            Some(false)
+        } else {
+            declaration.map_or(finding.fix_class.reversible, |_| Some(false))
+        },
         capability: declaration.map(|value| (value.property.clone(), value.value.clone())),
     }
 }

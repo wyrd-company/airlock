@@ -6,6 +6,50 @@ use crate::FixGroup;
 
 use super::{repo_settings, AuditContext, Verdict};
 
+/// Resolve the declared prerequisite without consulting repository-owned files.
+/// The shared applicability boundary calls this after known maturity scope.
+pub(crate) fn prerequisites(
+    rule: &EffectiveRule,
+    context: &AuditContext,
+) -> Result<(), Box<Verdict>> {
+    for property in crate::classification::Property::required_by(rule.def.id) {
+        let values = context.custom_properties.as_ref().map_err(|error| {
+            Box::new(
+                if context.credential == crate::rules::CredentialCapability::Unauthenticated
+                    && error.cause == crate::github::ErrorCause::Unauthenticated
+                {
+                    Verdict::needs_github_api()
+                } else {
+                    Verdict::from_api_error(error)
+                },
+            )
+        })?;
+        let value = property
+            .read(values)
+            .map_err(|detail| Box::new(Verdict::run_error("classification_malformed", detail)))?;
+        if value.is_none() {
+            return Err(Box::new(Verdict {
+                status: None,
+                evidence: Some(crate::findings::Evidence::new(
+                    property.undeclared_code(),
+                    format!(
+                        "The organization has not declared `{}` for this repository",
+                        property.name()
+                    ),
+                )),
+                fix: None,
+                error: None,
+                routing: Some(crate::findings::Routing {
+                    reason: "out-of-scope".to_owned(),
+                    settling_surface: "Declare classification through the interactive session"
+                        .to_owned(),
+                }),
+            }));
+        }
+    }
+    Ok(())
+}
+
 /// Ways a workflow reaches the custom-properties endpoints.
 const PROPERTY_WRITE_SIGNALS: &[&str] = &[
     "properties/values",
@@ -99,8 +143,8 @@ fn no_workflow_writes_properties(context: &AuditContext) -> Verdict {
 
 #[cfg(test)]
 mod tests {
-    use super::super::evaluate;
     use super::super::fixtures::*;
+    use super::super::{evaluate, Verdict};
     use crate::findings::Status;
 
     fn verdict(id: &str, files: &[(&str, &str)]) -> Option<Status> {
@@ -109,6 +153,114 @@ mod tests {
         let policy = policy();
         let context = context(&snapshot, &policy, workflows);
         evaluate(&rule(id), &context).status
+    }
+
+    fn prerequisite(id: &str, values: Vec<crate::github::CustomPropertyValue>) -> Verdict {
+        let snapshot = snapshot(&[(
+            ".github/airlock.yml",
+            "classification:\n  audience: forged\n  family: forged\n  category: forged\n",
+        )]);
+        let policy = policy();
+        let mut context = context(&snapshot, &policy, Vec::new());
+        context.custom_properties = Ok(values);
+        super::prerequisites(&rule(id), &context)
+            .expect_err("undeclared prerequisite")
+            .as_ref()
+            .clone()
+    }
+
+    macro_rules! missing {
+        ($name:ident, $id:literal, $property:literal) => {
+            #[test]
+            fn $name() {
+                let verdict = prerequisite($id, Vec::new());
+                assert_eq!(verdict.status, None);
+                assert_eq!(verdict.error, None);
+                assert_eq!(verdict.routing.unwrap().reason, "out-of-scope");
+                assert_eq!(
+                    verdict.evidence.unwrap().code,
+                    concat!("classification_", $property, "_undeclared")
+                );
+            }
+        };
+    }
+
+    missing!(
+        placement_needs_org_owned_audience,
+        "REPO-ORG-01",
+        "audience"
+    );
+    missing!(
+        graduation_needs_org_owned_audience,
+        "REPO-ORG-02",
+        "audience"
+    );
+    missing!(
+        dotted_name_needs_org_owned_category,
+        "REPO-NAME-02",
+        "category"
+    );
+    missing!(
+        family_prefix_needs_org_owned_family,
+        "REPO-NAME-03",
+        "family"
+    );
+    missing!(
+        family_agreement_needs_org_owned_family,
+        "REPO-NAME-04",
+        "family"
+    );
+    missing!(
+        family_topic_needs_org_owned_family,
+        "REPO-META-08",
+        "family"
+    );
+    missing!(license_needs_org_owned_category, "REPO-LIC-02", "category");
+
+    #[test]
+    fn property_read_failure_remains_a_run_error() {
+        let snapshot = snapshot(&[]);
+        let policy = policy();
+        let mut context = context(&snapshot, &policy, Vec::new());
+        context.custom_properties = Err(crate::github::ApiError::local(
+            crate::github::ErrorCause::Permission,
+            "GET /repos/sample-owner/sample-repository/properties/values",
+            "read refused",
+        ));
+        let verdict = super::prerequisites(&rule("REPO-ORG-01"), &context).unwrap_err();
+        assert_eq!(verdict.status, None);
+        assert_eq!(verdict.routing, None);
+        assert_eq!(verdict.error.as_ref().unwrap().cause, "permission");
+    }
+
+    #[test]
+    fn local_unobserved_classification_routes_to_an_api_audit() {
+        let snapshot = snapshot(&[]);
+        let policy = policy();
+        let mut context = context(&snapshot, &policy, Vec::new());
+        context.credential = crate::rules::CredentialCapability::Unauthenticated;
+        context.custom_properties = Err(crate::github::ApiError::local(
+            crate::github::ErrorCause::Unauthenticated,
+            "local://not-observed/classification",
+            "not observed",
+        ));
+        let verdict = super::prerequisites(&rule("REPO-ORG-01"), &context).unwrap_err();
+        assert_eq!(verdict.status, None);
+        assert_eq!(verdict.error, None);
+        assert_eq!(verdict.routing.as_ref().unwrap().reason, "needs-github-api");
+    }
+
+    #[test]
+    fn unrelated_rules_do_not_read_classification() {
+        let snapshot = snapshot(&[]);
+        let policy = policy();
+        let mut context = context(&snapshot, &policy, Vec::new());
+        context.custom_properties = Err(crate::github::ApiError::local(
+            crate::github::ErrorCause::Permission,
+            "fixture://unavailable",
+            "not observed",
+        ));
+        assert!(super::prerequisites(&rule("REPO-META-01"), &context).is_ok());
     }
 
     #[test]

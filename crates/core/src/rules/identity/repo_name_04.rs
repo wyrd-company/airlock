@@ -12,7 +12,7 @@ pub(crate) const RULE: RuleDefinition = RuleDefinition {
     severity: Severity::Advisory,
     section: Section::Identity,
     params: &[],
-    guidance: "Name vs topics",
+    guidance: "Compare the name prefix and declared topics with the same organization-owned family definition. Preserve a declared distinction between the family topic and its prefix.",
     fix: fix(
         "align-family-prefix-and-topic",
         "REPO-NAME-04",

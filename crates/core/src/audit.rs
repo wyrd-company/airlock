@@ -195,6 +195,7 @@ pub async fn run<G: GitHub>(
         Ok(Vec::new())
     };
     let platform = PlatformData {
+        custom_properties: client.custom_property_values(owner, repo).await,
         release_records,
         template_revisions,
         tags,
@@ -290,6 +291,7 @@ async fn run_mixed<G: GitHub>(
         Ok(Vec::new())
     };
     let platform = PlatformData {
+        custom_properties: client.custom_property_values(owner, repo).await,
         release_records,
         template_revisions,
         tags,
@@ -392,6 +394,7 @@ pub fn run_local(
     let workflows = parse_workflows(&snapshot, &workflow_paths.paths, options.limits);
 
     let platform = PlatformData {
+        custom_properties: Err(not_observed_error("classification")),
         release_records: Ok(crate::release_records::ReleaseInputs::default()),
         template_revisions: Ok(Vec::new()),
         tags: Err(not_observed_error("tags")),
@@ -508,6 +511,7 @@ fn not_observed_error(subject: &str) -> ApiError {
 /// The platform-owned inputs of one run, however they were (or were not)
 /// gathered.
 struct PlatformData {
+    custom_properties: std::result::Result<Vec<crate::github::CustomPropertyValue>, ApiError>,
     release_records: std::result::Result<crate::release_records::ReleaseInputs, ApiError>,
     template_revisions:
         std::result::Result<Vec<crate::template_identity::TemplateRevision>, ApiError>,
@@ -534,6 +538,7 @@ fn complete_run(
     let branch = snapshot.repository.default_branch.clone();
     let commit = snapshot.commit.clone();
     let context = AuditContext {
+        custom_properties: platform.custom_properties,
         template_revisions: platform.template_revisions,
         policy,
         limits: options.limits,

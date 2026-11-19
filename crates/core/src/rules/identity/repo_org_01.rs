@@ -12,7 +12,7 @@ pub(crate) const RULE: RuleDefinition = RuleDefinition {
     severity: Severity::Advisory,
     section: Section::Identity,
     params: &[],
-    guidance: "Judgment",
+    guidance: "Read the declared audience. Personal work is overfit to the owner's workflow, machines or data; product work benefits a stranger; a public good is vendor-neutral. When use changes, propose classification review through the operator session. Do not infer audience from maturity or repository files.",
     fix: fix(
         "transfer-repository",
         "REPO-ORG-01",

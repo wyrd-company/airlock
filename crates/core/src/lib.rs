@@ -20,6 +20,7 @@ pub mod alignment;
 pub mod audit;
 pub mod auth;
 pub mod checks;
+pub mod classification;
 pub mod error;
 pub mod findings;
 pub mod fix;

@@ -12,7 +12,7 @@ pub(crate) const RULE: RuleDefinition = RuleDefinition {
     severity: Severity::Advisory,
     section: Section::Identity,
     params: &[],
-    guidance: "Repository name",
+    guidance: "Read the organization-owned family declaration and compare the repository name with its family prefix. A family topic may have a distinct prefix; do not infer an alias from initials.",
     fix: fix(
         "rename-repository-family-prefix",
         "REPO-NAME-03",

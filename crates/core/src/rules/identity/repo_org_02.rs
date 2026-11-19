@@ -12,7 +12,7 @@ pub(crate) const RULE: RuleDefinition = RuleDefinition {
     severity: Severity::Advisory,
     section: Section::Identity,
     params: &[],
-    guidance: "Judgment",
+    guidance: "Look for evidence that a personal tool has become useful to strangers. Ask the operator to review its intended audience. Classification records declared intent; the audit does not infer general utility from code or from observed maturity.",
     fix: not_fixable(
         "REPO-ORG-02",
         "Satisfied by a human's considered judgment; there is no artifact to change.",

@@ -19,6 +19,12 @@ pub enum Input {
         required_prefix: Option<String>,
         error: Option<String>,
     },
+    /// An operator answer to an organization-owned declaration.
+    Classification {
+        property: airlock_core::classification::Property,
+        draft: String,
+        error: Option<String>,
+    },
     /// A value selected from a fresh observation.
     Choice {
         values: Vec<String>,
@@ -120,7 +126,7 @@ impl Item {
         match &self.input {
             Input::None => None,
             Input::Fixed { argument, .. } => Some(argument.clone()),
-            Input::Text { draft, .. } => Some(draft.clone()),
+            Input::Text { draft, .. } | Input::Classification { draft, .. } => Some(draft.clone()),
             Input::Choice {
                 values, selected, ..
             } => values.get(*selected).cloned(),
@@ -184,7 +190,7 @@ impl State {
             Self::Input { request }
                 if request.items.iter().any(|item| matches!(
                     item.input,
-                    Input::Text { .. } | Input::Transfer { .. } | Input::CredentialRename { .. }
+                    Input::Text { .. } | Input::Classification { .. } | Input::Transfer { .. } | Input::CredentialRename { .. }
                 ))
             )
     }
@@ -212,11 +218,17 @@ impl State {
             return false;
         };
         match (&mut item.input, code) {
-            (Input::Text { draft, error, .. }, crossterm::event::KeyCode::Backspace) => {
+            (
+                Input::Text { draft, error, .. } | Input::Classification { draft, error, .. },
+                crossterm::event::KeyCode::Backspace,
+            ) => {
                 draft.pop();
                 *error = None;
             }
-            (Input::Text { draft, error, .. }, crossterm::event::KeyCode::Char(character)) => {
+            (
+                Input::Text { draft, error, .. } | Input::Classification { draft, error, .. },
+                crossterm::event::KeyCode::Char(character),
+            ) => {
                 draft.push(character);
                 *error = None;
             }
@@ -372,6 +384,14 @@ impl State {
                     false
                 }
             },
+            Input::Classification { draft, error, .. } => {
+                if draft.trim().is_empty() {
+                    *error = Some("enter an explicit classification value".to_owned());
+                    false
+                } else {
+                    true
+                }
+            }
             Input::Choice { values, .. } => !values.is_empty(),
             Input::CredentialRename {
                 variables,
@@ -623,6 +643,16 @@ pub fn body(styles: Styles, width: usize, state: &State) -> Vec<Line<'static>> {
                     lines.push(Line::from(format!("invalid         {error}")));
                 }
             }
+            Input::Classification {
+                property,
+                draft,
+                error,
+            } => {
+                lines.push(Line::from(format!("{} value    {draft}", property.name())));
+                if let Some(error) = error {
+                    lines.push(Line::from(format!("invalid         {error}")));
+                }
+            }
             Input::Choice {
                 values,
                 selected,
@@ -770,6 +800,9 @@ fn confirmed_input(item: &Item, repository: &str, width: usize) -> Vec<String> {
         Input::None => Vec::new(),
         Input::Fixed { display, .. } => vec![format!("selected        {display}")],
         Input::Text { draft, .. } => vec![format!("selected        {draft}")],
+        Input::Classification {
+            property, draft, ..
+        } => vec![format!("selected        {} = {draft}", property.name())],
         Input::Choice {
             values, selected, ..
         } => {

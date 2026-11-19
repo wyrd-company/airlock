@@ -12,7 +12,7 @@ pub(crate) const RULE: RuleDefinition = RuleDefinition {
     severity: Severity::Advisory,
     section: Section::Identity,
     params: &[],
-    guidance: "Repository name",
+    guidance: "Compare a dotted repository name with the declared site category and hostname. An undotted name does not require hostname evidence. A declared hostname is not proof of deployment or domain control.",
     fix: fix(
         "rename-repository-undotted",
         "REPO-NAME-02",

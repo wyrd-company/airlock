@@ -12,7 +12,7 @@ pub(crate) const RULE: RuleDefinition = RuleDefinition {
     severity: Severity::Advisory,
     section: Section::Licensing,
     params: &[],
-    guidance: "Judgment against the category table",
+    guidance: "Compare the observed license with the declared category: Apache-2.0 by default, CC0-1.0 for specifications or schemas, MIT for plumbing that moves bits without an invention, or the explicitly selected ecosystem license. Review classification when the repository's purpose changes; do not silently choose another category to accept its existing license.",
     fix: fix(
         "replace-license",
         "REPO-LIC-02",

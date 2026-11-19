@@ -399,6 +399,8 @@ impl Workflow {
 
 /// Everything one audit run gathered, ready for the checks to read.
 pub struct AuditContext<'a> {
+    /// Organization-owned classification, observed separately from repository files.
+    pub custom_properties: Result<Vec<crate::github::CustomPropertyValue>, ApiError>,
     /// Captured template revisions and ancestry comparisons.
     pub template_revisions: Result<Vec<crate::template_identity::TemplateRevision>, ApiError>,
     /// The repository at the audited commit.
@@ -989,6 +991,7 @@ pub(crate) mod fixtures {
         workflows: Vec<Workflow>,
     ) -> AuditContext<'a> {
         AuditContext {
+            custom_properties: Ok(Vec::new()),
             template_revisions: Ok(Vec::new()),
             snapshot,
             policy,

@@ -20,12 +20,12 @@ is not a meaningful finding.
 
 | Id | Assertion | Severity | Compiled check | Guidance |
 | --- | --- | --- | --- | --- |
-| `REPO-ORG-01` | The repository is in the org its audience implies: `boblangley` if overfit to Bob, `wyrd-company` if a stranger benefits, `flapstack` if a vendor-neutral public good | Advisory | Compiled check with an unbuilt gate | Judgment |
-| `REPO-ORG-02` | A `boblangley` repository that has generalized has been considered for graduation to `wyrd-company` | Advisory | Compiled check with an unbuilt gate | Judgment |
+| `REPO-ORG-01` | The repository is in the org its audience implies: `boblangley` if overfit to Bob, `wyrd-company` if a stranger benefits, `flapstack` if a vendor-neutral public good | Advisory | Compiled check with an unbuilt gate | Read the declared audience. Personal work is overfit to the owner's workflow, machines or data; product work benefits a stranger; a public good is vendor-neutral. When use changes, propose classification review through the operator session. Do not infer audience from maturity or repository files. |
+| `REPO-ORG-02` | A `boblangley` repository that has generalized has been considered for graduation to `wyrd-company` | Advisory | Compiled check with an unbuilt gate | Look for evidence that a personal tool has become useful to strangers. Ask the operator to review its intended audience. Classification records declared intent; the audit does not infer general utility from code or from observed maturity. |
 | `REPO-NAME-01` | The name is `lower-kebab-case`; no underscores, camelCase, or PascalCase | Advisory | Compiled check | Repository name |
-| `REPO-NAME-02` | A dotted name is used only where the repository is a deployable site and the name is its hostname | Advisory | Compiled check with an unbuilt gate | Repository name |
-| `REPO-NAME-03` | A repository in a product family carries the family prefix | Advisory | Compiled check with an unbuilt gate | Repository name |
-| `REPO-NAME-04` | The family prefix and the family topic agree | Advisory | Compiled check with an unbuilt gate | Name vs topics |
+| `REPO-NAME-02` | A dotted name is used only where the repository is a deployable site and the name is its hostname | Advisory | Compiled check with an unbuilt gate | Compare a dotted repository name with the declared site category and hostname. An undotted name does not require hostname evidence. A declared hostname is not proof of deployment or domain control. |
+| `REPO-NAME-03` | A repository in a product family carries the family prefix | Advisory | Compiled check with an unbuilt gate | Read the organization-owned family declaration and compare the repository name with its family prefix. A family topic may have a distinct prefix; do not infer an alias from initials. |
+| `REPO-NAME-04` | The family prefix and the family topic agree | Advisory | Compiled check with an unbuilt gate | Compare the name prefix and declared topics with the same organization-owned family definition. Preserve a declared distinction between the family topic and its prefix. |
 | `REPO-META-01` | `.github/airlock.yml` declares a description | Blocking | Compiled check | File contents |
 | `REPO-META-02` | The description is one sentence, at most 160 characters, and survives truncation at ~80 | Advisory | Compiled check with an unbuilt gate | File contents |
 | `REPO-META-03` | The description expands any acronym on first use | Advisory | Compiled check with an unbuilt gate | Read it |
@@ -33,7 +33,7 @@ is not a meaningful finding.
 | `REPO-META-05` | The description agrees with the README's opening line | Advisory | Compiled check with an unbuilt gate | Compare |
 | `REPO-META-06` | Between three and eight topics are declared | Advisory | Compiled check | File contents |
 | `REPO-META-07` | Topics include at least one artifact-type and one ecosystem term | Advisory | Compiled check | Compare against `topics.md` |
-| `REPO-META-08` | A repository in a product family carries the family topic | Advisory | Compiled check with an unbuilt gate | Compare against `topics.md` |
+| `REPO-META-08` | A repository in a product family carries the family topic | Advisory | Compiled check with an unbuilt gate | Compare declared topics with the organization-owned family topic. Family membership is declared; topic similarity and a shared name prefix do not establish it. |
 | `REPO-META-09` | Any topic not in `topics.md` has been added to it | Advisory | Compiled check | Compare against `topics.md` |
 | `REPO-META-10` | No org-name topic is declared | Advisory | Compiled check | File contents |
 | `REPO-META-11` | The declared merge settings are squash and rebase enabled, merge commits disabled, head branches auto-deleted | Advisory | Compiled check | File contents |
@@ -45,7 +45,7 @@ is not a meaningful finding.
 | Id | Assertion | Severity | Compiled check | Guidance |
 | --- | --- | --- | --- | --- |
 | `REPO-LIC-01` | A `LICENSE` file exists | Blocking | Compiled check | File presence |
-| `REPO-LIC-02` | The license matches the repository's category: Apache-2.0 by default, CC0-1.0 for specs and schemas, MIT for plumbing, or a matched ecosystem license | Advisory | Compiled check with an unbuilt gate | Judgment against the category table |
+| `REPO-LIC-02` | The license matches the repository's category: Apache-2.0 by default, CC0-1.0 for specs and schemas, MIT for plumbing, or a matched ecosystem license | Advisory | Compiled check with an unbuilt gate | Compare the observed license with the declared category: Apache-2.0 by default, CC0-1.0 for specifications or schemas, MIT for plumbing that moves bits without an invention, or the explicitly selected ecosystem license. Review classification when the repository's purpose changes; do not silently choose another category to accept its existing license. |
 | `REPO-LIC-03` | The repository is not dual-licensed `MIT OR Apache-2.0` | Blocking | Compiled check | `LICENSE`, package metadata |
 | `REPO-LIC-04` | A repository publishing to a registry declares the license in package metadata | Advisory | Compiled check | `package.json`, `Cargo.toml`, `pubspec.yaml` |
 | `REPO-LIC-05` | A plumbing repository's README states that the license covers packaging, not payload | Advisory | Compiled check with an unbuilt gate | Read the README |

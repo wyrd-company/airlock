@@ -4,12 +4,12 @@ This reference is generated from the compiled Airlock rules.
 
 | Id | Guidance |
 | --- | --- |
-| `REPO-ORG-01` | Judgment |
-| `REPO-ORG-02` | Judgment |
+| `REPO-ORG-01` | Read the declared audience. Personal work is overfit to the owner's workflow, machines or data; product work benefits a stranger; a public good is vendor-neutral. When use changes, propose classification review through the operator session. Do not infer audience from maturity or repository files. |
+| `REPO-ORG-02` | Look for evidence that a personal tool has become useful to strangers. Ask the operator to review its intended audience. Classification records declared intent; the audit does not infer general utility from code or from observed maturity. |
 | `REPO-NAME-01` | Repository name |
-| `REPO-NAME-02` | Repository name |
-| `REPO-NAME-03` | Repository name |
-| `REPO-NAME-04` | Name vs topics |
+| `REPO-NAME-02` | Compare a dotted repository name with the declared site category and hostname. An undotted name does not require hostname evidence. A declared hostname is not proof of deployment or domain control. |
+| `REPO-NAME-03` | Read the organization-owned family declaration and compare the repository name with its family prefix. A family topic may have a distinct prefix; do not infer an alias from initials. |
+| `REPO-NAME-04` | Compare the name prefix and declared topics with the same organization-owned family definition. Preserve a declared distinction between the family topic and its prefix. |
 | `REPO-META-01` | File contents |
 | `REPO-META-02` | File contents |
 | `REPO-META-03` | Read it |
@@ -17,14 +17,14 @@ This reference is generated from the compiled Airlock rules.
 | `REPO-META-05` | Compare |
 | `REPO-META-06` | File contents |
 | `REPO-META-07` | Compare against `topics.md` |
-| `REPO-META-08` | Compare against `topics.md` |
+| `REPO-META-08` | Compare declared topics with the organization-owned family topic. Family membership is declared; topic similarity and a shared name prefix do not establish it. |
 | `REPO-META-09` | Compare against `topics.md` |
 | `REPO-META-10` | File contents |
 | `REPO-META-11` | File contents |
 | `REPO-META-12` | File contents |
 | `REPO-META-13` | `gh repo view` vs file — drift means reconciliation is not running |
 | `REPO-LIC-01` | File presence |
-| `REPO-LIC-02` | Judgment against the category table |
+| `REPO-LIC-02` | Compare the observed license with the declared category: Apache-2.0 by default, CC0-1.0 for specifications or schemas, MIT for plumbing that moves bits without an invention, or the explicitly selected ecosystem license. Review classification when the repository's purpose changes; do not silently choose another category to accept its existing license. |
 | `REPO-LIC-03` | `LICENSE`, package metadata |
 | `REPO-LIC-04` | `package.json`, `Cargo.toml`, `pubspec.yaml` |
 | `REPO-LIC-05` | Read the README |

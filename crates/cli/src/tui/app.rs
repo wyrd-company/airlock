@@ -970,6 +970,7 @@ impl App {
             let row_is_settings = self.focused_row().is_some_and(|row| {
                 (row.group == findings::Group::Settings && row.status == Some(Status::Gap))
                     || (row.group == findings::Group::Decision && row.status.is_none())
+                    || row.classification_property().is_some()
             });
             if row_is_settings {
                 if code == KeyCode::Char('A') {
@@ -1098,9 +1099,14 @@ impl App {
             self.note = Some(findings::inert_apply());
             return;
         };
-        let actionable = (row.group == findings::Group::Settings
-            && row.status == Some(Status::Gap)
-            && row.detail.fix.code.is_some())
+        let classification = row.classification_property();
+        let actionable = (row.group == findings::Group::OutOfScope
+            && row.status.is_none()
+            && classification.is_some()
+            && row.fix.as_deref() == Some("declare-classification"))
+            || (row.group == findings::Group::Settings
+                && row.status == Some(Status::Gap)
+                && row.detail.fix.code.is_some())
             || (row.group == findings::Group::Decision
                 && row.status.is_none()
                 && row.fix.as_deref() == Some("declare-capability-property"));
@@ -1124,7 +1130,24 @@ impl App {
             self.note = Some("this rule declares no settings fix".to_owned());
             return;
         };
-        let input = if code == "declare-capability-property" {
+        let input = if code == "declare-classification" {
+            let organization = self.catalogue.installations().iter().any(|installation| {
+                installation.account.eq_ignore_ascii_case(&target.owner)
+                    && installation.kind == airlock_core::github::AccountKind::Organization
+            });
+            if !organization {
+                self.note = Some(
+                    "organization classification requires an organization-owned repository"
+                        .to_owned(),
+                );
+                return;
+            }
+            fix::Input::Classification {
+                property: classification.expect("checked above"),
+                draft: String::new(),
+                error: None,
+            }
+        } else if code == "declare-capability-property" {
             let Some((property, value)) = row.capability else {
                 self.note = Some("the capability declaration was not observed".to_owned());
                 return;
@@ -2223,6 +2246,102 @@ mod tests {
         press(&mut app, KeyCode::Char('a'));
         assert_eq!(app.screen(), Screen::Fix);
         assert_eq!(selected_fix_rule(&app), "REPO-GIT-01");
+    }
+
+    fn undeclared_family_report() -> airlock_core::findings::Report {
+        let mut finding = findings::fixture::finding("REPO-NAME-03", Severity::Advisory, None);
+        finding.routing = Some(airlock_core::findings::Routing {
+            reason: "out-of-scope".to_owned(),
+            settling_surface: "Declare classification through the interactive session".to_owned(),
+        });
+        finding.error = None;
+        finding.evidence = Some(airlock_core::findings::Evidence::new(
+            "classification_family_undeclared",
+            "The organization has not declared family",
+        ));
+        findings::fixture::report(vec![finding])
+    }
+
+    #[test]
+    fn undeclared_classification_enters_input_then_requires_confirmation() {
+        let mut app = app().with_catalogue(catalogue());
+        app.observed_run(
+            &undeclared_family_report(),
+            &findings::Deliveries::default(),
+        );
+        app.screen = Screen::Findings;
+        focus(&mut app, findings::Group::OutOfScope);
+        press(&mut app, KeyCode::Char('a'));
+        assert_eq!(app.screen(), Screen::Fix);
+        let fix::State::Input { request } = &app.fix else {
+            panic!("operator input required")
+        };
+        assert_eq!(request.items[0].fix, "declare-classification");
+        assert!(matches!(
+            request.items[0].input,
+            fix::Input::Classification {
+                property: airlock_core::classification::Property::Family,
+                ..
+            }
+        ));
+        assert!(app.take_fix_request().is_none());
+        for character in "sample-family".chars() {
+            press(&mut app, KeyCode::Char(character));
+        }
+        press(&mut app, KeyCode::Enter);
+        let fix::State::Confirm { request } = &app.fix else {
+            panic!("confirmation required")
+        };
+        assert_eq!(
+            request.items[0].argument().as_deref(),
+            Some("sample-family")
+        );
+        assert!(app.take_fix_request().is_none());
+        press(&mut app, KeyCode::Enter);
+        let request = app.take_fix_request().expect("confirmed operator request");
+        assert_eq!(request.items[0].fix, "declare-classification");
+        assert_eq!(
+            request.items[0].argument().as_deref(),
+            Some("sample-family")
+        );
+    }
+
+    #[test]
+    fn undeclared_classification_rejects_an_empty_answer() {
+        let mut app = app().with_catalogue(catalogue());
+        app.observed_run(
+            &undeclared_family_report(),
+            &findings::Deliveries::default(),
+        );
+        app.screen = Screen::Findings;
+        focus(&mut app, findings::Group::OutOfScope);
+        press(&mut app, KeyCode::Char('a'));
+        press(&mut app, KeyCode::Enter);
+        assert!(matches!(app.fix, fix::State::Input { .. }));
+        assert!(app.take_fix_request().is_none());
+    }
+
+    #[test]
+    fn organization_classification_does_not_offer_a_write_for_a_personal_account() {
+        use airlock_core::github::{AccountKind, RepositorySelection};
+        let mut app = app().with_catalogue(catalogue::Catalogue::of(vec![installation(
+            "acme-industries",
+            AccountKind::UserAccount,
+            RepositorySelection::All,
+            &["widget"],
+        )]));
+        app.observed_run(
+            &undeclared_family_report(),
+            &findings::Deliveries::default(),
+        );
+        app.screen = Screen::Findings;
+        focus(&mut app, findings::Group::OutOfScope);
+        press(&mut app, KeyCode::Char('a'));
+        assert_eq!(app.screen(), Screen::Findings);
+        assert!(app.take_fix_request().is_none());
+        assert!(app
+            .status()
+            .contains("requires an organization-owned repository"));
     }
 
     #[test]

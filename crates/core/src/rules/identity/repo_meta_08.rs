@@ -12,7 +12,7 @@ pub(crate) const RULE: RuleDefinition = RuleDefinition {
     severity: Severity::Advisory,
     section: Section::Identity,
     params: &[],
-    guidance: "Compare against `topics.md`",
+    guidance: "Compare declared topics with the organization-owned family topic. Family membership is declared; topic similarity and a shared name prefix do not establish it.",
     fix: fix(
         "add-family-topic",
         "REPO-META-08",

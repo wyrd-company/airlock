@@ -9,6 +9,8 @@
 //! write, and observes again after a successful request. The result is derived
 //! from that last observation, not from the status of the write request.
 
+mod classification;
+
 use std::collections::HashMap;
 use std::sync::mpsc::{Receiver, Sender};
 use std::time::{Duration, Instant};
@@ -1729,6 +1731,11 @@ impl Session {
         fix: &str,
         argument: Option<&str>,
     ) -> Transcript {
+        if fix == "declare-classification" {
+            return self
+                .declare_classification(owner, repo, rule, argument)
+                .await;
+        }
         let started = Instant::now();
         let action = Action::for_code(fix);
         let proposed_change = action.map_or_else(
@@ -3981,6 +3988,396 @@ mod tests {
             .transfer_repository("generic-owner", "sample-repository", "destination-owner")
             .await
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn classification_uses_the_session_writer_and_reobserves_its_actual_payload() {
+        use std::sync::{Arc, Mutex};
+        let server = MockServer::start().await;
+        let stored = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
+        let read_state = stored.clone();
+        Mock::given(method("GET"))
+            .and(path(
+                "/repos/generic-owner/sample-repository/properties/values",
+            ))
+            .respond_with(move |_: &wiremock::Request| {
+                ResponseTemplate::new(200).set_body_json(read_state.lock().unwrap().clone())
+            })
+            .expect(2)
+            .mount(&server)
+            .await;
+        let write_state = stored.clone();
+        Mock::given(method("PATCH"))
+            .and(path("/orgs/generic-owner/properties/values"))
+            .and(body_json(serde_json::json!({"repository_names":["sample-repository"],"properties":[{"property_name":"family","value":"sample-family"}]})))
+            .respond_with(move |request: &wiremock::Request| {
+                let payload: serde_json::Value = serde_json::from_slice(&request.body).unwrap();
+                *write_state.lock().unwrap() = payload["properties"].as_array().unwrap().clone();
+                ResponseTemplate::new(204)
+            }).expect(1).mount(&server).await;
+        let transcript = session(&server)
+            .await
+            .apply(
+                "generic-owner",
+                "sample-repository",
+                "REPO-NAME-03",
+                "declare-classification",
+                Some("sample-family"),
+            )
+            .await;
+        assert_eq!(transcript.observed, ObservedStatus::Pass);
+        assert!(transcript
+            .steps
+            .last()
+            .unwrap()
+            .detail
+            .contains("rule outcomes require a fresh audit"));
+        assert!(transcript.steps.iter().all(|step| step.succeeded));
+        assert_eq!(stored.lock().unwrap()[0]["property_name"], "family");
+    }
+
+    #[tokio::test]
+    async fn accepted_classification_without_the_requested_value_is_not_success() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path(
+                "/repos/generic-owner/sample-repository/properties/values",
+            ))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([])))
+            .expect(2)
+            .mount(&server)
+            .await;
+        Mock::given(method("PATCH"))
+            .and(path("/orgs/generic-owner/properties/values"))
+            .respond_with(ResponseTemplate::new(204))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let transcript = session(&server)
+            .await
+            .apply(
+                "generic-owner",
+                "sample-repository",
+                "REPO-NAME-03",
+                "declare-classification",
+                Some("sample-family"),
+            )
+            .await;
+        assert_eq!(transcript.observed, ObservedStatus::Fail);
+        assert!(!transcript.steps.last().unwrap().succeeded);
+    }
+
+    #[tokio::test]
+    async fn classification_read_failure_prevents_the_write() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path(
+                "/repos/generic-owner/sample-repository/properties/values",
+            ))
+            .respond_with(
+                ResponseTemplate::new(403)
+                    .set_body_json(serde_json::json!({"message":"read refused"})),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("PATCH"))
+            .respond_with(ResponseTemplate::new(204))
+            .expect(0)
+            .mount(&server)
+            .await;
+        let transcript = session(&server)
+            .await
+            .apply(
+                "generic-owner",
+                "sample-repository",
+                "REPO-NAME-03",
+                "declare-classification",
+                Some("sample-family"),
+            )
+            .await;
+        assert_eq!(transcript.observed, ObservedStatus::Inconclusive);
+        assert!(transcript
+            .steps
+            .last()
+            .unwrap()
+            .detail
+            .contains("no write was attempted"));
+    }
+
+    #[tokio::test]
+    async fn classification_requires_a_known_rule_and_an_explicit_answer() {
+        let server = MockServer::start().await;
+        let mut session = session(&server).await;
+        for (rule, answer) in [
+            ("REPO-META-01", Some("sample-family")),
+            ("REPO-NAME-03", None),
+            ("REPO-NAME-03", Some(" ")),
+        ] {
+            let transcript = session
+                .apply(
+                    "generic-owner",
+                    "sample-repository",
+                    rule,
+                    "declare-classification",
+                    answer,
+                )
+                .await;
+            assert_eq!(transcript.observed, ObservedStatus::Inconclusive);
+            assert!(transcript
+                .steps
+                .last()
+                .unwrap()
+                .detail
+                .contains("no write was attempted"));
+        }
+        assert!(server.received_requests().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn malformed_classification_cannot_be_overwritten_without_a_reading() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET")).and(path("/repos/generic-owner/sample-repository/properties/values"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([
+                {"property_name":"family","value":"first-family"}, {"property_name":"family","value":"other-family"}
+            ]))).expect(1).mount(&server).await;
+        Mock::given(method("PATCH"))
+            .respond_with(ResponseTemplate::new(204))
+            .expect(0)
+            .mount(&server)
+            .await;
+        let transcript = session(&server)
+            .await
+            .apply(
+                "generic-owner",
+                "sample-repository",
+                "REPO-NAME-03",
+                "declare-classification",
+                Some("sample-family"),
+            )
+            .await;
+        assert_eq!(transcript.observed, ObservedStatus::Inconclusive);
+        assert!(transcript
+            .steps
+            .last()
+            .unwrap()
+            .detail
+            .contains("malformed"));
+    }
+
+    #[tokio::test]
+    async fn classification_already_matching_needs_no_write_but_is_reobserved() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path(
+                "/repos/generic-owner/sample-repository/properties/values",
+            ))
+            .respond_with(ResponseTemplate::new(200).set_body_json(
+                serde_json::json!([{"property_name":"family","value":"sample-family"}]),
+            ))
+            .expect(2)
+            .mount(&server)
+            .await;
+        Mock::given(method("PATCH"))
+            .respond_with(ResponseTemplate::new(204))
+            .expect(0)
+            .mount(&server)
+            .await;
+        let transcript = session(&server)
+            .await
+            .apply(
+                "generic-owner",
+                "sample-repository",
+                "REPO-NAME-03",
+                "declare-classification",
+                Some("sample-family"),
+            )
+            .await;
+        assert_eq!(transcript.observed, ObservedStatus::Pass);
+        assert!(transcript
+            .steps
+            .iter()
+            .any(|step| step.detail.contains("no write was needed")));
+    }
+
+    #[tokio::test]
+    async fn classification_write_failure_is_retained_and_the_value_is_still_observed() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path(
+                "/repos/generic-owner/sample-repository/properties/values",
+            ))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([])))
+            .expect(2)
+            .mount(&server)
+            .await;
+        Mock::given(method("PATCH"))
+            .and(path("/orgs/generic-owner/properties/values"))
+            .respond_with(
+                ResponseTemplate::new(403)
+                    .insert_header(
+                        "x-accepted-github-permissions",
+                        "organization_custom_properties=write",
+                    )
+                    .set_body_json(serde_json::json!({"message":"write refused"})),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+        let transcript = session(&server)
+            .await
+            .apply(
+                "generic-owner",
+                "sample-repository",
+                "REPO-NAME-03",
+                "declare-classification",
+                Some("sample-family"),
+            )
+            .await;
+        assert_eq!(transcript.observed, ObservedStatus::Fail);
+        assert!(transcript.steps.iter().any(|step| !step.succeeded
+            && step.detail.contains("write refused")
+            && step.detail.contains("organization_custom_properties=write")));
+    }
+
+    #[tokio::test]
+    async fn classification_matching_before_acting_can_drift_before_reobservation() {
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        };
+        let server = MockServer::start().await;
+        let reads = Arc::new(AtomicUsize::new(0));
+        Mock::given(method("GET"))
+            .and(path(
+                "/repos/generic-owner/sample-repository/properties/values",
+            ))
+            .respond_with(move |_: &wiremock::Request| {
+                let value = if reads.fetch_add(1, Ordering::SeqCst) == 0 {
+                    "sample-family"
+                } else {
+                    "other-family"
+                };
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!([{"property_name":"family","value":value}]))
+            })
+            .expect(2)
+            .mount(&server)
+            .await;
+        Mock::given(method("PATCH"))
+            .respond_with(ResponseTemplate::new(204))
+            .expect(0)
+            .mount(&server)
+            .await;
+        let transcript = session(&server)
+            .await
+            .apply(
+                "generic-owner",
+                "sample-repository",
+                "REPO-NAME-03",
+                "declare-classification",
+                Some("sample-family"),
+            )
+            .await;
+        assert_eq!(transcript.observed, ObservedStatus::Fail);
+    }
+
+    #[tokio::test]
+    async fn classification_post_read_failure_cannot_claim_success() {
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        };
+        let server = MockServer::start().await;
+        let reads = Arc::new(AtomicUsize::new(0));
+        Mock::given(method("GET"))
+            .and(path(
+                "/repos/generic-owner/sample-repository/properties/values",
+            ))
+            .respond_with(move |_: &wiremock::Request| {
+                if reads.fetch_add(1, Ordering::SeqCst) == 0 {
+                    ResponseTemplate::new(200).set_body_json(serde_json::json!([]))
+                } else {
+                    ResponseTemplate::new(403)
+                        .set_body_json(serde_json::json!({"message":"post-read refused"}))
+                }
+            })
+            .expect(2)
+            .mount(&server)
+            .await;
+        Mock::given(method("PATCH"))
+            .and(path("/orgs/generic-owner/properties/values"))
+            .respond_with(ResponseTemplate::new(204))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let transcript = session(&server)
+            .await
+            .apply(
+                "generic-owner",
+                "sample-repository",
+                "REPO-NAME-03",
+                "declare-classification",
+                Some("sample-family"),
+            )
+            .await;
+        assert_eq!(transcript.observed, ObservedStatus::Inconclusive);
+        assert!(!transcript.steps.last().unwrap().succeeded);
+        assert!(transcript
+            .steps
+            .last()
+            .unwrap()
+            .detail
+            .contains("post-read refused"));
+    }
+
+    #[tokio::test]
+    async fn classification_post_read_malformed_value_cannot_claim_success() {
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        };
+        let server = MockServer::start().await;
+        let reads = Arc::new(AtomicUsize::new(0));
+        Mock::given(method("GET"))
+            .and(path(
+                "/repos/generic-owner/sample-repository/properties/values",
+            ))
+            .respond_with(move |_: &wiremock::Request| {
+                let values = if reads.fetch_add(1, Ordering::SeqCst) == 0 {
+                    serde_json::json!([])
+                } else {
+                    serde_json::json!([{"property_name":"family","value":["sample-family"]}])
+                };
+                ResponseTemplate::new(200).set_body_json(values)
+            })
+            .expect(2)
+            .mount(&server)
+            .await;
+        Mock::given(method("PATCH"))
+            .and(path("/orgs/generic-owner/properties/values"))
+            .respond_with(ResponseTemplate::new(204))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let transcript = session(&server)
+            .await
+            .apply(
+                "generic-owner",
+                "sample-repository",
+                "REPO-NAME-03",
+                "declare-classification",
+                Some("sample-family"),
+            )
+            .await;
+        assert_eq!(transcript.observed, ObservedStatus::Inconclusive);
+        assert!(!transcript.steps.last().unwrap().succeeded);
+        assert!(transcript
+            .steps
+            .last()
+            .unwrap()
+            .detail
+            .contains("malformed"));
     }
 
     #[tokio::test]
