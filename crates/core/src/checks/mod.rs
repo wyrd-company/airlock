@@ -19,6 +19,8 @@ macro_rules! try_verdict {
 }
 
 mod automation;
+
+pub(crate) use automation::{is_remote_airlock_action, CENTRAL_INPUTS};
 mod classification;
 mod files;
 mod git;
