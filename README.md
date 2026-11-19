@@ -240,7 +240,8 @@ HTTP status. It names the service's error code only when the code is one
 Airlock knows: an OAuth error code or AADSTS number from Entra ID, or a Key
 Vault error code. GitHub's messages are never repeated. The report's errors
 carry the status, the cause and the endpoint. GitHub's permission and
-request-id headers are kept only when they have GitHub's shape. Everything
+request-id headers, and the `Date` a report records as when settings were
+observed, are kept only when they have the shape GitHub gives them. Everything
 central mode prints is redacted of its token last, so an echo that got past
 every other guard prints as `[redacted]`.
 

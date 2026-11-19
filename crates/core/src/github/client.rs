@@ -156,6 +156,16 @@ fn has_permission_shape(value: &str) -> bool {
             .all(|c| c.is_ascii_lowercase() || matches!(c, '_' | '=' | ',' | ';' | ' ' | '|'))
 }
 
+/// Whether a `Date` value reads as an HTTP date, such as
+/// `Tue, 17 Nov 2026 16:20:21 GMT`.
+fn has_http_date_shape(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 40
+        && value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, ' ' | ',' | ':'))
+}
+
 /// Whether an `X-GitHub-Request-Id` value has GitHub's shape: hexadecimal
 /// fields joined by colons.
 fn has_request_id_shape(value: &str) -> bool {
@@ -833,7 +843,12 @@ impl GitHub for RestClient {
             has_projects: field_bool(&value, "has_projects"),
             has_discussions: field_bool(&value, "has_discussions"),
             has_issues: field_bool(&value, "has_issues"),
-            observed_at: raw.single("date").map(ToOwned::to_owned),
+            // The settings' observation time is the server's `Date` header,
+            // kept by a withholding client only when it reads as an HTTP date.
+            observed_at: raw
+                .single("date")
+                .filter(|value| !self.config.withhold_response_text || has_http_date_shape(value))
+                .map(ToOwned::to_owned),
         })
     }
 

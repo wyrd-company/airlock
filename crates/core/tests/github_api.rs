@@ -500,6 +500,19 @@ async fn a_repository_snapshot_reads_settings_and_the_observation_time() {
         repository.observed_at.as_deref(),
         Some("Mon, 27 Jul 2026 12:00:00 GMT")
     );
+
+    // A withholding client keeps a Date that reads as one.
+    let withheld = client_with(
+        &server,
+        RestClientConfig::default().withholding_response_text(),
+    )
+    .repository("owner", "name")
+    .await
+    .unwrap();
+    assert_eq!(
+        withheld.observed_at.as_deref(),
+        Some("Mon, 27 Jul 2026 12:00:00 GMT")
+    );
 }
 
 #[tokio::test]

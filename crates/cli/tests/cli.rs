@@ -947,18 +947,25 @@ async fn central_output_repeats_no_credential_a_service_echoes() {
     // Synthetic placeholders only. GitHub answers one repository with a
     // refusal whose every free-form field repeats the session's token, fails
     // the revocation the same way, and sends the token as the other
-    // repository's `Date` header, which the report records as the time the
-    // settings were observed and only the final redaction can catch.
+    // repository's `Date` header, which a withholding client drops for not
+    // being a date. It also lists a repository named as the token: a name
+    // the report must carry, which only the final redaction can catch.
     use support::central::MINTED;
     let repo = licensed_repo();
     let settings = repo.settings.clone();
     let server = support::start(&[repo]).await;
     support::central::mount(
         &server,
-        &[("wyrd-company", "example"), ("wyrd-company", "refusing")],
+        &[
+            ("wyrd-company", "example"),
+            ("wyrd-company", "refusing"),
+            ("wyrd-company", MINTED),
+        ],
     )
     .await;
-    let echo = format!("Bearer {MINTED}");
+    // The refusal's text also carries a phrase that is no credential, which
+    // redaction leaves alone: only withholding keeps it out.
+    let echo = format!("SERVER-CHOSEN-TEXT Bearer {MINTED}");
     wiremock::Mock::given(wiremock::matchers::method("GET"))
         .and(wiremock::matchers::path("/repos/wyrd-company/example"))
         .respond_with(
@@ -1005,15 +1012,33 @@ async fn central_output_repeats_no_credential_a_service_echoes() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("warning: token-revoke"), "{stderr}");
     let report = json_output(&output.stdout);
-    let refusing = &report["repositories"][1];
-    assert_eq!(refusing["repository"], "wyrd-company/refusing");
+    let named = |name: &str| {
+        report["repositories"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["repository"] == name)
+            .unwrap_or_else(|| panic!("{name} is in the report"))
+            .clone()
+    };
+    let refusing = named("wyrd-company/refusing");
     assert!(
         refusing["error"].as_str().unwrap().contains("http 403"),
         "{refusing}"
     );
     assert!(
-        String::from_utf8_lossy(&output.stdout).contains("[redacted]"),
-        "the echoed header is redacted"
+        String::from_utf8_lossy(&output.stdout).contains("wyrd-company/[redacted]"),
+        "the repository named as the token is redacted"
+    );
+    assert_eq!(
+        named("wyrd-company/example")["report"]["repository"]["settings_observed_at"],
+        serde_json::Value::Null,
+        "a Date header that is not a date is dropped"
+    );
+    named("wyrd-company/[redacted]");
+    assert!(
+        !String::from_utf8_lossy(&output.stdout).contains("SERVER-CHOSEN-TEXT"),
+        "the refusal's text is withheld, not only redacted"
     );
 }
 
