@@ -121,8 +121,8 @@ runs:
         INPUT_REF: ${{ inputs.ref }}
         INPUT_FORMAT: ${{ inputs.format }}
         INPUT_FAIL_ON_INCOMPLETE: ${{ inputs.fail-on-incomplete }}
-        # Only compared with an installation token offered as the credential;
-        # the script unsets it before Airlock runs.
+        # The run's own token. Repository mode admits an installation token
+        # only when it is this one; nothing is ever sent with it.
         AIRLOCK_RUN_TOKEN: ${{ github.token }}
         AIRLOCK_BIN: ${{ github.action_path }}/target/release/airlock
       run: "$GITHUB_ACTION_PATH/scripts/run-action.sh"

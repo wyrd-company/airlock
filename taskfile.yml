@@ -103,15 +103,17 @@ tasks:
 
   dogfood:ci:
     desc: >-
-      Audit the running repository in repository mode, with the run's own
-      token from RUN_TOKEN on standard input; runs only inside GitHub Actions
+      Audit the running repository in repository mode with the run's own
+      token, which AIRLOCK_RUN_TOKEN holds; runs only inside GitHub Actions
     requires:
       vars:
         - GITHUB_REPOSITORY
-        - RUN_TOKEN
+        - AIRLOCK_RUN_TOKEN
     cmds:
+      # The token goes in on standard input and stays in AIRLOCK_RUN_TOKEN,
+      # which Airlock compares it with before admitting it.
       - >-
-        printenv RUN_TOKEN | cargo run --quiet -p airlock-cli --
+        printenv AIRLOCK_RUN_TOKEN | cargo run --quiet -p airlock-cli --
         audit "$GITHUB_REPOSITORY" --mode repository --format json --token-stdin
 
   check:

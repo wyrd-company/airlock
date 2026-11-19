@@ -145,6 +145,8 @@ pub enum RefusalCode {
     WorkflowUnreadable,
     JobNotFound,
     PermissionsUndeclared,
+    RunTokenUnbound,
+    ForeignInstallationToken,
 }
 
 impl RefusalCode {
@@ -173,6 +175,8 @@ impl RefusalCode {
             Self::WorkflowUnreadable => "workflow_unreadable",
             Self::JobNotFound => "job_not_found",
             Self::PermissionsUndeclared => "permissions_undeclared",
+            Self::RunTokenUnbound => "run_token_unbound",
+            Self::ForeignInstallationToken => "foreign_installation_token",
         }
     }
 }
@@ -336,6 +340,11 @@ pub enum Admission<'a> {
         owner: &'a str,
         /// The audited repository's name.
         repo: &'a str,
+        /// The run's own token, as the workflow handed it over in
+        /// `AIRLOCK_RUN_TOKEN`. Never used as a credential: an installation
+        /// token is admitted only when it is this token, because the job's
+        /// permissions bound no other.
+        run_token: Option<&'a str>,
     },
 }
 
@@ -375,7 +384,13 @@ pub async fn verify_for<G: GitHub>(
              airlock can verify.",
         )),
         TokenKind::Installation => match admission {
-            Admission::Repository { run, owner, repo } => {
+            Admission::Repository {
+                run,
+                owner,
+                repo,
+                run_token,
+            } => {
+                bind_to_run(token, run_token)?;
                 crate::workflow_token::verify_run_token(client, run, owner, repo).await
             }
             Admission::Standard => Err(Refusal::new(
@@ -399,6 +414,44 @@ pub async fn verify_for<G: GitHub>(
              credential airlock can verify.",
         )),
     }
+}
+
+/// Require an installation token to be the run's own, compared after both
+/// are trimmed, as every credential source trims what it reads.
+///
+/// The job's declared permissions are the grant of the run's token and of no
+/// other, so another installation token judged by them would be judged by
+/// permissions that are not its own. Without the run's token to compare with,
+/// no installation token is admitted.
+fn bind_to_run(token: &str, run_token: Option<&str>) -> Result<(), Refusal> {
+    let Some(run_token) = run_token.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Err(Refusal::new(
+            RefusalCode::RunTokenUnbound,
+            "Repository mode admits an installation token only as the run's own token, and \
+             `AIRLOCK_RUN_TOKEN` does not name it. Set `AIRLOCK_RUN_TOKEN` to \
+             `${{ github.token }}`; the Airlock Action does this itself.",
+        ));
+    };
+    if constant_time_eq(token.trim().as_bytes(), run_token.as_bytes()) {
+        Ok(())
+    } else {
+        Err(Refusal::new(
+            RefusalCode::ForeignInstallationToken,
+            "The installation token is not this run's own token. The job's permissions bound \
+             only the run's token, so repository mode refuses any other.",
+        ))
+    }
+}
+
+/// Byte equality whose time does not depend on where two equal-length values
+/// first differ.
+fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
+    left.len() == right.len()
+        && left
+            .iter()
+            .zip(right)
+            .fold(0_u8, |difference, (a, b)| difference | (a ^ b))
+            == 0
 }
 
 async fn verify_app_user<G: GitHub>(client: &G) -> Result<VerifiedGrant, Refusal> {
@@ -869,6 +922,44 @@ mod tests {
             unenumerated.capability(),
             CredentialCapability::WriteCapable
         );
+    }
+
+    #[test]
+    fn an_installation_token_is_bound_to_the_run_after_trimming() {
+        assert!(bind_to_run("ghs_placeholder_run", Some("ghs_placeholder_run")).is_ok());
+        assert!(bind_to_run(" ghs_placeholder_run\n", Some("\tghs_placeholder_run ")).is_ok());
+        assert_eq!(
+            bind_to_run("ghs_placeholder_other", Some("ghs_placeholder_run"))
+                .unwrap_err()
+                .code,
+            RefusalCode::ForeignInstallationToken
+        );
+        assert_eq!(
+            bind_to_run("ghs_placeholder_run", Some("ghs_placeholder_ru"))
+                .unwrap_err()
+                .code,
+            RefusalCode::ForeignInstallationToken
+        );
+        for unbound in [None, Some(""), Some("  ")] {
+            assert_eq!(
+                bind_to_run("ghs_placeholder_run", unbound)
+                    .unwrap_err()
+                    .code,
+                RefusalCode::RunTokenUnbound,
+                "{unbound:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_binding_refusal_never_renders_either_token() {
+        for refusal in [
+            bind_to_run("ghs_placeholder_other", Some("ghs_placeholder_run")).unwrap_err(),
+            bind_to_run("ghs_placeholder_other", None).unwrap_err(),
+        ] {
+            let rendered = refusal.to_string();
+            assert!(!rendered.contains("ghs_placeholder"), "{rendered}");
+        }
     }
 
     #[test]

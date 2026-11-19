@@ -11,9 +11,19 @@ set -euo pipefail
 # audits every repository of the run's owner, signed in as Airlock Safe, and
 # accepts no credential at all.
 
+# Strip surrounding whitespace, as every Airlock credential source does
+# before the token is classified.
+trim() {
+  local value=$1
+  value=${value#"${value%%[![:space:]]*}"}
+  value=${value%"${value##*[![:space:]]}"}
+  printf '%s' "$value"
+}
+
 # The run's own token, given only so an installation token can be compared
-# with it. Airlock never receives it under this name.
-run_token=${AIRLOCK_RUN_TOKEN:-}
+# with it. Airlock never sends it anywhere: in repository mode it compares an
+# installation token with it too, and in central mode it is removed.
+run_token=$(trim "${AIRLOCK_RUN_TOKEN:-}")
 unset AIRLOCK_RUN_TOKEN
 
 mode=${INPUT_MODE:-repository}
@@ -94,7 +104,7 @@ fi
 if [[ "$mode" == central ]]; then
   # Central mode signs for itself. A credential handed to it is refused
   # rather than ignored.
-  if [[ -n ${INPUT_TOKEN:-} || -n ${AIRLOCK_TOKEN:-} ]]; then
+  if [[ -n $(trim "${INPUT_TOKEN:-}") || -n $(trim "${AIRLOCK_TOKEN:-}") ]]; then
     finish_incomplete "central mode accepts no credential; remove the token input and AIRLOCK_TOKEN."
   fi
   unset AIRLOCK_TOKEN
@@ -115,18 +125,20 @@ if [[ "$mode" == central ]]; then
     --azure-client-id "${INPUT_AZURE_CLIENT_ID:-}"
   )
 else
-  if [[ -n ${INPUT_TOKEN:-} ]]; then
-    export AIRLOCK_TOKEN=$INPUT_TOKEN
-  fi
-  if [[ -z ${AIRLOCK_TOKEN:-} ]]; then
+  credential=$(trim "${INPUT_TOKEN:-}")
+  [[ -n "$credential" ]] || credential=$(trim "${AIRLOCK_TOKEN:-}")
+  if [[ -z "$credential" ]]; then
     finish_incomplete "repository mode needs the token input, the run's own token, or AIRLOCK_TOKEN, a credential Airlock can prove is read-only."
   fi
   # Airlock reads an installation token's grant from the job's declared
   # permissions, which bound only the run's own token. Any other installation
-  # token would be judged by permissions that are not its own.
-  if [[ $AIRLOCK_TOKEN == ghs_* && $AIRLOCK_TOKEN != "$run_token" ]]; then
+  # token would be judged by permissions that are not its own. Airlock makes
+  # the same comparison on the trimmed values; refusing here saves the build.
+  if [[ $credential == ghs_* && $credential != "$run_token" ]]; then
     finish_incomplete "the credential is an installation token other than this run's own; repository mode accepts only the run's GITHUB_TOKEN."
   fi
+  export AIRLOCK_TOKEN=$credential
+  [[ -z "$run_token" ]] || export AIRLOCK_RUN_TOKEN=$run_token
   if [[ -z "$repository" ]]; then
     finish_incomplete "repository is required when GITHUB_REPOSITORY is unavailable."
   fi

@@ -16,8 +16,16 @@ use anyhow::{bail, Context as _, Result};
 use crate::config::{self, Config, Profile, RotationLock};
 use crate::device::{DeviceFlow, DeviceFlowConfig};
 
-/// The environment variable airlock reads, and the only one.
+/// The environment variable airlock reads a credential from, and the only one.
 pub const TOKEN_ENVIRONMENT_VARIABLE: &str = "AIRLOCK_TOKEN";
+
+/// The run's own token, in repository mode only.
+///
+/// Not a credential source: nothing is ever sent with it. Repository mode
+/// compares an installation token with it, and admits the token only when the
+/// two are the same, because the job's declared permissions bound the run's
+/// token and no other.
+pub const RUN_TOKEN_ENVIRONMENT_VARIABLE: &str = "AIRLOCK_RUN_TOKEN";
 
 /// Which source the inputs and environment select.
 ///

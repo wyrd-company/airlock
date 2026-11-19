@@ -5,5 +5,6 @@ description: >-
   given as its token input. GitHub lists no installation token's permissions, so Airlock
   enumerates this token's grant from the running job's declared permissions. It reads them from the
   workflow file at GITHUB_WORKFLOW_SHA, and accepts the token only inside Actions, for the run's
-  repository, when every declared permission is read. The Action refuses any other installation
-  token. Every other surface refuses an installation token.
+  repository, when every declared permission is read. The token must equal AIRLOCK_RUN_TOKEN, which
+  the Action sets to github.token, so no other installation token is judged by permissions that
+  are not its own. Every other surface refuses an installation token.

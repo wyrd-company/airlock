@@ -783,8 +783,20 @@ async fn repository_report_with_client(
     let client = RestClient::new(credential.token.clone(), client_config(limits))
         .context("cannot build the github client")?;
 
+    // The reference an installation token is compared with. It is read only
+    // in repository mode, never sent anywhere, and overwritten when dropped.
+    let run_token = run.as_ref().and_then(|_| {
+        std::env::var(credential::RUN_TOKEN_ENVIRONMENT_VARIABLE)
+            .ok()
+            .map(zeroize::Zeroizing::new)
+    });
     let admission = match &run {
-        Some(run) => Admission::Repository { run, owner, repo },
+        Some(run) => Admission::Repository {
+            run,
+            owner,
+            repo,
+            run_token: run_token.as_ref().map(|token| token.as_str()),
+        },
         None => Admission::Standard,
     };
     let grant = auth::verify_for(&credential.token, &client, admission)

@@ -147,10 +147,17 @@ accepts the token only when all of these hold:
 
 It refuses the token for any other level, `write` and `none` included. It also
 refuses it when no permissions are declared, because the token then holds the
-repository's defaults, and for a job that calls a reusable workflow. The
-job's permissions bound only the run's own token. So the Action compares an
-installation token offered as the credential with `github.token`, and refuses
-any other before Airlock runs.
+repository's defaults, and for a job that calls a reusable workflow.
+
+The job's permissions bound only the run's own token, so Airlock admits an
+installation token only when it is that token. The Action sets
+`AIRLOCK_RUN_TOKEN` to `github.token`. Airlock compares the credential with
+it, after trimming both as every credential source does, and refuses any
+other installation token. With no `AIRLOCK_RUN_TOKEN`, it refuses every
+installation token. Airlock never sends anything with `AIRLOCK_RUN_TOKEN`; it
+is only what the credential is compared with. A workflow that runs
+`airlock audit --mode repository` itself sets `AIRLOCK_RUN_TOKEN` to
+`${{ github.token }}` too.
 
 `token` may hold a credential of your own instead, verified as
 [the read path](#the-read-path) describes. `AIRLOCK_TOKEN` in the step's
@@ -702,9 +709,9 @@ its token to standard output; see
 Airlock's workflows hold no Airlock credential and read no secret. `audit.yml`
 runs the Action in repository mode with `token: ${{ github.token }}`. The CI
 `dogfood` job pipes `github.token` to `task dogfood:ci`, which runs
-`airlock audit --mode repository --token-stdin` on the binary it builds. Each
-job declares only `read` permissions, which is what lets Airlock accept the
-run's token.
+`airlock audit --mode repository --token-stdin` on the binary it builds, with
+the same token in `AIRLOCK_RUN_TOKEN`. Each job declares only `read`
+permissions, which is what lets Airlock accept the run's token.
 
 ### A long-lived credential of your own
 

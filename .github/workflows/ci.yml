@@ -129,7 +129,7 @@ jobs:
       - uses: go-task/setup-task@01a4adf9db2d14c1de7a560f09170b6e0df736aa # v2
       - name: Run dogfood audit
         env:
-          RUN_TOKEN: ${{ github.token }}
+          AIRLOCK_RUN_TOKEN: ${{ github.token }}
         run: task dogfood:ci
 
 # Jobs are decomposed so a failure is legible on the pull request, and every job
