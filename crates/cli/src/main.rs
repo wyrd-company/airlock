@@ -901,16 +901,8 @@ async fn central_command(args: &AuditArgs, format: Format) -> Result<u8> {
     let stopped = |error: central::CentralError| anyhow::anyhow!("central mode stopped at {error}");
     let config = CentralConfig::parse(owner, &args.central.inputs()).map_err(stopped)?;
     let oidc = OidcRequest::from_lookup(|name| std::env::var(name).ok()).map_err(stopped)?;
-    let endpoints = Endpoints {
-        github_api: api_base(),
-        azure_login: std::env::var(AZURE_LOGIN_URL_OVERRIDE)
-            .unwrap_or_else(|_| central::AZURE_LOGIN_BASE.to_owned()),
-    };
-    let limits = Limits::default();
-    let session = central::sign_in(&config, &oidc, &endpoints, limits)
-        .await
-        .map_err(stopped)?;
-
+    // Every input that can be refused is read before a token exists, so no
+    // early return can leave a minted token unrevoked.
     let policy_source = match &args.repository.policy {
         Some(value) => Some(
             PolicySource::parse(value)
@@ -918,37 +910,53 @@ async fn central_command(args: &AuditArgs, format: Format) -> Result<u8> {
         ),
         None => None,
     };
+    let endpoints = Endpoints {
+        github_api: api_base(),
+        azure_login: std::env::var(AZURE_LOGIN_URL_OVERRIDE)
+            .unwrap_or_else(|_| central::AZURE_LOGIN_BASE.to_owned()),
+    };
+    let limits = Limits::default();
     let options = AuditOptions {
         reference: None,
         limits,
         version: VERSION.to_owned(),
         working_tree: None,
     };
-    let result = central_audit::run(
-        &session,
-        owner,
-        &client_config(limits),
-        policy_source,
-        &options,
-    )
-    .await;
+    let client_config = client_config(limits);
+    let session = central::sign_in(&config, &oidc, &endpoints, limits)
+        .await
+        .map_err(stopped)?;
 
-    // The token is revoked whatever the audit concluded. A failed revocation
-    // leaves a read-only token to expire on its own, which is worth saying
-    // and not worth failing an audit that completed.
+    // From the minted token to its revocation nothing returns early: the
+    // audit and its rendering are collected first, as text, and printed only
+    // after the token is revoked.
+    let result = central_audit::run(&session, owner, &client_config, policy_source, &options).await;
+    let outcome: std::result::Result<(String, u8), String> = match result {
+        Ok(report) => match format {
+            Format::Text => Ok((report.text(), report.exit_code())),
+            Format::Json => serde_json::to_string_pretty(&report)
+                .map(|json| (format!("{json}\n"), report.exit_code()))
+                .map_err(|error| format!("cannot render the central report: {error}")),
+        },
+        Err(error) => Err(format!("cannot audit the repositories of {owner}: {error}")),
+    };
+
+    // A failed revocation leaves a read-only token to expire on its own,
+    // which is worth saying and not worth failing an audit that completed.
     if let Err(error) = session.revoke().await {
-        eprintln!("warning: {error}");
+        eprintln!("warning: {}", session.redact(&error.to_string()));
     }
 
-    let report = result.with_context(|| format!("cannot audit the repositories of {owner}"))?;
-    match format {
-        Format::Text => print!("{}", report.text()),
-        Format::Json => println!(
-            "{}",
-            serde_json::to_string_pretty(&report).context("cannot render the central report")?
-        ),
+    // Whatever central mode prints passes through the session's redaction
+    // last, so an echo of its token that got past every other guard prints
+    // as `[redacted]`.
+    match outcome {
+        Ok((rendered, code)) => {
+            print!("{}", session.redact(&rendered));
+            Ok(code)
+        }
+        Err(message) => bail!("{}", session.redact(&message)),
     }
-    Ok(report.exit_code())
 }
 
 fn split_target(target: &str) -> Result<(&str, &str)> {
