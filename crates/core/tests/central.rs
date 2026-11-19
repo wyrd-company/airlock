@@ -754,7 +754,9 @@ async fn app_and_installation_fields_are_checked_without_being_repeated() {
         "id": AIRLOCK_SAFE_APP_ID, "slug": "airlock-safe",
         "permissions": {"metadata": "read"}
     });
-    named["permissions"][echo()] = json!("read");
+    // Short enough to pass the length bound, so the name's own shape is
+    // what refuses it.
+    named["permissions"][MINTED] = json!("read");
     let error = app_answers(named).await;
     assert_eq!(error.step, Step::AppIdentity);
     assert!(
@@ -792,7 +794,7 @@ async fn app_and_installation_fields_are_checked_without_being_repeated() {
 async fn a_minted_permission_that_is_not_a_permission_is_refused_unrepeated_and_revoked() {
     let server = fake().await;
     let mut response = minted(&[("metadata", "read")]);
-    response["permissions"][echo()] = json!("read");
+    response["permissions"][MINTED] = json!("read");
     answer(
         &server,
         "POST",
