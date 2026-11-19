@@ -11,6 +11,8 @@ mod hooks;
 mod taskfile;
 mod workflows;
 
+pub(crate) use workflows::{is_remote_airlock_action, CENTRAL_INPUTS};
+
 use delivery::*;
 use hooks::*;
 use taskfile::*;

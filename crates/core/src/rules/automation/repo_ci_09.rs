@@ -19,8 +19,9 @@ pub(crate) const RULE: RuleDefinition = RuleDefinition {
         "supply-run-token",
         "REPO-CI-09",
         FixKind::Airlock,
-        "Give the canonical Airlock audit action `token: ${{ github.token }}` in repository mode \
-         and remove `AIRLOCK_TOKEN`.",
+        "Give the canonical Airlock audit action `token: ${{ github.token }}` in repository mode, \
+         or the six `airlock-safe` variables and no token in central mode, and remove \
+         `AIRLOCK_TOKEN`.",
         true,
     ),
     since: "0.6.0",

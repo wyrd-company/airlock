@@ -1028,12 +1028,19 @@ fn transform_workflow(text: &str, code: &str) -> Option<String> {
     Some(patch_top_level_keys(text, &value, changed))
 }
 
-/// Give the Airlock step the run's own token, and take `AIRLOCK_TOKEN` away.
+/// Give the Airlock step the credential its mode takes, and take
+/// `AIRLOCK_TOKEN` away.
 ///
 /// A line edit rather than a YAML round trip, so the workflow's comments and
-/// pins survive. The token goes under the step's `with:`, which is created
-/// when absent; every `AIRLOCK_TOKEN:` entry is removed, and an `env:` left
-/// empty by that goes with it.
+/// pins survive. It edits the first step that runs the canonical Airlock
+/// action, as REPO-CI-09 recognises it, and removes every `AIRLOCK_TOKEN:`
+/// entry, with an `env:` left empty by that.
+///
+/// - Repository mode, or no `mode`: `token: ${{ github.token }}` goes under
+///   the step's `with:`, which is created when absent.
+/// - Central mode: any `token` is removed, and each of the six inputs is set
+///   from its `airlock-safe` variable.
+/// - Any other mode is left for a person: no edit is authored.
 fn supply_run_token(text: &str) -> Option<String> {
     let mut lines: Vec<String> = text
         .lines()
@@ -1044,19 +1051,19 @@ fn supply_run_token(text: &str) -> Option<String> {
         line.trim_start()
             .trim_start_matches("- ")
             .strip_prefix("uses:")
-            .is_some_and(|uses| uses.contains("/airlock") || uses.trim() == "./")
+            .is_some_and(|uses| {
+                let uses = uses.split('#').next().unwrap_or_default().trim();
+                crate::checks::is_remote_airlock_action(uses.trim_matches(['"', '\'']))
+            })
     })?;
     let indentation = lines[uses_index].len() - lines[uses_index].trim_start().len();
+    let indent_of = |line: &str| line.len() - line.trim_start().len();
     let step_end = |lines: &[String]| {
         lines
             .iter()
             .enumerate()
             .skip(uses_index + 1)
-            .find(|(_, line)| {
-                let trimmed = line.trim_start();
-                let indent = line.len() - trimmed.len();
-                !trimmed.is_empty() && indent <= indentation
-            })
+            .find(|(_, line)| !line.trim().is_empty() && indent_of(line) <= indentation)
             .map_or(lines.len(), |(index, _)| index)
     };
     let key_at = |lines: &[String], key: &str| {
@@ -1066,47 +1073,91 @@ fn supply_run_token(text: &str) -> Option<String> {
             .take(step_end(lines))
             .skip(uses_index + 1)
             .find(|(_, line)| {
-                let trimmed = line.trim_start();
-                let indent = line.len() - trimmed.len();
-                indent == indentation + 2 && trimmed.starts_with(key)
+                indent_of(line) == indentation + 2 && line.trim_start().starts_with(key)
             })
             .map(|(index, _)| index)
+    };
+    // The end of the `with:` block that starts at `with_index`.
+    let with_end = |lines: &[String], with_index: usize| {
+        lines
+            .iter()
+            .enumerate()
+            .take(step_end(lines))
+            .skip(with_index + 1)
+            .find(|(_, line)| !line.trim().is_empty() && indent_of(line) <= indentation + 2)
+            .map_or(step_end(lines), |(index, _)| index)
+    };
+    // The input `name` under `with:`, as the index of its line and of the
+    // line after its value, which may continue on deeper lines.
+    let input_at = |lines: &[String], with_index: usize, name: &str| {
+        let end = with_end(lines, with_index);
+        let start = (with_index + 1..end).find(|&index| {
+            indent_of(&lines[index]) == indentation + 4
+                && lines[index]
+                    .trim_start()
+                    .strip_prefix(name)
+                    .is_some_and(|rest| rest.starts_with(':'))
+        })?;
+        let value_end = (start + 1..end)
+            .find(|&index| {
+                !lines[index].trim().is_empty() && indent_of(&lines[index]) <= indentation + 4
+            })
+            .unwrap_or(end);
+        Some((start, value_end))
     };
 
     // An `env:` with nothing left under it would be `env: null`.
     if let Some(env_index) = key_at(&lines, "env:") {
         let emptied = lines
             .get(env_index + 1)
-            .is_none_or(|next| next.len() - next.trim_start().len() <= indentation + 2);
+            .is_none_or(|next| indent_of(next) <= indentation + 2);
         if emptied && lines[env_index].trim() == "env:" {
             lines.remove(env_index);
         }
     }
 
-    let token = format!(
-        "{}token: ${{{{ github.token }}}}",
-        " ".repeat(indentation + 4)
-    );
-    match key_at(&lines, "with:") {
-        Some(with_index) => {
-            let end = step_end(&lines);
-            let existing = lines
-                .iter()
-                .enumerate()
-                .take(end)
-                .skip(with_index + 1)
-                .find(|(_, line)| line.trim_start().starts_with("token:"))
-                .map(|(index, _)| index);
-            match existing {
-                Some(index) => lines[index] = token,
-                None => lines.insert(with_index + 1, token),
-            }
-        }
+    let input = |name: &str, value: &str| format!("{}{name}: {value}", " ".repeat(indentation + 4));
+    let with_index = match key_at(&lines, "with:") {
+        Some(index) => index,
         None => {
             let end = step_end(&lines);
-            lines.insert(end, token);
             lines.insert(end, format!("{}with:", " ".repeat(indentation + 2)));
+            end
         }
+    };
+    let mode = input_at(&lines, with_index, "mode").map(|(start, _)| {
+        lines[start]
+            .split_once(':')
+            .map(|(_, value)| value.split('#').next().unwrap_or_default().trim())
+            .unwrap_or_default()
+            .trim_matches(['"', '\''])
+            .to_owned()
+    });
+
+    // Set `name` to `value`, replacing the whole of any value it had.
+    let set = |lines: &mut Vec<String>, name: &str, value: &str| match input_at(
+        lines, with_index, name,
+    ) {
+        Some((start, value_end)) => {
+            lines.splice(start..value_end, [input(name, value)]);
+        }
+        None => {
+            let end = with_end(lines, with_index);
+            lines.insert(end, input(name, value));
+        }
+    };
+
+    match mode.as_deref() {
+        None | Some("repository") => set(&mut lines, "token", "${{ github.token }}"),
+        Some("central") => {
+            if let Some((start, value_end)) = input_at(&lines, with_index, "token") {
+                lines.drain(start..value_end);
+            }
+            for (name, variable) in crate::checks::CENTRAL_INPUTS {
+                set(&mut lines, name, &format!("${{{{ {variable} }}}}"));
+            }
+        }
+        Some(_) => return None,
     }
     Some(format!("{}\n", lines.join("\n")))
 }
@@ -1759,6 +1810,119 @@ jobs:
           token: ${{ github.token }}
 "
         );
+    }
+
+    fn meets_repo_ci_09(workflow: &str) -> bool {
+        crate::checks::fixtures::CheckFixture::new(&[(".github/workflows/audit.yml", workflow)])
+            .verdict("REPO-CI-09")
+            .status
+            == Some(crate::findings::Status::Met)
+    }
+
+    const CENTRAL_STEP: &str = "\
+on: workflow_dispatch
+permissions: {}
+jobs:
+  audit:
+    environment:
+      name: airlock-safe
+      deployment: false
+    permissions:
+      id-token: write
+    steps:
+      - uses: wyrd-company/airlock@0123456789abcdef0123456789abcdef01234567 # 0.0.1
+        env:
+          AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}
+        with:
+          mode: central
+          token: ${{ github.token }}
+          app-id: ${{ vars.AIRLOCK_SAFE_APP_ID }}
+          vault-url: >-
+            https://example.vault.azure.net
+          azure-tenant-id: ${{ vars.AZURE_TENANT_ID }}
+";
+
+    #[test]
+    fn supply_run_token_repairs_central_mode_with_its_variables_and_no_token() {
+        assert!(!meets_repo_ci_09(CENTRAL_STEP));
+        let transformed = transform_workflow(CENTRAL_STEP, "supply-run-token").unwrap();
+        assert_eq!(
+            transformed,
+            "\
+on: workflow_dispatch
+permissions: {}
+jobs:
+  audit:
+    environment:
+      name: airlock-safe
+      deployment: false
+    permissions:
+      id-token: write
+    steps:
+      - uses: wyrd-company/airlock@0123456789abcdef0123456789abcdef01234567 # 0.0.1
+        with:
+          mode: central
+          app-id: ${{ vars.AIRLOCK_SAFE_APP_ID }}
+          vault-url: ${{ vars.AZURE_KEY_VAULT_URL }}
+          azure-tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          key-name: ${{ vars.AIRLOCK_SAFE_KEY_NAME }}
+          installation-repositories: ${{ vars.AIRLOCK_SAFE_INSTALLED_ON }}
+          azure-client-id: ${{ vars.AZURE_CLIENT_ID }}
+"
+        );
+        assert!(meets_repo_ci_09(&transformed), "the repair closes the gap");
+        assert_eq!(
+            transform_workflow(&transformed, "supply-run-token").unwrap(),
+            transformed,
+            "a second application changes nothing"
+        );
+    }
+
+    #[test]
+    fn supply_run_token_repairs_repository_mode_so_the_rule_is_met() {
+        let workflow = "\
+on: workflow_dispatch
+permissions: {}
+jobs:
+  audit:
+    permissions:
+      contents: read
+    steps:
+      - uses: wyrd-company/airlock@0123456789abcdef0123456789abcdef01234567 # 0.0.1
+        env:
+          AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}
+        with:
+          mode: repository
+";
+        assert!(!meets_repo_ci_09(workflow));
+        let transformed = transform_workflow(workflow, "supply-run-token").unwrap();
+        assert!(meets_repo_ci_09(&transformed), "{transformed}");
+        assert!(transformed.contains("          token: ${{ github.token }}\n"));
+    }
+
+    #[test]
+    fn supply_run_token_leaves_an_unknown_mode_for_a_person() {
+        let unknown = CENTRAL_STEP.replace("mode: central", "mode: organization");
+        assert_eq!(transform_workflow(&unknown, "supply-run-token"), None);
+    }
+
+    #[test]
+    fn supply_run_token_edits_only_the_canonical_airlock_action() {
+        for uses in [
+            "./",
+            "./.github/actions/audit",
+            "someone/airlock-tools@v1",
+            "wyrd-company/airlock-fork@0123456789abcdef0123456789abcdef01234567",
+        ] {
+            let workflow = format!(
+                "jobs:\n  audit:\n    steps:\n      - uses: {uses}\n        with:\n          x: y\n"
+            );
+            assert_eq!(
+                transform_workflow(&workflow, "supply-run-token"),
+                None,
+                "{uses}"
+            );
+        }
     }
 
     #[test]

@@ -429,7 +429,7 @@ pub(super) fn pull_request_title_check(context: &AuditContext) -> Verdict {
 }
 
 /// The central inputs and the `airlock-safe` variable each must come from.
-const CENTRAL_INPUTS: &[(&str, &str)] = &[
+pub(crate) const CENTRAL_INPUTS: &[(&str, &str)] = &[
     ("app-id", "vars.AIRLOCK_SAFE_APP_ID"),
     ("key-name", "vars.AIRLOCK_SAFE_KEY_NAME"),
     (
@@ -579,7 +579,7 @@ pub(super) fn audit_runs_on_its_mode_credential(context: &AuditContext) -> Verdi
     }
 }
 
-fn is_remote_airlock_action(uses: &str) -> bool {
+pub(crate) fn is_remote_airlock_action(uses: &str) -> bool {
     let Some((repository, reference)) = uses.rsplit_once('@') else {
         return false;
     };
