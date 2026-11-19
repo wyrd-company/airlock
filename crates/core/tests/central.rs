@@ -629,3 +629,250 @@ async fn a_listing_cut_short_makes_the_central_run_incomplete() {
     assert_eq!(report.exit_code(), 2);
     assert!(report.run_errors[0].contains("page budget"), "{report:?}");
 }
+
+// ---------------------------------------------------------------------------
+// Echoes: a service that repeats the credentials it was sent
+// ---------------------------------------------------------------------------
+//
+// Every credential here is a synthetic placeholder. Each fake puts all of
+// them in every free-form field it answers with; no message may carry one.
+
+fn echo() -> String {
+    format!(
+        "Bearer {OIDC_REQUEST_TOKEN} {ASSERTION} {VAULT_TOKEN} {} {MINTED}",
+        signature()
+    )
+}
+
+async fn answer(server: &MockServer, verb: &str, route: &str, response: ResponseTemplate) {
+    Mock::given(method(verb))
+        .and(path(route.to_owned()))
+        .respond_with(response)
+        .mount(server)
+        .await;
+}
+
+#[tokio::test]
+async fn entra_id_text_is_never_repeated_and_only_its_vetted_codes_are() {
+    let server = fake().await;
+    answer(
+        &server,
+        "POST",
+        &format!("/{TENANT}/oauth2/v2.0/token"),
+        ResponseTemplate::new(400).set_body_json(json!({
+            "error": echo(),
+            "error_description": echo(),
+            "error_codes": [70021],
+            "trace_id": echo()
+        })),
+    )
+    .await;
+    let error = refused(&server).await;
+    assert_eq!(error.step, Step::AzureSignIn);
+    assert_eq!(error.code.as_deref(), Some("AADSTS70021"));
+
+    let server = fake().await;
+    answer(
+        &server,
+        "POST",
+        &format!("/{TENANT}/oauth2/v2.0/token"),
+        ResponseTemplate::new(401).set_body_json(json!({
+            "error": "invalid_client",
+            "error_description": echo(),
+            "error_codes": [700213]
+        })),
+    )
+    .await;
+    assert_eq!(
+        refused(&server).await.code.as_deref(),
+        Some("invalid_client, AADSTS700213")
+    );
+}
+
+#[tokio::test]
+async fn key_vault_text_is_never_repeated_and_only_its_vetted_codes_are() {
+    let server = fake().await;
+    answer(
+        &server,
+        "POST",
+        "/keys/airlock-safe//sign",
+        ResponseTemplate::new(403).set_body_json(json!({
+            "error": { "code": echo(), "message": echo() }
+        })),
+    )
+    .await;
+    let error = refused(&server).await;
+    assert_eq!(error.step, Step::KeyVaultSign);
+    assert_eq!(error.code, None);
+}
+
+#[tokio::test]
+async fn github_refusal_text_is_never_repeated_at_any_step() {
+    for (verb, route, status, step) in [
+        ("GET", "/app".to_owned(), 401, Step::AppIdentity),
+        (
+            "GET",
+            "/orgs/wyrd-company/installation".to_owned(),
+            403,
+            Step::InstallationLookup,
+        ),
+        (
+            "POST",
+            format!("/app/installations/{INSTALLATION}/access_tokens"),
+            422,
+            Step::TokenRequest,
+        ),
+    ] {
+        let server = fake().await;
+        answer(
+            &server,
+            verb,
+            &route,
+            ResponseTemplate::new(status)
+                .insert_header("x-github-request-id", echo().as_str())
+                .set_body_json(json!({
+                    "message": echo(),
+                    "documentation_url": echo()
+                })),
+        )
+        .await;
+        let error = refused(&server).await;
+        assert_eq!(error.step, step, "{route}");
+        assert_eq!(error.status, Some(status));
+        assert_eq!(error.code, None);
+    }
+}
+
+#[tokio::test]
+async fn app_and_installation_fields_are_checked_without_being_repeated() {
+    let mut slug = json!({
+        "id": AIRLOCK_SAFE_APP_ID, "slug": echo(), "permissions": {"metadata": "read"}
+    });
+    assert_eq!(app_answers(slug.take()).await.step, Step::AppIdentity);
+
+    let mut named = json!({
+        "id": AIRLOCK_SAFE_APP_ID, "slug": "airlock-safe",
+        "permissions": {"metadata": "read"}
+    });
+    named["permissions"][echo()] = json!("read");
+    let error = app_answers(named).await;
+    assert_eq!(error.step, Step::AppIdentity);
+    assert!(
+        error.detail.contains("no readable permission map"),
+        "{error}"
+    );
+
+    let mut leveled = json!({
+        "id": AIRLOCK_SAFE_APP_ID, "slug": "airlock-safe",
+        "permissions": {"metadata": "read"}
+    });
+    leveled["permissions"]["contents"] = json!(echo());
+    assert_eq!(app_answers(leveled).await.step, Step::AppIdentity);
+
+    let server = fake().await;
+    let mut selection = installation("all");
+    selection["repository_selection"] = json!(echo());
+    selection["account"]["login"] = json!(echo());
+    answer(
+        &server,
+        "GET",
+        "/orgs/wyrd-company/installation",
+        ResponseTemplate::new(200).set_body_json(selection),
+    )
+    .await;
+    let error = refused(&server).await;
+    assert_eq!(error.step, Step::InstallationScope);
+    assert!(
+        error.detail.contains("an unrecognised selection"),
+        "{error}"
+    );
+}
+
+#[tokio::test]
+async fn a_minted_permission_that_is_not_a_permission_is_refused_unrepeated_and_revoked() {
+    let server = fake().await;
+    let mut response = minted(&[("metadata", "read")]);
+    response["permissions"][echo()] = json!("read");
+    answer(
+        &server,
+        "POST",
+        &format!("/app/installations/{INSTALLATION}/access_tokens"),
+        ResponseTemplate::new(201).set_body_json(response),
+    )
+    .await;
+    let error = refused(&server).await;
+    assert_eq!(error.step, Step::TokenRequest);
+    assert!(
+        error.detail.contains("unreadable permission map"),
+        "{error}"
+    );
+    assert_eq!(
+        requests_to(&server, "DELETE", "/installation/token")
+            .await
+            .len(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn a_failed_revocation_repeats_nothing_github_said() {
+    let server = fake().await;
+    answer(
+        &server,
+        "DELETE",
+        "/installation/token",
+        ResponseTemplate::new(500).set_body_json(json!({ "message": echo() })),
+    )
+    .await;
+    let session = sign_in(
+        &config(&server),
+        &oidc(&server),
+        &endpoints(&server),
+        Limits::default(),
+    )
+    .await
+    .expect("the sign-in succeeds");
+    let error = session.revoke().await.unwrap_err();
+    assert_eq!(error.step, Step::TokenRevoke);
+    assert_carries_no_secret(&error);
+}
+
+#[tokio::test]
+async fn an_expiry_that_is_not_a_timestamp_is_not_kept() {
+    let server = fake().await;
+    let mut response = minted(&[("metadata", "read")]);
+    response["expires_at"] = json!(echo());
+    answer(
+        &server,
+        "POST",
+        &format!("/app/installations/{INSTALLATION}/access_tokens"),
+        ResponseTemplate::new(201).set_body_json(response),
+    )
+    .await;
+    let session = sign_in(
+        &config(&server),
+        &oidc(&server),
+        &endpoints(&server),
+        Limits::default(),
+    )
+    .await
+    .expect("the sign-in succeeds");
+    assert_eq!(session.expires_at, None);
+}
+
+#[tokio::test]
+async fn the_session_redacts_its_token_from_any_text() {
+    let server = fake().await;
+    let session = sign_in(
+        &config(&server),
+        &oidc(&server),
+        &endpoints(&server),
+        Limits::default(),
+    )
+    .await
+    .expect("the sign-in succeeds");
+    assert_eq!(
+        session.redact(&format!("a {MINTED} b {MINTED}")),
+        "a [redacted] b [redacted]"
+    );
+}

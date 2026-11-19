@@ -87,6 +87,15 @@ pub struct RestClientConfig {
     /// a write-capable credential sets this false: there, the host is the whole
     /// of what the binding protects.
     pub follow_redirects: bool,
+    /// Whether an error keeps only what Airlock can vouch for.
+    ///
+    /// A response's `message` and `documentation_url` are free text the server
+    /// chose, and a server or proxy that echoes a request's credential puts it
+    /// there. The central run sets this, so its report carries the status, the
+    /// classified cause and the endpoint, never that text. The permission and
+    /// request-id headers are kept only when they have the shape GitHub gives
+    /// them.
+    pub withhold_response_text: bool,
 }
 
 impl Default for RestClientConfig {
@@ -114,6 +123,7 @@ impl RestClientConfig {
             max_rate_limit_retries: 2,
             max_rate_limit_wait_seconds: 60,
             follow_redirects: true,
+            withhold_response_text: false,
         }
     }
 
@@ -125,6 +135,33 @@ impl RestClientConfig {
             ..self
         }
     }
+
+    /// The same configuration, keeping no server-chosen text in its errors.
+    #[must_use]
+    pub fn withholding_response_text(self) -> Self {
+        Self {
+            withhold_response_text: true,
+            ..self
+        }
+    }
+}
+
+/// Whether an `X-Accepted-GitHub-Permissions` value has GitHub's shape:
+/// `name=level` pairs, joined by commas or semicolons.
+fn has_permission_shape(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 512
+        && value
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || matches!(c, '_' | '=' | ',' | ';' | ' ' | '|'))
+}
+
+/// Whether an `X-GitHub-Request-Id` value has GitHub's shape: hexadecimal
+/// fields joined by colons.
+fn has_request_id_shape(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && value.chars().all(|c| c.is_ascii_hexdigit() || c == ':')
 }
 
 /// A GitHub REST client bound to one credential.
@@ -362,19 +399,33 @@ impl RestClient {
         cause: ErrorCause,
         summary: Response,
     ) -> ApiError {
+        // A repeated accepted-permissions header has no single answer, so
+        // every value is reported rather than one arbitrary member.
+        let accepted_permissions = match raw.all("x-accepted-github-permissions") {
+            [] => None,
+            values => Some(values.join(" | ")),
+        };
+        let request_id = raw.single("x-github-request-id").map(ToOwned::to_owned);
+        if self.config.withhold_response_text {
+            return ApiError {
+                cause,
+                endpoint: endpoint.to_owned(),
+                status: Some(raw.status),
+                message: None,
+                documentation_url: None,
+                accepted_permissions: accepted_permissions
+                    .filter(|value| has_permission_shape(value)),
+                request_id: request_id.filter(|value| has_request_id_shape(value)),
+            };
+        }
         ApiError {
             cause,
             endpoint: endpoint.to_owned(),
             status: Some(raw.status),
             message: summary.message,
             documentation_url: summary.documentation_url,
-            // A repeated accepted-permissions header has no single answer, so
-            // every value is reported rather than one arbitrary member.
-            accepted_permissions: match raw.all("x-accepted-github-permissions") {
-                [] => None,
-                values => Some(values.join(" | ")),
-            },
-            request_id: raw.single("x-github-request-id").map(ToOwned::to_owned),
+            accepted_permissions,
+            request_id,
         }
     }
 
