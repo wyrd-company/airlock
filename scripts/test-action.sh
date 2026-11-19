@@ -13,7 +13,10 @@ if [[ -n ${FAKE_RECORD:-} ]]; then
   printf 'AIRLOCK_TOKEN=%s\nAIRLOCK_RUN_TOKEN=%s\n' \
     "${AIRLOCK_TOKEN-unset}" "${AIRLOCK_RUN_TOKEN-unset}" >"$FAKE_RECORD.env"
 fi
-printf '{"outcome":"%s","complete":%s}\n' "${FAKE_OUTCOME:-conformant}" "${FAKE_COMPLETE:-true}"
+# The real binary prints nothing when it stops before auditing.
+if [[ -z ${FAKE_EMPTY:-} ]]; then
+  printf '{"outcome":"%s","complete":%s}\n' "${FAKE_OUTCOME:-conformant}" "${FAKE_COMPLETE:-true}"
+fi
 exit "${FAKE_STATUS:-0}"
 EOF
 chmod +x "$fake_airlock"
@@ -246,3 +249,70 @@ if run_recorded unknown-mode INPUT_MODE=organization AIRLOCK_TOKEN=ghu_fixture; 
   exit 1
 fi
 [[ ! -e "$test_root/unknown-mode.args" ]]
+
+central_inputs=(
+  INPUT_MODE=central GITHUB_REPOSITORY_OWNER=example
+  INPUT_APP_ID=4409712 INPUT_KEY_NAME=airlock-safe
+  INPUT_INSTALLATION_REPOSITORIES='example/*'
+  INPUT_VAULT_URL=https://example.vault.azure.net
+  INPUT_AZURE_TENANT_ID=tenant INPUT_AZURE_CLIENT_ID=client
+)
+
+findings_of() {
+  sed -n 's/^findings-location=//p' "$test_root/output-$1"
+}
+
+# Central mode refuses fail-on-incomplete:false, before Airlock runs, and
+# still fails.
+central_override_status=0
+run_recorded central-override "${central_inputs[@]}" INPUT_FAIL_ON_INCOMPLETE=false || central_override_status=$?
+[[ "$central_override_status" -eq 2 ]]
+[[ ! -e "$test_root/central-override.args" ]]
+grep -qE '^outcome=incomplete$' "$test_root/output-central-override"
+
+# A refusal inside the binary stays a failure in central mode, and its empty
+# output becomes the incomplete document rather than an empty report.
+central_refused_status=0
+run_recorded central-refused "${central_inputs[@]}" FAKE_STATUS=2 FAKE_EMPTY=1 || central_refused_status=$?
+[[ "$central_refused_status" -eq 2 ]]
+central_refused_findings=$(findings_of central-refused)
+[[ -s "$central_refused_findings" ]]
+jq -e '.outcome == "incomplete" and .complete == false and .mode == "central"' \
+  "$central_refused_findings" >/dev/null
+grep -qE '^outcome=incomplete$' "$test_root/output-central-refused"
+
+# A pre-invocation refusal in central mode fails with the override asked
+# for, and also when it is asked for alongside an offered credential.
+central_credential_status=0
+run_recorded central-refused-credential "${central_inputs[@]}" \
+  INPUT_FAIL_ON_INCOMPLETE=false INPUT_TOKEN=ghs_run || central_credential_status=$?
+[[ "$central_credential_status" -eq 2 ]]
+
+# An unreadable mode is not repository mode, so the override does not apply.
+unknown_override_status=0
+run_recorded unknown-mode-override INPUT_MODE=Central AIRLOCK_TOKEN=ghu_fixture \
+  INPUT_FAIL_ON_INCOMPLETE=false || unknown_override_status=$?
+[[ "$unknown_override_status" -eq 2 ]]
+
+# Repository mode keeps the override, and its empty output too becomes the
+# incomplete document.
+run_recorded repository-empty GITHUB_REPOSITORY=example/repository \
+  AIRLOCK_TOKEN=ghu_fixture FAKE_STATUS=2 FAKE_EMPTY=1 INPUT_FAIL_ON_INCOMPLETE=false
+repository_empty_findings=$(findings_of repository-empty)
+jq -e '.outcome == "incomplete" and .mode == "repository"' \
+  "$repository_empty_findings" >/dev/null
+
+# An exit that claims a result without a report is not a pass.
+empty_success_status=0
+run_recorded empty-success GITHUB_REPOSITORY=example/repository \
+  AIRLOCK_TOKEN=ghu_fixture FAKE_STATUS=0 FAKE_EMPTY=1 || empty_success_status=$?
+[[ "$empty_success_status" -eq 2 ]]
+grep -qE '^outcome=incomplete$' "$test_root/output-empty-success"
+
+# The text format gets the same document.
+run_recorded empty-text GITHUB_REPOSITORY=example/repository \
+  AIRLOCK_TOKEN=ghu_fixture FAKE_STATUS=2 FAKE_EMPTY=1 INPUT_FORMAT=text \
+  INPUT_FAIL_ON_INCOMPLETE=false
+grep -q '^incomplete — complete: false$' "$(findings_of empty-text)"
+
+echo "test-action.sh: every case passed"

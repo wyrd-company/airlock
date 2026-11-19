@@ -258,9 +258,17 @@ outputs after a failing inner step.
 
 The Action preserves Airlock's exit codes: conformant exits `0`,
 nonconformant exits `1`, and incomplete exits `2`. An incomplete audit fails
-the step by default. Set `fail-on-incomplete: "false"` only when the workflow
-must continue despite an unanswered audit; the outputs still say
-`outcome: incomplete` and `complete: false`. Nonconformance always fails.
+the step by default. In repository mode, set `fail-on-incomplete: "false"`
+only when the workflow must continue despite an unanswered audit; the outputs
+still say `outcome: incomplete` and `complete: false`. Central mode refuses
+`fail-on-incomplete: "false"`, because a central run that could not audit
+must fail. Nonconformance always fails.
+
+When Airlock stops before writing a report, such as on a refused sign-in, the
+findings document is a stable incomplete one: `outcome: incomplete`,
+`complete: false`, the mode, and a message saying the step log has the
+reason. It repeats nothing Airlock or a service printed. An empty file is
+never published as a report.
 
 Before making any audit request, the same verifier as the command-line
 interface enumerates the credential's authority. It refuses the credential if
@@ -384,12 +392,13 @@ The tests `decided_outcomes_match_the_integration_base`,
 `disclosure_routing_and_a_missing_input_without_a_gate_are_distinct`, and
 `unbuilt_branches_preserve_decided_outcomes` verify these contracts.
 
-The binary's exit contract is unconditional. The composite Action retains
-`fail-on-incomplete: "false"` as an adapter override: it maps binary exit `2`
-to Action success while reporting `outcome: incomplete` and `complete: false`.
-The override also covers setup errors such as a missing or refused credential.
-`scripts/test-action.sh` verifies this mapping. Blocking Gaps still fail the
-Action.
+The binary's exit contract is unconditional. In repository mode, the
+composite Action retains `fail-on-incomplete: "false"` as an adapter override:
+it maps binary exit `2` to Action success while reporting
+`outcome: incomplete` and `complete: false`. The override also covers setup
+errors such as a missing or refused credential. Central mode, and a mode the
+Action does not recognise, refuse it. `scripts/test-action.sh` verifies this
+mapping. Blocking Gaps still fail the Action.
 
 On Unix, a closed output pipe terminates silently on signal 13 (`SIGPIPE`),
 commonly reported by shells as status 141.

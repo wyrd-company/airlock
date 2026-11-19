@@ -2,8 +2,10 @@
 set -euo pipefail
 
 # Binary contract: 0 no blocking gaps, 1 blocking gaps, 2 a run error.
-# The Action alone may map exit 2 to success with fail-on-incomplete:false;
-# that override includes setup errors such as a missing credential.
+# In repository mode alone, the Action may map exit 2 to success with
+# fail-on-incomplete:false; that override includes setup errors such as a
+# missing credential. Central mode refuses the override: a central run that
+# could not audit always fails.
 # Waived, routed, unbuilt, and out-of-scope rules do not alter the binary exit status.
 #
 # Two modes. Repository mode audits one repository with the token input,
@@ -51,8 +53,18 @@ case "$fail_on_incomplete" in
     ;;
 esac
 
+# The override is honoured only for a mode known to be repository mode, so a
+# central run, or one whose mode is unreadable, can never end as a success
+# without its audit.
+override=$fail_on_incomplete
+fail_on_incomplete=true
 case "$mode" in
-  repository | central) ;;
+  repository) fail_on_incomplete=$override ;;
+  central)
+    if [[ "$override" == false ]]; then
+      validation_error="fail-on-incomplete applies only to repository mode; central mode always fails when it cannot audit."
+    fi
+    ;;
   *) validation_error="mode must be 'repository' or 'central'." ;;
 esac
 
@@ -79,18 +91,26 @@ write_outputs() {
   write_environment "$1" "$2"
 }
 
-finish_incomplete() {
+# Write the stable incomplete document. It carries only the adapter's own
+# message, never anything Airlock or a service printed.
+incomplete_document() {
   local message=$1
   if [[ "$extension" == json ]]; then
     local escaped=$message
     escaped=${escaped//\\/\\\\}
     escaped=${escaped//\"/\\\"}
     escaped=${escaped//$'\n'/\\n}
-    printf '{"outcome":"incomplete","complete":false,"message":"%s"}\n' \
-      "$escaped" >"$findings_location"
+    printf '{"outcome":"incomplete","complete":false,"mode":"%s","message":"%s"}\n' \
+      "${mode//[^a-z]/}" "$escaped" >"$findings_location"
   else
-    printf 'incomplete — complete: false\n%s\n' "$message" >"$findings_location"
+    printf 'incomplete — complete: false\nmode: %s\n%s\n' \
+      "${mode//[^a-z]/}" "$message" >"$findings_location"
   fi
+}
+
+finish_incomplete() {
+  local message=$1
+  incomplete_document "$message"
   echo "::error::$message"
   write_outputs incomplete false
   [[ "$fail_on_incomplete" == false ]] && exit 0
@@ -151,6 +171,15 @@ set +e
 "$airlock_bin" "${args[@]}" >"$findings_location"
 status=$?
 set -e
+
+# Airlock writes no report when it stops before auditing, such as on a
+# refused sign-in. An empty file is not a report, so it becomes the stable
+# incomplete document, and an empty report is never a pass.
+if [[ ! -s "$findings_location" ]]; then
+  incomplete_document "Airlock exited with status $status before writing a report; the step log says why."
+  [[ "$status" -ne 0 && "$status" -ne 1 ]] || status=2
+  echo "::error::Airlock exited before writing a report."
+fi
 
 cat "$findings_location"
 
