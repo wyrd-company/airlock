@@ -161,6 +161,9 @@ pub async fn run(
         })
     };
 
+    // Every client here keeps no server-chosen text in its errors, so the
+    // report's run errors carry statuses and causes, never a response body.
+    let client_config = &client_config.clone().withholding_response_text();
     let lister = client(client_config)?;
     let source = policy_source.unwrap_or_else(|| PolicySource::default_for_owner(owner));
     let policy = policy::resolve(&lister, &source, &options.limits).await?;

@@ -443,11 +443,28 @@ impl CentralSession {
 
     /// Revoke the installation token.
     ///
+    /// The session can still redact after this, which is when its output is
+    /// rendered.
+    ///
     /// # Errors
     ///
     /// Returns a `token-revoke` error when GitHub does not confirm it.
-    pub async fn revoke(self) -> Result<(), CentralError> {
+    pub async fn revoke(&self) -> Result<(), CentralError> {
         revoke_token(&self.http, &self.github_api, &self.token).await
+    }
+
+    /// Replace every occurrence of the session's token in `text`.
+    ///
+    /// The last guard on everything central mode prints: a report or a
+    /// message that came to carry the token through some service's echo
+    /// carries `[redacted]` instead.
+    #[must_use]
+    pub fn redact(&self, text: &str) -> String {
+        if self.token.is_empty() {
+            text.to_owned()
+        } else {
+            text.replace(self.token.as_str(), "[redacted]")
+        }
     }
 }
 
@@ -588,13 +605,15 @@ async fn azure_sign_in(
         .map_err(|error| transport(Step::AzureSignIn, "the Entra ID token request", &error))?;
     let (status, body) = read(response, Step::AzureSignIn, budget).await?;
     if !(200..300).contains(&status) {
-        // Entra ID names the failure in `error`, such as `invalid_client`;
-        // its description is not carried, because nothing here needs it.
+        // Entra ID names the failure in `error`, such as `invalid_client`,
+        // and in the numbers of `error_codes`, such as AADSTS70021. Only a
+        // code from OAuth's closed list and those numbers are carried; the
+        // description is the service's free text and is not.
         return Err(answered(
             Step::AzureSignIn,
             "Entra ID refused the job's federated credential",
             status,
-            string_field(&body, "error").map(ToOwned::to_owned),
+            entra_code(&body),
         ));
     }
     string_field(&body, "access_token")
@@ -643,6 +662,7 @@ async fn sign_app_jwt(
             status,
             body.get("error")
                 .and_then(|error| string_field(error, "code"))
+                .filter(|code| KEY_VAULT_CODES.contains(code))
                 .map(ToOwned::to_owned),
         ));
     }
@@ -709,12 +729,13 @@ async fn check_app(
     let id = body.get("id").and_then(Value::as_u64);
     let slug = string_field(&body, "slug");
     if id != Some(AIRLOCK_SAFE_APP_ID) || slug != Some(AIRLOCK_SAFE_APP_SLUG) {
+        // The id is a number and safe to show; the slug GitHub returned is
+        // text, and is not repeated.
         return Err(CentralError::new(
             Step::AppIdentity,
             format!(
-                "the key signs for `{}` (app id {}), not `{AIRLOCK_SAFE_APP_SLUG}` (app id \
+                "the key signs for another App (app id {}), not `{AIRLOCK_SAFE_APP_SLUG}` (app id \
                  {AIRLOCK_SAFE_APP_ID}), the App central mode is built with",
-                slug.unwrap_or("an unnamed App"),
                 id.map_or_else(|| "unknown".to_owned(), |id| id.to_string())
             ),
         ));
@@ -722,7 +743,7 @@ async fn check_app(
     let permissions = permission_map(&body).ok_or_else(|| {
         CentralError::new(
             Step::AppIdentity,
-            "`GET /app` carried no permission map, so the App's registration is unread",
+            "`GET /app` carried no readable permission map, so the App's registration is unread",
         )
     })?;
     let writes = non_reads(&permissions);
@@ -796,11 +817,9 @@ async fn find_installation(
     }
     Ok(FoundInstallation {
         id,
-        account: body
-            .get("account")
-            .and_then(|account| string_field(account, "login"))
-            .unwrap_or(owner)
-            .to_owned(),
+        // The owner Airlock asked for, rather than the login text GitHub
+        // returned: the route already bound the installation to it.
+        account: owner.clone(),
         repository_selection: string_field(&body, "repository_selection").map(ToOwned::to_owned),
     })
 }
@@ -822,10 +841,11 @@ fn check_scope(
                 "installation {} reaches `{}` repositories; `delivery-apps` requires \
                  `{AIRLOCK_SAFE_APP_SLUG}` to be installed on all of `{}`'s repositories",
                 installation.id,
-                installation
-                    .repository_selection
-                    .as_deref()
-                    .unwrap_or("unstated"),
+                match installation.repository_selection.as_deref() {
+                    Some(known @ ("all" | "selected")) => known,
+                    Some(_) => "an unrecognised selection of",
+                    None => "an unstated selection of",
+                },
                 config.owner
             ),
         ));
@@ -885,21 +905,22 @@ async fn mint_token(
     let token = string_field(&body, "token")
         .map(|token| Zeroizing::new(token.to_owned()))
         .ok_or_else(|| CentralError::new(Step::TokenRequest, "GitHub's answer carried no token"))?;
-    let permissions = permission_map(&body).unwrap_or_default();
-    let writes = non_reads(&permissions);
-    if permissions.is_empty() || !writes.is_empty() {
+    let permissions = permission_map(&body);
+    let writes = permissions.as_ref().map(non_reads).unwrap_or_default();
+    let listed = match &permissions {
+        None => Some("an unreadable permission map".to_owned()),
+        Some(map) if map.is_empty() => Some("no permissions".to_owned()),
+        Some(_) if !writes.is_empty() => Some(writes.join(", ")),
+        Some(_) => None,
+    };
+    if let Some(listed) = listed {
         // The token exists, and Airlock will not use it, so it does not
         // outlive the refusal.
         let revoked = revoke_token(http, github_api, &token).await;
         return Err(CentralError::new(
             Step::TokenRequest,
             format!(
-                "the minted token lists {}; central mode accepts only `read` permissions{}",
-                if writes.is_empty() {
-                    "no permissions".to_owned()
-                } else {
-                    writes.join(", ")
-                },
+                "the minted token lists {listed}; central mode accepts only `read` permissions{}",
                 match revoked {
                     Ok(()) => ", and it was revoked".to_owned(),
                     Err(error) => format!(", and revoking it failed: {error}"),
@@ -909,8 +930,17 @@ async fn mint_token(
     }
     Ok(MintedToken {
         token,
-        permissions,
-        expires_at: string_field(&body, "expires_at").map(ToOwned::to_owned),
+        permissions: permissions.unwrap_or_default(),
+        // A timestamp, kept only when it looks like one.
+        expires_at: string_field(&body, "expires_at")
+            .filter(|value| {
+                !value.is_empty()
+                    && value.len() <= 40
+                    && value.chars().all(|c| {
+                        c.is_ascii_digit() || matches!(c, '-' | ':' | 'T' | 'Z' | '.' | '+')
+                    })
+            })
+            .map(ToOwned::to_owned),
     })
 }
 
@@ -1013,30 +1043,92 @@ fn answered(
     }
 }
 
+/// A refusal from GitHub, reported by its status alone.
+///
+/// GitHub's `message` is free text, and a server or proxy that echoes the
+/// request's credential would put it there, so it is never carried.
 fn github_refusal(
     step: Step,
     detail: impl Into<String>,
     status: u16,
-    body: &Value,
+    _body: &Value,
 ) -> CentralError {
-    answered(
-        step,
-        detail,
-        status,
-        string_field(body, "message").map(ToOwned::to_owned),
-    )
+    answered(step, detail, status, None)
+}
+
+/// The OAuth error codes Entra ID's token endpoint answers with.
+const ENTRA_CODES: &[&str] = &[
+    "access_denied",
+    "consent_required",
+    "expired_token",
+    "interaction_required",
+    "invalid_client",
+    "invalid_grant",
+    "invalid_request",
+    "invalid_resource",
+    "invalid_scope",
+    "server_error",
+    "temporarily_unavailable",
+    "unauthorized_client",
+    "unsupported_grant_type",
+];
+
+/// The Key Vault error codes a sign request answers with.
+const KEY_VAULT_CODES: &[&str] = &[
+    "BadParameter",
+    "Forbidden",
+    "KeyDisabled",
+    "KeyExpired",
+    "KeyNotFound",
+    "KeyNotYetValid",
+    "NotFound",
+    "ServiceUnavailable",
+    "Throttled",
+    "Unauthorized",
+];
+
+/// Entra ID's error, as a vetted code: the OAuth code when it is one, and
+/// the first AADSTS number, which is a number and cannot carry text.
+fn entra_code(body: &Value) -> Option<String> {
+    let code = string_field(body, "error").filter(|code| ENTRA_CODES.contains(code));
+    let number = body
+        .get("error_codes")
+        .and_then(Value::as_array)
+        .and_then(|codes| codes.first())
+        .and_then(Value::as_u64);
+    match (code, number) {
+        (Some(code), Some(number)) => Some(format!("{code}, AADSTS{number}")),
+        (Some(code), None) => Some(code.to_owned()),
+        (None, Some(number)) => Some(format!("AADSTS{number}")),
+        (None, None) => None,
+    }
 }
 
 fn string_field<'a>(value: &'a Value, name: &str) -> Option<&'a str> {
     value.get(name).and_then(Value::as_str)
 }
 
+/// The permission map, when every entry has a permission's shape.
+///
+/// A name is lowercase letters and underscores, and a level is `read`,
+/// `write` or `admin`. A map with any other entry is unread rather than
+/// partly read, and its text is never repeated.
 fn permission_map(value: &Value) -> Option<BTreeMap<String, String>> {
     let Value::Object(map) = value.get("permissions")? else {
         return None;
     };
     map.iter()
-        .map(|(name, level)| level.as_str().map(|level| (name.clone(), level.to_owned())))
+        .map(|(name, level)| {
+            let named = !name.is_empty()
+                && name.len() <= 64
+                && name.chars().all(|c| c.is_ascii_lowercase() || c == '_');
+            match level.as_str() {
+                Some(level @ ("read" | "write" | "admin")) if named => {
+                    Some((name.clone(), level.to_owned()))
+                }
+                _ => None,
+            }
+        })
         .collect()
 }
 

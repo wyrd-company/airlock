@@ -278,6 +278,75 @@ async fn open_pull_requests_are_observed_by_well_known_head_and_base() {
 }
 
 #[tokio::test]
+async fn a_withholding_client_keeps_no_server_text_in_its_errors() {
+    // A placeholder stands in for an echoed credential.
+    let echo = "Bearer placeholder-echoed-credential";
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/repos/owner/name"))
+        .respond_with(
+            ResponseTemplate::new(403)
+                .insert_header("x-github-request-id", echo)
+                .insert_header("x-accepted-github-permissions", echo)
+                .set_body_json(json!({ "message": echo, "documentation_url": echo })),
+        )
+        .mount(&server)
+        .await;
+
+    let withheld = client_with(
+        &server,
+        RestClientConfig::default().withholding_response_text(),
+    )
+    .repository("owner", "name")
+    .await
+    .unwrap_err();
+    assert_eq!(withheld.status, Some(403));
+    assert_eq!(withheld.message, None);
+    assert_eq!(withheld.documentation_url, None);
+    assert_eq!(withheld.accepted_permissions, None);
+    assert_eq!(withheld.request_id, None);
+    assert!(!withheld.to_string().contains("placeholder"), "{withheld}");
+
+    // Without it the attended surfaces keep GitHub's diagnostics.
+    let kept = client(&server)
+        .repository("owner", "name")
+        .await
+        .unwrap_err();
+    assert_eq!(kept.message.as_deref(), Some(echo));
+}
+
+#[tokio::test]
+async fn a_withholding_client_keeps_headers_that_have_githubs_shape() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/repos/owner/name"))
+        .respond_with(
+            ResponseTemplate::new(403)
+                .insert_header("x-github-request-id", "C3A4:1B2F:3E4D5:6F7A8:65A1B2C3")
+                .insert_header("x-accepted-github-permissions", "administration=read")
+                .set_body_json(json!({ "message": "Resource not accessible by integration" })),
+        )
+        .mount(&server)
+        .await;
+    let error = client_with(
+        &server,
+        RestClientConfig::default().withholding_response_text(),
+    )
+    .repository("owner", "name")
+    .await
+    .unwrap_err();
+    assert_eq!(
+        error.request_id.as_deref(),
+        Some("C3A4:1B2F:3E4D5:6F7A8:65A1B2C3")
+    );
+    assert_eq!(
+        error.accepted_permissions.as_deref(),
+        Some("administration=read")
+    );
+    assert_eq!(error.message, None);
+}
+
+#[tokio::test]
 async fn a_plan_limitation_403_is_not_mistaken_for_a_permission_failure() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
