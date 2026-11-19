@@ -943,6 +943,127 @@ async fn a_repository_central_mode_cannot_audit_makes_the_run_incomplete() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn central_output_repeats_no_credential_a_service_echoes() {
+    // Synthetic placeholders only. GitHub answers one repository with a
+    // refusal whose every free-form field repeats the session's token, fails
+    // the revocation the same way, and sends the token as the other
+    // repository's `Date` header, which the report records as the time the
+    // settings were observed and only the final redaction can catch.
+    use support::central::MINTED;
+    let repo = licensed_repo();
+    let settings = repo.settings.clone();
+    let server = support::start(&[repo]).await;
+    support::central::mount(
+        &server,
+        &[("wyrd-company", "example"), ("wyrd-company", "refusing")],
+    )
+    .await;
+    let echo = format!("Bearer {MINTED}");
+    wiremock::Mock::given(wiremock::matchers::method("GET"))
+        .and(wiremock::matchers::path("/repos/wyrd-company/example"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200)
+                .insert_header("date", echo.as_str())
+                .set_body_json(settings),
+        )
+        .with_priority(1)
+        .mount(&server)
+        .await;
+    wiremock::Mock::given(wiremock::matchers::method("GET"))
+        .and(wiremock::matchers::path("/repos/wyrd-company/refusing"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(403)
+                .insert_header("x-github-request-id", echo.as_str())
+                .insert_header("x-accepted-github-permissions", echo.as_str())
+                .set_body_json(serde_json::json!({
+                    "message": echo,
+                    "documentation_url": echo
+                })),
+        )
+        .mount(&server)
+        .await;
+    wiremock::Mock::given(wiremock::matchers::method("DELETE"))
+        .and(wiremock::matchers::path("/installation/token"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(500)
+                .set_body_json(serde_json::json!({ "message": echo })),
+        )
+        .mount(&server)
+        .await;
+
+    let config = TempDir::new().unwrap();
+    let policies = TempDir::new().unwrap();
+    let output = central(&server, &config, &policy_path(&policies, LICENSING_POLICY))
+        .output()
+        .expect("airlock runs");
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "the refused repository is incomplete"
+    );
+    assert_prints_no_secret(&output);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("warning: token-revoke"), "{stderr}");
+    let report = json_output(&output.stdout);
+    let refusing = &report["repositories"][1];
+    assert_eq!(refusing["repository"], "wyrd-company/refusing");
+    assert!(
+        refusing["error"].as_str().unwrap().contains("http 403"),
+        "{refusing}"
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("[redacted]"),
+        "the echoed header is redacted"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_refused_policy_source_stops_central_mode_before_any_token_exists() {
+    // Every input that can be refused is read before sign-in, so no early
+    // return can leave a minted token unrevoked.
+    let server = central_server().await;
+    let config = TempDir::new().unwrap();
+    central(&server, &config, "not-a-policy")
+        .assert()
+        .code(2)
+        .stderr(contains("cannot read `--policy not-a-policy`"));
+    assert!(
+        server
+            .received_requests()
+            .await
+            .unwrap_or_default()
+            .is_empty(),
+        "nothing was requested, so no token was minted"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_failed_policy_resolution_after_sign_in_still_revokes_the_token() {
+    // The policy names a repository the fake GitHub does not serve, so it
+    // fails only after the token is minted.
+    let server = central_server().await;
+    let config = TempDir::new().unwrap();
+    let output = central(&server, &config, "wyrd-company/missing:policy.yml")
+        .output()
+        .expect("airlock runs");
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    assert_prints_no_secret(&output);
+    let requests = server.received_requests().await.unwrap_or_default();
+    let minted = requests
+        .iter()
+        .filter(|request| request.url.path() == "/app/installations/77/access_tokens")
+        .count();
+    let revoked = requests
+        .iter()
+        .filter(|request| {
+            request.method.as_str() == "DELETE" && request.url.path() == "/installation/token"
+        })
+        .count();
+    assert_eq!((minted, revoked), (1, 1));
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn central_mode_accepts_no_other_credential() {
     let server = central_server().await;
     let config = TempDir::new().unwrap();

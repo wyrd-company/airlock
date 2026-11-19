@@ -229,11 +229,20 @@ nonconformant, then conformant. A listing Airlock could not walk to the end,
 an empty listing, or a repository it could not audit makes the run
 incomplete. The report is uploaded as the `airlock-central-report` artifact.
 
-The installation token stays in memory and is revoked when the run ends. If
-revoking fails, Airlock warns and still reports, because the read-only token
-expires on its own within the hour. No message carries a token, an
-assertion, a signature or a request body. A failure names the step, the HTTP
-status and the service's error code.
+The installation token stays in memory and is revoked when the run ends.
+Every input that can be refused is read before the token is minted, so no
+refusal leaves it unrevoked. If revoking fails, Airlock warns and still
+reports, because the read-only token expires on its own within the hour.
+
+No message carries a token, an assertion, a signature or a request body, and
+none repeats text a service chose. A sign-in failure names the step and the
+HTTP status. It names the service's error code only when the code is one
+Airlock knows: an OAuth error code or AADSTS number from Entra ID, or a Key
+Vault error code. GitHub's messages are never repeated. The report's errors
+carry the status, the cause and the endpoint. GitHub's permission and
+request-id headers are kept only when they have GitHub's shape. Everything
+central mode prints is redacted of its token last, so an echo that got past
+every other guard prints as `[redacted]`.
 
 ### Inputs and outputs
 
