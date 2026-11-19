@@ -38,7 +38,8 @@ fn airlock(server: &MockServer, config: &TempDir) -> Command {
         // Anything airlock must not read is set to something it would choke on
         // if it ever did.
         .env("GH_TOKEN", "ghp_this_must_never_be_read")
-        .env("GITHUB_TOKEN", "ghp_this_must_never_be_read");
+        .env("GITHUB_TOKEN", "ghp_this_must_never_be_read")
+        .env_remove("AIRLOCK_RUN_TOKEN");
     command
 }
 
@@ -484,6 +485,7 @@ fn actions_run<'a>(command: &'a mut Command, repository: &str) -> &'a mut Comman
         .env("GITHUB_WORKFLOW_SHA", RUN_WORKFLOW_SHA)
         .env("GITHUB_JOB", "audit")
         .env("AIRLOCK_TOKEN", RUN_TOKEN)
+        .env("AIRLOCK_RUN_TOKEN", RUN_TOKEN)
 }
 
 /// A command with every Actions variable removed, so a test that means
@@ -607,6 +609,101 @@ async fn repository_mode_audits_only_the_runs_repository() {
     assert_eq!(output.status.code(), Some(2));
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("foreign_repository"), "{stderr}");
+}
+
+/// Run repository mode with the read-only job served, after `configure`
+/// adjusts the command.
+async fn repository_mode_with(configure: impl FnOnce(&mut Command)) -> std::process::Output {
+    let server = support::start(&[licensed_repo()]).await;
+    support::mount_workflow_at(
+        &server,
+        "wyrd-company/example",
+        ".github/workflows/audit.yml",
+        RUN_WORKFLOW_SHA,
+        READING_AUDIT_JOB,
+    )
+    .await;
+    let config = TempDir::new().unwrap();
+    let policies = TempDir::new().unwrap();
+    let mut command = airlock(&server, &config);
+    actions_run(&mut command, "wyrd-company/example").args([
+        "audit",
+        "wyrd-company/example",
+        "--mode",
+        "repository",
+        "--policy",
+        &policy_path(&policies, LICENSING_POLICY),
+    ]);
+    configure(&mut command);
+    command.output().expect("airlock runs")
+}
+
+fn printed(output: &std::process::Output) -> String {
+    format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    )
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn repository_mode_refuses_an_installation_token_that_is_not_the_runs() {
+    let output = repository_mode_with(|command| {
+        command.env("AIRLOCK_TOKEN", "ghs_placeholder_another_app");
+    })
+    .await;
+    assert_eq!(output.status.code(), Some(2));
+    let text = printed(&output);
+    assert!(text.contains("foreign_installation_token"), "{text}");
+    assert!(!text.contains("ghs_placeholder_another_app"));
+    assert!(!text.contains(RUN_TOKEN));
+    assert!(output.stdout.is_empty(), "nothing is audited");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn repository_mode_refuses_an_installation_token_with_nothing_to_bind_it_to() {
+    let output = repository_mode_with(|command| {
+        command.env_remove("AIRLOCK_RUN_TOKEN");
+    })
+    .await;
+    assert_eq!(output.status.code(), Some(2));
+    assert!(printed(&output).contains("run_token_unbound"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn repository_mode_binds_the_token_as_every_source_reads_it() {
+    // Each credential source trims what it reads, and the binding compares
+    // the trimmed values, so surrounding whitespace neither admits a foreign
+    // token nor refuses the run's own.
+    let padded_flag = repository_mode_with(|command| {
+        command
+            .env_remove("AIRLOCK_TOKEN")
+            .env("AIRLOCK_RUN_TOKEN", format!("{RUN_TOKEN}\n"))
+            .args(["--token", &format!("  {RUN_TOKEN} ")]);
+    })
+    .await;
+    assert_eq!(
+        padded_flag.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&padded_flag.stderr)
+    );
+
+    let padded_stdin = repository_mode_with(|command| {
+        command
+            .env_remove("AIRLOCK_TOKEN")
+            .arg("--token-stdin")
+            .write_stdin(format!("\t{RUN_TOKEN}\n"));
+    })
+    .await;
+    assert_eq!(padded_stdin.status.code(), Some(0));
+
+    let padded_foreign = repository_mode_with(|command| {
+        command.env("AIRLOCK_TOKEN", " ghs_placeholder_another_app");
+    })
+    .await;
+    assert_eq!(padded_foreign.status.code(), Some(2));
+    assert!(printed(&padded_foreign).contains("foreign_installation_token"));
 }
 
 #[tokio::test(flavor = "multi_thread")]

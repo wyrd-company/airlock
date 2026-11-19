@@ -159,7 +159,25 @@ grep -qx -- '--mode' "$test_root/repository-run-token.args"
 grep -qx 'repository' "$test_root/repository-run-token.args"
 grep -qx 'example/repository' "$test_root/repository-run-token.args"
 grep -qx 'AIRLOCK_TOKEN=ghs_run' "$test_root/repository-run-token.env"
-grep -qx 'AIRLOCK_RUN_TOKEN=unset' "$test_root/repository-run-token.env"
+grep -qx 'AIRLOCK_RUN_TOKEN=ghs_run' "$test_root/repository-run-token.env"
+
+# Surrounding whitespace is trimmed before the comparison, as Airlock trims
+# every credential it reads: padding neither refuses the run's own token nor
+# admits another.
+run_recorded repository-padded-run-token \
+  GITHUB_REPOSITORY=example/repository \
+  INPUT_TOKEN=$' ghs_run\n' AIRLOCK_RUN_TOKEN=$'ghs_run '
+grep -qx 'AIRLOCK_TOKEN=ghs_run' "$test_root/repository-padded-run-token.env"
+grep -qx 'AIRLOCK_RUN_TOKEN=ghs_run' "$test_root/repository-padded-run-token.env"
+for padded in ' ghs_another_app' $'\tghs_another_app' $'\nghs_another_app'; do
+  if run_recorded padded-foreign \
+    GITHUB_REPOSITORY=example/repository \
+    INPUT_TOKEN="$padded" AIRLOCK_RUN_TOKEN=ghs_run; then
+    echo "a padded foreign installation token was not refused" >&2
+    exit 1
+  fi
+  [[ ! -e "$test_root/padded-foreign.args" ]]
+done
 
 # Another installation token is refused before Airlock runs, whether it
 # arrives as the token input or as AIRLOCK_TOKEN.

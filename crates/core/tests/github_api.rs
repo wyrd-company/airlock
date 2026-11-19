@@ -907,6 +907,7 @@ async fn the_runs_token_is_accepted_when_its_job_declares_only_reads() {
             run: &run,
             owner: "owner",
             repo: "name",
+            run_token: Some("ghs_runtoken"),
         },
     )
     .await
@@ -949,6 +950,7 @@ jobs:
             run: &run,
             owner: "owner",
             repo: "name",
+            run_token: Some("ghs_runtoken"),
         },
     )
     .await
@@ -969,6 +971,7 @@ async fn the_runs_token_audits_only_the_runs_repository() {
             run: &run,
             owner: "owner",
             repo: "other",
+            run_token: Some("ghs_runtoken"),
         },
     )
     .await
@@ -988,11 +991,49 @@ async fn an_unreadable_workflow_file_is_refused_not_assumed() {
             run: &run,
             owner: "owner",
             repo: "name",
+            run_token: Some("ghs_runtoken"),
         },
     )
     .await
     .unwrap_err();
     assert_eq!(refusal.code.code(), "workflow_unreadable");
+}
+
+#[tokio::test]
+async fn an_installation_token_other_than_the_runs_is_refused_without_a_request() {
+    let server = MockServer::start().await;
+    mount_workflow(&server, READING_JOB).await;
+    let run = run_in("owner/name");
+    for (run_token, code) in [
+        (
+            Some("ghs_placeholder_the_run"),
+            "foreign_installation_token",
+        ),
+        (None, "run_token_unbound"),
+        (Some("   "), "run_token_unbound"),
+    ] {
+        let refusal = verify_for(
+            "ghs_runtoken",
+            &run_token_client(&server),
+            Admission::Repository {
+                run: &run,
+                owner: "owner",
+                repo: "name",
+                run_token,
+            },
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(refusal.code.code(), code, "{run_token:?}");
+    }
+    assert!(
+        server
+            .received_requests()
+            .await
+            .unwrap_or_default()
+            .is_empty(),
+        "the binding is checked before the workflow is read"
+    );
 }
 
 #[tokio::test]

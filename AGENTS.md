@@ -38,7 +38,9 @@ store, and git credential helpers are off limits as sources and must not be
 mentioned as fallbacks in error messages. Suggesting them defeats the point of
 refusing write access. The run's own token reaches Airlock only when a
 workflow passes it explicitly, as the Action's `token` input in repository
-mode.
+mode. `AIRLOCK_RUN_TOKEN` is not a credential source: repository mode admits
+an installation token only when it equals that value, and sends nothing with
+it.
 
 **A token whose permissions cannot be enumerated is refused.** Unverifiable is
 not a warning path. Adding a token prefix means adding the introspection that
