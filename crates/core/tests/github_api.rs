@@ -2275,12 +2275,21 @@ async fn release_listing_malformed_members_are_run_errors() {
 // ---------------------------------------------------------------------------
 
 async fn admit(server: &MockServer, token: &str) -> Result<VerifiedGrant, Refusal> {
+    admit_with(server, token, RestClientConfig::default().max_pages).await
+}
+
+async fn admit_with(
+    server: &MockServer,
+    token: &str,
+    max_pages: usize,
+) -> Result<VerifiedGrant, Refusal> {
     let run = run_in("owner/name");
     let client = RestClient::new(
         token,
         RestClientConfig {
             base_url: server.uri(),
             max_rate_limit_retries: 0,
+            max_pages,
             ..RestClientConfig::default()
         },
     )
@@ -2415,5 +2424,56 @@ async fn the_repository_listing_is_the_first_request_and_its_pages_are_read() {
     assert_eq!(
         requests[1].url.path(),
         "/repos/owner/name/contents/.github/workflows/audit.yml"
+    );
+}
+
+#[tokio::test]
+async fn a_repository_listing_cut_short_by_the_page_budget_is_refused() {
+    // The run's repository on the first page, with total_count 1, then empty
+    // pages that keep linking a next one: the walk stops at the budget, and a
+    // listing it could not read to the end places nothing.
+    let server = MockServer::start().await;
+    let page = |n: u32| {
+        format!(
+            "{}/installation/repositories?per_page=100&page={n}",
+            server.uri()
+        )
+    };
+    Mock::given(method("GET"))
+        .and(path("/installation/repositories"))
+        .and(query_param_is_missing("page"))
+        .respond_with(
+            quota_headers(ResponseTemplate::new(200))
+                .insert_header("link", format!("<{}>; rel=\"next\"", page(2)).as_str())
+                .set_body_json(token_repositories(1, &[(RUN_REPOSITORY_ID, "owner/name")])),
+        )
+        .mount(&server)
+        .await;
+    for n in 2..=4 {
+        Mock::given(method("GET"))
+            .and(path("/installation/repositories"))
+            .and(query_param("page", n.to_string()))
+            .respond_with(
+                quota_headers(ResponseTemplate::new(200))
+                    .insert_header("link", format!("<{}>; rel=\"next\"", page(n + 1)).as_str())
+                    .set_body_json(token_repositories(1, &[])),
+            )
+            .mount(&server)
+            .await;
+    }
+    mount_workflow_only(&server, READING_JOB).await;
+    let refusal = admit_with(&server, RUN_TOKEN, 3).await.unwrap_err();
+    assert_eq!(refusal.code.code(), "run_repository_mismatch");
+    assert!(
+        refusal
+            .detail
+            .contains("more repositories than one listing walk reads"),
+        "{refusal}"
+    );
+    let requests = server.received_requests().await.unwrap();
+    assert_eq!(
+        requests.len(),
+        3,
+        "three pages, the budget, and no workflow read"
     );
 }
