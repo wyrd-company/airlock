@@ -19,7 +19,7 @@ use crate::findings::{AuditResult, Report};
 use crate::github::{GitHub, RestClient, RestClientConfig};
 use crate::policy::{self, PolicySource};
 use crate::render;
-use crate::{Error, Result};
+use crate::Result;
 
 /// The central report's schema version.
 pub const CENTRAL_SCHEMA_VERSION: u32 = 1;
@@ -152,13 +152,14 @@ pub async fn run(
     policy_source: Option<PolicySource>,
     options: &AuditOptions,
 ) -> Result<CentralReport> {
-    let client = |config: &RestClientConfig| {
-        RestClient::new(session.token().to_owned(), config.clone()).map_err(|api_error| {
-            Error::GitHub {
-                message: api_error.to_string(),
-                api_error: Box::new(api_error),
-            }
-        })
+    // Every client goes through the transport the session signed in
+    // through, so a host that supplied one carries the whole run.
+    let client = |config: &RestClientConfig| -> Result<RestClient> {
+        Ok(RestClient::with_transport(
+            session.token().to_owned(),
+            config.clone(),
+            session.transport(),
+        ))
     };
 
     // Every client here keeps no server-chosen text in its errors, so the

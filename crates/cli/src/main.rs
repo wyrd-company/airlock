@@ -19,6 +19,7 @@ mod tui;
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::sync::Arc;
 
 use airlock_core::audit::{self, AuditOptions};
 use airlock_core::auth::{self, Admission, VerifiedGrant, AIRLOCK_SAFE_CLIENT_ID};
@@ -28,6 +29,7 @@ use airlock_core::github::{GitHub, RestClient, RestClientConfig};
 use airlock_core::limits::Limits;
 use airlock_core::policy::{self, PolicySource};
 use airlock_core::render;
+use airlock_core::transport::ReqwestTransport;
 use airlock_core::workflow_token::ActionsRun;
 use anyhow::{bail, Context as _, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
@@ -923,7 +925,9 @@ async fn central_command(args: &AuditArgs, format: Format) -> Result<u8> {
         working_tree: None,
     };
     let client_config = client_config(limits);
-    let session = central::sign_in(&config, &oidc, &endpoints, limits)
+    let transport = ReqwestTransport::new(limits.connect_timeout)
+        .map_err(|error| anyhow::anyhow!("central mode stopped at inputs: {error}"))?;
+    let session = central::sign_in(&config, &oidc, &endpoints, limits, Arc::new(transport))
         .await
         .map_err(stopped)?;
 
