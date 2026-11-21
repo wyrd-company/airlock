@@ -1041,8 +1041,8 @@ async fn mint_token(
         return Err(CentralError::new(
             Step::TokenRequest,
             format!(
-                "the minted token is not shaped like a GitHub token (8 to 4096 letters, digits \
-                 and `_`), so central mode will not use it{}",
+                "the minted token is not shaped like a GitHub token (8 to 4096 letters, digits, \
+                 `_`, `-` and `.`), so central mode will not use it{}",
                 match revoked {
                     Ok(()) => ", and it was revoked".to_owned(),
                     Err(error) => format!(", and revoking it failed: {}", error.step.code()),

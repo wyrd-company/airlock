@@ -170,8 +170,13 @@ export function fakeClock(start = 1_800_000_000_000) {
 
 // Repository mode: the run's own token, judged by the job that holds it.
 
-/** The run's own token, a synthetic marker shaped like an installation token. */
-export const RUN_TOKEN = "ghs_SYNTHETICrunTOKEN0123456789abcdef";
+/**
+ * The run's own token, a synthetic marker in the shape GitHub gives an
+ * installation token: `ghs_<app id>_<JSON Web Token>`, with base64url's
+ * `-` and `_` and the JWT's `.`.
+ */
+export const RUN_TOKEN =
+  "ghs_15368_eyJhbGciOiJSUzI1NiJ9.eyJTWU5USEVUSUMiOiJydW4tdG9rZW4ifQ.U1lOVEhFVElD-c2lnbmF0dXJl_MARKER5";
 export const WORKFLOW_SHA = "aa31121c5ead759d07c21915004de8c52b7597a7";
 export const WORKFLOW_PATH = ".github/workflows/audit.yml";
 

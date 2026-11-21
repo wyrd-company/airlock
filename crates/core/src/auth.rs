@@ -82,15 +82,21 @@ pub enum TokenKind {
 }
 
 /// Whether `token` has the shape of a GitHub token: 8 to 4096 characters,
-/// each a letter, a digit or `_`.
+/// each a letter, a digit, `_`, `-` or `.`.
 ///
-/// Every GitHub token has this alphabet. Any encoding of such a value (JSON,
-/// a URL, a form, either escaped twice) is the value itself, so a redactor
-/// that matches it as written matches it wherever it is echoed.
+/// Every GitHub token has this alphabet. An installation token, the run's
+/// `GITHUB_TOKEN` included, is `ghs_<app id>_<JSON Web Token>` since GitHub's
+/// stateless format (rolled out 2026-10-02), so it carries the `.` and `-`
+/// of a base64url JWT. Each of these characters is unreserved in JSON, a URL
+/// and a form, so any encoding of such a value, escaped once or twice, is the
+/// value itself, and a redactor that matches it as written matches it
+/// wherever it is echoed.
 #[must_use]
 pub fn has_token_shape(token: &str) -> bool {
     (8..=4096).contains(&token.len())
-        && token.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+        && token
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
 }
 
 impl TokenKind {
