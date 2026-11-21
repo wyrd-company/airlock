@@ -1,0 +1,34 @@
+[package]
+name = "airlock-wasm"
+description = "The Airlock engine as a WebAssembly module, for the Airlock Worker and the JavaScript action."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+# The module ships inside the Worker and the action, never as a crate.
+publish = false
+
+[lib]
+# cdylib is the module; rlib lets the native parity run call the same entry
+# points.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# Not the workspace entry: inheriting it would keep core's default
+# features, and the native transport cannot build for wasm32.
+airlock-core = { path = "../core", default-features = false }
+serde.workspace = true
+serde_json.workspace = true
+zeroize.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = "0.3"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+
+[dev-dependencies]
+# The native parity run, through reqwest.
+airlock-core.workspace = true
+tokio.workspace = true

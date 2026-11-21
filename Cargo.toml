@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/core", "crates/cli"]
+members = ["crates/core", "crates/cli", "crates/wasm"]
 resolver = "2"
 
 [workspace.package]
@@ -64,3 +64,11 @@ wiremock = "0.6"
 lto = true
 opt-level = 3
 codegen-units = 1
+
+# The WebAssembly module: smallest code, no unwinding, no symbols. Built by
+# `task wasm:build`; its size is held to the budget in docs/wasm.md.
+[profile.wasm-release]
+inherits = "release"
+opt-level = "z"
+strip = true
+panic = "abort"
