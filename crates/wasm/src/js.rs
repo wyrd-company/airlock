@@ -324,6 +324,36 @@ pub async fn audit(host: Host, request: String) -> Result<String, JsValue> {
         .map_err(|error| js_error(&error))
 }
 
+/// Audit the run's own repository in repository mode, as the JavaScript
+/// action does, and resolve to `{ outcome, complete, document }` as JSON.
+///
+/// `request` is JSON: `{ token, runToken?, repository, reference?, policy?,
+/// format?, actions, githubApi? }`, where `actions` holds the variables that
+/// describe the run. The run is checked first, then the token, which is
+/// admitted only as repository mode admits it.
+///
+/// # Errors
+///
+/// Rejects with an `AirlockError`.
+#[wasm_bindgen(js_name = repositoryAudit)]
+pub async fn repository_audit(host: Host, request: String) -> Result<String, JsValue> {
+    let request = Zeroizing::new(request);
+    let parsed = engine::RepositoryRequest::parse(&request).map_err(|error| js_error(&error))?;
+    drop(request);
+    let result = engine::repository_audit(transport(host), &parsed)
+        .await
+        .map_err(|error| js_error(&error))?;
+    serde_json::to_string(&result).map_err(|error| {
+        js_error(&EngineError {
+            kind: "render",
+            message: error.to_string(),
+            step: None,
+            status: None,
+            code: None,
+        })
+    })
+}
+
 /// A central run signed in as Airlock Safe.
 ///
 /// Holds Safe's installation token inside the module; no method returns it.

@@ -137,9 +137,39 @@ same for every target, so the native parity run executes the module's code.
 
 `audit(host, request)` audits one repository. `request` is JSON:
 `{ token, owner, repo, policy?, githubApi? }`. The token is verified before
-anything else is read, and admitted as the command line admits it. Repository
-mode, which admits the run's own `GITHUB_TOKEN`, arrives with the JavaScript
-action.
+anything else is read, and admitted as the command line admits it.
+
+`repositoryAudit(host, request)` is repository mode, which the JavaScript
+action runs. `request` is JSON:
+
+```json
+{
+  "token": "<the token input>",
+  "runToken": "<github.token>",
+  "repository": "wyrd-company/airlock",
+  "reference": "<optional commit, branch or tag>",
+  "policy": "<optional owner/repo:path[@ref]>",
+  "format": "json",
+  "actions": {
+    "GITHUB_ACTIONS": "true",
+    "GITHUB_REPOSITORY": "wyrd-company/airlock",
+    "GITHUB_WORKFLOW_REF": "wyrd-company/airlock/.github/workflows/audit.yml@refs/heads/main",
+    "GITHUB_WORKFLOW_SHA": "<the commit GitHub read the workflow from>",
+    "GITHUB_JOB": "audit"
+  }
+}
+```
+
+The run is settled first, from `actions`. Outside Actions, or for a run those
+variables do not describe, nothing is read. The token is then admitted as the
+command line's repository mode admits it. An installation token is admitted
+only when it is `runToken`, for `repository` only, and only when every
+permission its job declares in the workflow file at `GITHUB_WORKFLOW_SHA` is
+`read`. The module reads no file system, so a local policy path is refused.
+`format` is `json` or `text`. It resolves to `{ outcome, complete, document }`
+as JSON: `outcome` is `conformant`, `nonconformant` or `incomplete`, as the
+report states, and `document` is the findings document. `runToken` is never
+sent. Both tokens are redacted from every output.
 
 `CentralSession.signIn(host, request)` signs in as Airlock Safe through Azure
 Key Vault, as central mode does (see the README's *Central mode*). Every
@@ -192,8 +222,9 @@ answered.
 
 No output carries a credential. Each entry point redacts every string it
 returns against the credentials it holds: the report, the error message and
-the error code. `audit` holds the caller's token. `CentralSession.signIn`
-holds the Entra credential, and a session holds Safe's installation token.
+the error code. `audit` holds the caller's token, and `repositoryAudit` holds
+the caller's and the run's. `CentralSession.signIn` holds the Entra
+credential, and a session holds Safe's installation token.
 Each credential is matched as sent, form-encoded and JSON-escaped. A server,
 proxy or host that echoes one, in a message, a header, a body or a rejection,
 therefore cannot carry it out, whichever code path let the text through.
@@ -238,6 +269,11 @@ against the built module:
   host returns, and the transport guards.
 - `secrets.test.mjs`: a synthetic token, secret and assertion echoed in every
   error path the module can reach, and absent from every output.
+- `repository.test.mjs`: repository mode. It covers the run's own token
+  admitted on a read-only job, and each refusal: a write permission,
+  undeclared permissions, outside Actions, a run the variables do not
+  describe, another installation token, another repository, and a local
+  policy. No output carries either token.
 - `parity.test.mjs`: the same audit natively, through reqwest, and as the
   module under Node, through `fetchHost`. Both run against the recorded
   responses one local server replays. Both runs must make the same requests
