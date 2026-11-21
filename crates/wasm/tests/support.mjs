@@ -57,7 +57,7 @@ function json(status, body, headers = {}) {
 async function received(url, init) {
   const headers = Object.fromEntries(init.headers ?? []);
   const body = init.body ? Buffer.from(init.body).toString("utf8") : "";
-  return { method: init.method, url: new URL(url), headers, body };
+  return { method: init.method, url: new URL(url), headers, body, redirect: init.redirect };
 }
 
 /**
