@@ -194,3 +194,19 @@ test("no output carries either token when every server echoes them", async () =>
     assert.ok(!text.includes(RUN_TOKEN), `${failAt}: ${text.slice(0, 300)}`);
   }
 });
+
+test("the run's token is redacted even where only an input echoes it", async () => {
+  // A user token audits with the run's token held only for comparison. The
+  // run's token is never sent, so only an input can carry its text out; the
+  // policy path here does, in the policy error.
+  const user = "ghu_SYNTHETICuserTOKEN0123456789abcdef";
+  const fake = repositoryFetch(recording, { base: BASE, bearer: user });
+  const policy = `wyrd-company/airlock:${RUN_TOKEN}.yml@${actionsVariables().GITHUB_WORKFLOW_SHA}`;
+  const error = await refusal(
+    airlock.repositoryAudit(fetchHost({ fetch: fake.fetch }), request({ token: user, policy })),
+  );
+  assert.equal(error.kind, "policy");
+  assert.match(error.message, /\[redacted\]/);
+  assert.ok(!error.message.includes(RUN_TOKEN), error.message);
+  for (const sent of fake.requests) assert.equal(sent.headers.authorization, `Bearer ${user}`);
+});
