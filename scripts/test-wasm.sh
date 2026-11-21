@@ -11,4 +11,4 @@ target_dir=$(cargo metadata --format-version 1 --no-deps |
   sed 's/.*"target_directory":"\([^"]*\)".*/\1/')
 
 AIRLOCK_PARITY_NATIVE="$target_dir/debug/examples/parity_native" \
-  node --test crates/wasm/tests/*.test.mjs
+  node --test --test-timeout=120000 crates/wasm/tests/*.test.mjs
