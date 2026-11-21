@@ -9,27 +9,30 @@ relationships:
 # The Airlock action
 
 The Airlock action audits the repository that runs it, in repository mode, on
-the run's own `GITHUB_TOKEN`. It is a composite action of three steps:
+the run's own `GITHUB_TOKEN`. It is a composite action of four steps:
 
 1. `actions/setup-node`, pinned by commit, sets up Node 24.22.3, with its
    package-manager cache off: the caller's `package.json` is not the
    action's. **The action's Node stays first on the job's `PATH` for the
    caller's later steps.** A later step that needs another Node sets it up
    itself.
-2. A `run` step, in `sh`, runs `action/step.sh`. That starts the pinned Node
+2. `action/check-runner.sh` refuses, with a message, a runner whose
+   `/bin/sh` is not dash or whose OS is not Linux (see
+   [Requirements](#requirements)).
+3. A `run` step, in `sh`, runs `action/step.sh`. That starts the pinned Node
    on the committed `dist/index.mjs` with an allowlisted environment (see
    [the audit step's environment](#the-audit-steps-environment)). It loads
    the engine from `dist/airlock_bg.wasm` (see
    [the WebAssembly module](wasm.md)), audits, and stages the findings
    document for upload.
-3. `actions/upload-artifact`, pinned by commit, uploads the staged document,
-   even when step 2 failed. A composite's `run` step gets no Actions runtime
+4. `actions/upload-artifact`, pinned by commit, uploads the staged document,
+   even when step 3 failed. A composite's `run` step gets no Actions runtime
    credential, so only an action can upload.
 
 No step installs Rust or runs Cargo, and no Rust binary is published for it.
 
 The action is a composite, not a `node24` action, for the run's own token.
-The second step sets `AIRLOCK_RUN_TOKEN` to `${{ github.token }}` in its own
+The audit step sets `AIRLOCK_RUN_TOKEN` to `${{ github.token }}` in its own
 `env`. A step's own `env` wins over the job's and the calling step's, so a
 caller's variables cannot replace it. An input could be set to any token: a caller
 holding another App's installation token could pass it as both the
@@ -49,14 +52,24 @@ certificate (`NODE_TLS_REJECT_UNAUTHORIZED`, `NODE_EXTRA_CA_CERTS`,
 `SSL_CERT_*`), or preload a library (`LD_PRELOAD`). A list of such names to
 blank never ends, so the audit step keeps an allowlist instead:
 
-- The step runs in `sh`, which is dash on GitHub's Linux runners. Dash
-  imports no functions from the environment, unlike bash with its
-  `BASH_FUNC_*` variables, and reads `$ENV` only when interactive. The
-  step's own `env` blanks `BASH_ENV` and `ENV` as well.
+- The step runs in `sh`, which must be dash. Dash imports no functions from
+  the environment, unlike bash with its `BASH_FUNC_*` variables, even as
+  `sh`, and reads `$ENV` only when interactive. `step.sh` refuses any other
+  shell, and any OS but Linux, in its first lines, which use only reserved
+  words, parameter expansion and the special builtin `exit`, so no function
+  can shadow them. It exits 70 there without a message; the check-runner
+  step before it gives the message.
+- The processes before `env -i` (the runner's `sh`, `step.sh`'s dash and
+  `env` itself) hold the credentials, and the dynamic loader acts on them
+  before any script line runs. They are covered by a short blank list in the
+  step's own `env`, not by the allowlist: `BASH_ENV`, `ENV`, `LD_PRELOAD`,
+  `LD_AUDIT`, `LD_LIBRARY_PATH`, `LD_BIND_NOW`, `LD_DEBUG`, `LD_PROFILE` and
+  `GCONV_PATH`. glibc ignores an empty value.
 - `action/step.sh` checks the Node that setup-node installed in the runner's
-  tool cache (`<tool cache>/node/24.22.3/<x64|arm64>/bin`), including its
-  `--version`. It then starts that Node through `/usr/bin/env -i`, by
-  absolute path.
+  tool cache (`<tool cache>/node/24.22.3/<x64|arm64>/bin`): its SHA-256 must
+  be that of `bin/node` in Node's official v24.22.3 Linux tarball for the
+  runner's architecture, and its `--version` must say so. It then starts
+  that Node through `/usr/bin/env -i`, by absolute path.
 - Node receives these variables and no others: `PATH` (that bin directory,
   then `/usr/bin:/bin`), `HOME`, `RUNNER_TEMP`, `GITHUB_ACTIONS`,
   `GITHUB_OUTPUT`, `GITHUB_ENV`, `GITHUB_ACTION`, `GITHUB_RUN_ID`,
@@ -65,20 +78,41 @@ blank never ends, so the audit step keeps an allowlist instead:
   `GITHUB_API_URL`, the `INPUT_*` values, `AIRLOCK_JOB_CHECK_RUN_ID` and
   `AIRLOCK_CREDENTIALS_ON_STDIN`.
 - The three credentials (the `token` input, `AIRLOCK_TOKEN` and the run's
-  own token) reach Node on its standard input, so they appear in no
-  process's arguments or environment.
+  own token) reach Node on its standard input. Node's environment holds none
+  of them, and no process's arguments do. The step's own shells and `env`,
+  before `-i`, hold them in their environment.
 
-`action/tests/action.test.mjs` runs `step.sh` with every such variable set,
-including a `BASH_FUNC_` function, and checks that Node received the
-allowlist alone and audited directly. The CI job "Action: a forged run
-token is refused" does the same on GitHub's runners, with `NODE_OPTIONS`,
-`BASH_ENV` and proxy legs.
+`action/tests/action.test.mjs` runs `step.sh` with the Node, proxy, TLS and
+CA variables set and a `BASH_FUNC_printf%%` function, and checks that Node
+received the allowlist alone and audited directly. It also runs it under
+bash as `sh`, which it refuses before the function can run. The CI job
+"Action: a forged run token is refused" does the same on GitHub's runners,
+with `NODE_OPTIONS`, `BASH_ENV`, `LD_PRELOAD` and `LD_AUDIT`, and proxy legs.
+
+### The pinned Node's SHA-256
+
+| Architecture | SHA-256 of `bin/node` |
+| ------------ | --------------------- |
+| x64 | `a7ec1b37e6ff9d187e4198c5b6df9a4eb1c74dd31804fb3bac55cc4ceca1ac01` |
+| arm64 | `8f9c2a55879e9705cb285b6cdd649d95df642c6720f052cb30f300d2677da99f` |
+
+They were taken on 2026-11-21 from `node-v24.22.3-linux-x64.tar.xz` and
+`node-v24.22.3-linux-arm64.tar.xz` at <https://nodejs.org/dist/v24.22.3/>.
+Each tarball matched `SHASUMS256.txt` there (x64
+`4f2b175a6d53a5c617a80dba2676238a0688cef28c6da4eba35c7d844e66fcfb`, arm64
+`6e51a2ada00f0011cc266f65d98922b403d7ad88f809ca2aa615a5fe1ce6e86c`), and
+`SHASUMS256.txt.asc` is a good signature by release key
+`5BE8A3F6C8A5C01D106C0AD820B1A390B168D356`, which the Node.js README lists.
+The proxy leg of the CI job downloads Node through setup-node and checks the
+x64 binary against its pin. A Node whose binary differs, from a tampered tool
+cache or a download through a caller's proxy, is refused.
 
 setup-node and upload-artifact are Node actions, which the runner starts with
 the job's environment, and an action cannot start them any other way. Each
 blanks `NODE_OPTIONS`, `NODE_USE_ENV_PROXY`, `HTTPS_PROXY`, `HTTP_PROXY`,
-`NODE_TLS_REJECT_UNAUTHORIZED`,
-`NODE_EXTRA_CA_CERTS`, `LD_PRELOAD` and `LD_LIBRARY_PATH` in its own `env`.
+`NODE_TLS_REJECT_UNAUTHORIZED`, `NODE_EXTRA_CA_CERTS`, `NODE_USE_SYSTEM_CA`,
+`SSL_CERT_FILE`, `SSL_CERT_DIR`, `LD_PRELOAD`, `LD_AUDIT`, `LD_LIBRARY_PATH`
+and `GCONV_PATH` in its own `env`.
 
 ## Requirements
 
@@ -86,8 +120,10 @@ blanks `NODE_OPTIONS`, `NODE_USE_ENV_PROXY`, `HTTPS_PROXY`, `HTTP_PROXY`,
   and `NODE_EXTRA_CA_CERTS`, and trusts only Node's own CA bundle. A
   self-hosted runner behind a TLS-inspecting proxy is not supported: there
   every request fails, and the audit is refused as `run_token_unconfirmed`.
-- **A Linux runner, x64 or arm64**, with `/bin/sh` and `/usr/bin/env`, as
-  GitHub's hosted runners have.
+- **A Linux runner, x64 or arm64, whose `/bin/sh` is dash** (Debian or
+  Ubuntu), with `/usr/bin/env` and `/usr/bin/sha256sum`, as GitHub's hosted
+  Ubuntu runners have. A runner whose `/bin/sh` is bash (RHEL-family, many
+  `container:` images, macOS) is refused.
 
 Repository mode is the only mode. The central audit of every repository of an
 owner is the Airlock Worker's scheduled audit, not the action's.
@@ -216,7 +252,10 @@ it as the run's own, by what a caller cannot forge:
   `AIRLOCK_RUN_TOKEN` was rewritten to match.
 - **The caller's variables, in the audit step.** Node receives only the
   allowlist above, so no other variable the caller sets reaches the engine:
-  no `NODE_*`, `*_PROXY`, `SSL_CERT_*`, `LD_*` or TLS override.
+  no `NODE_*`, `*_PROXY`, `SSL_CERT_*`, `LD_*` or TLS override. The
+  processes before `env -i` are covered by the shell check and the short
+  blank list above.
+- **The Node binary.** Its SHA-256 must be the official build's.
 - **The variables setup-node and upload-artifact blank**, listed above.
 
 **Not covered:**
@@ -228,6 +267,9 @@ it as the run's own, by what a caller cannot forge:
 - **Code the caller runs in the job.** A job can run code before the action,
   replace `dist/`, the tool cache's Node, or the staged report, or fake the
   artifact.
+- **Anything else that needs the caller to control the job's environment or
+  its disk.** A job's own audit is not proof against its author, and such a
+  route is not pursued further unless it is cheap to close.
 - **The job's environment, in the two GitHub-maintained steps.** setup-node
   and upload-artifact run with the job's environment, less the names they
   blank. A variable not on that list can still influence them in ways no
@@ -332,10 +374,12 @@ run token is refused" and `audit.yml` run it. The tests cover these cases:
   `run-token` set as an input;
 - an artifact name for each job, attempt and matrix leg;
 - a report that cannot be staged;
-- `action/step.sh` with every hostile variable set: Node gets the allowlist
+- `action/step.sh` with the hostile variables set: Node gets the allowlist
   alone, audits directly past a dead proxy, never runs the caller's
-  `NODE_OPTIONS`, and receives no credential in its environment; a forged
-  pair through the step; a Node other than the pinned one;
+  `NODE_OPTIONS` or `printf` function, and receives no credential in its
+  environment; a forged pair through the step; a Node whose SHA-256 or
+  version is not the pinned one; bash as `sh`; an OS other than Linux and an
+  unknown architecture;
 - every output free of the token when GitHub echoes it.
 
 ## Release
