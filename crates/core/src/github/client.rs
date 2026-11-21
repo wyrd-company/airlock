@@ -8,7 +8,8 @@
 #![allow(clippy::result_large_err)]
 
 use std::collections::BTreeMap;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::sync::Arc;
+use std::time::Duration;
 
 use base64::Engine as _;
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
@@ -22,6 +23,7 @@ use super::{
     Paged, Repository, RepositorySelection, Ruleset, TagRef, Tree, TreeEntry,
 };
 use crate::limits::Limits;
+use crate::transport::{self, FailureKind, Method, Transport};
 
 /// Everything in a path segment that is not unreserved gets escaped. Git path
 /// bytes are arbitrary, so nothing is interpolated raw.
@@ -176,10 +178,11 @@ fn has_request_id_shape(value: &str) -> bool {
 
 /// A GitHub REST client bound to one credential.
 pub struct RestClient {
-    http: reqwest::Client,
+    transport: Arc<dyn Transport>,
     token: String,
     config: RestClientConfig,
-    deadline: Instant,
+    /// The end of the wall-clock budget, on the transport's monotonic clock.
+    deadline: Duration,
 }
 
 impl Drop for RestClient {
@@ -226,7 +229,7 @@ impl RawResponse {
 }
 
 impl RestClient {
-    /// Build a client for `token`.
+    /// Build a client for `token`, over the native transport.
     ///
     /// The wall-clock budget starts here, so verification and the audit that
     /// follows share one deadline.
@@ -234,49 +237,52 @@ impl RestClient {
     /// # Errors
     ///
     /// Returns an error when the underlying HTTP stack cannot be built.
+    #[cfg(feature = "native")]
     pub fn new(token: impl Into<String>, config: RestClientConfig) -> ApiResult<Self> {
-        let http = reqwest::Client::builder()
-            .user_agent(config.user_agent.clone())
-            // Audits are bursty, and the interactive session may sit idle
-            // longer than GitHub keeps a connection alive. Retain connections
-            // within a burst, but drop them across the longer idle stretches.
-            .pool_idle_timeout(Duration::from_secs(5))
-            // Without these, a server that accepts a connection and never
-            // finishes the body hangs the audit forever.
-            .connect_timeout(config.connect_timeout)
-            .timeout(config.request_timeout)
-            .redirect(if config.follow_redirects {
-                reqwest::redirect::Policy::default()
-            } else {
-                reqwest::redirect::Policy::none()
-            })
-            .build()
-            .map_err(|error| ApiError::local(ErrorCause::Transport, "client", error.to_string()))?;
-        let deadline = Instant::now() + config.audit_budget;
-        Ok(Self {
-            http,
+        let transport = transport::ReqwestTransport::new(config.connect_timeout)
+            .map_err(|error| ApiError::local(ErrorCause::Transport, "client", error.detail))?;
+        Ok(Self::with_transport(token, config, Arc::new(transport)))
+    }
+
+    /// Build a client for `token` that sends every request through
+    /// `transport`.
+    ///
+    /// The wall-clock budget starts here, on the transport's clock.
+    #[must_use]
+    pub fn with_transport(
+        token: impl Into<String>,
+        config: RestClientConfig,
+        transport: Arc<dyn Transport>,
+    ) -> Self {
+        let deadline = transport.monotonic() + config.audit_budget;
+        Self {
+            transport,
             token: token.into(),
             config,
             deadline,
-        })
+        }
     }
 
     /// How long is left of the wall-clock budget.
     #[must_use]
     pub fn remaining_budget(&self) -> Duration {
-        self.deadline.saturating_duration_since(Instant::now())
+        self.deadline.saturating_sub(self.transport.monotonic())
+    }
+
+    fn budget_exhausted(&self, endpoint: &str) -> ApiError {
+        ApiError::local(
+            ErrorCause::Budget,
+            endpoint,
+            format!(
+                "the {} second audit budget was exhausted before this request completed",
+                self.config.audit_budget.as_secs()
+            ),
+        )
     }
 
     fn check_deadline(&self, endpoint: &str) -> ApiResult<()> {
-        if Instant::now() >= self.deadline {
-            return Err(ApiError::local(
-                ErrorCause::Budget,
-                endpoint,
-                format!(
-                    "the {} second audit budget was exhausted before this request completed",
-                    self.config.audit_budget.as_secs()
-                ),
-            ));
+        if self.transport.monotonic() >= self.deadline {
+            return Err(self.budget_exhausted(endpoint));
         }
         Ok(())
     }
@@ -284,70 +290,52 @@ impl RestClient {
     async fn send(&self, endpoint: &str, url: &str) -> ApiResult<RawResponse> {
         self.check_deadline(endpoint)?;
 
+        // The request may not outlast the audit's budget, so a body that
+        // trickles in is cut off at the deadline rather than at the next
+        // request.
+        let mut request = transport::Request::new(Method::Get, url)
+            .bearer(&self.token)
+            .header("accept", "application/vnd.github+json")
+            .header("x-github-api-version", "2022-11-28")
+            .header("user-agent", self.config.user_agent.as_str());
+        request.follow_redirects = self.config.follow_redirects;
+        request.timeout = self.config.request_timeout.min(self.remaining_budget());
+        request.max_response_bytes = self.config.max_response_bytes;
+
         let response = self
-            .http
-            .get(url)
-            .bearer_auth(&self.token)
-            .header("Accept", "application/vnd.github+json")
-            .header("X-GitHub-Api-Version", "2022-11-28")
-            .send()
+            .transport
+            .send(request)
             .await
-            .map_err(|error| transport_error(endpoint, &error))?;
+            .map_err(|error| match error.kind {
+                // A timeout is a budget failure, not a network failure:
+                // airlock chose the deadline, and the distinction changes the
+                // fix.
+                FailureKind::Timeout if self.check_deadline(endpoint).is_err() => {
+                    self.budget_exhausted(endpoint)
+                }
+                FailureKind::Timeout | FailureKind::TooLarge => {
+                    ApiError::local(ErrorCause::Budget, endpoint, error.detail)
+                }
+                FailureKind::Connect | FailureKind::Other => {
+                    ApiError::local(ErrorCause::Transport, endpoint, error.detail)
+                }
+            })?;
 
-        let status = response.status().as_u16();
-        // Multi-valued, because HTTP lets a field repeat and a security
-        // decision made from whichever repetition survived a map insert is not
-        // a decision.
         let mut headers = Headers::new();
-        for (name, value) in response.headers() {
-            if let Ok(value) = value.to_str() {
-                headers
-                    .entry(name.as_str().to_lowercase())
-                    .or_default()
-                    .push(value.to_owned());
-            }
+        for (name, value) in &response.headers {
+            headers
+                .entry(name.to_lowercase())
+                .or_default()
+                .push(value.clone());
         }
-
-        let body = self.read_body(endpoint, response).await?;
+        let body = String::from_utf8(response.body.to_vec())
+            .map_err(|error| ApiError::local(ErrorCause::Malformed, endpoint, error.to_string()))?;
 
         Ok(RawResponse {
-            status,
+            status: response.status,
             headers,
             body,
         })
-    }
-
-    /// Read a response body under the byte budget.
-    ///
-    /// Chunked rather than buffered whole, so an endless or enormous body is
-    /// abandoned at the limit instead of being materialised first.
-    async fn read_body(
-        &self,
-        endpoint: &str,
-        mut response: reqwest::Response,
-    ) -> ApiResult<String> {
-        let mut bytes: Vec<u8> = Vec::new();
-        loop {
-            self.check_deadline(endpoint)?;
-            let chunk = response
-                .chunk()
-                .await
-                .map_err(|error| transport_error(endpoint, &error))?;
-            let Some(chunk) = chunk else { break };
-            if bytes.len() + chunk.len() > self.config.max_response_bytes {
-                return Err(ApiError::local(
-                    ErrorCause::Budget,
-                    endpoint,
-                    format!(
-                        "the response exceeded the {} byte limit and was abandoned",
-                        self.config.max_response_bytes
-                    ),
-                ));
-            }
-            bytes.extend_from_slice(&chunk);
-        }
-        String::from_utf8(bytes)
-            .map_err(|error| ApiError::local(ErrorCause::Malformed, endpoint, error.to_string()))
     }
 
     /// Perform one GET, retrying one request transport failure and rate-limited
@@ -382,7 +370,8 @@ impl RestClient {
 
             let summary = summarise(&raw);
             let cause = classify::classify(&summary);
-            let wait = classify::retry_delay_seconds(&summary, now_epoch_seconds()).unwrap_or(1);
+            let now = self.transport.unix_time().as_secs();
+            let wait = classify::retry_delay_seconds(&summary, now).unwrap_or(1);
             let error = self.to_error(endpoint, &raw, cause, summary);
             if error.cause != ErrorCause::RateLimit
                 || rate_limit_attempt >= self.config.max_rate_limit_retries
@@ -397,7 +386,7 @@ impl RestClient {
             {
                 return Err(error);
             }
-            tokio::time::sleep(Duration::from_secs(wait)).await;
+            self.transport.sleep(Duration::from_secs(wait)).await;
             rate_limit_attempt += 1;
         }
     }
@@ -480,17 +469,6 @@ impl RestClient {
     }
 }
 
-fn transport_error(endpoint: &str, error: &reqwest::Error) -> ApiError {
-    // A timeout is a budget failure, not a network failure: airlock chose the
-    // deadline, and the distinction changes the fix.
-    let cause = if error.is_timeout() {
-        ErrorCause::Budget
-    } else {
-        ErrorCause::Transport
-    };
-    ApiError::local(cause, endpoint, error.to_string())
-}
-
 fn summarise(raw: &RawResponse) -> Response {
     let body: Option<Value> = serde_json::from_str(&raw.body).ok();
     let mut response = raw.response();
@@ -541,13 +519,6 @@ fn next_link(endpoint: &str, raw: &RawResponse) -> ApiResult<Option<String>> {
         }
     }
     Ok(None)
-}
-
-fn now_epoch_seconds() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_secs())
-        .unwrap_or_default()
 }
 
 // ---------------------------------------------------------------------------

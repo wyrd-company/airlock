@@ -8,6 +8,12 @@ license.workspace = true
 readme.workspace = true
 repository.workspace = true
 
+[features]
+default = ["native"]
+# The native transport (reqwest and tokio's timer), local Git and working-tree
+# reads. A WebAssembly build turns it off and supplies its own transport.
+native = []
+
 [dependencies]
 globset.workspace = true
 base64.workspace = true
