@@ -4,7 +4,8 @@
 //! reaches `api.github.com`.
 
 use airlock_core::auth::{
-    verify, verify_for, Admission, TokenKind, AIRLOCK_SAFE_APP_ID, AIRLOCK_SAFE_APP_SLUG,
+    verify, verify_for, Admission, Refusal, TokenKind, VerifiedGrant, AIRLOCK_SAFE_APP_ID,
+    AIRLOCK_SAFE_APP_SLUG,
 };
 use airlock_core::github::{
     AccountKind, ErrorCause, GitHub, OAuthScopeHeader, RepositorySelection, RestClient,
@@ -914,11 +915,15 @@ async fn unverifiable_token_kinds_are_refused_without_any_request() {
 // ---------------------------------------------------------------------------
 
 const RUN_SHA: &str = "0123456789abcdef0123456789abcdef01234567";
+/// A synthetic run token in the form GitHub mints `GITHUB_TOKEN` in.
+const RUN_TOKEN: &str = "ghs_15368_eyJhbGciOiJFUzI1NiJ9.eyJzeW50aGV0aWMiOjF9.c2lnbmF0dXJl";
+const RUN_REPOSITORY_ID: u64 = 4242;
 
 fn run_in(repository: &str) -> ActionsRun {
     let variables = [
         ("GITHUB_ACTIONS", "true".to_owned()),
         ("GITHUB_REPOSITORY", repository.to_owned()),
+        ("GITHUB_REPOSITORY_ID", RUN_REPOSITORY_ID.to_string()),
         (
             "GITHUB_WORKFLOW_REF",
             format!("{repository}/.github/workflows/audit.yml@refs/heads/main"),
@@ -935,7 +940,44 @@ fn run_in(repository: &str) -> ActionsRun {
     .expect("the run is described")
 }
 
+/// `GET /installation/repositories` as GitHub answers it for the run token.
+fn token_repositories(total_count: u64, repositories: &[(u64, &str)]) -> Value {
+    json!({
+        "total_count": total_count,
+        "repository_selection": "selected",
+        "repositories": repositories.iter().map(|(id, full_name)| {
+            let (owner, name) = full_name.split_once('/').unwrap();
+            json!({
+                "id": id,
+                "full_name": full_name,
+                "name": name,
+                "owner": { "login": owner },
+                "private": true,
+                "default_branch": "main",
+            })
+        }).collect::<Vec<_>>(),
+    })
+}
+
+async fn mount_token_repositories(server: &MockServer, status: u16, body: Value) {
+    Mock::given(method("GET"))
+        .and(path("/installation/repositories"))
+        .respond_with(quota_headers(ResponseTemplate::new(status)).set_body_json(body))
+        .mount(server)
+        .await;
+}
+
 async fn mount_workflow(server: &MockServer, workflow: &str) {
+    mount_token_repositories(
+        server,
+        200,
+        token_repositories(1, &[(RUN_REPOSITORY_ID, "owner/name")]),
+    )
+    .await;
+    mount_workflow_only(server, workflow).await;
+}
+
+async fn mount_workflow_only(server: &MockServer, workflow: &str) {
     Mock::given(method("GET"))
         .and(path(
             "/repos/owner/name/contents/.github/workflows/audit.yml",
@@ -954,7 +996,7 @@ async fn mount_workflow(server: &MockServer, workflow: &str) {
 
 fn run_token_client(server: &MockServer) -> RestClient {
     RestClient::new(
-        "ghs_runtoken",
+        RUN_TOKEN,
         RestClientConfig {
             base_url: server.uri(),
             max_rate_limit_retries: 0,
@@ -983,13 +1025,13 @@ async fn the_runs_token_is_accepted_when_its_job_declares_only_reads() {
     let run = run_in("owner/name");
 
     let grant = verify_for(
-        "ghs_runtoken",
+        RUN_TOKEN,
         &run_token_client(&server),
         Admission::Repository {
             run: &run,
             owner: "owner",
             repo: "name",
-            run_token: Some("ghs_runtoken"),
+            run_token: Some(RUN_TOKEN),
         },
     )
     .await
@@ -1026,13 +1068,13 @@ jobs:
     let run = run_in("owner/name");
 
     let refusal = verify_for(
-        "ghs_runtoken",
+        RUN_TOKEN,
         &run_token_client(&server),
         Admission::Repository {
             run: &run,
             owner: "owner",
             repo: "name",
-            run_token: Some("ghs_runtoken"),
+            run_token: Some(RUN_TOKEN),
         },
     )
     .await
@@ -1047,13 +1089,13 @@ async fn the_runs_token_audits_only_the_runs_repository() {
     // No workflow is mounted: the refusal comes before any request.
     let run = run_in("owner/name");
     let refusal = verify_for(
-        "ghs_runtoken",
+        RUN_TOKEN,
         &run_token_client(&server),
         Admission::Repository {
             run: &run,
             owner: "owner",
             repo: "other",
-            run_token: Some("ghs_runtoken"),
+            run_token: Some(RUN_TOKEN),
         },
     )
     .await
@@ -1064,16 +1106,23 @@ async fn the_runs_token_audits_only_the_runs_repository() {
 #[tokio::test]
 async fn an_unreadable_workflow_file_is_refused_not_assumed() {
     let server = MockServer::start().await;
-    // The contents endpoint 404s: nothing is mounted.
+    // The token is placed, and then the contents endpoint 404s: nothing else
+    // is mounted.
+    mount_token_repositories(
+        &server,
+        200,
+        token_repositories(1, &[(RUN_REPOSITORY_ID, "owner/name")]),
+    )
+    .await;
     let run = run_in("owner/name");
     let refusal = verify_for(
-        "ghs_runtoken",
+        RUN_TOKEN,
         &run_token_client(&server),
         Admission::Repository {
             run: &run,
             owner: "owner",
             repo: "name",
-            run_token: Some("ghs_runtoken"),
+            run_token: Some(RUN_TOKEN),
         },
     )
     .await
@@ -1095,7 +1144,7 @@ async fn an_installation_token_other_than_the_runs_is_refused_without_a_request(
         (Some("   "), "run_token_unbound"),
     ] {
         let refusal = verify_for(
-            "ghs_runtoken",
+            RUN_TOKEN,
             &run_token_client(&server),
             Admission::Repository {
                 run: &run,
@@ -1122,13 +1171,9 @@ async fn an_installation_token_other_than_the_runs_is_refused_without_a_request(
 async fn an_installation_token_outside_repository_mode_is_refused_without_a_request() {
     let server = MockServer::start().await;
     mount_workflow(&server, READING_JOB).await;
-    let refusal = verify_for(
-        "ghs_runtoken",
-        &run_token_client(&server),
-        Admission::Standard,
-    )
-    .await
-    .unwrap_err();
+    let refusal = verify_for(RUN_TOKEN, &run_token_client(&server), Admission::Standard)
+        .await
+        .unwrap_err();
     assert_eq!(refusal.code.code(), "unverifiable_installation_token");
     assert!(server
         .received_requests()
@@ -2223,4 +2268,152 @@ async fn release_listing_malformed_members_are_run_errors() {
             .endpoint
             .ends_with("/releases"));
     }
+}
+
+// ---------------------------------------------------------------------------
+// Repository mode: placing the run's token before it is used
+// ---------------------------------------------------------------------------
+
+async fn admit(server: &MockServer, token: &str) -> Result<VerifiedGrant, Refusal> {
+    let run = run_in("owner/name");
+    let client = RestClient::new(
+        token,
+        RestClientConfig {
+            base_url: server.uri(),
+            max_rate_limit_retries: 0,
+            ..RestClientConfig::default()
+        },
+    )
+    .expect("the client builds");
+    verify_for(
+        token,
+        &client,
+        Admission::Repository {
+            run: &run,
+            owner: "owner",
+            repo: "name",
+            run_token: Some(token),
+        },
+    )
+    .await
+}
+
+#[tokio::test]
+async fn a_token_not_in_the_actions_apps_form_is_refused_without_a_request() {
+    let server = MockServer::start().await;
+    // Nothing is mounted, so any request would fail differently.
+    for token in [
+        // The forged pair: another App's installation token, as both sides.
+        "ghs_999999_eyJhbGciOiJFUzI1NiJ9.eyJmb3JnZWQiOjF9.c2lnbmF0dXJl",
+        // The prefix without an app id.
+        "ghs_eyJhbGciOiJFUzI1NiJ9.eyJmb3JnZWQiOjF9.c2lnbmF0dXJl",
+        // A legacy installation token.
+        "ghs_16C7e42F292c6912E7710c838347Ae178B4a",
+    ] {
+        let refusal = admit(&server, token).await.unwrap_err();
+        assert_eq!(refusal.code.code(), "not_actions_token", "{token}");
+    }
+    assert!(server.received_requests().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn the_run_token_must_reach_the_runs_repository_alone() {
+    for (label, status, body, code) in [
+        (
+            "no repository",
+            200,
+            token_repositories(0, &[]),
+            "run_repository_mismatch",
+        ),
+        (
+            "two repositories",
+            200,
+            token_repositories(2, &[(RUN_REPOSITORY_ID, "owner/name"), (7, "owner/other")]),
+            "run_repository_mismatch",
+        ),
+        (
+            "the wrong id",
+            200,
+            token_repositories(1, &[(RUN_REPOSITORY_ID + 1, "owner/name")]),
+            "run_repository_mismatch",
+        ),
+        (
+            "the wrong name",
+            200,
+            token_repositories(1, &[(RUN_REPOSITORY_ID, "owner/other")]),
+            "run_repository_mismatch",
+        ),
+        (
+            "a count that disagrees",
+            200,
+            token_repositories(3, &[(RUN_REPOSITORY_ID, "owner/name")]),
+            "run_repository_mismatch",
+        ),
+        (
+            "401",
+            401,
+            json!({ "message": "Bad credentials" }),
+            "run_token_unconfirmed",
+        ),
+    ] {
+        let server = MockServer::start().await;
+        mount_token_repositories(&server, status, body).await;
+        mount_workflow_only(&server, READING_JOB).await;
+        let refusal = admit(&server, RUN_TOKEN).await.unwrap_err();
+        assert_eq!(refusal.code.code(), code, "{label}");
+        // Refused at the first request: the workflow file was never read.
+        let requests = server.received_requests().await.unwrap();
+        assert_eq!(requests.len(), 1, "{label}");
+        assert_eq!(
+            requests[0].url.path(),
+            "/installation/repositories",
+            "{label}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn the_repository_listing_is_the_first_request_and_its_pages_are_read() {
+    let server = MockServer::start().await;
+    // A first page that names the run's repository and links a second page
+    // that names another: the walk reads both, and two are refused.
+    let next = format!(
+        "{}/installation/repositories?per_page=100&page=2",
+        server.uri()
+    );
+    Mock::given(method("GET"))
+        .and(path("/installation/repositories"))
+        .and(query_param_is_missing("page"))
+        .respond_with(
+            quota_headers(ResponseTemplate::new(200))
+                .insert_header("link", format!("<{next}>; rel=\"next\"").as_str())
+                .set_body_json(token_repositories(1, &[(RUN_REPOSITORY_ID, "owner/name")])),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/installation/repositories"))
+        .and(query_param("page", "2"))
+        .respond_with(
+            quota_headers(ResponseTemplate::new(200))
+                .set_body_json(token_repositories(1, &[(7, "owner/other")])),
+        )
+        .mount(&server)
+        .await;
+    mount_workflow_only(&server, READING_JOB).await;
+    let refusal = admit(&server, RUN_TOKEN).await.unwrap_err();
+    assert_eq!(refusal.code.code(), "run_repository_mismatch");
+
+    // Admitted, the listing still comes before the workflow file.
+    let server = MockServer::start().await;
+    mount_workflow(&server, READING_JOB).await;
+    admit(&server, RUN_TOKEN)
+        .await
+        .expect("the run's token is admitted");
+    let requests = server.received_requests().await.unwrap();
+    assert_eq!(requests[0].url.path(), "/installation/repositories");
+    assert_eq!(
+        requests[1].url.path(),
+        "/repos/owner/name/contents/.github/workflows/audit.yml"
+    );
 }

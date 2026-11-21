@@ -10,6 +10,8 @@ import {
   RUN_TOKEN,
   actionsVariables,
   loadModule,
+  REPOSITORY_ID,
+  tokenRepositories,
   readRecording,
   repositoryFetch,
   workflowDeclaring,
@@ -55,8 +57,10 @@ test("the run's own token is admitted when every permission of its job is read",
   assert.equal(report.outcome, result.outcome);
   assert.equal(report.complete, result.complete);
   assert.ok(report.findings.length > 0);
-  // The grant was read from the job, at the run's commit.
-  assert.equal(fake.requests[0].path, `/repos/wyrd-company/airlock/contents/.github/workflows/audit.yml?ref=${actionsVariables().GITHUB_WORKFLOW_SHA}`);
+  // GitHub placed the token in the run's repository first, then the grant
+  // was read from the job, at the run's commit.
+  assert.equal(fake.requests[0].path, "/installation/repositories?per_page=100");
+  assert.equal(fake.requests[1].path, `/repos/wyrd-company/airlock/contents/.github/workflows/audit.yml?ref=${actionsVariables().GITHUB_WORKFLOW_SHA}`);
   // Every request carried the run's token, and no request carried it anywhere else.
   for (const sent of fake.requests) {
     assert.equal(sent.headers.authorization, `Bearer ${RUN_TOKEN}`);
@@ -84,7 +88,7 @@ test("a job with a write permission is refused before anything else is read", as
     assert.equal(error.name, "AirlockError");
     assert.equal(error.kind, "refused", permission);
     assert.match(error.message, /write_permission/);
-    assert.equal(fake.requests.length, 1, "only the workflow file was read");
+    assert.equal(fake.requests.length, 2, "only the token's reach and the workflow file were read");
   }
 });
 
@@ -209,4 +213,53 @@ test("the run's token is redacted even where only an input echoes it", async () 
   assert.match(error.message, /\[redacted\]/);
   assert.ok(!error.message.includes(RUN_TOKEN), error.message);
   for (const sent of fake.requests) assert.equal(sent.headers.authorization, `Bearer ${user}`);
+});
+
+test("the forged pair, a missing prefix and a legacy token are refused before any request", async () => {
+  // Each is offered as both the token and the run's token, as if every
+  // environment defence had been bypassed: only the form check stands.
+  for (const token of [
+    "ghs_999999_eyJhbGciOiJSUzI1NiJ9.eyJGT1JHRUQiOiJvdGhlci1hcHAifQ.Rk9SR0VE-c2lnbmF0dXJl_MARKER7",
+    "ghs_eyJhbGciOiJSUzI1NiJ9.eyJGT1JHRUQiOiJvdGhlci1hcHAifQ.Rk9SR0VE-c2lnbmF0dXJl_MARKER7",
+    "ghs_16C7e42F292c6912E7710c838347Ae178B4a",
+  ]) {
+    const fake = repositoryFetch(recording, { base: BASE, bearer: token });
+    const error = await refusal(
+      airlock.repositoryAudit(fetchHost({ fetch: fake.fetch }), request({ token, runToken: token })),
+    );
+    assert.equal(error.kind, "refused", token);
+    assert.match(error.message, /not_actions_token/);
+    assert.match(error.message, /ghs_15368_<JSON Web Token>/);
+    assert.match(error.message, /changed its token format/);
+    assert.equal(fake.requests.length, 0, "nothing was sent");
+    assert.ok(!error.message.includes(token));
+  }
+});
+
+test("the run's token must reach the run's repository alone, by id and name, before the audit", async () => {
+  for (const [label, reach, status] of [
+    ["no repository", tokenRepositories([])],
+    ["two repositories", tokenRepositories([[REPOSITORY_ID, "wyrd-company/airlock"], [7, "wyrd-company/other"]])],
+    ["the wrong id", tokenRepositories([[REPOSITORY_ID + 1, "wyrd-company/airlock"]])],
+    ["the wrong name", tokenRepositories([[REPOSITORY_ID, "wyrd-company/other"]])],
+    ["a count that disagrees", tokenRepositories([[REPOSITORY_ID, "wyrd-company/airlock"]], 2)],
+    ["401", null, 401],
+  ]) {
+    const fake = repositoryFetch(recording, {
+      base: BASE,
+      reach,
+      override: (path) =>
+        status && path.startsWith("/installation/repositories")
+          ? new Response(JSON.stringify({ message: "Bad credentials" }), { status })
+          : undefined,
+    });
+    const error = await refusal(airlock.repositoryAudit(fetchHost({ fetch: fake.fetch }), request()));
+    assert.equal(error.kind, "refused", label);
+    assert.match(error.message, status ? /run_token_unconfirmed/ : /run_repository_mismatch/, label);
+    assert.deepEqual(
+      fake.requests.map((sent) => sent.path),
+      ["/installation/repositories?per_page=100"],
+      `${label}: refused at the first request, before the audit`,
+    );
+  }
 });

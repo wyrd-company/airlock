@@ -349,6 +349,12 @@ async fn mount_response(server: &MockServer, route: &str, response: &Response) {
 }
 
 /// Serve one workflow file at a commit, as the contents endpoint answers it.
+/// The repository id the run's token reaches, as `GITHUB_REPOSITORY_ID`.
+pub const RUN_REPOSITORY_ID: u64 = 4242;
+
+/// Serve the workflow file GitHub ran, and GitHub's answer to which
+/// repository the run's token reaches: `repository` alone, as
+/// `RUN_REPOSITORY_ID`.
 pub async fn mount_workflow_at(
     server: &MockServer,
     repository: &str,
@@ -356,6 +362,26 @@ pub async fn mount_workflow_at(
     commit: &str,
     content: &str,
 ) {
+    let (owner, name) = repository.split_once('/').expect("owner/name");
+    Mock::given(method("GET"))
+        .and(path("/installation/repositories"))
+        .respond_with(
+            Response::Ok(json!({
+                "total_count": 1,
+                "repository_selection": "selected",
+                "repositories": [{
+                    "id": RUN_REPOSITORY_ID,
+                    "full_name": repository,
+                    "name": name,
+                    "owner": { "login": owner },
+                    "private": false,
+                    "default_branch": "main",
+                }],
+            }))
+            .template(),
+        )
+        .mount(server)
+        .await;
     Mock::given(method("GET"))
         .and(path(format!(
             "/repos/{repository}/contents/{workflow_path}"

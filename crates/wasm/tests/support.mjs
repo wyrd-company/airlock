@@ -179,12 +179,15 @@ export const RUN_TOKEN =
   "ghs_15368_eyJhbGciOiJSUzI1NiJ9.eyJTWU5USEVUSUMiOiJydW4tdG9rZW4ifQ.U1lOVEhFVElD-c2lnbmF0dXJl_MARKER5";
 export const WORKFLOW_SHA = "aa31121c5ead759d07c21915004de8c52b7597a7";
 export const WORKFLOW_PATH = ".github/workflows/audit.yml";
+/** wyrd-company/airlock's id, as GITHUB_REPOSITORY_ID gives it. */
+export const REPOSITORY_ID = 1313516770;
 
 /** The variables GitHub Actions sets for a run of `audit` in audit.yml. */
 export function actionsVariables(overrides = {}) {
   const variables = {
     GITHUB_ACTIONS: "true",
     GITHUB_REPOSITORY: "wyrd-company/airlock",
+    GITHUB_REPOSITORY_ID: String(REPOSITORY_ID),
     GITHUB_WORKFLOW_REF: `wyrd-company/airlock/${WORKFLOW_PATH}@refs/heads/main`,
     GITHUB_WORKFLOW_SHA: WORKFLOW_SHA,
     GITHUB_JOB: "audit",
@@ -208,14 +211,33 @@ export function workflowDeclaring(permissions = ["contents: read", "actions: rea
   ].join("\n");
 }
 
+/** GitHub's answer to `GET /installation/repositories`. */
+export function tokenRepositories(repositories = [[REPOSITORY_ID, "wyrd-company/airlock"]], totalCount) {
+  return {
+    total_count: totalCount ?? repositories.length,
+    repository_selection: "selected",
+    repositories: repositories.map(([id, fullName]) => ({
+      id,
+      full_name: fullName,
+      name: fullName.split("/")[1],
+      owner: { login: fullName.split("/")[0] },
+      private: false,
+      default_branch: "main",
+    })),
+  };
+}
+
 /**
- * The recording, answered for `bearer`, with the workflow file GitHub ran
- * served at the run's commit. `override(path)` may answer first.
+ * The recording, answered for `bearer`, with GitHub's answer to which
+ * repositories the token reaches (`reach`, the run's repository alone by
+ * default) and the workflow file GitHub ran, served at the run's commit.
+ * `override(path)` may answer first.
  */
 export function repositoryFetch(recording, {
   base,
   bearer = RUN_TOKEN,
   workflow = workflowDeclaring(),
+  reach = tokenRepositories(),
   override = () => undefined,
 } = {}) {
   const recorded = replay(recording, { base, bearer });
@@ -227,6 +249,10 @@ export function repositoryFetch(recording, {
     requests.push({ method: init.method, path, headers });
     const answered = override(path, headers);
     if (answered) return answered;
+    if (path === "/installation/repositories?per_page=100") {
+      if (headers.authorization !== `Bearer ${bearer}`) return json(401, { message: "Bad credentials" });
+      return json(200, reach);
+    }
     if (path === `/repos/wyrd-company/airlock/contents/${WORKFLOW_PATH}?ref=${WORKFLOW_SHA}`) {
       if (headers.authorization !== `Bearer ${bearer}`) return json(401, { message: "Bad credentials" });
       return json(200, {
