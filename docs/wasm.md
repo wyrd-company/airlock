@@ -153,6 +153,7 @@ anything else is read, and admitted as the command line admits it.
   "actions": {
     "GITHUB_ACTIONS": "true",
     "GITHUB_REPOSITORY": "wyrd-company/airlock",
+    "GITHUB_REPOSITORY_ID": "1313516770",
     "GITHUB_WORKFLOW_REF": "wyrd-company/airlock/.github/workflows/audit.yml@refs/heads/main",
     "GITHUB_WORKFLOW_SHA": "<the commit GitHub read the workflow from>",
     "GITHUB_JOB": "audit"
@@ -163,9 +164,13 @@ anything else is read, and admitted as the command line admits it.
 The run is settled first, from `actions`. Outside Actions, or for a run those
 variables do not describe, nothing is read. The token is then admitted as the
 command line's repository mode admits it. An installation token is admitted
-only when it is `runToken`, for `repository` only, and only when every
-permission its job declares in the workflow file at `GITHUB_WORKFLOW_SHA` is
-`read`. The module reads no file system, so a local policy path is refused.
+only when it is `runToken`, in the form `ghs_15368_<JSON Web Token>`, and when
+GitHub's answer to `GET /installation/repositories`, the first request, is
+`repository` alone, by its id (`GITHUB_REPOSITORY_ID` in `actions`) and name.
+Then every permission its job declares in the workflow file at
+`GITHUB_WORKFLOW_SHA` must be `read`. See
+[what the action proves](action.md#what-the-action-proves). The module reads
+no file system, so a local policy path is refused.
 `format` is `json` or `text`. It resolves to `{ outcome, complete, document }`
 as JSON: `outcome` is `conformant`, `nonconformant` or `incomplete`, as the
 report states, and `document` is the findings document. `runToken` is never
