@@ -101,6 +101,8 @@ runs:
       env:
         BASH_ENV: ""
         ENV: ""
+        SHELLOPTS: ""
+        PS4: ""
         LD_PRELOAD: ""
         LD_AUDIT: ""
         LD_LIBRARY_PATH: ""
@@ -116,6 +118,9 @@ runs:
       env:
         BASH_ENV: ""
         ENV: ""
+        # bash, as an unsupported sh, would trace with a caller's PS4.
+        SHELLOPTS: ""
+        PS4: ""
         # The dynamic loader acts on this shell, step.sh and env before
         # env -i, and they hold the credentials. glibc ignores an empty value.
         LD_PRELOAD: ""

@@ -579,3 +579,19 @@ test("the step refuses a runner that is not Linux, and an unknown architecture",
   assert.match(arch.log, /x64 or arm64 Linux runners only/);
   assert.equal(github.requests.length, 0);
 });
+
+test("check-runner refuses bash as sh even when a function shadows [", () => {
+  const script = join(repositoryRoot, "action/check-runner.sh");
+  const env = { PATH: process.env.PATH, AIRLOCK_RUNNER_OS: "Linux" };
+  // [ is a regular builtin; a function that makes every test false would
+  // let a check written with it pass.
+  const shadowed = { ...env, "BASH_FUNC_[%%": "() { return 1; }" };
+  const bash = spawnSync("/bin/bash", [script], { env: shadowed, argv0: "sh", encoding: "utf8" });
+  assert.equal(bash.status, 1);
+  assert.match(bash.stdout, /needs \/bin\/sh to be dash/);
+  const dash = spawnSync("/bin/sh", [script], { env, encoding: "utf8" });
+  assert.equal(dash.status, 0);
+  const macos = spawnSync("/bin/sh", [script], { env: { ...env, AIRLOCK_RUNNER_OS: "macOS" }, encoding: "utf8" });
+  assert.equal(macos.status, 1);
+  assert.match(macos.stdout, /Linux runners only/);
+});
