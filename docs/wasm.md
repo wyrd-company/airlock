@@ -98,10 +98,19 @@ A host must keep to the following:
   overwrites them when it drops them. The copies the host's JavaScript makes
   are the host's to keep out of logs.
 - **Keep the clock and the timer.** `now()` is read for the audit budget, the
-  request timeout, a rate limit's reset and the App's JSON Web Token. The
-  module keeps its budget clock from moving backwards, so a clock that steps
-  back does not return any budget. `sleep()` is used only between
-  rate-limited retries.
+  request timeout, a rate limit's reset and the App's JSON Web Token. It must
+  return a number of milliseconds from 0 to 8.64e15, the range of a `Date`.
+  It must never return less than it returned before. `fetchHost()` reads
+  `performance.timeOrigin + performance.now()`, which does not step back when
+  the system clock is set. `sleep()` is used only between rate-limited
+  retries.
+- **Expect untrusted-input checks.** The module checks every value the host
+  returns: `now()` and the status, headers and body of a `fetch` answer. A
+  value it cannot use is an error with the `Clock` or transport cause. Such a
+  value can be a throw, NaN, a negative or out-of-range time, a step back, a
+  `sleep()` that throws or rejects, or an answer of the wrong shape. None of
+  these traps the module, and an instance that refused one keeps working. A
+  plain value where a promise is expected is read as already resolved.
 - **Provide `crypto.getRandomValues`.** A hash-map dependency of the schema
   validator seeds itself from it. Node and Workers both provide it.
 
@@ -178,7 +187,19 @@ Call `revoke()` and then `free()` when the run ends.
 A failure rejects with an `Error` named `AirlockError`. It has a `kind`:
 `inputs`, `refused`, `policy`, `audit`, `central` or `render`. For `central`,
 it also has the `step`, and the `status` and vetted `code` when a service
-answered. No message carries a token, an assertion or a signature.
+answered.
+
+No output carries a credential. Each entry point redacts every string it
+returns against the credentials it holds: the report, the error message and
+the error code. `audit` holds the caller's token. `CentralSession.signIn`
+holds the Entra credential, and a session holds Safe's installation token.
+Each credential is matched as sent, form-encoded and JSON-escaped. A server,
+proxy or host that echoes one, in a message, a header, a body or a rejection,
+therefore cannot carry it out, whichever code path let the text through. A
+token shorter than 8 characters, or with a space, is refused before any
+request, so redacting never rewrites ordinary text. The module installs no
+panic hook, so a panic carries no message out. `secrets.test.mjs` feeds a
+synthetic token through each reachable error path.
 
 ## Size budget
 
@@ -207,7 +228,10 @@ against the built module:
 - `central.test.mjs`: central sign-in against fake Entra ID, Key Vault and
   GitHub, each refusal, and an audit on Safe's token. No output carries a
   secret marker.
-- `host.test.mjs`: every path that reads time, and the transport guards.
+- `host.test.mjs`: every path that reads time, the checks on each value the
+  host returns, and the transport guards.
+- `secrets.test.mjs`: a synthetic token, secret and assertion echoed in every
+  error path the module can reach, and absent from every output.
 - `parity.test.mjs`: the same audit natively, through reqwest, and as the
   module under Node, through `fetchHost`. Both run against the recorded
   responses one local server replays. Both runs must make the same requests
