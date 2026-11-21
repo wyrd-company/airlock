@@ -139,7 +139,10 @@ together, and commit the rebuilt `dist/`.
 
 ## Tests
 
-`task action:test` runs `action/tests/action.test.mjs`. It starts
+`task action:test` runs the action's tests. `action/tests/main.test.mjs` runs
+`main.mjs` with a fake engine that echoes the token, which proves the
+action's own redaction apart from the engine's. `action/tests/action.test.mjs`
+starts
 `dist/index.mjs` as the runner does, against a local server. The server
 replays the module's recording as GitHub's API and fakes the Actions artifact
 service. The tests cover these cases:
