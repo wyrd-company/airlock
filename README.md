@@ -106,14 +106,12 @@ screen shows and why.
 
 ## GitHub Action
 
-The Action audits through the GitHub REST API, so the repository being audited
-does not need to be checked out. It runs in one of two modes, set by `mode`.
-Neither reads a secret.
-
-### Repository mode
-
-The default mode audits the repository running the workflow with the run's own
-token. Name a policy explicitly if the owner does not publish the default one:
+The Airlock action audits the repository running the workflow, in repository
+mode, on the run's own token. It is a JavaScript action on `node24` that runs
+the engine as WebAssembly from the committed `dist/`. No step installs Rust.
+It audits through the GitHub REST API, so the repository need not be checked
+out, and it reads no secret. [The action](docs/action.md) documents its
+inputs, outputs, report artifact and build.
 
 ```yaml
 permissions:
@@ -123,17 +121,17 @@ permissions:
 
 steps:
   - id: audit
-    uses: wyrd-company/airlock@0123456789abcdef0123456789abcdef01234567 # 0.0.1
+    uses: wyrd-company/airlock@0123456789abcdef0123456789abcdef01234567 # 0.1.0
     with:
+      mode: repository
       token: ${{ github.token }}
       policy: example-org/.github:.github/airlock.yml
-      format: json
-  - if: always() && env.AIRLOCK_FINDINGS != ''
-    uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-    with:
-      name: airlock-findings
-      path: ${{ env.AIRLOCK_FINDINGS }}
 ```
+
+Replace the example revision with the full commit SHA of the release your
+repository has reviewed, and keep the release tag as the comment.
+
+### Repository mode
 
 GitHub offers no way to list an installation token's permissions, so Airlock
 reads the run token's grant from where it is declared. It reads the running
@@ -150,58 +148,70 @@ refuses it when no permissions are declared, because the token then holds the
 repository's defaults, and for a job that calls a reusable workflow.
 
 The job's permissions bound only the run's own token, so Airlock admits an
-installation token only when it is that token. The Action sets
-`AIRLOCK_RUN_TOKEN` to `github.token`. Airlock compares the credential with
-it, after trimming both as every credential source does, and refuses any
-other installation token. With no `AIRLOCK_RUN_TOKEN`, it refuses every
-installation token. Airlock never sends anything with `AIRLOCK_RUN_TOKEN`; it
-is only what the credential is compared with. A workflow that runs
-`airlock audit --mode repository` itself sets `AIRLOCK_RUN_TOKEN` to
-`${{ github.token }}` too.
+installation token only when it is that token. The action's `run-token` input
+defaults to `github.token`, and Airlock compares the credential with it, after
+trimming both. It refuses any other installation token, and with no run token
+it refuses every installation token. Nothing is ever sent with the run token.
+A workflow that runs `airlock audit --mode repository` itself sets
+`AIRLOCK_RUN_TOKEN` to `${{ github.token }}` for the same comparison.
 
 `token` may hold a credential of your own instead, verified as
 [the read path](#the-read-path) describes. `AIRLOCK_TOKEN` in the step's
 environment still works for one. With such a credential, `repository` may name
 another repository.
 
-### Central mode
+### Central mode has moved to the Airlock Worker
 
-`mode: central` audits every repository of the run's owner in one run, signed
-in as Airlock Safe. The organization runs it from its audit repository, in a
-job that enters the `airlock-safe` environment and holds only
-`id-token: write`. The environment's variables become the six inputs:
+The action runs repository mode only. `mode: central` is refused, with a
+message that names the Airlock Worker's scheduled central audit, which audits
+every repository of the owner. The composite action's central inputs are
+removed: `app-id`, `key-name`, `installation-repositories`, `vault-url`,
+`azure-tenant-id` and `azure-client-id`. So is the `airlock-central-report`
+artifact. The command line's `airlock audit --mode central` still works as
+[below](#central-mode-on-the-command-line).
 
-```yaml
-environment:
-  name: airlock-safe
-  deployment: false
-permissions:
-  id-token: write
+### Outcome and report
 
-steps:
-  - uses: wyrd-company/airlock@0123456789abcdef0123456789abcdef01234567 # 0.0.1
-    with:
-      mode: central
-      app-id: ${{ vars.AIRLOCK_SAFE_APP_ID }}
-      key-name: ${{ vars.AIRLOCK_SAFE_KEY_NAME }}
-      installation-repositories: ${{ vars.AIRLOCK_SAFE_INSTALLED_ON }}
-      vault-url: ${{ vars.AZURE_KEY_VAULT_URL }}
-      azure-tenant-id: ${{ vars.AZURE_TENANT_ID }}
-      azure-client-id: ${{ vars.AZURE_CLIENT_ID }}
-```
+The step exposes `outcome` (`conformant`, `nonconformant` or `incomplete`),
+`complete`, and `findings-location`, the absolute runner path of the findings
+document. It also exports `AIRLOCK_FINDINGS`, `AIRLOCK_OUTCOME` and
+`AIRLOCK_COMPLETE` to later steps. It uploads the document as the
+**`airlock-findings`** artifact, which the Airlock Worker reads.
 
-| Input | Variable | Value |
-| ----- | -------- | ----- |
-| `app-id` | `AIRLOCK_SAFE_APP_ID` | Airlock Safe's App id, `4409712`; any other is refused |
-| `key-name` | `AIRLOCK_SAFE_KEY_NAME` | The Key Vault key that holds Airlock Safe's private key |
-| `installation-repositories` | `AIRLOCK_SAFE_INSTALLED_ON` | `<owner>/*` |
-| `vault-url` | `AZURE_KEY_VAULT_URL` | The vault's `https://` address, with no path |
-| `azure-tenant-id` | `AZURE_TENANT_ID` | The Entra ID tenant |
-| `azure-client-id` | `AZURE_CLIENT_ID` | The client id of the identity whose federated credential trusts the job |
+A conformant audit succeeds. A nonconformant one fails the step. An
+incomplete one fails it too, unless `fail-on-incomplete: "false"` is set. The
+outputs then still say `outcome: incomplete` and `complete: false`.
 
-Central mode accepts no credential: a `token` input or `AIRLOCK_TOKEN` is
-refused, and so are `repository` and `ref`. It signs in through these steps,
-and a failure names the step:
+When Airlock does not audit, such as on a refused token, the findings
+document is a stable incomplete one: `outcome: incomplete`, `complete: false`,
+the mode, and the reason. An empty file is never published as a report.
+
+Before making any audit request, the same verifier as the command-line
+interface enumerates the credential's authority. It refuses the credential if
+any permission is writable or cannot be proved read-only. Airlock has no
+mutating GitHub client methods, so the action can report changes but can never
+apply them. The action masks both tokens before it prints anything, and no
+output, exported variable, document or artifact carries either one.
+
+### Central mode on the command line
+
+`airlock audit <owner> --mode central` audits every repository of the owner
+in one run, signed in as Airlock Safe. It needs a GitHub Actions job's OpenID
+Connect token, from a job that enters the `airlock-safe` environment and holds
+only `id-token: write`. It takes these six values:
+
+| Flag | Variable | Value |
+| ---- | -------- | ----- |
+| `--app-id` | `AIRLOCK_SAFE_APP_ID` | Airlock Safe's App id, `4409712`; any other is refused |
+| `--key-name` | `AIRLOCK_SAFE_KEY_NAME` | The Key Vault key that holds Airlock Safe's private key |
+| `--installation-repositories` | `AIRLOCK_SAFE_INSTALLED_ON` | `<owner>/*` |
+| `--vault-url` | `AZURE_KEY_VAULT_URL` | The vault's `https://` address, with no path |
+| `--azure-tenant-id` | `AZURE_TENANT_ID` | The Entra ID tenant |
+| `--azure-client-id` | `AZURE_CLIENT_ID` | The client id of the identity whose federated credential trusts the job |
+
+Central mode accepts no credential: `--token`, `--token-file`,
+`--token-stdin` or `AIRLOCK_TOKEN` is refused, and so is `--ref`. It signs in
+through these steps, and a failure names the step:
 
 1. `inputs`: the six inputs are valid, and the App id is Airlock Safe's.
 2. `azure-sign-in`: Airlock requests the job's OpenID Connect token for the
@@ -227,7 +237,7 @@ each repository's findings document or the reason it could not be audited,
 and counts. The report's outcome is the worst repository's: incomplete, then
 nonconformant, then conformant. A listing Airlock could not walk to the end,
 an empty listing, or a repository it could not audit makes the run
-incomplete. The report is uploaded as the `airlock-central-report` artifact.
+incomplete.
 
 The installation token stays in memory and is revoked when the run ends.
 Every input that can be refused is read before the token is minted, so no
@@ -244,45 +254,6 @@ request-id headers, and the `Date` a report records as when settings were
 observed, are kept only when they have the shape GitHub gives them. Everything
 central mode prints is redacted of its token last, so an echo that got past
 every other guard prints as `[redacted]`.
-
-### Inputs and outputs
-
-Replace the example revision with the full commit SHA for the Action release
-your repository has reviewed, retaining the release version comment.
-`repository` defaults to the repository running the workflow. `policy`, `ref`,
-and `format` (`json` or `text`) are optional. The step exposes `outcome`,
-`complete`, and `findings-location`; the last is an absolute runner path that
-can be uploaded as an artifact even when the audit fails.
-The Action also exports `AIRLOCK_FINDINGS`, `AIRLOCK_OUTCOME`, and
-`AIRLOCK_COMPLETE` to later steps because GitHub may not propagate composite
-outputs after a failing inner step.
-
-The Action preserves Airlock's exit codes: conformant exits `0`,
-nonconformant exits `1`, and incomplete exits `2`. An incomplete audit fails
-the step by default. In repository mode, set `fail-on-incomplete: "false"`
-only when the workflow must continue despite an unanswered audit; the outputs
-still say `outcome: incomplete` and `complete: false`. Central mode refuses
-`fail-on-incomplete: "false"`, because a central run that could not audit
-must fail. Nonconformance always fails.
-
-When Airlock stops before writing a report, such as on a refused sign-in, the
-findings document is a stable incomplete one: `outcome: incomplete`,
-`complete: false`, the mode, and a message saying the step log has the
-reason. It repeats nothing Airlock or a service printed. An empty file is
-never published as a report.
-
-Before making any audit request, the same verifier as the command-line
-interface enumerates the credential's authority. It refuses the credential if
-any permission is writable or cannot be proved read-only. Airlock has no
-mutating GitHub client methods. In central mode, the only requests that are
-not reads mint and revoke its own installation token. The Action only builds
-and runs Airlock, so it can report changes but can never apply them.
-
-The `token` input and the central inputs reach only the audit step. A
-credential set as `AIRLOCK_TOKEN` in the step's environment is present in
-every composite step, including the toolchain setup and cached source build.
-The positive read-only verification is the security boundary; the Action does
-not claim credential isolation from the build it performs.
 
 With no `--policy`, airlock reads `{owner}/.github:.github/airlock.yml` for the
 audited repository's owner. Airlock ships no built-in policy, so a repository
@@ -393,13 +364,12 @@ The tests `decided_outcomes_match_the_integration_base`,
 `disclosure_routing_and_a_missing_input_without_a_gate_are_distinct`, and
 `unbuilt_branches_preserve_decided_outcomes` verify these contracts.
 
-The binary's exit contract is unconditional. In repository mode, the
-composite Action retains `fail-on-incomplete: "false"` as an adapter override:
-it maps binary exit `2` to Action success while reporting
-`outcome: incomplete` and `complete: false`. The override also covers setup
-errors such as a missing or refused credential. Central mode, and a mode the
-Action does not recognise, refuse it. `scripts/test-action.sh` verifies this
-mapping. Blocking Gaps still fail the Action.
+The binary's exit contract is unconditional. The action keeps
+`fail-on-incomplete: "false"` as an override of its own: an incomplete audit
+then succeeds while reporting `outcome: incomplete` and `complete: false`. The
+override also covers a missing or refused credential. A mode other than
+repository refuses it. `action/tests/action.test.mjs` verifies this.
+Blocking Gaps still fail the action.
 
 On Unix, a closed output pipe terminates silently on signal 13 (`SIGPIPE`),
 commonly reported by shells as status 141.
@@ -681,7 +651,7 @@ Every subcommand runs on it. Airlock reads a token from `--token`,
 `--token-file`, or `--token-stdin` first, then `AIRLOCK_TOKEN`, then the profile
 written by `airlock auth login`. `audit --mode central` reads none of these and
 refuses any that is set: it signs in as Airlock Safe, as
-[central mode](#central-mode) describes.
+[central mode](#central-mode-on-the-command-line) describes.
 
 It deliberately ignores `GH_TOKEN`, `GITHUB_TOKEN`, the `gh` credential store,
 and git credential helpers. A tool that refuses write access should not quietly
@@ -726,7 +696,8 @@ its token to standard output; see
 ### Airlock's own CI
 
 Airlock's workflows hold no Airlock credential and read no secret. `audit.yml`
-runs the Action in repository mode with `token: ${{ github.token }}`. The CI
+runs the action from this checkout (`uses: ./`) in repository mode with
+`token: ${{ github.token }}`. The CI
 `dogfood` job pipes `github.token` to `task dogfood:ci`, which runs
 `airlock audit --mode repository --token-stdin` on the binary it builds, with
 the same token in `AIRLOCK_RUN_TOKEN`. Each job declares only `read`

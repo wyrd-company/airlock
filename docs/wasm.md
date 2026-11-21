@@ -139,8 +139,8 @@ same for every target, so the native parity run executes the module's code.
 `{ token, owner, repo, policy?, githubApi? }`. The token is verified before
 anything else is read, and admitted as the command line admits it.
 
-`repositoryAudit(host, request)` is repository mode, which the JavaScript
-action runs. `request` is JSON:
+`repositoryAudit(host, request)` is repository mode, which
+[the JavaScript action](action.md) runs. `request` is JSON:
 
 ```json
 {
