@@ -51,7 +51,7 @@ export const CENTRAL_MOVED =
  *   setFailed: (message: string) => void,
  *   writeFile: (path: string, text: string) => void,
  *   audit: (request: string) => Promise<string>,
- *   upload: (path: string, extension: string, name: string) => Promise<void>,
+ *   stage: (path: string, extension: string) => string,
  * }} io
  */
 export async function run(io) {
@@ -111,14 +111,16 @@ export async function run(io) {
     io.exportVariable("AIRLOCK_FINDINGS", findingsLocation);
     io.exportVariable("AIRLOCK_OUTCOME", outcome);
     io.exportVariable("AIRLOCK_COMPLETE", String(complete));
-    let uploaded = true;
+    // The document is staged alone in a directory, under a fixed file name,
+    // and action.yml's next step uploads that directory as the artifact.
+    // Only an action step gets the Actions runtime credential an upload needs;
+    // this step, a composite's run step, does not.
     try {
-      await io.upload(findingsLocation, extension, artifact);
+      io.setOutput("artifact-directory", io.stage(findingsLocation, extension));
     } catch (error) {
-      uploaded = false;
-      io.setFailed(redact(`the report could not be uploaded as the ${artifact} artifact: ${error?.message ?? error}`));
+      io.setFailed(redact(`the report could not be staged for the ${artifact} artifact: ${error?.message ?? error}`));
+      return;
     }
-    if (!uploaded) return;
     if (outcome === "nonconformant") {
       io.setFailed("Airlock found blocking gaps: the outcome is nonconformant.");
     } else if (outcome !== "conformant") {

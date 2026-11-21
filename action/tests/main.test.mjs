@@ -33,7 +33,10 @@ function runner({ inputs = {}, audit, env = {} }) {
     setFailed: (message) => written.failed.push(message),
     writeFile: (path, text) => (written.files[path] = text),
     audit,
-    upload: async (path, extension, name) => written.uploads.push({ path, extension, name }),
+    stage: (path, extension) => {
+      written.uploads.push({ path, extension });
+      return "/runner/temp/airlock-artifact-x";
+    },
   };
   return { io, written };
 }
@@ -73,16 +76,16 @@ test("an engine error that carries a token is redacted in the incomplete documen
   assertClean(written);
 });
 
-test("an upload error that carries a token is redacted", async () => {
+test("a staging error that carries a token is redacted and fails the step", async () => {
   const { io, written } = runner({
     inputs: { token: TOKEN },
     audit: async () => JSON.stringify({ outcome: "conformant", complete: true, document: "{}" }),
   });
-  io.upload = async () => {
-    throw new Error(`upload refused ${TOKEN} ${RUN}`);
+  io.stage = () => {
+    throw new Error(`staging refused ${TOKEN} ${RUN}`);
   };
   await run(io);
-  assert.match(written.failed[0], /could not be uploaded/);
+  assert.match(written.failed[0], /could not be staged for the airlock-findings-7 artifact/);
   assertClean(written);
 });
 
@@ -119,6 +122,6 @@ test("the artifact is named for the job's check run", async () => {
     audit: async () => JSON.stringify({ outcome: "conformant", complete: true, document: "{}" }),
   });
   await run(io);
-  assert.equal(written.uploads[0].name, "airlock-findings-7");
   assert.equal(written.outputs.artifact, "airlock-findings-7");
+  assert.equal(written.outputs["artifact-directory"], "/runner/temp/airlock-artifact-x");
 });

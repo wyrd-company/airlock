@@ -1,10 +1,9 @@
-// The action's entry point: wires the runner, the module and the artifact
-// service to main.mjs. Bundled into dist/index.mjs by build.mjs.
+// The action's entry point: wires the runner and the module to main.mjs.
+// Bundled into dist/index.mjs by build.mjs.
 
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { DefaultArtifactClient } from "@actions/artifact";
 import * as core from "@actions/core";
 
 import { fetchHost } from "../../crates/wasm/js/host.mjs";
@@ -41,14 +40,13 @@ await run({
     load();
     return repositoryAudit(fetchHost(), request);
   },
-  upload: async (path, extension, name) => {
-    // The artifact holds one file under a fixed name, whatever the
-    // findings location is called, so the Worker reads it by name.
+  stage: (path, extension) => {
+    // One file under a fixed name, whatever the findings location is called,
+    // so the artifact always holds airlock-findings.json (or .txt).
     const base = process.env.RUNNER_TEMP || process.env.TMPDIR || "/tmp";
     mkdirSync(base, { recursive: true });
     const directory = mkdtempSync(join(base, "airlock-artifact-"));
-    const file = join(directory, `${ARTIFACT_PREFIX}.${extension}`);
-    copyFileSync(path, file);
-    await new DefaultArtifactClient().uploadArtifact(name, [file], directory);
+    copyFileSync(path, join(directory, `${ARTIFACT_PREFIX}.${extension}`));
+    return directory;
   },
 });

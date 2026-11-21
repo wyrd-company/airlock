@@ -1,10 +1,12 @@
-// The action end to end: dist/index.mjs, as the runner starts it, against a
-// local server that is both GitHub's API (replaying the module's recording)
-// and the Actions artifact service. Every token below is a synthetic marker.
+// The action end to end: dist/index.mjs, as action.yml's step starts it,
+// against a local server that is GitHub's API, replaying the module's
+// recording. The step stages the report for action.yml's upload-artifact
+// step, which runs only on GitHub; the CI jobs and audit.yml prove that part.
+// Every token below is a synthetic marker.
 
 import assert from "node:assert/strict";
-import { spawn, spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -25,35 +27,19 @@ const RUN_ID = "4242";
 const CHECK_RUN_ID = "51725241954";
 const ARTIFACT = `airlock-findings-${CHECK_RUN_ID}`;
 
-/** A runtime token the artifact client can read its backend ids from. */
-const RUNTIME_TOKEN = [
-  { alg: "none", typ: "JWT" },
-  { scp: "Actions.GenericRead:0 Actions.Results:run-backend-id:job-backend-id" },
-]
-  .map((part) => Buffer.from(JSON.stringify(part)).toString("base64url"))
-  .concat("synthetic-signature")
-  .join(".");
-
 let recording;
 let server;
 let base;
 let scratch;
 /** What the GitHub side of the server answers with; each test sets it. */
 let github;
-/** What the artifact service received. */
-let artifacts;
 
 before(async () => {
   recording = readRecording("audit-airlock.json");
   scratch = mkdtempSync(join(tmpdir(), "airlock-action-test-"));
   server = createServer(async (request, response) => {
-    const chunks = [];
-    for await (const chunk of request) chunks.push(chunk);
-    const body = Buffer.concat(chunks);
+    for await (const _ of request);
     const url = new URL(request.url, base);
-    if (url.pathname.startsWith("/twirp/") || url.pathname.startsWith("/blob/")) {
-      return artifactService(request.method, url, body, response);
-    }
     const headers = Object.entries(request.headers).map(([name, value]) => [name, String(value)]);
     const answer = await github.fetch(url.href, { method: request.method, headers });
     response.writeHead(answer.status, Object.fromEntries(answer.headers));
@@ -68,37 +54,6 @@ after(() => {
   rmSync(scratch, { recursive: true, force: true });
 });
 
-/** CreateArtifact, the blob's blocks and block list, and FinalizeArtifact. */
-function artifactService(method, url, body, response) {
-  const reply = (status, value, headers = {}) => {
-    response.writeHead(status, { "content-type": "application/json", ...headers });
-    response.end(value === undefined ? "" : JSON.stringify(value));
-  };
-  const service = "/twirp/github.actions.results.api.v1.ArtifactService/";
-  if (method === "POST" && url.pathname === `${service}CreateArtifact`) {
-    const created = JSON.parse(body);
-    artifacts.push({ name: created.name, blocks: new Map(), finalized: false });
-    return reply(200, { ok: true, signedUploadUrl: `${base}/blob/account/container/upload?sig=synthetic` });
-  }
-  if (method === "PUT" && url.pathname.startsWith("/blob/")) {
-    const artifact = artifacts.at(-1);
-    if (url.searchParams.get("comp") === "block") {
-      artifact.blocks.set(url.searchParams.get("blockid"), body);
-    } else if (url.searchParams.get("comp") === "blocklist") {
-      const ids = [...body.toString("utf8").matchAll(/<(?:Latest|Uncommitted|Committed)>([^<]*)</g)].map((m) => m[1]);
-      artifact.bytes = Buffer.concat(ids.map((id) => artifact.blocks.get(id)));
-    } else {
-      artifact.bytes = body;
-    }
-    return reply(201, undefined, { "x-ms-request-id": "synthetic", etag: '"synthetic"' });
-  }
-  if (method === "POST" && url.pathname === `${service}FinalizeArtifact`) {
-    artifacts.at(-1).finalized = true;
-    return reply(200, { ok: true, artifactId: "1" });
-  }
-  return reply(404, { msg: "not found" });
-}
-
 /**
  * Run dist/index.mjs as the runner does, with `inputs` and `variables`.
  * Resolves to what the run left: its exit code, its log, its outputs, its
@@ -110,7 +65,6 @@ async function runAction({ inputs = {}, variables = actionsVariables(), env = {}
   const envFile = join(directory, "env");
   writeFileSync(outputFile, "");
   writeFileSync(envFile, "");
-  artifacts = [];
   const environment = {
     PATH: process.env.PATH,
     RUNNER_TEMP: directory,
@@ -121,8 +75,6 @@ async function runAction({ inputs = {}, variables = actionsVariables(), env = {}
     GITHUB_ACTION: "airlock",
     GITHUB_API_URL: base,
     GITHUB_SERVER_URL: "https://github.com",
-    ACTIONS_RUNTIME_TOKEN: RUNTIME_TOKEN,
-    ACTIONS_RESULTS_URL: `${base}/`,
     // What action.yml's step sets in its own env.
     AIRLOCK_RUN_TOKEN: RUN_TOKEN,
     AIRLOCK_JOB_CHECK_RUN_ID: CHECK_RUN_ID,
@@ -144,19 +96,13 @@ async function runAction({ inputs = {}, variables = actionsVariables(), env = {}
   const outputs = parseCommandFile(readFileSync(outputFile, "utf8"));
   const exported = parseCommandFile(readFileSync(envFile, "utf8"));
   const findings = outputs["findings-location"] ? readFileSync(outputs["findings-location"], "utf8") : undefined;
-  const artifact = artifacts[0];
-  let artifactFiles;
-  if (artifact?.bytes) {
-    const zip = join(directory, "artifact.zip");
-    writeFileSync(zip, artifact.bytes);
-    const listing = spawnSync("unzip", ["-Z1", zip], { encoding: "utf8" });
-    artifactFiles = Object.fromEntries(
-      listing.stdout
-        .split("\n")
-        .filter(Boolean)
-        .map((file) => [file, spawnSync("unzip", ["-p", zip, file], { encoding: "utf8" }).stdout]),
-    );
-  }
+  // What action.yml's upload step would upload: the staged directory, under
+  // the artifact output's name.
+  const staged = outputs["artifact-directory"];
+  const artifact = staged ? { name: outputs.artifact, directory: staged } : undefined;
+  const artifactFiles = staged
+    ? Object.fromEntries(readdirSync(staged).map((file) => [file, readFileSync(join(staged, file), "utf8")]))
+    : undefined;
   return { status, log, outputs, exported, findings, artifact, artifactFiles, raw: { outputFile, envFile } };
 }
 
@@ -176,13 +122,11 @@ function parseCommandFile(text) {
 }
 
 /** Fail when the run left a token anywhere a person or a later step reads. */
-function assertNoToken(run, tokens = [RUN_TOKEN], { uploaded = true } = {}) {
+function assertNoToken(run, tokens = [RUN_TOKEN]) {
   // An absent artifact would make "the artifact carries no token" hold for
-  // nothing: every run here but a refused upload uploads exactly one file.
-  if (uploaded) {
-    assert.equal(run.artifact?.finalized, true, "the artifact was uploaded and finalized");
-    assert.equal(Object.keys(run.artifactFiles ?? {}).length, 1, "the artifact holds one file");
-  }
+  // nothing: every run here stages exactly one file.
+  assert.ok(run.artifact?.name, "the artifact was staged and named");
+  assert.equal(Object.keys(run.artifactFiles ?? {}).length, 1, "the artifact holds one file");
   for (const token of tokens) {
     // The only line that names a token is the mask command, which the
     // runner consumes; it must come before anything else is printed.
@@ -228,7 +172,7 @@ function organizationPolicy(path) {
   return new Response(body, { status: exchange.status, headers: { "content-type": "application/json" } });
 }
 
-test("the template's with: block audits the run's repository and uploads the report", async () => {
+test("the template's with: block audits the run's repository and stages the report", async () => {
   github = repositoryFetch(recording, { base, override: organizationPolicy });
   const run = await runAction({ inputs: TEMPLATE_INPUTS, name: "template" });
   assert.deepEqual(github.unexpected, []);
@@ -247,7 +191,6 @@ test("the template's with: block audits the run's repository and uploads the rep
   assert.equal(run.exported.AIRLOCK_FINDINGS, run.outputs["findings-location"]);
   // The report, under the name the Worker reads.
   assert.equal(run.artifact.name, ARTIFACT);
-  assert.equal(run.artifact.finalized, true);
   assert.equal(run.outputs.artifact, ARTIFACT);
   assert.deepEqual(Object.keys(run.artifactFiles), ["airlock-findings.json"]);
   assert.equal(run.artifactFiles["airlock-findings.json"], run.findings);
@@ -383,19 +326,6 @@ test("no output carries a token when every GitHub answer echoes it", async () =>
   }
 });
 
-test("an artifact service that refuses the upload fails the step", async () => {
-  github = repositoryFetch(recording, { base, override: organizationPolicy });
-  const run = await runAction({
-    inputs: { ...TEMPLATE_INPUTS, "fail-on-incomplete": "false" },
-    variables: actionsVariables({ GITHUB_ACTIONS: undefined }),
-    env: { ACTIONS_RUNTIME_TOKEN: undefined },
-    name: "upload",
-  });
-  assert.equal(run.status, 1);
-  assert.match(run.log, new RegExp(`could not be uploaded as the ${ARTIFACT} artifact`));
-  assertNoToken(run, [RUN_TOKEN], { uploaded: false });
-});
-
 test("a forged pair is refused: the caller cannot supply the run's token", async () => {
   // Another App's installation token, which the caller holds, passed as
   // `token` and offered as the run's token in every way a caller could.
@@ -417,7 +347,7 @@ test("a forged pair is refused: the caller cannot supply the run's token", async
   assertNoToken(run, [RUN_TOKEN, forged]);
 });
 
-test("each job, matrix leg and attempt uploads under its own artifact name", async () => {
+test("each job, matrix leg and attempt stages under its own artifact name", async () => {
   github = repositoryFetch(recording, { base });
   const names = [];
   for (const [env, expected] of [
