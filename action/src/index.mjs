@@ -1,0 +1,49 @@
+// The action's entry point: wires the runner, the module and the artifact
+// service to main.mjs. Bundled into dist/index.mjs by build.mjs.
+
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
+import { DefaultArtifactClient } from "@actions/artifact";
+import * as core from "@actions/core";
+
+import { fetchHost } from "../../crates/wasm/js/host.mjs";
+import { initSync, repositoryAudit } from "airlock-wasm";
+
+import { ARTIFACT_NAME, run } from "./main.mjs";
+
+let loaded = false;
+function load() {
+  if (!loaded) {
+    // The module sits beside this file in dist/.
+    initSync({ module: readFileSync(new URL("./airlock_bg.wasm", import.meta.url)) });
+    loaded = true;
+  }
+}
+
+await run({
+  input: (name) => core.getInput(name),
+  env: process.env,
+  setSecret: core.setSecret,
+  setOutput: core.setOutput,
+  exportVariable: core.exportVariable,
+  info: core.info,
+  error: core.error,
+  warning: core.warning,
+  setFailed: core.setFailed,
+  writeFile: (path, text) => writeFileSync(path, text),
+  audit: async (request) => {
+    load();
+    return repositoryAudit(fetchHost(), request);
+  },
+  upload: async (path, extension) => {
+    // The artifact holds one file under a fixed name, whatever the
+    // findings location is called, so the Worker reads it by name.
+    const base = process.env.RUNNER_TEMP || process.env.TMPDIR || "/tmp";
+    mkdirSync(base, { recursive: true });
+    const directory = mkdtempSync(join(base, "airlock-artifact-"));
+    const file = join(directory, `${ARTIFACT_NAME}.${extension}`);
+    copyFileSync(path, file);
+    await new DefaultArtifactClient().uploadArtifact(ARTIFACT_NAME, [file], directory);
+  },
+});

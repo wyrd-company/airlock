@@ -28,7 +28,6 @@ tasks:
     desc: Run the full test suite
     cmds:
       - cargo test --workspace
-      - scripts/test-action.sh
 
   lint:
     desc: Static analysis and a formatting check, both non-mutating
@@ -43,7 +42,7 @@ tasks:
       - shellcheck scripts/*.sh
       - >-
         ryl check --config-file .ryl.yml .github/workflows/*.yml
-        .github/airlock.yml docs taskfile.yml
+        .github/airlock.yml docs taskfile.yml action.yml
       - rumdl check .
       - intentional check
 
@@ -95,6 +94,36 @@ tasks:
       - task: wasm:build
       - task: wasm:size
       - task: wasm:test
+
+  action:install:
+    desc: Install the action's locked JavaScript dependencies
+    cmds:
+      - pnpm --dir action install --frozen-lockfile
+
+  action:build:
+    desc: >-
+      Build the action's dist/: the WebAssembly module and the bundle that
+      loads it. Commit the result
+    cmds:
+      - scripts/build-action.sh
+
+  action:check-dist:
+    desc: Rebuild dist/ and fail on any difference from the committed copy
+    cmds:
+      - scripts/check-action-dist.sh
+
+  action:test:
+    desc: >-
+      Run the action end to end, dist/index.mjs against a fake GitHub and a
+      fake artifact service
+    cmds:
+      - pnpm --dir action test
+
+  action:
+    desc: Everything CI runs for the action
+    cmds:
+      - task: action:check-dist
+      - task: action:test
 
   ci:install-linters:
     desc: Install the repository linters used by CI
@@ -162,3 +191,4 @@ tasks:
       - task: build
       - task: msrv
       - task: wasm
+      - task: action
