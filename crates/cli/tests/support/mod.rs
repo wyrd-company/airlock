@@ -348,7 +348,6 @@ async fn mount_response(server: &MockServer, route: &str, response: &Response) {
         .await;
 }
 
-/// Serve one workflow file at a commit, as the contents endpoint answers it.
 /// The repository id the run's token reaches, as `GITHUB_REPOSITORY_ID`.
 pub const RUN_REPOSITORY_ID: u64 = 4242;
 
