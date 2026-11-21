@@ -25,3 +25,6 @@ target
 
 # Markdown lint cache
 .rumdl_cache/
+
+# The action's dependencies; dist/ is committed and holds the bundle
+action/node_modules/
