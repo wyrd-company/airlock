@@ -23590,7 +23590,7 @@ var require_ms = __commonJS({
 // node_modules/.pnpm/debug@4.4.3/node_modules/debug/src/common.js
 var require_common = __commonJS({
   "node_modules/.pnpm/debug@4.4.3/node_modules/debug/src/common.js"(exports2, module) {
-    function setup(env) {
+    function setup(env2) {
       createDebug.debug = createDebug;
       createDebug.default = createDebug;
       createDebug.coerce = coerce;
@@ -23599,8 +23599,8 @@ var require_common = __commonJS({
       createDebug.enabled = enabled2;
       createDebug.humanize = require_ms();
       createDebug.destroy = destroy2;
-      Object.keys(env).forEach((key) => {
-        createDebug[key] = env[key];
+      Object.keys(env2).forEach((key) => {
+        createDebug[key] = env2[key];
       });
       createDebug.names = [];
       createDebug.skips = [];
@@ -62220,16 +62220,6 @@ function exportVariable(name, val) {
 }
 function setSecret(secret) {
   issueCommand("add-mask", {}, secret);
-}
-function getInput(name, options) {
-  const val = process.env[`INPUT_${name.replace(/ /g, "_").toUpperCase()}`] || "";
-  if (options && options.required && !val) {
-    throw new Error(`Input required and not supplied: ${name}`);
-  }
-  if (options && options.trimWhitespace === false) {
-    return val;
-  }
-  return val.trim();
 }
 function setOutput(name, value) {
   const filePath = process.env["GITHUB_OUTPUT"] || "";
@@ -105734,7 +105724,7 @@ var __awaiter11 = function(thisArg, _arguments, P, generator) {
     step((generator = generator.apply(thisArg, _arguments || [])).next());
   });
 };
-function getArtifactPublic(artifactName, workflowRunId, repositoryOwner, repositoryName, token) {
+function getArtifactPublic(artifactName2, workflowRunId, repositoryOwner, repositoryName, token) {
   return __awaiter11(this, void 0, void 0, function* () {
     var _a;
     const [retryOpts, requestOpts] = getRetryOptions(defaults);
@@ -105750,13 +105740,13 @@ function getArtifactPublic(artifactName, workflowRunId, repositoryOwner, reposit
       owner: repositoryOwner,
       repo: repositoryName,
       run_id: workflowRunId,
-      name: artifactName
+      name: artifactName2
     });
     if (getArtifactResp.status !== 200) {
       throw new InvalidResponseError(`Invalid response from GitHub API: ${getArtifactResp.status} (${(_a = getArtifactResp === null || getArtifactResp === void 0 ? void 0 : getArtifactResp.headers) === null || _a === void 0 ? void 0 : _a["x-github-request-id"]})`);
     }
     if (getArtifactResp.data.artifacts.length === 0) {
-      throw new ArtifactNotFoundError(`Artifact not found for name: ${artifactName}
+      throw new ArtifactNotFoundError(`Artifact not found for name: ${artifactName2}
         Please ensure that your artifact is not expired and the artifact was uploaded using a compatible version of toolkit/upload-artifact.
         For more information, visit the GitHub Artifacts FAQ: https://github.com/actions/toolkit/blob/main/packages/artifact/docs/faq.md`);
     }
@@ -105776,7 +105766,7 @@ function getArtifactPublic(artifactName, workflowRunId, repositoryOwner, reposit
     };
   });
 }
-function getArtifactInternal(artifactName) {
+function getArtifactInternal(artifactName2) {
   return __awaiter11(this, void 0, void 0, function* () {
     var _a;
     const artifactClient = internalArtifactTwirpClient();
@@ -105784,11 +105774,11 @@ function getArtifactInternal(artifactName) {
     const req = {
       workflowRunBackendId,
       workflowJobRunBackendId,
-      nameFilter: StringValue.create({ value: artifactName })
+      nameFilter: StringValue.create({ value: artifactName2 })
     };
     const res = yield artifactClient.ListArtifacts(req);
     if (res.artifacts.length === 0) {
-      throw new ArtifactNotFoundError(`Artifact not found for name: ${artifactName}
+      throw new ArtifactNotFoundError(`Artifact not found for name: ${artifactName2}
         Please ensure that your artifact is not expired and the artifact was uploaded using a compatible version of toolkit/upload-artifact.
         For more information, visit the GitHub Artifacts FAQ: https://github.com/actions/toolkit/blob/main/packages/artifact/docs/faq.md`);
     }
@@ -105837,7 +105827,7 @@ var __awaiter12 = function(thisArg, _arguments, P, generator) {
     step((generator = generator.apply(thisArg, _arguments || [])).next());
   });
 };
-function deleteArtifactPublic(artifactName, workflowRunId, repositoryOwner, repositoryName, token) {
+function deleteArtifactPublic(artifactName2, workflowRunId, repositoryOwner, repositoryName, token) {
   return __awaiter12(this, void 0, void 0, function* () {
     var _a;
     const [retryOpts, requestOpts] = getRetryOptions(defaults);
@@ -105849,7 +105839,7 @@ function deleteArtifactPublic(artifactName, workflowRunId, repositoryOwner, repo
       request: requestOpts
     };
     const github = getOctokit(token, opts, retry, requestLog);
-    const getArtifactResp = yield getArtifactPublic(artifactName, workflowRunId, repositoryOwner, repositoryName, token);
+    const getArtifactResp = yield getArtifactPublic(artifactName2, workflowRunId, repositoryOwner, repositoryName, token);
     const deleteArtifactResp = yield github.rest.actions.deleteArtifact({
       owner: repositoryOwner,
       repo: repositoryName,
@@ -105863,18 +105853,18 @@ function deleteArtifactPublic(artifactName, workflowRunId, repositoryOwner, repo
     };
   });
 }
-function deleteArtifactInternal(artifactName) {
+function deleteArtifactInternal(artifactName2) {
   return __awaiter12(this, void 0, void 0, function* () {
     const artifactClient = internalArtifactTwirpClient();
     const { workflowRunBackendId, workflowJobRunBackendId } = getBackendIdsFromToken();
     const listReq = {
       workflowRunBackendId,
       workflowJobRunBackendId,
-      nameFilter: StringValue.create({ value: artifactName })
+      nameFilter: StringValue.create({ value: artifactName2 })
     };
     const listRes = yield artifactClient.ListArtifacts(listReq);
     if (listRes.artifacts.length === 0) {
-      throw new ArtifactNotFoundError(`Artifact not found for name: ${artifactName}`);
+      throw new ArtifactNotFoundError(`Artifact not found for name: ${artifactName2}`);
     }
     let artifact = listRes.artifacts[0];
     if (listRes.artifacts.length > 1) {
@@ -105887,7 +105877,7 @@ function deleteArtifactInternal(artifactName) {
       name: artifact.name
     };
     const res = yield artifactClient.DeleteArtifact(req);
-    info(`Artifact '${artifactName}' (ID: ${res.artifactId}) deleted`);
+    info(`Artifact '${artifactName2}' (ID: ${res.artifactId}) deleted`);
     return {
       id: Number(res.artifactId)
     };
@@ -106130,7 +106120,7 @@ If the error persists, please check whether Actions and API requests are operati
       }
     });
   }
-  getArtifact(artifactName, options) {
+  getArtifact(artifactName2, options) {
     return __awaiter14(this, void 0, void 0, function* () {
       try {
         if (isGhes()) {
@@ -106138,9 +106128,9 @@ If the error persists, please check whether Actions and API requests are operati
         }
         if (options === null || options === void 0 ? void 0 : options.findBy) {
           const { findBy: { workflowRunId, repositoryOwner, repositoryName, token } } = options;
-          return getArtifactPublic(artifactName, workflowRunId, repositoryOwner, repositoryName, token);
+          return getArtifactPublic(artifactName2, workflowRunId, repositoryOwner, repositoryName, token);
         }
-        return getArtifactInternal(artifactName);
+        return getArtifactInternal(artifactName2);
       } catch (error2) {
         warning(`Get Artifact failed with error: ${error2}.
 
@@ -106151,7 +106141,7 @@ If the error persists, please check whether Actions and API requests are operati
       }
     });
   }
-  deleteArtifact(artifactName, options) {
+  deleteArtifact(artifactName2, options) {
     return __awaiter14(this, void 0, void 0, function* () {
       try {
         if (isGhes()) {
@@ -106159,9 +106149,9 @@ If the error persists, please check whether Actions and API requests are operati
         }
         if (options === null || options === void 0 ? void 0 : options.findBy) {
           const { findBy: { repositoryOwner, repositoryName, workflowRunId, token } } = options;
-          return deleteArtifactPublic(artifactName, workflowRunId, repositoryOwner, repositoryName, token);
+          return deleteArtifactPublic(artifactName2, workflowRunId, repositoryOwner, repositoryName, token);
         }
-        return deleteArtifactInternal(artifactName);
+        return deleteArtifactInternal(artifactName2);
       } catch (error2) {
         warning(`Delete Artifact failed with error: ${error2}.
 
@@ -106772,12 +106762,18 @@ var ACTIONS_VARIABLES = [
   "GITHUB_WORKFLOW_SHA",
   "GITHUB_JOB"
 ];
-var ARTIFACT_NAME = "airlock-findings";
+var ARTIFACT_PREFIX = "airlock-findings";
+function artifactName(env2) {
+  const checkRun = (env2.AIRLOCK_JOB_CHECK_RUN_ID ?? "").trim();
+  if (/^[0-9]+$/.test(checkRun)) return `${ARTIFACT_PREFIX}-${checkRun}`;
+  const job = (env2.GITHUB_JOB || "job").replace(/[^A-Za-z0-9_.-]/g, "_");
+  return `${ARTIFACT_PREFIX}-${job}-${env2.GITHUB_RUN_ATTEMPT || "1"}`;
+}
 var CENTRAL_MOVED = "central mode is no longer part of this action: the Airlock Worker's scheduled central audit audits every repository of the owner. This action runs repository mode only; remove `mode: central` and its inputs.";
 async function run(io) {
-  const { env } = io;
-  const token = io.input("token") || (env.AIRLOCK_TOKEN ?? "").trim();
-  const runToken = io.input("run-token");
+  const { env: env2 } = io;
+  const token = io.input("token") || (env2.AIRLOCK_TOKEN ?? "").trim();
+  const runToken = (env2.AIRLOCK_RUN_TOKEN ?? "").trim();
   for (const secret of [token, runToken]) if (secret) io.setSecret(secret);
   const redact = (text) => {
     let out = String(text);
@@ -106789,7 +106785,7 @@ async function run(io) {
   let failOnIncomplete = io.input("fail-on-incomplete") || "true";
   const reference = io.input("ref");
   const policy = io.input("policy");
-  const repository = io.input("repository") || (env.GITHUB_REPOSITORY ?? "").trim();
+  const repository = io.input("repository") || (env2.GITHUB_REPOSITORY ?? "").trim();
   let validation;
   let extension = "txt";
   if (format === "json") extension = "json";
@@ -106803,25 +106799,27 @@ async function run(io) {
   if (mode === "central") validation = CENTRAL_MOVED;
   else if (!repositoryMode) validation = "mode must be 'repository', the only mode this action runs.";
   const forgive = repositoryMode && override;
-  const invocation = (env.GITHUB_ACTION || "airlock").replace(/[^A-Za-z0-9_.-]/g, "_");
-  const directory = env.RUNNER_TEMP || env.TMPDIR || "/tmp";
-  const findingsLocation = `${directory}/airlock-findings-${env.GITHUB_RUN_ID || "local"}-${env.GITHUB_RUN_ATTEMPT || "1"}-${invocation}.${extension}`;
+  const invocation = (env2.GITHUB_ACTION || "airlock").replace(/[^A-Za-z0-9_.-]/g, "_");
+  const directory = env2.RUNNER_TEMP || env2.TMPDIR || "/tmp";
+  const findingsLocation = `${directory}/airlock-findings-${env2.GITHUB_RUN_ID || "local"}-${env2.GITHUB_RUN_ATTEMPT || "1"}-${invocation}.${extension}`;
   const documentMode = mode.replace(/[^a-z]/g, "");
+  const artifact = artifactName(env2);
   const finish = async (outcome2, complete, document2) => {
     io.writeFile(findingsLocation, document2);
     io.info(document2);
     io.setOutput("outcome", outcome2);
     io.setOutput("complete", String(complete));
     io.setOutput("findings-location", findingsLocation);
+    io.setOutput("artifact", artifact);
     io.exportVariable("AIRLOCK_FINDINGS", findingsLocation);
     io.exportVariable("AIRLOCK_OUTCOME", outcome2);
     io.exportVariable("AIRLOCK_COMPLETE", String(complete));
     let uploaded = true;
     try {
-      await io.upload(findingsLocation, extension);
+      await io.upload(findingsLocation, extension, artifact);
     } catch (error2) {
       uploaded = false;
-      io.setFailed(redact(`the report could not be uploaded as the ${ARTIFACT_NAME} artifact: ${error2?.message ?? error2}`));
+      io.setFailed(redact(`the report could not be uploaded as the ${artifact} artifact: ${error2?.message ?? error2}`));
     }
     if (!uploaded) return;
     if (outcome2 === "nonconformant") {
@@ -106849,12 +106847,12 @@ ${safe}
   }
   if (!repository) return incomplete("repository is required when GITHUB_REPOSITORY is unavailable.");
   const actions = {};
-  for (const name of ACTIONS_VARIABLES) if (env[name] !== void 0) actions[name] = env[name];
+  for (const name of ACTIONS_VARIABLES) if (env2[name] !== void 0) actions[name] = env2[name];
   const request2 = { token, repository, format, actions };
   if (runToken) request2.runToken = runToken;
   if (reference) request2.reference = reference;
   if (policy) request2.policy = policy;
-  if (env.GITHUB_API_URL) request2.githubApi = env.GITHUB_API_URL;
+  if (env2.GITHUB_API_URL) request2.githubApi = env2.GITHUB_API_URL;
   let result;
   try {
     result = JSON.parse(await io.audit(JSON.stringify(request2)));
@@ -106874,9 +106872,11 @@ function load() {
     loaded = true;
   }
 }
+var env = { ...process.env };
+delete process.env.AIRLOCK_RUN_TOKEN;
 await run({
-  input: (name) => getInput(name),
-  env: process.env,
+  input: (name) => (env[`INPUT_${name.toUpperCase().replace(/-/g, "_")}`] ?? "").trim(),
+  env,
   setSecret,
   setOutput,
   exportVariable,
@@ -106889,13 +106889,13 @@ await run({
     load();
     return repositoryAudit(fetchHost(), request2);
   },
-  upload: async (path4, extension) => {
+  upload: async (path4, extension, name) => {
     const base = process.env.RUNNER_TEMP || process.env.TMPDIR || "/tmp";
     mkdirSync(base, { recursive: true });
     const directory = mkdtempSync(join2(base, "airlock-artifact-"));
-    const file = join2(directory, `${ARTIFACT_NAME}.${extension}`);
+    const file = join2(directory, `${ARTIFACT_PREFIX}.${extension}`);
     copyFileSync(path4, file);
-    await new DefaultArtifactClient().uploadArtifact(ARTIFACT_NAME, [file], directory);
+    await new DefaultArtifactClient().uploadArtifact(name, [file], directory);
   }
 });
 /*! Bundled license information:

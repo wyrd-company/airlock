@@ -13,8 +13,23 @@ export const ACTIONS_VARIABLES = [
   "GITHUB_JOB",
 ];
 
-/** The artifact the report is uploaded as, which the Airlock Worker reads. */
-export const ARTIFACT_NAME = "airlock-findings";
+/**
+ * The prefix of the artifact the report is uploaded as, which the Airlock
+ * Worker reads. An artifact name must be unique in the whole workflow run, so
+ * the job's check run id, unique to each job, matrix leg and attempt,
+ * completes it.
+ */
+export const ARTIFACT_PREFIX = "airlock-findings";
+
+/** The artifact name for this job and attempt. */
+export function artifactName(env) {
+  const checkRun = (env.AIRLOCK_JOB_CHECK_RUN_ID ?? "").trim();
+  if (/^[0-9]+$/.test(checkRun)) return `${ARTIFACT_PREFIX}-${checkRun}`;
+  // A runner without job.check_run_id: the job and attempt, still unique
+  // across a re-run, though not across the legs of a matrix.
+  const job = (env.GITHUB_JOB || "job").replace(/[^A-Za-z0-9_.-]/g, "_");
+  return `${ARTIFACT_PREFIX}-${job}-${env.GITHUB_RUN_ATTEMPT || "1"}`;
+}
 
 export const CENTRAL_MOVED =
   "central mode is no longer part of this action: the Airlock Worker's scheduled central audit " +
@@ -36,16 +51,18 @@ export const CENTRAL_MOVED =
  *   setFailed: (message: string) => void,
  *   writeFile: (path: string, text: string) => void,
  *   audit: (request: string) => Promise<string>,
- *   upload: (path: string, extension: string) => Promise<void>,
+ *   upload: (path: string, extension: string, name: string) => Promise<void>,
  * }} io
  */
 export async function run(io) {
   const { env } = io;
 
   // Mask both tokens before anything else is read or written, so no later
-  // line of the log can carry either one.
+  // line of the log can carry either one. The run's own token comes from the
+  // action step's own env, which action.yml sets to github.token and nothing
+  // the caller sets overrides; it is never an input.
   const token = io.input("token") || (env.AIRLOCK_TOKEN ?? "").trim();
-  const runToken = io.input("run-token");
+  const runToken = (env.AIRLOCK_RUN_TOKEN ?? "").trim();
   for (const secret of [token, runToken]) if (secret) io.setSecret(secret);
   const redact = (text) => {
     let out = String(text);
@@ -82,6 +99,7 @@ export async function run(io) {
     `${directory}/airlock-findings-${env.GITHUB_RUN_ID || "local"}-${env.GITHUB_RUN_ATTEMPT || "1"}` +
     `-${invocation}.${extension}`;
   const documentMode = mode.replace(/[^a-z]/g, "");
+  const artifact = artifactName(env);
 
   const finish = async (outcome, complete, document) => {
     io.writeFile(findingsLocation, document);
@@ -89,15 +107,16 @@ export async function run(io) {
     io.setOutput("outcome", outcome);
     io.setOutput("complete", String(complete));
     io.setOutput("findings-location", findingsLocation);
+    io.setOutput("artifact", artifact);
     io.exportVariable("AIRLOCK_FINDINGS", findingsLocation);
     io.exportVariable("AIRLOCK_OUTCOME", outcome);
     io.exportVariable("AIRLOCK_COMPLETE", String(complete));
     let uploaded = true;
     try {
-      await io.upload(findingsLocation, extension);
+      await io.upload(findingsLocation, extension, artifact);
     } catch (error) {
       uploaded = false;
-      io.setFailed(redact(`the report could not be uploaded as the ${ARTIFACT_NAME} artifact: ${error?.message ?? error}`));
+      io.setFailed(redact(`the report could not be uploaded as the ${artifact} artifact: ${error?.message ?? error}`));
     }
     if (!uploaded) return;
     if (outcome === "nonconformant") {

@@ -119,6 +119,21 @@ tasks:
     cmds:
       - pnpm --dir action test
 
+  action:assert-forged-refused:
+    desc: >-
+      In CI, after the action ran on a forged run token: fail unless it was
+      refused as another installation token and uploaded under a per-job name
+    requires:
+      vars:
+        - OUTCOME
+        - FINDINGS
+        - ARTIFACT
+    cmds:
+      - test "$OUTCOME" = incomplete
+      - grep -q foreign_installation_token "$FINDINGS"
+      - echo "$ARTIFACT" | grep -Eq '^airlock-findings-[0-9]+$'
+      - echo "refused as foreign_installation_token; uploaded as $ARTIFACT"
+
   action:
     desc: Everything CI runs for the action
     cmds:

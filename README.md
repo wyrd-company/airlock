@@ -107,8 +107,9 @@ screen shows and why.
 ## GitHub Action
 
 The Airlock action audits the repository running the workflow, in repository
-mode, on the run's own token. It is a JavaScript action on `node24` that runs
-the engine as WebAssembly from the committed `dist/`. No step installs Rust.
+mode, on the run's own token. It is a composite action that runs the engine
+as WebAssembly from the committed `dist/`, on a pinned Node. No step installs
+Rust.
 It audits through the GitHub REST API, so the repository need not be checked
 out, and it reads no secret. [The action](docs/action.md) documents its
 inputs, outputs, report artifact and build.
@@ -148,10 +149,11 @@ refuses it when no permissions are declared, because the token then holds the
 repository's defaults, and for a job that calls a reusable workflow.
 
 The job's permissions bound only the run's own token, so Airlock admits an
-installation token only when it is that token. The action's `run-token` input
-defaults to `github.token`, and Airlock compares the credential with it, after
-trimming both. It refuses any other installation token, and with no run token
-it refuses every installation token. Nothing is ever sent with the run token.
+installation token only when it is that token. The action's own step sets
+`AIRLOCK_RUN_TOKEN` to `github.token` in its `env`, which the caller cannot
+override, and Airlock compares the credential with it, after trimming both.
+It refuses any other installation token, and with no run token it refuses
+every installation token. Nothing is ever sent with the run token.
 A workflow that runs `airlock audit --mode repository` itself sets
 `AIRLOCK_RUN_TOKEN` to `${{ github.token }}` for the same comparison.
 
@@ -176,7 +178,9 @@ The step exposes `outcome` (`conformant`, `nonconformant` or `incomplete`),
 `complete`, and `findings-location`, the absolute runner path of the findings
 document. It also exports `AIRLOCK_FINDINGS`, `AIRLOCK_OUTCOME` and
 `AIRLOCK_COMPLETE` to later steps. It uploads the document as the
-**`airlock-findings`** artifact, which the Airlock Worker reads.
+**`airlock-findings-<job.check_run_id>`** artifact, which the Airlock Worker
+reads. Remove any step of your own that uploads `airlock-findings`: the
+action uploads the report itself, and its `artifact` output names it.
 
 A conformant audit succeeds. A nonconformant one fails the step. An
 incomplete one fails it too, unless `fail-on-incomplete: "false"` is set. The

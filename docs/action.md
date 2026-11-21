@@ -9,10 +9,23 @@ relationships:
 # The Airlock action
 
 The Airlock action audits the repository that runs it, in repository mode, on
-the run's own `GITHUB_TOKEN`. It is a JavaScript action on `node24`. It runs
-the committed `dist/index.mjs`, which loads the engine from
+the run's own `GITHUB_TOKEN`. It is a composite action of two steps. The
+first sets up Node 24.22.3 with `actions/setup-node`, pinned by commit. The
+second runs the committed `dist/index.mjs` on it, which loads the engine from
 `dist/airlock_bg.wasm` (see [the WebAssembly module](wasm.md)). No step
-installs Rust or runs Cargo, and no Rust binary is published for it.
+installs Rust or runs Cargo, and no Rust binary is published for it. The
+pinned Node stays first on the job's `PATH` for the steps after it.
+
+The action is a composite, not a `node24` action, for the run's own token.
+The second step sets `AIRLOCK_RUN_TOKEN` to `${{ github.token }}` in its own
+`env`. A step's own `env` wins over the job's and the calling step's, so the
+caller cannot replace it. An input could be set to any token: a caller
+holding another App's installation token could pass it as both the
+credential and the run's token, and the job's read permissions would be
+recorded as its grant. The CI job "Action: a forged run token is refused"
+runs exactly that attempt on GitHub's runners, and the action refuses it.
+The same step takes the run's repository, workflow, commit, job and API
+address from the `github` context, not from the caller's environment.
 
 Repository mode is the only mode. The central audit of every repository of an
 owner is the Airlock Worker's scheduled audit, not the action's.
@@ -55,7 +68,6 @@ reusable workflow is refused too.
 | ----- | ------- | ------- |
 | `mode` | `repository` | `repository`, the only mode. Any other value is refused. `central` is refused with a message that names the Airlock Worker's scheduled central audit. |
 | `token` | none | The run's own token, `${{ github.token }}`. Without it, `AIRLOCK_TOKEN` from the step's environment is read. Another credential must be one Airlock can verify as read-only. |
-| `run-token` | `${{ github.token }}` | Leave it unset. An installation token in `token` is admitted only when it equals this one. It is compared, never sent. |
 | `repository` | `GITHUB_REPOSITORY` | `owner/repo` to audit. The run's own token audits the run's repository only. |
 | `policy` | `{owner}/.github:.github/airlock.yml` | The policy, as `owner/repo:path[@ref]`. A local path is refused: the engine reads no file system. |
 | `ref` | default branch | A commit, branch or tag to audit. |
@@ -74,6 +86,7 @@ about an input an action does not declare, and the action ignores it.
 | `outcome` | `conformant`, `nonconformant` or `incomplete`. Waived, routed, unbuilt and out-of-scope rules do not affect it. |
 | `complete` | `true` when the audit completed without a run error. |
 | `findings-location` | The absolute path of the findings document on the runner. |
+| `artifact` | The name of the artifact the document was uploaded as. |
 
 The action also exports `AIRLOCK_FINDINGS`, `AIRLOCK_OUTCOME` and
 `AIRLOCK_COMPLETE` to later steps.
@@ -84,12 +97,24 @@ is `nonconformant`. It fails when the outcome is `incomplete`, unless
 
 ## The report artifact
 
-The action uploads the findings document as the artifact **`airlock-findings`**.
+The action uploads the findings document as the artifact
+**`airlock-findings-<job.check_run_id>`**, and its `artifact` output names it.
 The artifact holds one file, `airlock-findings.json`, or
 `airlock-findings.txt` with `format: text`. The Airlock Worker reads the
-latest one for each repository. The upload happens on every run, a refused
-one included, so the Worker sees why a repository was not audited. A failed
-upload fails the step. Since the name is fixed, a job runs the action once.
+newest artifact whose name starts with `airlock-findings-` for each
+repository. The upload happens on every run, a refused one included, so the
+Worker sees why a repository was not audited. A failed upload fails the step.
+
+An artifact name must be unique within a workflow run attempt. The job's
+check run id is unique to each job, each leg of a matrix and each attempt,
+so several jobs, a matrix and a re-run each upload their own. Two runs of the
+action in the same job would share the name, so a job runs it once. A runner
+that does not provide `job.check_run_id` gets
+`airlock-findings-<job id>-<run attempt>`, which a matrix would share.
+
+Remove any step of your own that uploads the findings as `airlock-findings`:
+the composite action this replaces asked callers to add one, and the action
+now uploads the report itself.
 
 When the engine does not audit, the document is a stable incomplete one:
 
@@ -102,7 +127,7 @@ has already redacted. An empty document is never published.
 
 ## Tokens
 
-The action masks `token` and `run-token` with `core.setSecret` before it
+The action masks `token` and the run's own token with `core.setSecret` before it
 prints or writes anything, so the runner replaces either value in the log.
 The engine redacts both from every string it returns, as
 [the module's redaction](wasm.md#entry-points) describes. The action

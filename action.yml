@@ -17,12 +17,6 @@ inputs:
       declares is read. Without it, AIRLOCK_TOKEN is read instead
     required: false
     default: ""
-  run-token:
-    description: >-
-      Leave unset. The run's own token, which an installation token in token
-      must equal. It is compared only, and never sent
-    required: false
-    default: ${{ github.token }}
   repository:
     description: >-
       Repository to audit as owner/repo; defaults to the current repository,
@@ -55,13 +49,50 @@ outputs:
     description: >-
       conformant, nonconformant (blocking gaps), or incomplete (a run
       error); waived, routed, unbuilt, and out-of-scope do not affect it
+    value: ${{ steps.audit.outputs.outcome }}
   complete:
     description: Whether the audit completed without a run error
+    value: ${{ steps.audit.outputs.complete }}
   findings-location:
     description: >-
       Absolute path to the findings document on the runner; the same document
-      is uploaded as the airlock-findings artifact
+      is uploaded as the airlock-findings-<job.check_run_id> artifact
+    value: ${{ steps.audit.outputs.findings-location }}
+  artifact:
+    description: The name of the artifact the findings document was uploaded as
+    value: ${{ steps.audit.outputs.artifact }}
 
+# A composite, so the run's own token reaches the engine through this step's
+# own env, which nothing the caller sets can override; an input could be set
+# by the caller to any token. The step runs the bundled dist/index.mjs on a
+# pinned Node, and installs no Rust.
 runs:
-  using: node24
-  main: dist/index.mjs
+  using: composite
+  steps:
+    - name: Set up the pinned Node for the Airlock action
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      with:
+        node-version: 24.22.3
+    - name: Audit repository
+      id: audit
+      shell: bash
+      env:
+        INPUT_MODE: ${{ inputs.mode }}
+        INPUT_TOKEN: ${{ inputs.token }}
+        INPUT_REPOSITORY: ${{ inputs.repository }}
+        INPUT_POLICY: ${{ inputs.policy }}
+        INPUT_REF: ${{ inputs.ref }}
+        INPUT_FORMAT: ${{ inputs.format }}
+        INPUT_FAIL_ON_INCOMPLETE: ${{ inputs.fail-on-incomplete }}
+        # The run's own token. An installation token in `token` is admitted
+        # only when it is this one; nothing is ever sent with it.
+        AIRLOCK_RUN_TOKEN: ${{ github.token }}
+        # Unique to this job and attempt, so the artifact name is too.
+        AIRLOCK_JOB_CHECK_RUN_ID: ${{ job.check_run_id }}
+        # The run, from the github context rather than the caller's env.
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        GITHUB_WORKFLOW_REF: ${{ github.workflow_ref }}
+        GITHUB_WORKFLOW_SHA: ${{ github.workflow_sha }}
+        GITHUB_JOB: ${{ github.job }}
+        GITHUB_API_URL: ${{ github.api_url }}
+      run: node "$GITHUB_ACTION_PATH/dist/index.mjs"

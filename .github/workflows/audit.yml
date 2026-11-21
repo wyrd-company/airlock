@@ -17,7 +17,7 @@ jobs:
   # reads this job's permissions from this file at GITHUB_WORKFLOW_SHA and
   # accepts the token only because every one of them is read. No secret is
   # read, and no step installs Rust. The action uploads the report as the
-  # airlock-findings artifact itself.
+  # airlock-findings-<job.check_run_id> artifact itself.
   audit:
     name: Audit this repository
     runs-on: ubuntu-latest

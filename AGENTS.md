@@ -28,19 +28,19 @@ credential.
 
 **The binary never shells out.** No `git`, no `gh`, no subprocess at all from
 `airlock` or anything it depends on. Airlock speaks the GitHub REST API
-directly. The same holds for the WebAssembly module and the JavaScript action
-that loads it: every request goes through the host's `fetch`, and nothing
-starts a process. No workflow receives automated settings-write authority.
+directly. The same holds for the WebAssembly module and the action's bundled
+JavaScript that loads it: every request goes through the host's `fetch`, and
+nothing starts a process. No workflow receives automated settings-write authority.
 
 **No ambient credentials.** `GH_TOKEN`, `GITHUB_TOKEN`, the `gh` credential
 store, and git credential helpers are off limits as sources and must not be
 mentioned as fallbacks in error messages. Suggesting them defeats the point of
 refusing write access. The run's own token reaches Airlock only when a
 workflow passes it explicitly, as the Action's `token` input in repository
-mode. `AIRLOCK_RUN_TOKEN`, and the action's `run-token` input, are not
-credential sources: repository mode admits an installation token only when it
-equals that value, and sends nothing with
-it.
+mode. `AIRLOCK_RUN_TOKEN` is not a credential source, and the action sets it
+from `github.token` in its own step's `env`, never from an input: repository
+mode admits an installation token only when it equals that value, and sends
+nothing with it.
 
 **A token whose permissions cannot be enumerated is refused.** Unverifiable is
 not a warning path. Adding a token prefix means adding the introspection that
@@ -101,10 +101,12 @@ file holds declarations and exception requests. Both accept an Airlock
 generation through `version`. Configuration loading and integration tests
 validate these shapes against the compiled rules.
 
-`action.yml` defines the adopter-facing JavaScript action, repository mode
-only, on `node24`. It runs the committed `dist/`, which `task action:build`
-builds from `action/src/` and the module; commit `dist/` with any change that
-reaches it, because CI fails when it differs from the source. The action's
+`action.yml` defines the adopter-facing action, repository mode only: a
+composite that sets up a pinned Node and runs the committed `dist/`. It stays
+a composite so the run's own token comes from its step's `env`, which a
+caller cannot set; do not turn it into an input. `task action:build` builds
+`dist/` from `action/src/` and the module; commit `dist/` with any change
+that reaches it, because CI fails when it differs from the source. The action's
 decisions about its inputs are in `action/src/main.mjs`; every check on the
 token is in the engine. See `docs/action.md`.
 `crates/core/src/central_audit.rs` audits every repository central mode
