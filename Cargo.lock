@@ -95,6 +95,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "airlock-wasm"
+version = "0.0.0"
+dependencies = [
+ "airlock-core",
+ "js-sys",
+ "serde",
+ "serde_json",
+ "tokio",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "zeroize",
+]
+
+[[package]]
 name = "allocator-api2"
 version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
