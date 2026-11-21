@@ -48,7 +48,9 @@ proves it read-only, or refusing it. An installation token is enumerated in
 two places only: repository mode reads the run token's grant from the job's
 declared permissions (`crates/core/src/workflow_token.rs`), and central mode
 reads its own minted token's grant from the minting response
-(`crates/core/src/central.rs`). Every other surface refuses one.
+(`crates/core/src/central.rs`). Every other surface refuses one. Repository
+mode first places the token by its `ghs_15368_` form and GitHub's answer to
+`GET /installation/repositories`; it fails closed when the form changes.
 
 **Rule identity is compiled in.** Rule ids, statements, and default severities
 live in per-rule modules under `crates/core/src/rules/`, assembled by

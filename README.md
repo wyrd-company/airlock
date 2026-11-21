@@ -148,6 +148,15 @@ It refuses the token for any other level, `write` and `none` included. It also
 refuses it when no permissions are declared, because the token then holds the
 repository's defaults, and for a job that calls a reusable workflow.
 
+Before reading the job, Airlock places the token as the run's own, by what a
+caller cannot forge. The token must be in the form `ghs_15368_<JSON Web
+Token>`, the GitHub Actions app's. As its first request,
+`GET /installation/repositories` must answer with the run's repository alone,
+by id and name. A token from another App, or for another repository, is
+refused before anything is audited. Another `GITHUB_TOKEN` of the same
+repository, and code the caller runs in the job, are outside what this
+proves: see [what the action proves](docs/action.md#what-the-action-proves).
+
 The job's permissions bound only the run's own token, so Airlock admits an
 installation token only when it is that token. The action's own step sets
 `AIRLOCK_RUN_TOKEN` to `github.token` in its `env`, which the caller cannot

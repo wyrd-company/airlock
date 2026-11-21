@@ -27,8 +27,8 @@ No step installs Rust or runs Cargo, and no Rust binary is published for it.
 
 The action is a composite, not a `node24` action, for the run's own token.
 The second step sets `AIRLOCK_RUN_TOKEN` to `${{ github.token }}` in its own
-`env`. A step's own `env` wins over the job's and the calling step's, so the
-caller cannot replace it. An input could be set to any token: a caller
+`env`. A step's own `env` wins over the job's and the calling step's, so a
+caller's variables cannot replace it. An input could be set to any token: a caller
 holding another App's installation token could pass it as both the
 credential and the run's token, and the job's read permissions would be
 recorded as its grant. The CI job "Action: a forged run token is refused"
@@ -137,6 +137,71 @@ When the engine does not audit, the document is a stable incomplete one:
 
 The message is the action's own, or the engine's refusal, which the engine
 has already redacted. An empty document is never published.
+
+## What the action proves
+
+The run's job declares its permissions, and the run's own token holds those
+and no more. The action admits an installation token only once it has placed
+it as the run's own, by what a caller cannot forge:
+
+1. **The token's form**, before anything is sent. It must be
+   `ghs_15368_<JSON Web Token>`, the form GitHub mints `GITHUB_TOKEN` in, where
+   15368 is the GitHub Actions app. Another App's installation token, a token
+   with the app id dropped, and a legacy `ghs_` token are refused as
+   `not_actions_token`. GitHub refuses a token whose app id was edited, so
+   the prefix names the app that minted it.
+2. **GitHub's answer**, as the first request. `GET /installation/repositories`
+   must list exactly one repository, read to the last page with
+   `total_count` 1, whose id and full name are `GITHUB_REPOSITORY_ID` and
+   `GITHUB_REPOSITORY`. Anything else is refused as `run_repository_mismatch`,
+   and a failed request as `run_token_unconfirmed`. Only then is the workflow
+   file read and the audit run.
+3. **The binding to `AIRLOCK_RUN_TOKEN`**, which the step sets from
+   `github.token`. The token input must equal it.
+
+**Covered:** the inputs, every environment variable a caller sets, and forged
+tokens. The engine's own checks refuse any installation token that is not the
+GitHub Actions app's for this repository, even when a caller's code has
+rewritten `AIRLOCK_RUN_TOKEN` to match.
+
+**Not covered:**
+
+- **Another `GITHUB_TOKEN` of the same repository**, from another job or run,
+  perhaps with write permissions. Nothing in the token or in GitHub's answer
+  tells two jobs' tokens apart, so the job's declared permissions are recorded
+  as its grant.
+- **Code the caller runs in the job.** A job can run code before the action,
+  replace `dist/`, or fake the artifact. The defences in the step's `env`
+  narrow what such code can do through variables, but they are not a
+  boundary.
+
+A repository's own audit is therefore evidence about the repository, not
+proof against its own workflow's author. The Airlock Worker's scheduled
+central audit is the authoritative one: the repository's workflow cannot
+reach it.
+
+### Assumption: GitHub's token form
+
+GitHub does not document the claims or the form of an installation token,
+and asks clients to treat it as opaque
+([changelog, 2026-10-02](https://github.blog/changelog/2026-10-02-stateless-github-app-installation-tokens-rolled-out/)).
+The checks above rest on what was observed on GitHub's runners on 2026-11-21:
+
+- The run's token is `ghs_15368_<JWT>`, 377 characters. Its JWT header is
+  `ES256`, and its claims are only `aud`, `iss`, `iat`, `exp`, `jti`, `ver`
+  and an opaque `ctx`. It carries no app or repository claim, so the claims
+  cannot place it
+  ([observation](https://assets.wyrd.foo/airlock/pr-25/round-2/run-token-observation-44921627383.txt)).
+- GitHub accepts the genuine token and answers 401 when its app id is edited
+  to another, dropped, or the token is sent as `ghs_<JWT>`
+  ([probe](https://assets.wyrd.foo/airlock/pr-25/round-2/run-token-prefix-probe-44921669851.txt)).
+- `GET /installation/repositories` with the run's token lists the run's
+  repository alone
+  ([probe](https://assets.wyrd.foo/airlock/pr-25/round-2/run-token-reach-44921784323.txt)).
+
+If GitHub changes the form, repository mode refuses every run's token with a
+message that names the form it expects and says GitHub may have changed it.
+It fails closed, and Airlock must then be updated.
 
 ## Tokens
 
