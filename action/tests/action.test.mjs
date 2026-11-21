@@ -10,6 +10,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSyn
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { createHash } from "node:crypto";
 import { after, before, test } from "node:test";
 
 import {
@@ -59,7 +60,14 @@ after(() => {
  * Resolves to what the run left: its exit code, its log, its outputs, its
  * exported variables, its findings document and its artifact.
  */
-async function runAction({ inputs = {}, variables = actionsVariables(), env = {}, name = "run", viaStep } = {}) {
+async function runAction({
+  inputs = {},
+  variables = actionsVariables(),
+  env = {},
+  name = "run",
+  viaStep,
+  shell = "/bin/sh",
+} = {}) {
   const directory = mkdtempSync(join(scratch, `${name}-`));
   const outputFile = join(directory, "output");
   const envFile = join(directory, "env");
@@ -89,7 +97,9 @@ async function runAction({ inputs = {}, variables = actionsVariables(), env = {}
 
   // viaStep: through action/step.sh, as action.yml's audit step runs it, on a
   // stand-in for the pinned Node that records the environment it was given
-  // and then runs this Node.
+  // and then runs this Node. "patched" runs a copy of step.sh whose pinned
+  // SHA-256 is the stand-in's; "real" runs step.sh itself, whose pin the
+  // stand-in cannot meet. `shell` is the program that runs it, as /bin/sh.
   let child;
   if (viaStep) {
     const nodeDir = join(directory, "node-bin");
@@ -108,7 +118,21 @@ async function runAction({ inputs = {}, variables = actionsVariables(), env = {}
     environment.AIRLOCK_NODE_DIR ??= nodeDir;
     environment.AIRLOCK_NODE_VERSION ??= "24.22.3";
     environment.AIRLOCK_ACTION_PATH ??= repositoryRoot;
-    child = spawn("/bin/sh", [join(repositoryRoot, "action/step.sh")], { env: environment, cwd: directory });
+    environment.AIRLOCK_RUNNER_OS ??= "Linux";
+    environment.AIRLOCK_NODE_ARCH ??= "x64";
+    let script = join(repositoryRoot, "action/step.sh");
+    if (viaStep !== "real") {
+      const digest = createHash("sha256").update(readFileSync(join(nodeDir, "node"))).digest("hex");
+      script = join(directory, "step.sh");
+      writeFileSync(
+        script,
+        readFileSync(join(repositoryRoot, "action/step.sh"), "utf8").replace(
+          /x64\) expected=[0-9a-f]{64}/,
+          `x64) expected=${digest}`,
+        ),
+      );
+    }
+    child = spawn(shell, [script], { env: environment, cwd: directory, argv0: "sh" });
   } else {
     child = spawn(process.execPath, [ENTRY], { env: environment, cwd: directory });
   }
@@ -450,7 +474,9 @@ test("the audit step hands Node only its allowlist, and the credentials only on 
     SSL_CERT_DIR: "/nonexistent",
     NODE_PATH: "/nonexistent",
     UNRELATED_CALLER_VARIABLE: "x",
-    "BASH_FUNC_exec%%": "() { echo hijacked; }",
+    // printf is a regular builtin, which a bash function would shadow; dash
+    // imports no functions.
+    "BASH_FUNC_printf%%": `() { echo "caller saw $*" > '${marker}-printf'; }`,
   };
   // The forge is live: an ordinary Node given the same environment runs the
   // caller's code and cannot reach the fake GitHub past the dead proxy.
@@ -470,6 +496,7 @@ test("the audit step hands Node only its allowlist, and the credentials only on 
   assert.equal(run.outputs.complete, "true", run.log.slice(-1500));
   assert.ok(["conformant", "nonconformant"].includes(run.outputs.outcome));
   assert.equal(existsSync(marker), false, "the caller's NODE_OPTIONS never ran");
+  assert.equal(existsSync(`${marker}-printf`), false, "no caller function ran");
   // PWD is set by the stand-in's own shell, after env -i started it.
   const names = run.nodeEnv
     .split("\n")
@@ -507,5 +534,48 @@ test("the step refuses a Node that is not the pinned one", async () => {
   });
   assert.notEqual(run.status, 0);
   assert.match(run.log, /not the pinned v24\.0\.0/);
+  assert.equal(github.requests.length, 0);
+});
+
+test("the step refuses a Node whose SHA-256 is not the official build's", async () => {
+  github = repositoryFetch(recording, { base });
+  const run = await runAction({ inputs: TEMPLATE_INPUTS, name: "step-digest", viaStep: "real" });
+  assert.notEqual(run.status, 0);
+  assert.match(run.log, /is not Node's official v24\.22\.3 build/);
+  assert.equal(github.requests.length, 0);
+  assert.equal(run.nodeEnv, undefined, "the stand-in never ran");
+});
+
+test("the step refuses, before any command a function could shadow, a shell that is not dash", async () => {
+  // bash as sh still imports BASH_FUNC_* functions, which would shadow
+  // printf while it holds the credentials. The step exits 70 and runs
+  // nothing.
+  const marker = join(scratch, "bash-function-marker");
+  const imported = { "BASH_FUNC_printf%%": `() { echo "caller saw $*" > '${marker}'; }` };
+  // The forge is live: bash as sh runs the imported function for printf.
+  spawnSync("/bin/bash", ["-c", "printf x"], { env: { PATH: process.env.PATH, ...imported }, argv0: "sh" });
+  assert.equal(existsSync(marker), true, "bash as sh runs an imported printf");
+  rmSync(marker);
+  github = repositoryFetch(recording, { base });
+  const run = await runAction({
+    inputs: TEMPLATE_INPUTS,
+    env: imported,
+    name: "step-bash",
+    viaStep: true,
+    shell: "/bin/bash",
+  });
+  assert.equal(run.status, 70);
+  assert.equal(existsSync(marker), false, "the caller's function never ran");
+  assert.equal(run.nodeEnv, undefined);
+  assert.equal(github.requests.length, 0);
+});
+
+test("the step refuses a runner that is not Linux, and an unknown architecture", async () => {
+  github = repositoryFetch(recording, { base });
+  const macos = await runAction({ inputs: TEMPLATE_INPUTS, env: { AIRLOCK_RUNNER_OS: "macOS" }, name: "step-os", viaStep: true });
+  assert.equal(macos.status, 70);
+  const arch = await runAction({ inputs: TEMPLATE_INPUTS, env: { AIRLOCK_NODE_ARCH: "x86" }, name: "step-arch", viaStep: true });
+  assert.notEqual(arch.status, 0);
+  assert.match(arch.log, /x64 or arm64 Linux runners only/);
   assert.equal(github.requests.length, 0);
 });
