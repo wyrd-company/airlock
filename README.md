@@ -157,6 +157,11 @@ refused before anything is audited. Another `GITHUB_TOKEN` of the same
 repository, and code the caller runs in the job, are outside what this
 proves: see [what the action proves](docs/action.md#what-the-action-proves).
 
+The audit step passes Node an allowlisted environment, so it ignores every
+proxy variable and `NODE_EXTRA_CA_CERTS`, and needs direct TLS to
+`GITHUB_API_URL`. A self-hosted runner behind a TLS-inspecting proxy is not
+supported.
+
 The job's permissions bound only the run's own token, so Airlock admits an
 installation token only when it is that token. The action's own step sets
 `AIRLOCK_RUN_TOKEN` to `github.token` in its `env`, which the caller cannot

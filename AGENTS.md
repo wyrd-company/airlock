@@ -106,7 +106,9 @@ validate these shapes against the compiled rules.
 `action.yml` defines the adopter-facing action, repository mode only: a
 composite that sets up a pinned Node and runs the committed `dist/`. It stays
 a composite so the run's own token comes from its step's `env`, which a
-caller cannot set; do not turn it into an input. `task action:build` builds
+caller cannot set; do not turn it into an input. Its audit step hands Node
+an allowlisted environment (`action/step.sh`): a new variable the engine
+needs goes on that list, never a blocklist. `task action:build` builds
 `dist/` from `action/src/` and the module; commit `dist/` with any change
 that reaches it, because CI fails when it differs from the source. The action's
 decisions about its inputs are in `action/src/main.mjs`; every check on the
