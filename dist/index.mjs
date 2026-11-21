@@ -20356,7 +20356,15 @@ function load() {
   }
 }
 var env = { ...process.env };
+if (env.AIRLOCK_CREDENTIALS_ON_STDIN === "1") {
+  const [token = "", airlockToken = "", runToken = ""] = readFileSync(0, "utf8").split("\0");
+  env.INPUT_TOKEN = token;
+  env.AIRLOCK_TOKEN = airlockToken;
+  env.AIRLOCK_RUN_TOKEN = runToken;
+}
 delete process.env.AIRLOCK_RUN_TOKEN;
+delete process.env.AIRLOCK_TOKEN;
+delete process.env.INPUT_TOKEN;
 await run({
   input: (name) => (env[`INPUT_${name.toUpperCase().replace(/-/g, "_")}`] ?? "").trim(),
   env,

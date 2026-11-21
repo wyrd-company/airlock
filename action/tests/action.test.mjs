@@ -5,8 +5,8 @@
 // Every token below is a synthetic marker.
 
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -59,7 +59,7 @@ after(() => {
  * Resolves to what the run left: its exit code, its log, its outputs, its
  * exported variables, its findings document and its artifact.
  */
-async function runAction({ inputs = {}, variables = actionsVariables(), env = {}, name = "run" } = {}) {
+async function runAction({ inputs = {}, variables = actionsVariables(), env = {}, name = "run", viaStep } = {}) {
   const directory = mkdtempSync(join(scratch, `${name}-`));
   const outputFile = join(directory, "output");
   const envFile = join(directory, "env");
@@ -87,7 +87,31 @@ async function runAction({ inputs = {}, variables = actionsVariables(), env = {}
   }
   for (const [key, value] of Object.entries(environment)) if (value === undefined) delete environment[key];
 
-  const child = spawn(process.execPath, [ENTRY], { env: environment, cwd: directory });
+  // viaStep: through action/step.sh, as action.yml's audit step runs it, on a
+  // stand-in for the pinned Node that records the environment it was given
+  // and then runs this Node.
+  let child;
+  if (viaStep) {
+    const nodeDir = join(directory, "node-bin");
+    mkdirSync(nodeDir);
+    writeFileSync(
+      join(nodeDir, "node"),
+      [
+        "#!/bin/sh",
+        'if [ "$1" = --version ]; then echo v24.22.3; exit 0; fi',
+        `/usr/bin/env > '${join(directory, "node-env")}'`,
+        `exec '${process.execPath}' "$@"`,
+        "",
+      ].join("\n"),
+    );
+    chmodSync(join(nodeDir, "node"), 0o755);
+    environment.AIRLOCK_NODE_DIR ??= nodeDir;
+    environment.AIRLOCK_NODE_VERSION ??= "24.22.3";
+    environment.AIRLOCK_ACTION_PATH ??= repositoryRoot;
+    child = spawn("/bin/sh", [join(repositoryRoot, "action/step.sh")], { env: environment, cwd: directory });
+  } else {
+    child = spawn(process.execPath, [ENTRY], { env: environment, cwd: directory });
+  }
   let log = "";
   child.stdout.on("data", (chunk) => (log += chunk));
   child.stderr.on("data", (chunk) => (log += chunk));
@@ -103,7 +127,10 @@ async function runAction({ inputs = {}, variables = actionsVariables(), env = {}
   const artifactFiles = staged
     ? Object.fromEntries(readdirSync(staged).map((file) => [file, readFileSync(join(staged, file), "utf8")]))
     : undefined;
-  return { status, log, outputs, exported, findings, artifact, artifactFiles, raw: { outputFile, envFile } };
+  const nodeEnv = viaStep && existsSync(join(directory, "node-env"))
+    ? readFileSync(join(directory, "node-env"), "utf8")
+    : undefined;
+  return { status, log, outputs, exported, findings, artifact, artifactFiles, nodeEnv, directory, raw: { outputFile, envFile } };
 }
 
 /** The `name<<delimiter` heredoc form the runner's command files use. */
@@ -391,4 +418,94 @@ test("each job, matrix leg and attempt stages under its own artifact name", asyn
     names.push(run.artifact.name);
   }
   assert.equal(new Set(names).size, names.length);
+});
+
+/** Every name action/step.sh may hand Node, and nothing else. */
+const STEP_ALLOWLIST = [
+  "PATH", "HOME", "RUNNER_TEMP",
+  "GITHUB_ACTIONS", "GITHUB_OUTPUT", "GITHUB_ENV", "GITHUB_ACTION", "GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT",
+  "GITHUB_REPOSITORY", "GITHUB_REPOSITORY_ID", "GITHUB_WORKFLOW_REF", "GITHUB_WORKFLOW_SHA", "GITHUB_JOB",
+  "GITHUB_API_URL",
+  "INPUT_MODE", "INPUT_REPOSITORY", "INPUT_POLICY", "INPUT_REF", "INPUT_FORMAT", "INPUT_FAIL_ON_INCOMPLETE",
+  "AIRLOCK_JOB_CHECK_RUN_ID", "AIRLOCK_CREDENTIALS_ON_STDIN",
+];
+
+test("the audit step hands Node only its allowlist, and the credentials only on stdin", async () => {
+  // Every route a variable in the caller's job env could take into Node: code
+  // loaded at start, a proxy for GitHub's answers with TLS checks off, extra
+  // CAs, a preload, and a bash function that would shadow a builtin.
+  const marker = join(scratch, "forge-marker");
+  const hostile = {
+    // Single quotes: Node reads double quotes in NODE_OPTIONS as its own quoting.
+    NODE_OPTIONS: `--import=data:text/javascript,import{writeFileSync}from'node:fs';writeFileSync('${marker}','');process.env.AIRLOCK_RUN_TOKEN='forged'`,
+    NODE_USE_ENV_PROXY: "1",
+    HTTPS_PROXY: "http://127.0.0.1:9",
+    HTTP_PROXY: "http://127.0.0.1:9",
+    https_proxy: "http://127.0.0.1:9",
+    http_proxy: "http://127.0.0.1:9",
+    NODE_TLS_REJECT_UNAUTHORIZED: "0",
+    NODE_EXTRA_CA_CERTS: "/nonexistent/ca.pem",
+    NODE_USE_SYSTEM_CA: "1",
+    SSL_CERT_FILE: "/nonexistent/cert.pem",
+    SSL_CERT_DIR: "/nonexistent",
+    NODE_PATH: "/nonexistent",
+    UNRELATED_CALLER_VARIABLE: "x",
+    "BASH_FUNC_exec%%": "() { echo hijacked; }",
+  };
+  // The forge is live: an ordinary Node given the same environment runs the
+  // caller's code and cannot reach the fake GitHub past the dead proxy.
+  const ordinary = spawnSync(
+    process.execPath,
+    ["-e", `fetch(${JSON.stringify(base)}).then(() => process.exit(0), () => process.exit(3))`],
+    { env: { PATH: process.env.PATH, ...hostile } },
+  );
+  assert.equal(existsSync(marker), true, "the caller's NODE_OPTIONS runs in an ordinary Node");
+  assert.equal(ordinary.status, 3, "an ordinary Node's fetch goes to the dead proxy");
+  rmSync(marker);
+
+  github = repositoryFetch(recording, { base, override: organizationPolicy });
+  const run = await runAction({ inputs: TEMPLATE_INPUTS, env: hostile, name: "step", viaStep: true });
+  // The audit reached the fake GitHub directly, not the dead proxy.
+  assert.deepEqual(github.unexpected, []);
+  assert.equal(run.outputs.complete, "true", run.log.slice(-1500));
+  assert.ok(["conformant", "nonconformant"].includes(run.outputs.outcome));
+  assert.equal(existsSync(marker), false, "the caller's NODE_OPTIONS never ran");
+  // PWD is set by the stand-in's own shell, after env -i started it.
+  const names = run.nodeEnv
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => line.split("=")[0])
+    .filter((name) => name !== "PWD");
+  assert.deepEqual(names.filter((name) => !STEP_ALLOWLIST.includes(name)), [], "only allowlisted names reach Node");
+  assert.match(run.nodeEnv, new RegExp(`^PATH=${run.directory}/node-bin:/usr/bin:/bin$`, "m"));
+  assert.ok(!run.nodeEnv.includes(RUN_TOKEN), "no credential is in Node's environment");
+  assertNoToken(run);
+});
+
+test("through the step, a forged pair is still refused before any request", async () => {
+  const forged = "ghs_999999_eyJhbGciOiJSUzI1NiJ9.eyJGT1JHRUQiOiJvdGhlci1hcHAifQ.Rk9SR0VE-c2lnbmF0dXJl_MARKER7";
+  github = repositoryFetch(recording, { base, bearer: forged });
+  const run = await runAction({
+    inputs: { ...TEMPLATE_INPUTS, token: forged },
+    env: { AIRLOCK_RUN_TOKEN: forged },
+    name: "step-forged",
+    viaStep: true,
+  });
+  assert.equal(run.status, 1);
+  assert.match(JSON.parse(run.findings).message, /not_actions_token/);
+  assert.equal(github.requests.length, 0);
+  assertNoToken(run, [RUN_TOKEN, forged]);
+});
+
+test("the step refuses a Node that is not the pinned one", async () => {
+  github = repositoryFetch(recording, { base });
+  const run = await runAction({
+    inputs: TEMPLATE_INPUTS,
+    env: { AIRLOCK_NODE_VERSION: "24.0.0" },
+    name: "step-version",
+    viaStep: true,
+  });
+  assert.notEqual(run.status, 0);
+  assert.match(run.log, /not the pinned v24\.0\.0/);
+  assert.equal(github.requests.length, 0);
 });
