@@ -16,7 +16,7 @@ use std::collections::BTreeSet;
 use std::fmt;
 
 use crate::github::{ApiError, ErrorCause, GitHub, Installation, OAuthScopeHeader};
-use crate::registry::CredentialCapability;
+use crate::rules::CredentialCapability;
 
 /// The client id of the Airlock Safe GitHub App.
 ///
@@ -81,6 +81,24 @@ pub enum TokenKind {
     Unknown,
 }
 
+/// Whether `token` has the shape of a GitHub token: 8 to 4096 characters,
+/// each a letter, a digit, `_`, `-` or `.`.
+///
+/// Every GitHub token has this alphabet. An installation token, the run's
+/// `GITHUB_TOKEN` included, is `ghs_<app id>_<JSON Web Token>` since GitHub's
+/// stateless format (rolled out 2026-10-02), so it carries the `.` and `-`
+/// of a base64url JWT. Each of these characters is unreserved in JSON, a URL
+/// and a form, so any encoding of such a value, escaped once or twice, is the
+/// value itself, and a redactor that matches it as written matches it
+/// wherever it is echoed.
+#[must_use]
+pub fn has_token_shape(token: &str) -> bool {
+    (8..=4096).contains(&token.len())
+        && token
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
+}
+
 impl TokenKind {
     /// Classify a token by its documented prefix.
     #[must_use]
@@ -139,6 +157,17 @@ pub enum RefusalCode {
     RateLimited,
     BudgetExhausted,
     VerificationFailed,
+    OutsideActions,
+    RunUndescribed,
+    ForeignRepository,
+    WorkflowUnreadable,
+    JobNotFound,
+    PermissionsUndeclared,
+    RunTokenUnbound,
+    ForeignInstallationToken,
+    NotActionsToken,
+    RunTokenUnconfirmed,
+    RunRepositoryMismatch,
 }
 
 impl RefusalCode {
@@ -161,6 +190,17 @@ impl RefusalCode {
             Self::RateLimited => "rate_limited",
             Self::BudgetExhausted => "budget_exhausted",
             Self::VerificationFailed => "verification_failed",
+            Self::OutsideActions => "outside_actions",
+            Self::RunUndescribed => "run_undescribed",
+            Self::ForeignRepository => "foreign_repository",
+            Self::WorkflowUnreadable => "workflow_unreadable",
+            Self::JobNotFound => "job_not_found",
+            Self::PermissionsUndeclared => "permissions_undeclared",
+            Self::RunTokenUnbound => "run_token_unbound",
+            Self::ForeignInstallationToken => "foreign_installation_token",
+            Self::NotActionsToken => "not_actions_token",
+            Self::RunTokenUnconfirmed => "run_token_unconfirmed",
+            Self::RunRepositoryMismatch => "run_repository_mismatch",
         }
     }
 }
@@ -174,7 +214,7 @@ pub struct Refusal {
 }
 
 impl Refusal {
-    fn new(code: RefusalCode, detail: impl Into<String>) -> Self {
+    pub(crate) fn new(code: RefusalCode, detail: impl Into<String>) -> Self {
         Self {
             code,
             detail: detail.into(),
@@ -212,8 +252,26 @@ pub struct VerifiedGrant {
     pub login: Option<String>,
     /// The exact scopes GitHub reported, for scope-based tokens.
     pub scopes: Vec<String>,
-    /// The installations the token can reach, for app user tokens.
+    /// The installations the token can reach, for app user tokens, and the
+    /// one installation an installation token was minted from.
     pub installations: Vec<InstallationGrant>,
+    /// The job whose declared permissions are the grant, for the run's own
+    /// token in repository mode.
+    pub run: Option<RunGrant>,
+}
+
+/// The run's own token, enumerated from the job that holds it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RunGrant {
+    /// `owner/repo` the token was issued for, and the only one it audits.
+    pub repository: String,
+    /// The workflow file and the commit it was read at, as `path@sha`.
+    pub workflow: String,
+    /// The job id.
+    pub job: String,
+    /// The job's declared permissions, as `name=read` pairs; `*=read` for
+    /// `read-all`.
+    pub permissions: Vec<String>,
 }
 
 impl VerifiedGrant {
@@ -248,6 +306,10 @@ impl VerifiedGrant {
                 .permissions
                 .iter()
                 .any(|permission| !permission.ends_with("=read"))
+        }) || self.run.as_ref().is_some_and(|run| {
+            run.permissions
+                .iter()
+                .any(|permission| !permission.ends_with("=read"))
         }) || self
             .scopes
             .iter()
@@ -261,6 +323,12 @@ impl VerifiedGrant {
             // verification refuses a token whose app is installed nowhere, so
             // an empty list is not an enumerated grant.
             TokenKind::AppUser if !self.installations.is_empty() => CredentialCapability::ReadOnly,
+            // An installation token's grant is the job that holds it, in
+            // repository mode, or the permissions its minting response listed,
+            // in central mode. Without either, nothing was enumerated.
+            TokenKind::Installation if self.run.is_some() || !self.installations.is_empty() => {
+                CredentialCapability::ReadOnly
+            }
             // A scoped token's grant is its scope list, and an empty list is a
             // real answer rather than a missing one: a classic token with no
             // scopes reads public repository data and nothing else.
@@ -280,6 +348,30 @@ impl VerifiedGrant {
     }
 }
 
+/// Where a token is being presented, which decides what Airlock may accept.
+#[derive(Debug, Clone, Copy)]
+pub enum Admission<'a> {
+    /// Every surface except the Action's repository mode: the command line,
+    /// the stored profile, `auth status`, and the Action given its own
+    /// credential.
+    Standard,
+    /// The Action's repository mode: the run's own `GITHUB_TOKEN`, auditing
+    /// the one repository it was issued for.
+    Repository {
+        /// The run Airlock is executing in.
+        run: &'a crate::workflow_token::ActionsRun,
+        /// The audited repository's owner.
+        owner: &'a str,
+        /// The audited repository's name.
+        repo: &'a str,
+        /// The run's own token, as the workflow handed it over in
+        /// `AIRLOCK_RUN_TOKEN`. Never used as a credential: an installation
+        /// token is admitted only when it is this token, because the job's
+        /// permissions bound no other.
+        run_token: Option<&'a str>,
+    },
+}
+
 /// Verify a token before it is used for anything else.
 ///
 /// # Errors
@@ -287,6 +379,24 @@ impl VerifiedGrant {
 /// Returns a [`Refusal`] whenever the grant cannot be enumerated, or when any
 /// part of the enumerated grant is not a read.
 pub async fn verify<G: GitHub>(token: &str, client: &G) -> Result<VerifiedGrant, Refusal> {
+    verify_for(token, client, Admission::Standard).await
+}
+
+/// Verify a token where it is presented.
+///
+/// Only the token's kind decides whether the admission matters: an
+/// installation token is enumerable in repository mode alone, and every other
+/// kind is verified the same way everywhere.
+///
+/// # Errors
+///
+/// Returns a [`Refusal`] whenever the grant cannot be enumerated, or when any
+/// part of the enumerated grant is not a read.
+pub async fn verify_for<G: GitHub>(
+    token: &str,
+    client: &G,
+    admission: Admission<'_>,
+) -> Result<VerifiedGrant, Refusal> {
     match TokenKind::classify(token) {
         TokenKind::AppUser => verify_app_user(client).await,
         kind @ (TokenKind::ClassicPat | TokenKind::OAuthUser) => verify_scoped(kind, client).await,
@@ -297,12 +407,28 @@ pub async fn verify<G: GitHub>(token: &str, client: &G) -> Result<VerifiedGrant,
              read-only contract. Run `airlock auth login` for a credential \
              airlock can verify.",
         )),
-        TokenKind::Installation => Err(Refusal::new(
-            RefusalCode::UnverifiableInstallationToken,
-            "An installation token carries its permissions only in the \
-             response that minted it, which airlock never sees. Run \
-             `airlock auth login` for a credential airlock can verify.",
-        )),
+        TokenKind::Installation => match admission {
+            Admission::Repository {
+                run,
+                owner,
+                repo,
+                run_token,
+            } => {
+                bind_to_run(token, run_token)?;
+                // Placed by what a caller cannot forge, before any request:
+                // the run's token is the GitHub Actions app's.
+                crate::workflow_token::check_actions_token_form(token)?;
+                crate::workflow_token::verify_run_token(client, run, owner, repo).await
+            }
+            Admission::Standard => Err(Refusal::new(
+                RefusalCode::UnverifiableInstallationToken,
+                "An installation token carries its permissions only in the \
+                 response that minted it, which airlock never sees. The Airlock \
+                 Action accepts one only in repository mode, as the run's own \
+                 token. Run `airlock auth login` for a credential airlock can \
+                 verify.",
+            )),
+        },
         TokenKind::Refresh => Err(Refusal::new(
             RefusalCode::RefreshTokenSupplied,
             "That is a refresh token, not an access token. Run \
@@ -315,6 +441,44 @@ pub async fn verify<G: GitHub>(token: &str, client: &G) -> Result<VerifiedGrant,
              credential airlock can verify.",
         )),
     }
+}
+
+/// Require an installation token to be the run's own, compared after both
+/// are trimmed, as every credential source trims what it reads.
+///
+/// The job's declared permissions are the grant of the run's token and of no
+/// other, so another installation token judged by them would be judged by
+/// permissions that are not its own. Without the run's token to compare with,
+/// no installation token is admitted.
+fn bind_to_run(token: &str, run_token: Option<&str>) -> Result<(), Refusal> {
+    let Some(run_token) = run_token.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Err(Refusal::new(
+            RefusalCode::RunTokenUnbound,
+            "Repository mode admits an installation token only as the run's own token, and \
+             `AIRLOCK_RUN_TOKEN` does not name it. Set `AIRLOCK_RUN_TOKEN` to \
+             `${{ github.token }}`; the Airlock Action does this itself.",
+        ));
+    };
+    if constant_time_eq(token.trim().as_bytes(), run_token.as_bytes()) {
+        Ok(())
+    } else {
+        Err(Refusal::new(
+            RefusalCode::ForeignInstallationToken,
+            "The installation token is not this run's own token. The job's permissions bound \
+             only the run's token, so repository mode refuses any other.",
+        ))
+    }
+}
+
+/// Byte equality whose time does not depend on where two equal-length values
+/// first differ.
+fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
+    left.len() == right.len()
+        && left
+            .iter()
+            .zip(right)
+            .fold(0_u8, |difference, (a, b)| difference | (a ^ b))
+            == 0
 }
 
 async fn verify_app_user<G: GitHub>(client: &G) -> Result<VerifiedGrant, Refusal> {
@@ -393,6 +557,7 @@ async fn verify_app_user<G: GitHub>(client: &G) -> Result<VerifiedGrant, Refusal
                     .collect(),
             })
             .collect(),
+        run: None,
     })
 }
 
@@ -483,6 +648,7 @@ async fn verify_scoped<G: GitHub>(kind: TokenKind, client: &G) -> Result<Verifie
         login: Some(user.login),
         scopes,
         installations: Vec::new(),
+        run: None,
     })
 }
 
@@ -644,6 +810,7 @@ mod tests {
                     .map(|entry| (*entry).to_owned())
                     .collect(),
             }],
+            run: None,
         };
 
         assert_eq!(
@@ -665,6 +832,7 @@ mod tests {
             login: Some("operator".to_owned()),
             scopes: scopes.iter().map(|scope| (*scope).to_owned()).collect(),
             installations: Vec::new(),
+            run: None,
         }
     }
 
@@ -683,7 +851,7 @@ mod tests {
                 "{scope}"
             );
             assert!(
-                !crate::registry::MERGE_SETTINGS_DISCLOSURE.withholds_from(grant.capability()),
+                !crate::rules::MERGE_SETTINGS_DISCLOSURE.withholds_from(grant.capability()),
                 "{scope} must not be excused by the merge-settings gate"
             );
         }
@@ -711,7 +879,7 @@ mod tests {
                 "{scopes:?}"
             );
             assert!(
-                crate::registry::MERGE_SETTINGS_DISCLOSURE.withholds_from(grant.capability()),
+                crate::rules::MERGE_SETTINGS_DISCLOSURE.withholds_from(grant.capability()),
                 "{scopes:?} provably cannot hold contents:write"
             );
         }
@@ -742,10 +910,83 @@ mod tests {
                 login: None,
                 scopes: Vec::new(),
                 installations: Vec::new(),
+                run: None,
             }
             .capability(),
             CredentialCapability::WriteCapable
         );
+    }
+
+    #[test]
+    fn an_installation_token_is_read_only_only_where_its_grant_was_enumerated() {
+        let run = |permissions: &[&str]| VerifiedGrant {
+            kind: TokenKind::Installation,
+            issuer: None,
+            login: None,
+            scopes: Vec::new(),
+            installations: Vec::new(),
+            run: Some(RunGrant {
+                repository: "owner/name".to_owned(),
+                workflow: ".github/workflows/audit.yml@0".to_owned(),
+                job: "audit".to_owned(),
+                permissions: permissions.iter().map(|p| (*p).to_owned()).collect(),
+            }),
+        };
+        assert_eq!(
+            run(&["contents=read", "actions=read"]).capability(),
+            CredentialCapability::ReadOnly
+        );
+        assert_eq!(
+            run(&["contents=read", "issues=write"]).capability(),
+            CredentialCapability::WriteCapable
+        );
+
+        let unenumerated = VerifiedGrant {
+            run: None,
+            ..run(&[])
+        };
+        assert_eq!(
+            unenumerated.capability(),
+            CredentialCapability::WriteCapable
+        );
+    }
+
+    #[test]
+    fn an_installation_token_is_bound_to_the_run_after_trimming() {
+        assert!(bind_to_run("ghs_placeholder_run", Some("ghs_placeholder_run")).is_ok());
+        assert!(bind_to_run(" ghs_placeholder_run\n", Some("\tghs_placeholder_run ")).is_ok());
+        assert_eq!(
+            bind_to_run("ghs_placeholder_other", Some("ghs_placeholder_run"))
+                .unwrap_err()
+                .code,
+            RefusalCode::ForeignInstallationToken
+        );
+        assert_eq!(
+            bind_to_run("ghs_placeholder_run", Some("ghs_placeholder_ru"))
+                .unwrap_err()
+                .code,
+            RefusalCode::ForeignInstallationToken
+        );
+        for unbound in [None, Some(""), Some("  ")] {
+            assert_eq!(
+                bind_to_run("ghs_placeholder_run", unbound)
+                    .unwrap_err()
+                    .code,
+                RefusalCode::RunTokenUnbound,
+                "{unbound:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_binding_refusal_never_renders_either_token() {
+        for refusal in [
+            bind_to_run("ghs_placeholder_other", Some("ghs_placeholder_run")).unwrap_err(),
+            bind_to_run("ghs_placeholder_other", None).unwrap_err(),
+        ] {
+            let rendered = refusal.to_string();
+            assert!(!rendered.contains("ghs_placeholder"), "{rendered}");
+        }
     }
 
     #[test]

@@ -1,17 +1,36 @@
 name: Airlock audit
-description: Audit a GitHub repository with a credential Airlock proves is read-only
+description: >-
+  Audit this repository in repository mode, on the run's own token, which
+  Airlock proves is read-only
 
 inputs:
+  mode:
+    description: >-
+      repository, the only mode the action runs. central is refused: the
+      Airlock Worker's scheduled central audit replaces it
+    required: false
+    default: repository
+  token:
+    description: >-
+      The run's own token, as github.token. Airlock accepts it only inside
+      Actions, for the run's repository, when every permission the job
+      declares is read. Without it, AIRLOCK_TOKEN is read instead
+    required: false
+    default: ""
   repository:
-    description: Repository to audit as owner/repo; defaults to the current repository
+    description: >-
+      Repository to audit as owner/repo; defaults to the current repository,
+      the only one the run's own token audits
     required: false
     default: ""
   policy:
-    description: Policy source as owner/repo:path[@ref] or a checked-out local path
+    description: >-
+      Policy source as owner/repo:path[@ref]; defaults to the owner's
+      .github/airlock.yml. A local path is refused
     required: false
     default: ""
   ref:
-    description: Commit, branch, or tag to audit; defaults to the repository's default branch
+    description: Commit, branch, or tag to audit; defaults to the default branch
     required: false
     default: ""
   format:
@@ -19,46 +38,151 @@ inputs:
     required: false
     default: json
   fail-on-incomplete:
-    description: Whether an incomplete audit (exit 2) fails the Action
+    description: >-
+      Whether an incomplete audit fails the step; false lets it succeed,
+      including when the token is missing or refused
     required: false
     default: "true"
 
 outputs:
   outcome:
-    description: Audit outcome (conformant, nonconformant, or incomplete)
+    description: >-
+      conformant, nonconformant (blocking gaps), or incomplete (a run
+      error); waived, routed, unbuilt, and out-of-scope do not affect it
     value: ${{ steps.audit.outputs.outcome }}
   complete:
-    description: Whether every gate-relevant rule was decided
+    description: Whether the audit completed without a run error
     value: ${{ steps.audit.outputs.complete }}
   findings-location:
-    description: Absolute path to the findings document on the runner
+    description: >-
+      Absolute path to the findings document on the runner; the same document
+      is uploaded as the airlock-findings-<job.check_run_id> artifact
     value: ${{ steps.audit.outputs.findings-location }}
+  artifact:
+    description: The name of the artifact the findings document was uploaded as
+    value: ${{ steps.audit.outputs.artifact }}
 
+# A composite, so the run's own token reaches the engine through the audit
+# step's own env, which nothing the caller sets can override; an input could
+# be set by the caller to any token. The audit step passes Node an
+# allowlisted environment and nothing else (action/step.sh). The two
+# GitHub-maintained steps are Node actions the runner starts with the job's
+# env; each blanks the variables that load code or redirect its requests.
+# A composite's run step gets no Actions runtime credential, so
+# upload-artifact, an action, uploads the report. No step installs Rust.
 runs:
   using: composite
   steps:
-    - name: Install the Rust toolchain
-      uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+    - name: Set up the pinned Node for the Airlock action
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      # The same blanks as the upload step below.
+      env:
+        NODE_OPTIONS: ""
+        NODE_USE_ENV_PROXY: ""
+        HTTPS_PROXY: ""
+        HTTP_PROXY: ""
+        NODE_TLS_REJECT_UNAUTHORIZED: ""
+        NODE_EXTRA_CA_CERTS: ""
+        NODE_USE_SYSTEM_CA: ""
+        SSL_CERT_FILE: ""
+        SSL_CERT_DIR: ""
+        LD_PRELOAD: ""
+        LD_AUDIT: ""
+        LD_LIBRARY_PATH: ""
+        GCONV_PATH: ""
       with:
-        toolchain: stable
-    - name: Cache the Airlock build
-      uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-      with:
-        workspaces: ${{ github.action_path }} -> target
-    - name: Build Airlock
-      shell: bash
-      run: >-
-        cargo build --release --locked
-        --manifest-path "$GITHUB_ACTION_PATH/Cargo.toml"
-        --target-dir "$GITHUB_ACTION_PATH/target"
+        node-version: 24.22.3
+        # The caller's package.json is not the action's: never cache for it.
+        package-manager-cache: false
+    # Refuse, with a message, a runner whose /bin/sh is not dash on Linux:
+    # the audit step's safety rests on it (action/check-runner.sh).
+    - name: Check the runner
+      shell: sh
+      env:
+        BASH_ENV: ""
+        ENV: ""
+        SHELLOPTS: ""
+        PS4: ""
+        LD_PRELOAD: ""
+        LD_AUDIT: ""
+        LD_LIBRARY_PATH: ""
+        GCONV_PATH: ""
+        AIRLOCK_RUNNER_OS: ${{ runner.os }}
+        AIRLOCK_ACTION_PATH: ${{ github.action_path }}
+      run: '"$AIRLOCK_ACTION_PATH/action/check-runner.sh"'
     - name: Audit repository
       id: audit
-      shell: bash
+      # dash: it imports no functions from the environment and reads $ENV
+      # only when interactive.
+      shell: sh
       env:
+        BASH_ENV: ""
+        ENV: ""
+        # bash, as an unsupported sh, would trace with a caller's PS4.
+        SHELLOPTS: ""
+        PS4: ""
+        # The dynamic loader acts on this shell, step.sh and env before
+        # env -i, and they hold the credentials. glibc ignores an empty value.
+        LD_PRELOAD: ""
+        LD_AUDIT: ""
+        LD_LIBRARY_PATH: ""
+        LD_BIND_NOW: ""
+        LD_DEBUG: ""
+        LD_PROFILE: ""
+        GCONV_PATH: ""
+        AIRLOCK_RUNNER_OS: ${{ runner.os }}
+        AIRLOCK_NODE_ARCH: ${{ runner.arch == 'ARM64' && 'arm64' || 'x64' }}
+        INPUT_MODE: ${{ inputs.mode }}
+        INPUT_TOKEN: ${{ inputs.token }}
         INPUT_REPOSITORY: ${{ inputs.repository }}
         INPUT_POLICY: ${{ inputs.policy }}
         INPUT_REF: ${{ inputs.ref }}
         INPUT_FORMAT: ${{ inputs.format }}
         INPUT_FAIL_ON_INCOMPLETE: ${{ inputs.fail-on-incomplete }}
-        AIRLOCK_BIN: ${{ github.action_path }}/target/release/airlock
-      run: "$GITHUB_ACTION_PATH/scripts/run-action.sh"
+        # The run's own token. An installation token in `token` is admitted
+        # only when it is this one; nothing is ever sent with it.
+        AIRLOCK_RUN_TOKEN: ${{ github.token }}
+        # Unique to this job and attempt, so the artifact name is too.
+        AIRLOCK_JOB_CHECK_RUN_ID: ${{ job.check_run_id }}
+        # The run, from the github and runner contexts rather than the
+        # caller's env.
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
+        GITHUB_WORKFLOW_REF: ${{ github.workflow_ref }}
+        GITHUB_WORKFLOW_SHA: ${{ github.workflow_sha }}
+        GITHUB_JOB: ${{ github.job }}
+        GITHUB_API_URL: ${{ github.api_url }}
+        GITHUB_ACTION: ${{ github.action }}
+        GITHUB_RUN_ID: ${{ github.run_id }}
+        GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+        RUNNER_TEMP: ${{ runner.temp }}
+        # Where setup-node installs the pinned Node.
+        AIRLOCK_NODE_VERSION: 24.22.3
+        AIRLOCK_NODE_DIR: >-
+          ${{ runner.tool_cache }}/node/24.22.3/${{ runner.arch == 'ARM64' && 'arm64' || 'x64' }}/bin
+        AIRLOCK_ACTION_PATH: ${{ github.action_path }}
+      run: '"$AIRLOCK_ACTION_PATH/action/step.sh"'
+    # Even when the audit failed the step, so a refused or nonconformant run
+    # still leaves its report for the Worker.
+    - name: Upload the findings
+      if: always() && steps.audit.outputs.artifact-directory != ''
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      # The same blanks as the setup-node step above.
+      env:
+        NODE_OPTIONS: ""
+        NODE_USE_ENV_PROXY: ""
+        HTTPS_PROXY: ""
+        HTTP_PROXY: ""
+        NODE_TLS_REJECT_UNAUTHORIZED: ""
+        NODE_EXTRA_CA_CERTS: ""
+        NODE_USE_SYSTEM_CA: ""
+        SSL_CERT_FILE: ""
+        SSL_CERT_DIR: ""
+        LD_PRELOAD: ""
+        LD_AUDIT: ""
+        LD_LIBRARY_PATH: ""
+        GCONV_PATH: ""
+      with:
+        name: ${{ steps.audit.outputs.artifact }}
+        path: ${{ steps.audit.outputs.artifact-directory }}
+        if-no-files-found: error

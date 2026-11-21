@@ -1,3 +1,9 @@
+// ---
+// relationships:
+//   implements: terminal-interface
+//   references: release-process-conformance
+// ---
+
 //! Repository release-readiness auditing for the `airlock` command line tool.
 //!
 //! The crate is organised around the shape of one audit run: a [`policy`]
@@ -12,25 +18,36 @@
 //! stability promise for third-party consumers.
 
 mod audited_repository;
+mod document;
+mod release_records;
+mod template_identity;
 
+#[cfg(feature = "native")]
 pub mod alignment;
 pub mod audit;
 pub mod auth;
+pub mod central;
+pub mod central_audit;
 pub mod checks;
+pub mod configurable;
 pub mod error;
 pub mod findings;
+pub mod fix;
 pub mod github;
 pub mod limits;
-pub mod plan;
+pub mod maturity;
 pub mod policy;
-pub mod registry;
-pub mod remediation;
 pub mod render;
+pub mod rules;
+#[cfg(feature = "native")]
 pub mod skill;
 pub mod snapshot;
+pub mod transport;
+pub mod workflow_token;
 pub mod worklist;
+#[cfg(feature = "native")]
 pub mod worktree;
 pub mod yaml;
 
 pub use error::{Error, Result};
-pub use remediation::ActionGroup;
+pub use fix::FixGroup;

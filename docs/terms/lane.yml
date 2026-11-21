@@ -1,0 +1,8 @@
+$schema: https://refinery.systems/ontology/term
+title: Lane
+description: >-
+  Who performs work: Airlock, agent or operator. For fixes these mean mechanical file work, file
+  work requiring agent reasoning, and work requiring an operator's elevated privileges. The same
+  responsibility split describes verification; an agent's assessment remains advisory to the
+  compiled outcome. For fixes the responsibility is the fix kind: airlock, agent or operator.
+  Lane does not name a lifecycle rung or create extra outcomes.

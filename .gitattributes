@@ -14,3 +14,12 @@ Cargo.lock linguist-generated=true
 *.jpg binary
 *.gif binary
 *.woff2 binary
+
+# Recorded responses, written by crates/wasm/examples/record_audit.rs.
+crates/wasm/tests/fixtures/*.json linguist-generated=true
+
+# The action's bundle and module, built by scripts/build-action.sh and
+# checked against the source in CI.
+dist/** linguist-generated=true
+dist/*.wasm binary
+action/pnpm-lock.yaml linguist-generated=true

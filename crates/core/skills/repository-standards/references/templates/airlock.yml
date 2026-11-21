@@ -1,0 +1,22 @@
+# Repository declarations applied by an operator through Airlock.
+# relationships:
+#   references: repository-config
+version: 0.6.0
+description: One sentence, at most 160 characters, meaningful when truncated at 80.
+
+# Three to eight. At least one artifact-type and one ecosystem term.
+# See references/topics.md for the seed vocabulary.
+topics:
+  - cli
+  - rust
+
+merge:
+  squash: true
+  rebase: true
+  merge_commit: false
+  delete_branch_on_merge: true
+
+features:
+  wiki: false
+  projects: false
+  discussions: false

@@ -1,0 +1,7 @@
+$schema: https://refinery.systems/ontology/term
+title: Applied record
+description: >-
+  A term owned by Toha. Its definition is supplied by Toha template-composition, applied-record
+  and application-entry; Airlock consumes the term through
+  docs/technical-designs/release-process-conformance.yml, applied-record-reading. This entry is
+  a reference to that contract, not an Airlock definition.

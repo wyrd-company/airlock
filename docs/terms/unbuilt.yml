@@ -1,0 +1,8 @@
+$schema: https://refinery.systems/ontology/term
+title: Unbuilt
+description: >-
+  The outcome when an evaluation reaches a declared part of a compiled check that Airlock has not
+  built. The rule remains registered and is listed beside waived and routed rules with its
+  reason. Unbuilt is neither Met nor Gap and leaves the exit code unchanged. Other branches of
+  the same check can decide Met or Gap from observable evidence. An agent assessment cannot
+  replace the missing compiled check.

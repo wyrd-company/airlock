@@ -1,3 +1,9 @@
+// ---
+// relationships:
+//   implements: terminal-interface
+//   references: release-process-conformance
+// ---
+
 //! The `airlock` binary.
 //!
 //! Every GitHub surface here is read-only. The file-alignment command may
@@ -13,13 +19,18 @@ mod tui;
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::sync::Arc;
 
 use airlock_core::audit::{self, AuditOptions};
-use airlock_core::auth::{self, VerifiedGrant, AIRLOCK_SAFE_CLIENT_ID};
+use airlock_core::auth::{self, Admission, VerifiedGrant, AIRLOCK_SAFE_CLIENT_ID};
+use airlock_core::central::{self, CentralConfig, CentralInputs, Endpoints, OidcRequest};
+use airlock_core::central_audit;
 use airlock_core::github::{GitHub, RestClient, RestClientConfig};
 use airlock_core::limits::Limits;
 use airlock_core::policy::{self, PolicySource};
 use airlock_core::render;
+use airlock_core::transport::ReqwestTransport;
+use airlock_core::workflow_token::ActionsRun;
 use anyhow::{bail, Context as _, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use serde::Serialize;
@@ -42,6 +53,9 @@ const API_URL_OVERRIDE: &str = "AIRLOCK_GITHUB_API_URL";
 /// Overrides the GitHub OAuth host, for the same reason.
 const LOGIN_URL_OVERRIDE: &str = "AIRLOCK_GITHUB_LOGIN_URL";
 
+/// Overrides Entra ID's sign-in host, for the same reason.
+const AZURE_LOGIN_URL_OVERRIDE: &str = "AIRLOCK_AZURE_LOGIN_URL";
+
 #[derive(Debug, Parser)]
 #[command(
     name = "airlock",
@@ -59,14 +73,7 @@ enum Command {
     Audit(AuditArgs),
     /// List outstanding agent-lane work and check whether that lane is clear.
     AgentWork(AgentWorkArgs),
-    /// Print what airlock would change, without changing anything.
-    ///
-    /// A display, not a work order. It observes the repository with the same
-    /// read-only credential the audit uses, and prints the change each open
-    /// gap calls for. Nothing reads its output back: aligning re-observes
-    /// every rule before it acts, so there is no stored plan to apply.
-    Plan(PlanArgs),
-    /// Author deterministic file remediations in a local working tree.
+    /// Author deterministic file fixes in a local working tree.
     AlignFiles(AlignFilesArgs),
     /// Manage the read-only credential airlock uses.
     Auth(AuthArgs),
@@ -137,15 +144,100 @@ impl AlignFilesArgs {
 #[derive(Debug, Args)]
 struct AuditArgs {
     /// Repository to audit, as `owner/repo`.
-    #[arg(required_unless_present_any = ["list_checks", "working_tree"])]
+    #[arg(required_unless_present_any = ["list_rules", "working_tree"])]
     target: Option<String>,
 
     #[command(flatten)]
     repository: RepositoryArgs,
 
-    /// Print the check registry and exit, without auditing anything.
+    /// Print the rules and exit, without auditing anything.
     #[arg(long)]
-    list_checks: bool,
+    list_rules: bool,
+
+    /// How the Airlock Action runs this audit.
+    ///
+    /// `repository` admits the run's own `GITHUB_TOKEN`, inside GitHub
+    /// Actions only, for the run's repository only, and only when the job's
+    /// declared permissions are all `read`. Without it, an installation token
+    /// is refused.
+    ///
+    /// `central` takes an owner rather than a repository, accepts no
+    /// credential, and signs in as Airlock Safe through Azure Key Vault with
+    /// the job's OpenID Connect token. It audits every repository the
+    /// installation reaches into one report.
+    #[arg(long, value_enum, conflicts_with = "working_tree")]
+    mode: Option<AuditMode>,
+
+    #[command(flatten)]
+    central: CentralArgs,
+}
+
+/// The Action's modes, as `--mode` names them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum AuditMode {
+    /// One repository, with the run's own token.
+    Repository,
+    /// Every repository of an owner, signed in as Airlock Safe.
+    Central,
+}
+
+/// Central mode's inputs, as the audit repository's `airlock-safe`
+/// environment holds them.
+#[derive(Debug, Args, Default)]
+struct CentralArgs {
+    /// Central mode: Airlock Safe's App id (`AIRLOCK_SAFE_APP_ID`).
+    #[arg(long)]
+    app_id: Option<String>,
+
+    /// Central mode: the Key Vault key holding the App's private key
+    /// (`AIRLOCK_SAFE_KEY_NAME`).
+    #[arg(long)]
+    key_name: Option<String>,
+
+    /// Central mode: every repository the installation may reach, which is
+    /// `<owner>/*` (`AIRLOCK_SAFE_INSTALLED_ON`).
+    #[arg(long)]
+    installation_repositories: Option<String>,
+
+    /// Central mode: the vault's `https://` address (`AZURE_KEY_VAULT_URL`).
+    #[arg(long)]
+    vault_url: Option<String>,
+
+    /// Central mode: the Entra ID tenant (`AZURE_TENANT_ID`).
+    #[arg(long)]
+    azure_tenant_id: Option<String>,
+
+    /// Central mode: the client id of the identity that trusts the job
+    /// (`AZURE_CLIENT_ID`).
+    #[arg(long)]
+    azure_client_id: Option<String>,
+}
+
+impl CentralArgs {
+    fn any(&self) -> bool {
+        [
+            &self.app_id,
+            &self.key_name,
+            &self.installation_repositories,
+            &self.vault_url,
+            &self.azure_tenant_id,
+            &self.azure_client_id,
+        ]
+        .iter()
+        .any(|value| value.is_some())
+    }
+
+    fn inputs(&self) -> CentralInputs {
+        let value = |field: &Option<String>| field.clone().unwrap_or_default();
+        CentralInputs {
+            app_id: value(&self.app_id),
+            key_name: value(&self.key_name),
+            installation_repositories: value(&self.installation_repositories),
+            vault_url: value(&self.vault_url),
+            azure_tenant_id: value(&self.azure_tenant_id),
+            azure_client_id: value(&self.azure_client_id),
+        }
+    }
 }
 
 #[derive(Debug, Args)]
@@ -156,74 +248,6 @@ struct AgentWorkArgs {
 
     #[command(flatten)]
     repository: RepositoryArgs,
-}
-
-/// Arguments for `airlock plan`.
-///
-/// Deliberately [`RepositoryArgs`] minus `--format`, which is why it does not
-/// simply flatten it. The plan renders for a person to read and has no machine
-/// form: a JSON plan would invite a pipeline to consume it, and a consumed
-/// plan is a remembered observation. Machine consumers read the audit's
-/// findings document, or `airlock agent-work` for the agent lane — both carry
-/// the same `remediation_class` a plan is derived from.
-#[derive(Debug, Args)]
-struct PlanArgs {
-    /// Repository to plan for, as `owner/repo`.
-    #[arg(required_unless_present = "working_tree")]
-    target: Option<String>,
-
-    /// Policy source: `owner/repo:path[@ref]` or a local file path.
-    ///
-    /// Defaults to the audited owner's `.github` repository.
-    #[arg(long)]
-    policy: Option<String>,
-
-    /// Plan against a specific commit, branch, or tag.
-    #[arg(long = "ref", conflicts_with = "working_tree")]
-    reference: Option<String>,
-
-    /// Observe file-level rules from a local working tree instead of the
-    /// API tree.
-    #[arg(long)]
-    working_tree: Option<PathBuf>,
-
-    /// Read-only token value. Insecure: it appears in shell history and in
-    /// process listings. Prefer --token-file or --token-stdin.
-    #[arg(long, conflicts_with_all = ["token_file", "token_stdin"])]
-    token: Option<String>,
-
-    /// Read the token from a file.
-    #[arg(long, conflicts_with_all = ["token", "token_stdin"])]
-    token_file: Option<PathBuf>,
-
-    /// Read the token from standard input.
-    #[arg(long, conflicts_with_all = ["token", "token_file"])]
-    token_stdin: bool,
-
-    /// Configuration profile to use.
-    #[arg(long, default_value = DEFAULT_PROFILE)]
-    profile: String,
-}
-
-impl PlanArgs {
-    /// The observation these arguments ask for.
-    ///
-    /// The plan reaches its report through the same single path every other
-    /// read-only surface uses, which is what keeps "no headless surface can
-    /// write" a property of the binary rather than a convention.
-    fn repository(self) -> RepositoryArgs {
-        RepositoryArgs {
-            policy: self.policy,
-            reference: self.reference,
-            working_tree: self.working_tree,
-            // A plan has no machine form; see the type's documentation.
-            format: None,
-            token: self.token,
-            token_file: self.token_file,
-            token_stdin: self.token_stdin,
-            profile: self.profile,
-        }
-    }
 }
 
 #[derive(Debug, Args)]
@@ -384,7 +408,6 @@ async fn run(cli: Cli, interactive: bool) -> Result<u8> {
     match command {
         Command::Audit(args) => audit_command(args, interactive).await,
         Command::AgentWork(args) => agent_work_command(args, interactive).await,
-        Command::Plan(args) => plan_command(args).await,
         Command::AlignFiles(args) => align_files_command(args, interactive).await,
         Command::Auth(AuthArgs {
             command: AuthCommand::Login(args),
@@ -403,10 +426,10 @@ fn skill_command(args: &SkillArgs) -> Result<u8> {
     airlock_core::skill::emit(&args.target, args.force)
         .with_context(|| format!("cannot write skill to {}", args.target.display()))?;
     println!(
-        "Wrote repository-standards skill from registry {} ({}) to {}.\n\
+        "Wrote repository-standards skill from rules {} ({}) to {}.\n\
          Cite every rule by id and statement together; a rule id alone is not meaningful.",
-        airlock_core::registry::REGISTRY_VERSION,
-        airlock_core::registry::digest(),
+        airlock_core::rules::RULES_VERSION,
+        airlock_core::rules::digest(),
         args.target.display()
     );
     Ok(0)
@@ -439,7 +462,7 @@ struct AlignFilesOutput {
 async fn align_files_command(args: AlignFilesArgs, interactive: bool) -> Result<u8> {
     let format = resolved_format(args.format, interactive);
     let repository = args.repository();
-    let observed = repository_report_with_client(args.target.as_deref(), &repository).await?;
+    let observed = repository_report_with_client(args.target.as_deref(), &repository, None).await?;
     let pull_request = observe_pull_request(
         args.target.as_deref(),
         observed.report.repository.default_branch.as_str(),
@@ -488,12 +511,11 @@ async fn align_files_command(args: AlignFilesArgs, interactive: bool) -> Result<
         .map(|operation| operation.rule.as_str())
         .collect();
     let reobserved = after
-        .findings
-        .iter()
+        .entries()
         .filter(|finding| affected.contains(finding.rule.as_str()))
         .map(|finding| ReobservedFinding {
             rule: finding.rule.clone(),
-            status: finding.status.code().to_owned(),
+            status: finding.status_code().to_owned(),
             source: finding.source.clone(),
         })
         .collect();
@@ -532,7 +554,7 @@ fn render_alignment_text(output: &AlignFilesOutput) {
             operation.outcome,
             operation.path,
             operation.rule,
-            operation.remediation_code,
+            operation.fix_code,
             operation
                 .reason
                 .as_ref()
@@ -559,7 +581,7 @@ fn render_alignment_text(output: &AlignFilesOutput) {
     println!("{}", output.default_branch_observation);
     if !output.operations.judgment_findings.is_empty() {
         println!(
-            "judgment lane: {} finding(s); emit the repository-standards skill and hand them to an agent.",
+            "agent fixes: {} finding(s); emit the repository-standards skill and hand them to an agent.",
             output.operations.judgment_findings.len()
         );
     }
@@ -646,19 +668,28 @@ fn resolved_format(requested: Option<Format>, interactive: bool) -> Format {
 async fn audit_command(args: AuditArgs, interactive: bool) -> Result<u8> {
     let format = resolved_format(args.repository.format, interactive);
 
-    if args.list_checks {
+    if args.list_rules {
         match format {
-            Format::Text => print!("{}", render::list_checks_text()),
+            Format::Text => print!("{}", render::list_rules_text()),
             Format::Json => println!(
                 "{}",
-                serde_json::to_string_pretty(&render::list_checks_json())
-                    .context("cannot render the check registry")?
+                serde_json::to_string_pretty(&render::list_rules_json())
+                    .context("cannot render the rules")?
             ),
         }
         return Ok(0);
     }
 
-    let report = repository_report(args.target.as_deref(), &args.repository).await?;
+    if args.mode == Some(AuditMode::Central) {
+        return central_command(&args, format).await;
+    }
+    if args.central.any() {
+        bail!("the central inputs (--app-id and the rest) apply only to `--mode central`.");
+    }
+
+    let report = repository_report_with_client(args.target.as_deref(), &args.repository, args.mode)
+        .await?
+        .report;
     render_report(&report, format)?;
     Ok(report.exit_code())
 }
@@ -680,20 +711,6 @@ async fn agent_work_command(args: AgentWorkArgs, interactive: bool) -> Result<u8
     Ok(list.exit_code())
 }
 
-/// `airlock plan`: the same observation, rendered as the changes it implies.
-///
-/// It exits 0 whenever it could observe and render at all. The plan is a
-/// display, not a gate: `airlock audit` is the surface whose exit code carries
-/// the verdict, and a second gate answering the same question slightly
-/// differently is worse than no second gate.
-async fn plan_command(args: PlanArgs) -> Result<u8> {
-    let target = args.target.clone();
-    let report = repository_report(target.as_deref(), &args.repository()).await?;
-
-    print!("{}", render::plan_text(&report));
-    Ok(0)
-}
-
 fn render_report(report: &airlock_core::findings::Report, format: Format) -> Result<()> {
     match format {
         Format::Text => print!("{}", render::report_text(report)),
@@ -709,7 +726,9 @@ async fn repository_report(
     target: Option<&str>,
     args: &RepositoryArgs,
 ) -> Result<airlock_core::findings::Report> {
-    Ok(repository_report_with_client(target, args).await?.report)
+    Ok(repository_report_with_client(target, args, None)
+        .await?
+        .report)
 }
 
 struct RepositoryObservation {
@@ -720,6 +739,7 @@ struct RepositoryObservation {
 async fn repository_report_with_client(
     target: Option<&str>,
     args: &RepositoryArgs,
+    mode: Option<AuditMode>,
 ) -> Result<RepositoryObservation> {
     // A working tree with no repository target is a local-only audit: no
     // credential, no API, platform rules reported as not observed.
@@ -740,6 +760,17 @@ async fn repository_report_with_client(
     };
     let (owner, repo) = split_target(target)?;
 
+    // Repository mode is a fact about where Airlock runs, so it is settled
+    // before any credential is read.
+    let run = match mode {
+        Some(AuditMode::Repository) => Some(
+            ActionsRun::from_lookup(|name| std::env::var(name).ok())
+                .context("repository mode was refused")?,
+        ),
+        Some(AuditMode::Central) => bail!("central mode audits an owner, not one repository."),
+        None => None,
+    };
+
     let inputs = CredentialInputs {
         token: args.token.clone(),
         token_file: args.token_file.clone(),
@@ -754,7 +785,23 @@ async fn repository_report_with_client(
     let client = RestClient::new(credential.token.clone(), client_config(limits))
         .context("cannot build the github client")?;
 
-    let grant = auth::verify(&credential.token, &client)
+    // The reference an installation token is compared with. It is read only
+    // in repository mode, never sent anywhere, and overwritten when dropped.
+    let run_token = run.as_ref().and_then(|_| {
+        std::env::var(credential::RUN_TOKEN_ENVIRONMENT_VARIABLE)
+            .ok()
+            .map(zeroize::Zeroizing::new)
+    });
+    let admission = match &run {
+        Some(run) => Admission::Repository {
+            run,
+            owner,
+            repo,
+            run_token: run_token.as_ref().map(|token| token.as_str()),
+        },
+        None => Admission::Standard,
+    };
+    let grant = auth::verify_for(&credential.token, &client, admission)
         .await
         .with_context(|| {
             format!(
@@ -822,6 +869,104 @@ async fn local_audit(args: &RepositoryArgs, root: &Path) -> Result<airlock_core:
     let report = audit::run_local(&policy, &options, root)
         .with_context(|| format!("cannot audit the working tree at {}", root.display()))?;
     Ok(report)
+}
+
+/// Central mode: sign in as Airlock Safe and audit every repository of the
+/// owner into one report.
+async fn central_command(args: &AuditArgs, format: Format) -> Result<u8> {
+    let Some(owner) = args.target.as_deref() else {
+        bail!("central mode needs the owner to audit.");
+    };
+    if owner.contains('/') {
+        bail!("central mode audits an owner, not `{owner}`. Name the owner alone.");
+    }
+    if args.repository.reference.is_some() {
+        bail!("central mode audits each repository's default branch; `--ref` does not apply.");
+    }
+
+    // Central mode signs for itself, so a credential offered to it is one it
+    // would have to ignore, and ignoring a credential is how a run ends up on
+    // the wrong one.
+    let environment = std::env::var(credential::TOKEN_ENVIRONMENT_VARIABLE).ok();
+    let offered = args.repository.token.is_some()
+        || args.repository.token_file.is_some()
+        || args.repository.token_stdin
+        || environment.is_some_and(|value| !value.trim().is_empty());
+    if offered {
+        bail!(
+            "central mode accepts no credential: it signs in as Airlock Safe through Key Vault. \
+             Remove --token, --token-file, --token-stdin and {}.",
+            credential::TOKEN_ENVIRONMENT_VARIABLE
+        );
+    }
+
+    let stopped = |error: central::CentralError| anyhow::anyhow!("central mode stopped at {error}");
+    let config = CentralConfig::parse(owner, &args.central.inputs()).map_err(stopped)?;
+    let oidc = OidcRequest::from_lookup(|name| std::env::var(name).ok()).map_err(stopped)?;
+    // Every input that can be refused is read before a token exists, so no
+    // early return can leave a minted token unrevoked.
+    let policy_source = match &args.repository.policy {
+        Some(value) => Some(
+            PolicySource::parse(value)
+                .with_context(|| format!("cannot read `--policy {value}`"))?,
+        ),
+        None => None,
+    };
+    let endpoints = Endpoints {
+        github_api: api_base(),
+        azure_login: std::env::var(AZURE_LOGIN_URL_OVERRIDE)
+            .unwrap_or_else(|_| central::AZURE_LOGIN_BASE.to_owned()),
+    };
+    let limits = Limits::default();
+    let options = AuditOptions {
+        reference: None,
+        limits,
+        version: VERSION.to_owned(),
+        working_tree: None,
+    };
+    let client_config = client_config(limits);
+    let transport = ReqwestTransport::new(limits.connect_timeout)
+        .map_err(|error| anyhow::anyhow!("central mode stopped at inputs: {error}"))?;
+    let session = central::sign_in(
+        &config,
+        &oidc.into(),
+        &endpoints,
+        limits,
+        Arc::new(transport),
+    )
+    .await
+    .map_err(stopped)?;
+
+    // From the minted token to its revocation nothing returns early: the
+    // audit and its rendering are collected first, as text, and printed only
+    // after the token is revoked.
+    let result = central_audit::run(&session, owner, &client_config, policy_source, &options).await;
+    let outcome: std::result::Result<(String, u8), String> = match result {
+        Ok(report) => match format {
+            Format::Text => Ok((report.text(), report.exit_code())),
+            Format::Json => serde_json::to_string_pretty(&report)
+                .map(|json| (format!("{json}\n"), report.exit_code()))
+                .map_err(|error| format!("cannot render the central report: {error}")),
+        },
+        Err(error) => Err(format!("cannot audit the repositories of {owner}: {error}")),
+    };
+
+    // A failed revocation leaves a read-only token to expire on its own,
+    // which is worth saying and not worth failing an audit that completed.
+    if let Err(error) = session.revoke().await {
+        eprintln!("warning: {}", session.redact(&error.to_string()));
+    }
+
+    // Whatever central mode prints passes through the session's redaction
+    // last, so an echo of its token that got past every other guard prints
+    // as `[redacted]`.
+    match outcome {
+        Ok((rendered, code)) => {
+            print!("{}", session.redact(&rendered));
+            Ok(code)
+        }
+        Err(message) => bail!("{}", session.redact(&message)),
+    }
 }
 
 fn split_target(target: &str) -> Result<(&str, &str)> {
@@ -961,6 +1106,15 @@ fn print_grant(grant: &VerifiedGrant) {
             installation.permissions.join(", ")
         );
     }
+    if let Some(run) = &grant.run {
+        println!(
+            "job {} of {} in {}: {}",
+            run.job,
+            run.workflow,
+            run.repository,
+            run.permissions.join(", ")
+        );
+    }
 }
 
 /// What a bare `airlock` does.
@@ -1051,12 +1205,12 @@ mod tests {
     }
 
     #[test]
-    fn list_checks_needs_no_target() {
-        let cli = Cli::parse_from(["airlock", "audit", "--list-checks"]);
+    fn list_rules_needs_no_target() {
+        let cli = Cli::parse_from(["airlock", "audit", "--list-rules"]);
         let Some(Command::Audit(args)) = cli.command else {
             panic!("expected the audit command");
         };
-        assert!(args.list_checks);
+        assert!(args.list_rules);
         assert!(args.target.is_none());
     }
 

@@ -1,0 +1,3 @@
+# relationships: { references: fixtures/provenance.json }
+# Preserve the Rust producer bytes.
+fixtures/configurable-report.json

@@ -1,0 +1,9 @@
+$schema: https://refinery.systems/ontology/term
+title: Routed
+description: >-
+  A rule not evaluated in this run because a declared gate is not met, with the named other
+  run or surface that settles it. Routed is neither Met nor Gap, leaves the exit code
+  unchanged, and is listed beside waivers. An API-dependent rule in a credential-free run is
+  routed whole with reason needs-github-api to the credentialed API-tree audit or Action. A
+  credentialed endpoint failure or missing input without a declared gate is a run error,
+  never routing.

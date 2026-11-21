@@ -33,6 +33,7 @@ jobs:
         with:
           toolchain: stable
           components: clippy, rustfmt
+          targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - uses: go-task/setup-task@01a4adf9db2d14c1de7a560f09170b6e0df736aa # v2
       - name: Install repository linters
@@ -71,6 +72,135 @@ jobs:
       - uses: go-task/setup-task@01a4adf9db2d14c1de7a560f09170b6e0df736aa # v2
       - run: task build
 
+  # The engine as the WebAssembly module the Worker and the JavaScript
+  # action load: built at the size-optimised profile, held to the budget
+  # docs/wasm.md states, and tested under Node, including parity with the
+  # native build on recorded responses.
+  wasm:
+    name: WebAssembly
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: stable
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - uses: go-task/setup-task@01a4adf9db2d14c1de7a560f09170b6e0df736aa # v2
+      - run: task wasm:install
+      - run: task wasm
+
+  # The action runs the committed dist/. This job rebuilds it from the source,
+  # with the toolchain scripts/build-action.sh names, fails on any difference
+  # from the committed copy, then runs the action end to end.
+  action:
+    name: Action
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: 1.100.0
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          package_json_file: action/package.json
+      - uses: go-task/setup-task@01a4adf9db2d14c1de7a560f09170b6e0df736aa # v2
+      - run: task wasm:install
+      - run: task action:install
+      - run: task action
+
+  # Each leg tries one way a caller's job environment could replace the run's
+  # token or GitHub's answers, with a synthetic installation token of another
+  # App as the token input (scripts/ci-forge.sh):
+  #   pair:         AIRLOCK_RUN_TOKEN in the job env and the calling step's env;
+  #   node-options: NODE_OPTIONS in the job env imports code that rewrites it
+  #                 and leaves a marker file, in every Node step it reaches;
+  #   bash-env:     BASH_ENV, written to $GITHUB_ENV, sources a script that
+  #                 rewrites it;
+  #   ld-preload:   LD_PRELOAD and LD_AUDIT, written to $GITHUB_ENV, load a
+  #                 library an earlier step built, into every process;
+  #   proxy:        NODE_USE_ENV_PROXY, HTTPS_PROXY to a dead address and
+  #                 NODE_TLS_REJECT_UNAUTHORIZED=0, with the run's real token
+  #                 and no pinned Node in the tool cache, so setup-node must
+  #                 download it past the proxy and step.sh checks its SHA-256.
+  # The action must refuse the forged token before any request, or, for the
+  # proxy leg, reach GitHub directly; no step of it may run the caller's
+  # NODE_OPTIONS. Then each forge is shown to work on an ordinary step.
+  action-forged-run-token:
+    name: "Action: a forged run token is refused (${{ matrix.leg }})"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      # Every leg runs to the end, so every artifact is uploaded.
+      fail-fast: false
+      matrix:
+        include:
+          - leg: pair
+            run-token: ghs_999999_eyJhbGciOiJub25lIn0.eyJmb3JnZWQiOjF9.Zm9yZ2Vk-PLACEHOLDER
+            node-options: ""
+          - leg: node-options
+            run-token: ""
+            # No file exists before checkout, so the code is a data: URL.
+            # Single quotes: Node reads double quotes in NODE_OPTIONS as its
+            # own quoting.
+            node-options: >-
+              --import=data:text/javascript,import{writeFileSync}from'node:fs';writeFileSync('/tmp/airlock-forge-marker','');process.env.AIRLOCK_RUN_TOKEN=process.env.FORGED
+          - leg: bash-env
+            run-token: ""
+            node-options: ""
+          - leg: ld-preload
+            run-token: ""
+            node-options: ""
+          - leg: proxy
+            run-token: ""
+            node-options: ""
+    env:
+      AIRLOCK_RUN_TOKEN: ${{ matrix.run-token }}
+      NODE_OPTIONS: ${{ matrix.node-options }}
+      FORGED: ghs_999999_eyJhbGciOiJub25lIn0.eyJmb3JnZWQiOjF9.Zm9yZ2Vk-PLACEHOLDER
+      LEG: ${{ matrix.leg }}
+      MARKER: /tmp/airlock-forge-marker
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: go-task/setup-task@01a4adf9db2d14c1de7a560f09170b6e0df736aa # v2
+      - name: Arm the forge
+        run: task action:forge -- arm
+      - id: forged
+        uses: ./
+        env:
+          AIRLOCK_RUN_TOKEN: ${{ matrix.run-token }}
+        with:
+          mode: repository
+          token: ${{ matrix.leg == 'proxy' && github.token || env.FORGED }}
+          fail-on-incomplete: "false"
+      - name: The action resisted the forge
+        env:
+          OUTCOME: ${{ steps.forged.outputs.outcome }}
+          FINDINGS: ${{ steps.forged.outputs.findings-location }}
+          ARTIFACT: ${{ steps.forged.outputs.artifact }}
+        run: task action:forge -- assert
+      - name: The forge works on an ordinary step
+        run: task action:forge -- live
+
   # rust-version in Cargo.toml is a promise. This job is what keeps it true:
   # the toolchain is pinned to the declared minimum and the lockfile is not
   # allowed to move, so a dependency that quietly needs a newer compiler fails
@@ -108,14 +238,11 @@ jobs:
           PR_TITLE: ${{ github.event.pull_request.title }}
         run: task lint:commit-msg -- "$PR_TITLE"
 
-  # Airlock audits airlock. The job is present before the credential is: the
-  # audit step is skipped until an operator provisions the AIRLOCK_TOKEN
-  # secret, so the workflow is honest about what it is and is not checking
-  # rather than failing every run until then.
-  #
-  # AIRLOCK_TOKEN is read-only by construction — airlock refuses any token it
-  # cannot prove carries no write permission — so it is the one secret this
-  # workflow can hold without widening its blast radius.
+  # Airlock audits airlock, in repository mode on the run's own token. The
+  # job declares only `contents: read`, which is how Airlock enumerates that
+  # token's grant: it reads these permissions from this file at
+  # GITHUB_WORKFLOW_SHA and refuses the token if any is not read. The
+  # workflow reads no secret.
   dogfood:
     name: Audit this repository
     runs-on: ubuntu-latest
@@ -130,10 +257,10 @@ jobs:
           toolchain: stable
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - uses: go-task/setup-task@01a4adf9db2d14c1de7a560f09170b6e0df736aa # v2
-      - name: Run dogfood audit when provisioned
+      - name: Run dogfood audit
         env:
-          AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}
-        run: task dogfood:when-provisioned
+          AIRLOCK_RUN_TOKEN: ${{ github.token }}
+        run: task dogfood:ci
 
 # Jobs are decomposed so a failure is legible on the pull request, and every job
 # invokes a task rather than a raw command so `task check` locally and CI cannot

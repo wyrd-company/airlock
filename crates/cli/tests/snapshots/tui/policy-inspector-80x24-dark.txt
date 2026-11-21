@@ -2,7 +2,7 @@ policy-inspector-80x24-dark · 80x24 · theme dark · colour
 --- text ---
 AIRLOCK 0.0.0  …dings › policy inspector  no credential stored · theme t · dark 
 NO POLICY OBSERVED                                                              
-would show    every rule the run asked about, the registry digest and what it   
+would show    every rule the run asked about, the rules digest and what it      
               proves, where the rules came from, and the run's provenance.      
 empty because the effective policy is a property of a run, and no repository has
               been observed in this session.                                    
@@ -27,7 +27,7 @@ no repository observed · this shell renders the frame only · tty required
 --- style keys ---
 aaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 ccccccccccccccccccdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-eeeeeeeeeeeeeefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffddd
+eeeeeeeeeeeeeeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffdddddd
 eeeeeeeeeeeeeeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffdddddd
 eeeeeeeeeeeeeeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 eeeeeeeeeeeeeeffffffffffffffffffffffffffffffdddddddddddddddddddddddddddddddddddd

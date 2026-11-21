@@ -31,9 +31,9 @@
 //!   logical content; nothing compares identities across sources, and
 //!   over-reporting dirt is the safe direction.
 //!
-//! Platform facts — settings, rulesets, tags, history — are never derived
-//! from a working tree. They stay with the API or are reported as not
-//! observed.
+//! Platform checks for settings, rulesets, tags and history use the API.
+//! Maturity has a separate observer over committed local Git objects so that
+//! mutable working-tree files cannot change the applicable rung.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};

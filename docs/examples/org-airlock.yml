@@ -1,0 +1,30 @@
+# Place at .github/airlock.yml in the organization's reserved .github repository.
+# relationships:
+#   references: org-config
+version: 0.6.0
+exceptions:
+  REPO-FILE-08:
+    reason: Organization automation preset
+    renovate-preset: github>example-org/.github
+  REPO-META-07:
+    reason: Shared topic vocabulary
+    topics:
+      artifact-type: [cli, library, application]
+      ecosystem: [rust, node, go]
+  REPO-META-09:
+    reason: Shared topic vocabulary
+    topics:
+      artifact-type: [cli, library, application]
+      ecosystem: [rust, node, go]
+  REPO-TPL-01:
+    reason: Expected project template
+    allow-override: false
+    templates:
+      - source: gh:example-org/catalog#project
+        ref: main
+  REPO-DOCS-01:
+    reason: A small utility can explain its usage in its README
+    repositories:
+      example-org/sample:
+        reason: Usage is documented in README.md
+        severity: none

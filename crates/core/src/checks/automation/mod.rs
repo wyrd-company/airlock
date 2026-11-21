@@ -1,7 +1,7 @@
 //! Automation: taskfiles, CI, CD, and hooks.
 
-use crate::findings::Remediation;
-use crate::policy::RuleInstance;
+use crate::findings::Fix;
+use crate::policy::EffectiveRule;
 use crate::yaml::Yaml;
 
 use super::{AuditContext, ParsedFile, Verdict, Workflow};
@@ -11,6 +11,9 @@ mod hooks;
 mod taskfile;
 mod workflows;
 
+#[cfg(feature = "native")]
+pub(crate) use workflows::{is_remote_airlock_action, CENTRAL_INPUTS};
+
 use delivery::*;
 use hooks::*;
 use taskfile::*;
@@ -19,10 +22,7 @@ use workflows::*;
 /// The task verbs every repository must define.
 pub(super) const REQUIRED_TASKS: &[&str] = &["test", "lint", "format", "check"];
 
-/// The default tag pattern a versioned-artifact CD workflow triggers on.
-pub(super) const DEFAULT_TAG_PATTERN: &str = "[0-9]*.[0-9]*.[0-9]*";
-
-pub(crate) fn run(id: &str, rule: &RuleInstance, context: &AuditContext) -> Option<Verdict> {
+pub(crate) fn run(id: &str, rule: &EffectiveRule, context: &AuditContext) -> Option<Verdict> {
     Some(match id {
         "REPO-TASK-01" => required_tasks(context),
         "REPO-TASK-04" => per_unit_taskfiles(context),
@@ -36,7 +36,7 @@ pub(crate) fn run(id: &str, rule: &RuleInstance, context: &AuditContext) -> Opti
         "REPO-CI-06" => concurrency_covers_pull_requests(context),
         "REPO-CI-07" => jobs_invoke_tasks(context),
         "REPO-CI-08" => pull_request_title_check(context),
-        "REPO-CI-09" => audit_uses_airlock_token(context),
+        "REPO-CI-09" => audit_runs_on_its_mode_credential(context),
         "REPO-CD-01" => cd_present(context),
         "REPO-CD-02" => cd_on_tags(rule, context),
         "REPO-CD-03" => cd_on_default_branch(context),

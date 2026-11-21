@@ -1,5 +1,5 @@
 use super::*;
-use crate::ActionGroup;
+use crate::FixGroup;
 
 const CANONICAL_AIRLOCK_REPOSITORY: &str = "wyrd-company/airlock";
 
@@ -7,7 +7,7 @@ pub(super) fn readable_workflows<'a>(
     context: &'a AuditContext<'_>,
 ) -> Result<Vec<&'a Workflow>, Box<Verdict>> {
     if context.workflows_truncated {
-        return Err(Box::new(Verdict::inconclusive(
+        return Err(Box::new(Verdict::run_error(
             "workflow_listing_truncated",
             "the workflow listing was cut short by a budget, so the workflows could not be \
              examined as a whole",
@@ -20,7 +20,7 @@ pub(super) fn readable_workflows<'a>(
         .map(|workflow| workflow.path.as_str())
         .collect();
     if !unparsed.is_empty() {
-        return Err(Box::new(Verdict::inconclusive(
+        return Err(Box::new(Verdict::run_error(
             "unparseable_workflow",
             format!("{} could not be parsed", unparsed.join(", ")),
         )));
@@ -43,8 +43,8 @@ pub(super) fn ci_on_pull_request(context: &AuditContext) -> Verdict {
         None => Verdict::fail(
             "ci_does_not_trigger_on_pull_request",
             "no workflow triggers on pull_request",
-            Remediation::new(
-                ActionGroup::TRIGGER_ON_PULL_REQUEST,
+            Fix::new(
+                FixGroup::TRIGGER_ON_PULL_REQUEST,
                 "Trigger CI on pull_request.",
             ),
         ),
@@ -82,8 +82,8 @@ pub(super) fn workflow_permissions_empty(context: &AuditContext) -> Verdict {
         Verdict::fail(
             "workflow_permissions_not_empty",
             offenders.join("; "),
-            Remediation::new(
-                ActionGroup::DEFAULT_DENY_PERMISSIONS,
+            Fix::new(
+                FixGroup::DEFAULT_DENY_PERMISSIONS,
                 "Set `permissions: {}` at workflow level and elevate per job.",
             ),
         )
@@ -108,7 +108,7 @@ pub(super) fn jobs_declare_permissions(context: &AuditContext) -> Verdict {
     if offenders.is_empty() {
         // Whether the declared set is minimal is a judgment about what each
         // job needs, which airlock cannot compute.
-        Verdict::manual(
+        Verdict::unbuilt(
             "jobs_declare_permissions",
             "every job declares a permissions block; whether each is minimal is a judgment call",
         )
@@ -116,8 +116,8 @@ pub(super) fn jobs_declare_permissions(context: &AuditContext) -> Verdict {
         Verdict::fail(
             "job_without_permissions",
             format!("{} declare no permissions", offenders.join(", ")),
-            Remediation::new(
-                ActionGroup::DECLARE_JOB_PERMISSIONS,
+            Fix::new(
+                FixGroup::DECLARE_JOB_PERMISSIONS,
                 "Declare the minimum permissions on every job.",
             ),
         )
@@ -128,7 +128,7 @@ pub(super) fn jobs_declare_permissions(context: &AuditContext) -> Verdict {
 /// version comment. Comments do not survive parsing, so this reads the text.
 pub(super) fn actions_pinned(context: &AuditContext) -> Verdict {
     if context.workflows_truncated {
-        return Verdict::inconclusive(
+        return Verdict::run_error(
             "workflow_listing_truncated",
             "the workflow listing was cut short by a budget",
         );
@@ -188,8 +188,8 @@ pub(super) fn actions_pinned(context: &AuditContext) -> Verdict {
         Verdict::fail(
             "action_not_pinned",
             offenders.join("; "),
-            Remediation::new(
-                ActionGroup::PIN_ACTION,
+            Fix::new(
+                FixGroup::PIN_ACTION,
                 "Pin every action to a full commit sha and name the version it came from in a \
                  trailing comment, for example `# v4`.",
             ),
@@ -277,8 +277,8 @@ pub(super) fn no_pull_request_target(context: &AuditContext) -> Verdict {
         Verdict::fail(
             "pull_request_target_used",
             format!("{} uses pull_request_target", offenders.join(", ")),
-            Remediation::new(
-                ActionGroup::REMOVE_PULL_REQUEST_TARGET,
+            Fix::new(
+                FixGroup::REMOVE_PULL_REQUEST_TARGET,
                 "Replace pull_request_target with pull_request. It runs fork code with secrets.",
             ),
         )
@@ -297,8 +297,8 @@ pub(super) fn concurrency_covers_pull_requests(context: &AuditContext) -> Verdic
         return Verdict::fail(
             "no_pull_request_workflow",
             "no workflow triggers on pull_request, so no concurrency group covers pull requests",
-            Remediation::new(
-                ActionGroup::TRIGGER_ON_PULL_REQUEST,
+            Fix::new(
+                FixGroup::TRIGGER_ON_PULL_REQUEST,
                 "Trigger CI on pull_request.",
             ),
         );
@@ -338,8 +338,8 @@ pub(super) fn concurrency_covers_pull_requests(context: &AuditContext) -> Verdic
         Verdict::fail(
             "concurrency_missing",
             offenders.join("; "),
-            Remediation::new(
-                ActionGroup::ADD_CONCURRENCY,
+            Fix::new(
+                FixGroup::ADD_CONCURRENCY,
                 "Add a concurrency group with cancel-in-progress covering pull requests.",
             ),
         )
@@ -388,8 +388,8 @@ pub(super) fn jobs_invoke_tasks(context: &AuditContext) -> Verdict {
         Verdict::fail(
             "job_runs_raw_command",
             offenders.join("; "),
-            Remediation::new(
-                ActionGroup::WRAP_IN_TASK,
+            Fix::new(
+                FixGroup::WRAP_IN_TASK,
                 "Move the command into taskfile.yml and invoke the task, so local and CI cannot \
                  drift apart.",
             ),
@@ -408,8 +408,8 @@ pub(super) fn pull_request_title_check(context: &AuditContext) -> Verdict {
         return Verdict::fail(
             "no_title_check",
             "no workflow reads the pull request title to validate its format",
-            Remediation::new(
-                ActionGroup::ADD_TITLE_CHECK,
+            Fix::new(
+                FixGroup::ADD_TITLE_CHECK,
                 "Add a job that validates the pull request title format, and require it in the \
                  ruleset.",
             ),
@@ -418,7 +418,7 @@ pub(super) fn pull_request_title_check(context: &AuditContext) -> Verdict {
 
     // The other half of the rule lives in the ruleset, and required status
     // check names are not exposed by the endpoints airlock reads.
-    Verdict::manual(
+    Verdict::unbuilt(
         "title_check_present",
         format!(
             "{} validates the pull request title; whether the ruleset requires that check is a \
@@ -428,24 +428,58 @@ pub(super) fn pull_request_title_check(context: &AuditContext) -> Verdict {
     )
 }
 
-pub(super) fn audit_uses_airlock_token(context: &AuditContext) -> Verdict {
+/// The central inputs and the `airlock-safe` variable each must come from.
+pub(crate) const CENTRAL_INPUTS: &[(&str, &str)] = &[
+    ("app-id", "vars.AIRLOCK_SAFE_APP_ID"),
+    ("key-name", "vars.AIRLOCK_SAFE_KEY_NAME"),
+    (
+        "installation-repositories",
+        "vars.AIRLOCK_SAFE_INSTALLED_ON",
+    ),
+    ("vault-url", "vars.AZURE_KEY_VAULT_URL"),
+    ("azure-tenant-id", "vars.AZURE_TENANT_ID"),
+    ("azure-client-id", "vars.AZURE_CLIENT_ID"),
+];
+
+/// The expressions that are the run's own token.
+fn is_run_token(value: &str) -> bool {
+    let compact: String = value.chars().filter(|c| !c.is_whitespace()).collect();
+    compact == "${{github.token}}" || compact == "${{secrets.GITHUB_TOKEN}}"
+}
+
+pub(super) fn audit_runs_on_its_mode_credential(context: &AuditContext) -> Verdict {
     let Some(workflow) = context.workflow("audit.yml") else {
         return Verdict::fail(
             "no_audit_workflow",
             "there is no .github/workflows/audit.yml to inspect",
-            Remediation::new(
-                ActionGroup::ADD_AUDIT_WORKFLOW,
-                "Add the standard scheduled, on-demand audit workflow.",
+            Fix::new(
+                FixGroup::ADD_AUDIT_WORKFLOW,
+                "Add the scheduled, on-demand audit workflow.",
             ),
         );
     };
 
     let Some(document) = &workflow.document else {
-        return Verdict::inconclusive(
+        return Verdict::run_error(
             "unparseable_workflow",
             format!("{} could not be parsed", workflow.path),
         );
     };
+
+    // The repository secret is what the delivery standard's floor forbids,
+    // so it fails wherever the workflow names it, not only on the step.
+    if workflow.text.contains("secrets.AIRLOCK_TOKEN") {
+        return Verdict::fail_at(
+            "audit_reads_airlock_token",
+            &workflow.path,
+            "the audit workflow reads secrets.AIRLOCK_TOKEN, a repository secret",
+            Fix::new(
+                FixGroup::SUPPLY_RUN_TOKEN,
+                "Remove `AIRLOCK_TOKEN` and give the Airlock action `token: ${{ github.token }}` \
+                 in repository mode.",
+            ),
+        );
+    }
 
     let steps: Vec<&Yaml> = document
         .get("jobs")
@@ -475,41 +509,77 @@ pub(super) fn audit_uses_airlock_token(context: &AuditContext) -> Verdict {
         return Verdict::fail(
             "audit_action_missing",
             format!("{} does not invoke the Airlock audit action", workflow.path),
-            Remediation::new(
-                ActionGroup::SUPPLY_AIRLOCK_TOKEN,
-                "Invoke the canonical Airlock audit action and supply `secrets.AIRLOCK_TOKEN`.",
+            Fix::new(
+                FixGroup::SUPPLY_RUN_TOKEN,
+                "Invoke the canonical Airlock audit action in repository mode with \
+                 `token: ${{ github.token }}`.",
             ),
         );
     }
 
-    let has_airlock_token = audit_steps.iter().any(|step| {
-        step.get("env")
-            .and_then(|env| env.get("AIRLOCK_TOKEN"))
-            .and_then(Yaml::as_str)
-            .is_some_and(|value| value.contains("secrets.AIRLOCK_TOKEN"))
-    });
+    let mut gaps = Vec::new();
+    let mut modes = Vec::new();
+    for step in &audit_steps {
+        let with = step.get("with");
+        let input = |name: &str| with.and_then(|with| with.get(name)).and_then(Yaml::as_str);
+        match input("mode").unwrap_or("repository") {
+            "repository" => {
+                if input("token").is_some_and(is_run_token) {
+                    modes.push("repository mode with the run's own token");
+                } else {
+                    gaps.push(
+                        "a repository-mode Airlock step does not receive `token: ${{ github.token \
+                         }}`"
+                        .to_owned(),
+                    );
+                }
+            }
+            "central" => {
+                let missing: Vec<&str> = CENTRAL_INPUTS
+                    .iter()
+                    .filter(|(name, variable)| {
+                        !input(name).is_some_and(|value| value.contains(variable))
+                    })
+                    .map(|(name, _)| *name)
+                    .collect();
+                if input("token").is_some() {
+                    gaps.push("a central-mode Airlock step receives a token".to_owned());
+                } else if missing.is_empty() {
+                    modes.push("central mode with the airlock-safe variables");
+                } else {
+                    gaps.push(format!(
+                        "a central-mode Airlock step does not take {} from the airlock-safe \
+                         variables",
+                        missing.join(", ")
+                    ));
+                }
+            }
+            other => gaps.push(format!("an Airlock step names the unknown mode `{other}`")),
+        }
+    }
 
-    if has_airlock_token {
+    if gaps.is_empty() {
+        modes.dedup();
         Verdict::pass_at(
-            "audit_uses_airlock_token",
+            "audit_uses_mode_credential",
             &workflow.path,
-            "the Airlock audit action receives secrets.AIRLOCK_TOKEN as AIRLOCK_TOKEN",
+            format!("the Airlock audit action runs in {}", modes.join(" and ")),
         )
     } else {
         Verdict::fail_at(
-            "audit_token_missing",
+            "audit_mode_credential_missing",
             &workflow.path,
-            "the Airlock audit action does not receive secrets.AIRLOCK_TOKEN as AIRLOCK_TOKEN",
-            Remediation::new(
-                ActionGroup::SUPPLY_AIRLOCK_TOKEN,
-                "Set the action step's `AIRLOCK_TOKEN` environment variable to \
-                 `${{ secrets.AIRLOCK_TOKEN }}`.",
+            gaps.join("; "),
+            Fix::new(
+                FixGroup::SUPPLY_RUN_TOKEN,
+                "Give the Airlock action `token: ${{ github.token }}` in repository mode, or, in \
+                 the audit repository, `mode: central` with the six airlock-safe variables.",
             ),
         )
     }
 }
 
-fn is_remote_airlock_action(uses: &str) -> bool {
+pub(crate) fn is_remote_airlock_action(uses: &str) -> bool {
     let Some((repository, reference)) = uses.rsplit_once('@') else {
         return false;
     };
@@ -522,7 +592,7 @@ mod tests {
     use super::super::super::{evaluate, Verdict};
     use crate::findings::Status;
 
-    fn verdict(id: &str, files: &[(&str, &str)]) -> Status {
+    fn verdict(id: &str, files: &[(&str, &str)]) -> Option<Status> {
         CheckFixture::new(files).verdict(id).status
     }
 
@@ -555,7 +625,7 @@ jobs:
     fn ci_must_trigger_on_pull_request() {
         assert_eq!(
             verdict("REPO-CI-01", &[(".github/workflows/ci.yml", CI)]),
-            Status::Pass
+            Some(Status::Met)
         );
         assert_eq!(
             verdict(
@@ -565,7 +635,7 @@ jobs:
                     "on:\n  push:\npermissions: {}\njobs: {}\n"
                 )]
             ),
-            Status::Fail
+            Some(Status::Gap)
         );
     }
 
@@ -573,7 +643,7 @@ jobs:
     fn workflow_permissions_must_be_an_empty_map() {
         assert_eq!(
             verdict("REPO-CI-02", &[(".github/workflows/ci.yml", CI)]),
-            Status::Pass
+            Some(Status::Met)
         );
         assert_eq!(
             verdict(
@@ -583,7 +653,7 @@ jobs:
                     "on:\n  pull_request:\npermissions:\n  contents: read\njobs: {}\n"
                 )]
             ),
-            Status::Fail
+            Some(Status::Gap)
         );
         assert_eq!(
             verdict(
@@ -593,7 +663,7 @@ jobs:
                     "on:\n  pull_request:\njobs: {}\n"
                 )]
             ),
-            Status::Fail
+            Some(Status::Gap)
         );
     }
 
@@ -607,11 +677,11 @@ jobs:
                     "on:\n  pull_request:\npermissions: {}\njobs:\n  a:\n    steps: []\n"
                 )]
             ),
-            Status::Fail
+            Some(Status::Gap)
         );
         assert_eq!(
             verdict("REPO-CI-03", &[(".github/workflows/ci.yml", CI)]),
-            Status::Manual
+            None
         );
     }
 
@@ -619,7 +689,7 @@ jobs:
     fn actions_must_be_pinned_to_a_sha_with_a_comment() {
         assert_eq!(
             verdict("REPO-CI-04", &[(".github/workflows/ci.yml", CI)]),
-            Status::Pass
+            Some(Status::Met)
         );
         for unpinned in [
             "jobs:\n  a:\n    steps:\n      - uses: actions/checkout@v4\n",
@@ -628,7 +698,7 @@ jobs:
         ] {
             assert_eq!(
                 verdict("REPO-CI-04", &[(".github/workflows/x.yml", unpinned)]),
-                Status::Fail,
+                Some(Status::Gap),
                 "{unpinned}"
             );
         }
@@ -644,7 +714,7 @@ jobs:
                     "jobs:\n  a:\n    steps:\n      - uses: ./.github/actions/thing\n"
                 )]
             ),
-            Status::Pass
+            Some(Status::Met)
         );
     }
 
@@ -658,11 +728,11 @@ jobs:
                     "on:\n  pull_request_target:\npermissions: {}\njobs: {}\n"
                 )]
             ),
-            Status::Fail
+            Some(Status::Gap)
         );
         assert_eq!(
             verdict("REPO-CI-05", &[(".github/workflows/ci.yml", CI)]),
-            Status::Pass
+            Some(Status::Met)
         );
     }
 
@@ -670,7 +740,7 @@ jobs:
     fn pull_request_workflows_need_a_cancelling_concurrency_group() {
         assert_eq!(
             verdict("REPO-CI-06", &[(".github/workflows/ci.yml", CI)]),
-            Status::Pass
+            Some(Status::Met)
         );
         assert_eq!(
             verdict(
@@ -680,7 +750,7 @@ jobs:
                     "on:\n  pull_request:\npermissions: {}\njobs: {}\n"
                 )]
             ),
-            Status::Fail
+            Some(Status::Gap)
         );
     }
 
@@ -688,7 +758,7 @@ jobs:
     fn a_raw_command_in_a_job_fails() {
         assert_eq!(
             verdict("REPO-CI-07", &[(".github/workflows/ci.yml", CI)]),
-            Status::Pass
+            Some(Status::Met)
         );
         assert_eq!(
             verdict(
@@ -698,7 +768,7 @@ jobs:
                     "jobs:\n  a:\n    steps:\n      - run: cargo test\n"
                 )]
             ),
-            Status::Fail
+            Some(Status::Gap)
         );
     }
 
@@ -712,7 +782,7 @@ jobs:
                     "jobs:\n  a:\n    steps:\n      - run: |\n          set -e\n          task test\n"
                 )]
             ),
-            Status::Fail
+            Some(Status::Gap)
         );
     }
 
@@ -728,17 +798,15 @@ jobs:
                      run: task lint:commit-msg\n"
                 )]
             ),
-            Status::Manual
+            None
         );
         assert_eq!(
             verdict("REPO-CI-08", &[(".github/workflows/ci.yml", CI)]),
-            Status::Fail
+            Some(Status::Gap)
         );
     }
 
-    #[test]
-    fn the_canonical_repository_may_invoke_its_local_audit_action() {
-        let configured = "\
+    const REPOSITORY_MODE: &str = "\
 on: workflow_dispatch
 permissions: {}
 jobs:
@@ -746,93 +814,68 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: ./
-        env:
-          AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}
+      - uses: wyrd-company/airlock@0123456789abcdef0123456789abcdef01234567
+        with:
+          token: ${{ github.token }}
 ";
+
+    const CENTRAL_MODE: &str = "\
+on: workflow_dispatch
+permissions: {}
+jobs:
+  audit:
+    environment:
+      name: airlock-safe
+      deployment: false
+    permissions:
+      id-token: write
+    steps:
+      - uses: wyrd-company/airlock@0123456789abcdef0123456789abcdef01234567
+        with:
+          mode: central
+          app-id: ${{ vars.AIRLOCK_SAFE_APP_ID }}
+          key-name: ${{ vars.AIRLOCK_SAFE_KEY_NAME }}
+          installation-repositories: ${{ vars.AIRLOCK_SAFE_INSTALLED_ON }}
+          vault-url: ${{ vars.AZURE_KEY_VAULT_URL }}
+          azure-tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          azure-client-id: ${{ vars.AZURE_CLIENT_ID }}
+";
+
+    fn ci09(workflow: &str) -> Verdict {
+        CheckFixture::new(&[(".github/workflows/audit.yml", workflow)]).verdict("REPO-CI-09")
+    }
+
+    fn ci09_code(workflow: &str) -> (Option<Status>, String) {
+        let verdict = ci09(workflow);
+        (verdict.status, verdict.evidence.unwrap().code)
+    }
+
+    #[test]
+    fn repository_mode_with_the_runs_own_token_meets_the_rule() {
         assert_eq!(
-            evaluate_for_repository(
-                "REPO-CI-09",
-                "wyrd-company/airlock",
-                &[(".github/workflows/audit.yml", configured)]
-            )
-            .status,
-            Status::Pass
+            ci09_code(REPOSITORY_MODE),
+            (Some(Status::Met), "audit_uses_mode_credential".to_owned())
         );
+        let secret_form = REPOSITORY_MODE.replace("github.token", "secrets.GITHUB_TOKEN");
+        assert_eq!(ci09(&secret_form).status, Some(Status::Met));
+        let explicit = REPOSITORY_MODE.replace(
+            "        with:\n",
+            "        with:\n          mode: repository\n",
+        );
+        assert_eq!(ci09(&explicit).status, Some(Status::Met));
     }
 
     #[test]
-    fn the_canonical_local_action_must_receive_airlock_token() {
-        let workflow = "\
-on: workflow_dispatch
-permissions: {}
-jobs:
-  audit:
-    permissions:
-      contents: read
-    steps:
-      - uses: ./
-";
-        let verdict = evaluate_for_repository(
-            "REPO-CI-09",
-            "wyrd-company/airlock",
-            &[(".github/workflows/audit.yml", workflow)],
-        );
-        assert_eq!(verdict.status, Status::Fail);
-        assert_eq!(verdict.evidence.unwrap().code, "audit_token_missing");
-    }
-
-    #[test]
-    fn another_repository_cannot_invoke_a_local_action_as_airlock() {
-        let workflow = "\
-on: workflow_dispatch
-permissions: {}
-jobs:
-  audit:
-    permissions:
-      contents: read
-    steps:
-      - uses: ./
-        env:
-          AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}
-";
+    fn central_mode_with_the_airlock_safe_variables_meets_the_rule() {
         assert_eq!(
-            evaluate_for_repository(
-                "REPO-CI-09",
-                "example/example",
-                &[(".github/workflows/audit.yml", workflow)]
-            )
-            .status,
-            Status::Fail
+            ci09_code(CENTRAL_MODE),
+            (Some(Status::Met), "audit_uses_mode_credential".to_owned())
         );
     }
 
     #[test]
-    fn the_canonical_repository_may_only_use_the_exact_local_self_reference() {
-        let workflow = "\
-on: workflow_dispatch
-permissions: {}
-jobs:
-  audit:
-    permissions:
-      contents: read
-    steps:
-      - uses: ./.github/actions/audit
-        env:
-          AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}
-";
-        let verdict = evaluate_for_repository(
-            "REPO-CI-09",
-            "wyrd-company/airlock",
-            &[(".github/workflows/audit.yml", workflow)],
-        );
-        assert_eq!(verdict.status, Status::Fail);
-        assert_eq!(verdict.evidence.unwrap().code, "audit_action_missing");
-    }
-
-    #[test]
-    fn a_remote_airlock_action_must_receive_airlock_token() {
-        let configured = "\
+    fn the_airlock_token_secret_fails_the_rule_wherever_it_is_read() {
+        let step_env = "\
 on: workflow_dispatch
 permissions: {}
 jobs:
@@ -844,36 +887,122 @@ jobs:
         env:
           AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}
 ";
-        let fixture = CheckFixture::new(&[(".github/workflows/audit.yml", configured)]);
-        assert_eq!(fixture.verdict("REPO-CI-09").status, Status::Pass);
-
-        let unconfigured = configured.replace(
-            "        env:\n          AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}\n",
-            "",
+        assert_eq!(
+            ci09_code(step_env),
+            (Some(Status::Gap), "audit_reads_airlock_token".to_owned())
         );
-        let fixture = CheckFixture::new(&[(".github/workflows/audit.yml", &unconfigured)]);
-        let verdict = fixture.verdict("REPO-CI-09");
-        assert_eq!(verdict.status, Status::Fail);
-        assert_eq!(verdict.evidence.unwrap().code, "audit_token_missing");
+        let beside_the_run_token = REPOSITORY_MODE.replace(
+            "permissions: {}\n",
+            "permissions: {}\nenv:\n  AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}\n",
+        );
+        assert_eq!(
+            ci09_code(&beside_the_run_token),
+            (Some(Status::Gap), "audit_reads_airlock_token".to_owned())
+        );
     }
 
     #[test]
-    fn checkout_with_airlock_token_is_not_the_airlock_action() {
-        let workflow = "\
-on: workflow_dispatch
-permissions: {}
-jobs:
-  audit:
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-        env:
-          AIRLOCK_TOKEN: ${{ secrets.AIRLOCK_TOKEN }}
-";
+    fn repository_mode_without_the_runs_own_token_fails_the_rule() {
+        for token in [
+            "",
+            "          token: ${{ secrets.OTHER_TOKEN }}\n",
+            "          token: ${{ steps.app.outputs.token }}\n",
+        ] {
+            let workflow = REPOSITORY_MODE.replace("          token: ${{ github.token }}\n", token);
+            assert_eq!(
+                ci09_code(&workflow),
+                (
+                    Some(Status::Gap),
+                    "audit_mode_credential_missing".to_owned()
+                ),
+                "{token}"
+            );
+        }
+    }
+
+    #[test]
+    fn central_mode_without_its_variables_or_with_a_token_fails_the_rule() {
+        let missing = CENTRAL_MODE.replace(
+            "          vault-url: ${{ vars.AZURE_KEY_VAULT_URL }}\n",
+            "          vault-url: https://example.vault.azure.net\n",
+        );
+        let verdict = ci09(&missing);
+        assert_eq!(verdict.status, Some(Status::Gap));
+        assert!(
+            verdict.evidence.unwrap().detail.contains("vault-url"),
+            "the missing input is named"
+        );
+        let with_token = CENTRAL_MODE.replace(
+            "          mode: central\n",
+            "          mode: central\n          token: ${{ github.token }}\n",
+        );
+        assert_eq!(ci09(&with_token).status, Some(Status::Gap));
+        let unknown = CENTRAL_MODE.replace("mode: central", "mode: organization");
+        assert_eq!(ci09(&unknown).status, Some(Status::Gap));
+    }
+
+    #[test]
+    fn the_canonical_repository_may_invoke_its_local_audit_action() {
+        let configured = REPOSITORY_MODE.replace(
+            "wyrd-company/airlock@0123456789abcdef0123456789abcdef01234567",
+            "./",
+        );
         assert_eq!(
-            verdict("REPO-CI-09", &[(".github/workflows/audit.yml", workflow)]),
-            Status::Fail
+            evaluate_for_repository(
+                "REPO-CI-09",
+                "wyrd-company/airlock",
+                &[(".github/workflows/audit.yml", &configured)]
+            )
+            .status,
+            Some(Status::Met)
+        );
+        let verdict = evaluate_for_repository(
+            "REPO-CI-09",
+            "example/example",
+            &[(".github/workflows/audit.yml", &configured)],
+        );
+        assert_eq!(verdict.status, Some(Status::Gap));
+        assert_eq!(verdict.evidence.unwrap().code, "audit_action_missing");
+    }
+
+    #[test]
+    fn the_canonical_repository_may_only_use_the_exact_local_self_reference() {
+        let workflow = REPOSITORY_MODE.replace(
+            "wyrd-company/airlock@0123456789abcdef0123456789abcdef01234567",
+            "./.github/actions/audit",
+        );
+        let verdict = evaluate_for_repository(
+            "REPO-CI-09",
+            "wyrd-company/airlock",
+            &[(".github/workflows/audit.yml", &workflow)],
+        );
+        assert_eq!(verdict.status, Some(Status::Gap));
+        assert_eq!(verdict.evidence.unwrap().code, "audit_action_missing");
+    }
+
+    #[test]
+    fn checkout_with_the_runs_token_is_not_the_airlock_action() {
+        let workflow = REPOSITORY_MODE.replace(
+            "wyrd-company/airlock@0123456789abcdef0123456789abcdef01234567",
+            "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+        );
+        assert_eq!(
+            verdict("REPO-CI-09", &[(".github/workflows/audit.yml", &workflow)]),
+            Some(Status::Gap)
+        );
+    }
+
+    #[test]
+    fn airlocks_own_audit_workflow_meets_the_restated_rule() {
+        let own = include_str!("../../../../../.github/workflows/audit.yml");
+        assert_eq!(
+            evaluate_for_repository(
+                "REPO-CI-09",
+                "wyrd-company/airlock",
+                &[(".github/workflows/audit.yml", own)]
+            )
+            .status,
+            Some(Status::Met)
         );
     }
 
@@ -884,22 +1013,22 @@ jobs:
         let policy = policy();
         let context = context(&snapshot, &policy, workflows);
         let verdict = evaluate(&rule("REPO-CI-02"), &context);
-        assert_eq!(verdict.status, Status::Inconclusive);
+        assert_eq!(verdict.status, None);
         assert!(!decided(&verdict));
     }
 
     #[test]
     fn an_action_pin_needs_a_comment_that_names_a_version() {
         let sha = "11d5960a326750d5838078e36cf38b85af677262";
-        let cases: &[(&str, Status)] = &[
-            ("# v4", Status::Pass),
-            ("# 1.2.3", Status::Pass),
-            ("#v4", Status::Pass),
+        let cases: &[(&str, Option<Status>)] = &[
+            ("# v4", Some(Status::Met)),
+            ("# 1.2.3", Some(Status::Met)),
+            ("#v4", Some(Status::Met)),
             // A bare hash is not a version comment.
-            ("#", Status::Fail),
-            ("#   ", Status::Fail),
+            ("#", Some(Status::Gap)),
+            ("#   ", Some(Status::Gap)),
             // Nor is a comment that names no version.
-            ("# see the wiki", Status::Fail),
+            ("# see the wiki", Some(Status::Gap)),
         ];
         for (comment, expected) in cases {
             let workflow = format!(
@@ -922,7 +1051,7 @@ jobs:
         // bare sha nor a commented pin.
         assert_eq!(
             verdict("REPO-CI-04", &[(".github/workflows/x.yml", &workflow)]),
-            Status::Fail
+            Some(Status::Gap)
         );
     }
 
@@ -933,7 +1062,7 @@ jobs:
             format!("jobs:\n  a:\n    steps:\n      - uses: \"actions/checkout@{sha}\" # v4\n");
         assert_eq!(
             verdict("REPO-CI-04", &[(".github/workflows/x.yml", &workflow)]),
-            Status::Pass
+            Some(Status::Met)
         );
     }
 
@@ -957,7 +1086,7 @@ jobs:
         for id in ["REPO-CI-01", "REPO-CI-05"] {
             assert_eq!(
                 verdict(id, &[(".github/workflows/x.yml", workflow)]),
-                Status::Inconclusive,
+                None,
                 "{id}"
             );
         }

@@ -1,0 +1,6 @@
+# relationships: { references: ../docs/hosted-browser.md }
+node_modules/
+dist/
+.wrangler/
+.dev.vars*
+.env*

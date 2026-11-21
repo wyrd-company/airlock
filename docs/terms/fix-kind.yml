@@ -1,0 +1,6 @@
+$schema: https://refinery.systems/ontology/term
+title: Fix kind
+description: >-
+  Who performs a fix: Airlock authors mechanical file work, an agent authors repository-specific
+  file work, and an operator performs work through the interactive session. Machine values are
+  airlock, agent and operator. A fix kind does not name a lifecycle rung or an outcome.

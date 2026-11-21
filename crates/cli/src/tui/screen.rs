@@ -17,12 +17,12 @@ pub enum Screen {
     Repositories,
     /// Create a repository as the maximally unaligned align case.
     Scaffold,
-    /// The whole standard as a work queue.
+    /// The whole rule as a work queue.
     Findings,
     /// Everything airlock knows about one finding.
     FindingDetail,
-    /// Carry out a settings-level remediation.
-    Remediation,
+    /// Carry out a settings-level fix.
+    Fix,
     /// The effective policy, and where each rule came from.
     PolicyInspector,
     /// The five steps from never-published to publishing without a token.
@@ -122,7 +122,7 @@ impl Screen {
         Screen::Scaffold,
         Screen::Findings,
         Screen::FindingDetail,
-        Screen::Remediation,
+        Screen::Fix,
         Screen::PolicyInspector,
         Screen::PublishingBootstrap,
     ];
@@ -140,7 +140,7 @@ impl Screen {
             Self::Scaffold => "repository scaffold",
             Self::Findings => "findings",
             Self::FindingDetail => "finding detail",
-            Self::Remediation => "remediation",
+            Self::Fix => "fix",
             Self::PolicyInspector => "policy inspector",
             Self::PublishingBootstrap => "publishing bootstrap",
         }
@@ -157,15 +157,15 @@ impl Screen {
                 "Create a repository, its first branch, and then observe it normally."
             }
             Self::Findings => {
-                "Present the whole standard as a work queue, ordered by what \
+                "Present the whole rule as a work queue, ordered by what \
                  closing each gap takes and who can close it."
             }
             Self::FindingDetail => {
                 "Show everything airlock knows about one finding, and what \
                  closing it would take."
             }
-            Self::Remediation => {
-                "Carry out a settings-level remediation and show what was \
+            Self::Fix => {
+                "Carry out a settings-level fix and show what was \
                  actually observed afterwards."
             }
             Self::PolicyInspector => {
@@ -216,11 +216,11 @@ impl Screen {
             ],
             Self::FindingDetail => &[
                 key!("esc", "back"),
-                key!("a", "remediation transcript"),
+                key!("a", "fix transcript"),
                 key!("o", "re-observe this rule"),
                 key!("y", "copy the rule id"),
             ],
-            Self::Remediation => &[
+            Self::Fix => &[
                 key!("esc", "back"),
                 key!("\u{21b5}", "next in queue"),
                 key!("u", "undo"),
@@ -253,10 +253,9 @@ impl Screen {
             Self::Repositories => Some(Self::Organizations),
             Self::Scaffold => Some(Self::Repositories),
             Self::Findings => Some(Self::Repositories),
-            Self::FindingDetail
-            | Self::Remediation
-            | Self::PolicyInspector
-            | Self::PublishingBootstrap => Some(Self::Findings),
+            Self::FindingDetail | Self::Fix | Self::PolicyInspector | Self::PublishingBootstrap => {
+                Some(Self::Findings)
+            }
         }
     }
 
@@ -269,10 +268,9 @@ impl Screen {
             Self::Repositories => Some(Self::Findings),
             Self::Scaffold => None,
             Self::Findings => Some(Self::FindingDetail),
-            Self::FindingDetail
-            | Self::Remediation
-            | Self::PolicyInspector
-            | Self::PublishingBootstrap => None,
+            Self::FindingDetail | Self::Fix | Self::PolicyInspector | Self::PublishingBootstrap => {
+                None
+            }
         }
     }
 }
@@ -370,7 +368,7 @@ mod tests {
         }
         for screen in [
             Screen::Scaffold,
-            Screen::Remediation,
+            Screen::Fix,
             Screen::PolicyInspector,
             Screen::PublishingBootstrap,
         ] {

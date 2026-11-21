@@ -1,0 +1,7 @@
+$schema: https://refinery.systems/ontology/term
+title: Audit
+description: >-
+  One read-only examination of a repository against its governing rules. It records evidence,
+  evaluated outcomes, waivers, routing and run errors. It reads committed trees through the
+  GitHub API or permitted local working-tree evidence. An audit never applies a fix or dispatches
+  verification.

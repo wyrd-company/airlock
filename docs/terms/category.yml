@@ -1,0 +1,5 @@
+$schema: https://refinery.systems/ontology/term
+title: Category
+description: >-
+  The kind of repository, declared as part of its organization-owned classification. Rules use
+  category to determine the requirements that govern it, including the expected license.

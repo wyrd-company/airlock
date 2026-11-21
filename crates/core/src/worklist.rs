@@ -1,40 +1,45 @@
-//! The agent-lane projection of an audit report.
+// ---
+// relationships:
+//   implements: terminal-interface
+//   references: release-process-conformance
+// ---
+
+//! The agent-work projection of an audit report.
 //!
 //! This module does not evaluate a repository. It projects a fresh
-//! [`Report`](crate::findings::Report) into the two remediation lanes an agent
-//! can act in, while keeping operator-setting gaps and unanswered gating
+//! [`Report`](crate::findings::Report) into the two fix lanes an agent
+//! can act in, while keeping operator gaps and unanswered gating
 //! questions visible.
 
 use serde::Serialize;
 
 use crate::findings::{
     AirlockIdentity, AuditedRepository, ObservationRecord, PolicyIdentity, Report, Status,
-    Undecided,
 };
-use crate::remediation::Lane;
+use crate::fix::FixKind;
 
 /// The version of the agent work-list JSON document.
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 
-/// What the lane-scoped definition-of-done check concluded.
+/// What the fix kind-scoped definition-of-done check concluded.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub enum Outcome {
-    /// Every gating question was settled and no agent-lane failure remains.
-    AgentLaneClear,
-    /// Every gating question was settled and agent-lane failures remain.
-    AgentLaneWorkRemains,
+pub enum WorkListResult {
+    /// Every gating question was settled and no agent-work failure remains.
+    AgentWorkClear,
+    /// Every gating question was settled and agent-work failures remain.
+    AgentWorkRemains,
     /// The audit could not settle every gate-relevant question.
     CouldNotSettle,
 }
 
-impl Outcome {
+impl WorkListResult {
     /// The process exit code carrying this outcome.
     #[must_use]
     pub const fn exit_code(self) -> u8 {
         match self {
-            Self::AgentLaneClear => 0,
-            Self::AgentLaneWorkRemains => 1,
+            Self::AgentWorkClear => 0,
+            Self::AgentWorkRemains => 1,
             Self::CouldNotSettle => 2,
         }
     }
@@ -43,28 +48,37 @@ impl Outcome {
     #[must_use]
     pub const fn code(self) -> &'static str {
         match self {
-            Self::AgentLaneClear => "agent_lane_clear",
-            Self::AgentLaneWorkRemains => "agent_lane_work_remains",
+            Self::AgentWorkClear => "agent_work_clear",
+            Self::AgentWorkRemains => "agent_work_remains",
             Self::CouldNotSettle => "could_not_settle",
         }
     }
 }
 
-/// One outstanding gap with a declared remediation.
+/// One outstanding gap with a declared fix.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct WorkItem {
+    /// Whether the rule is newer than the accepted generation.
+    pub new: bool,
+    /// Whether the declared fix can be undone.
+    pub reversible: Option<bool>,
+    /// The contextual fix supplied by this observation.
+    pub fix_detail: Option<String>,
+    /// The full observed evidence.
+    pub evidence: Option<crate::findings::Evidence>,
+
     /// The rule id and stable key for this item.
     pub rule: String,
     /// The rule statement.
     pub statement: String,
     /// The effective severity.
     pub severity: String,
-    /// The per-rule remediation join key.
-    pub remediation_code: String,
-    /// What the remediation would change.
+    /// The per-rule fix join key.
+    pub fix_code: String,
+    /// What the fix would change.
     pub change: String,
-    /// The remediation lane.
-    pub lane: String,
+    /// The fix kind.
+    pub fix_kind: String,
     /// What decided the finding: `api` or `working-tree`.
     pub source: Option<String>,
 }
@@ -72,40 +86,58 @@ pub struct WorkItem {
 /// One failure whose remaining move belongs to a person.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct OperatorDeferredItem {
+    /// Whether the rule is newer than the accepted generation.
+    pub new: bool,
+    /// Whether the declared fix can be undone.
+    pub reversible: Option<bool>,
+    /// The contextual fix supplied by this observation.
+    pub fix_detail: Option<String>,
+    /// The full observed evidence.
+    pub evidence: Option<crate::findings::Evidence>,
+
     /// The rule id and stable key for this item.
     pub rule: String,
     /// The rule statement.
     pub statement: String,
     /// The effective severity.
     pub severity: String,
-    /// The remediation join key, when a setting remediation exists.
-    pub remediation_code: Option<String>,
-    /// What the remediation would change, when one exists.
+    /// The fix join key, when a setting fix exists.
+    pub fix_code: Option<String>,
+    /// What the fix would change, when one exists.
     pub change: Option<String>,
-    /// The remediation lane, when one exists.
-    pub lane: Option<String>,
-    /// Why no remediation is offered, when that is the declaration.
+    /// The fix kind, when one exists.
+    pub fix_kind: Option<String>,
+    /// Why no fix is offered, when that is the declaration.
     pub none_reason: Option<String>,
     /// What decided the finding.
     pub source: Option<String>,
 }
 
-/// One question the audit did not settle.
+/// A run error or a declared gate, with no invented evaluated outcome.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct UnsettledItem {
+pub struct DeferredRule {
+    /// Whether the rule is newer than the accepted generation.
+    pub new: bool,
+    /// The rule statement.
+    pub statement: String,
+    /// The full evidence, including the reached branch or boundary reason.
+    pub evidence: Option<crate::findings::Evidence>,
+    /// The full diagnostic for a genuine run error.
+    pub error: Option<crate::findings::FindingError>,
+    /// The declared gate and its destination.
+    pub routing: Option<crate::findings::Routing>,
+
     /// The rule id and stable key for this item.
     pub rule: String,
-    /// The undecided status.
-    pub status: Status,
-    /// Why the question is unanswered: this run fell short
-    /// (`circumstantial`), or it requires admin access to verify
-    /// (`structural`).
-    pub undecided: Option<Undecided>,
+    /// The evaluated outcome, if a fix-classification error followed a Gap.
+    pub status: Option<Status>,
+    /// The waiver, declared gate, or run-error reason.
+    pub reason: Option<String>,
     /// The effective severity.
     pub severity: String,
     /// Whether this unanswered question blocks completeness under the gate.
     pub gating: bool,
-    /// Where the question is answered instead, when the registry declares that
+    /// Where the question is answered instead, when the rules declare that
     /// it requires admin access.
     pub verified_by: Option<String>,
     /// The evidence classification, when one was available.
@@ -117,12 +149,21 @@ pub struct UnsettledItem {
 /// One non-gating finding that remains relevant to a handoff.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct AttentionItem {
+    /// Whether the rule is newer than the accepted generation.
+    pub new: bool,
+    /// The full exception authorization and reasons.
+    pub suppression: Option<crate::findings::Suppression>,
+    /// Any explanation for why the rule is not configured.
+    pub evidence: Option<crate::findings::Evidence>,
+
     /// The rule id and stable key for this item.
     pub rule: String,
     /// The rule statement.
     pub statement: String,
     /// The finding status.
-    pub status: Status,
+    pub status: Option<Status>,
+    /// The waiver, declared gate, or run-error reason.
+    pub reason: Option<String>,
     /// The effective severity.
     pub severity: String,
     /// What decided the finding, if anything did.
@@ -147,9 +188,11 @@ impl<T> WorkGroup<T> {
     }
 }
 
-/// A lane-scoped definition-of-done result derived from one audit.
+/// A fix kind-scoped definition-of-done result derived from one audit.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct AgentWorkList {
+    /// Observed maturity and prospective assessments from this same audit.
+    pub maturity: Option<crate::maturity::MaturityReport>,
     /// The version of this document shape.
     pub schema_version: u32,
     /// A permanent warning against reading this as repository conformance.
@@ -160,30 +203,26 @@ pub struct AgentWorkList {
     pub repository: AuditedRepository,
     /// The sources that decided file and platform findings.
     pub observation: ObservationRecord,
-    /// The policy identity and gate used by the audit.
+    /// The policy identity used by the audit.
     pub policy: PolicyIdentity,
-    /// Outstanding deterministic and judgment file changes.
-    pub agent_lane: WorkGroup<WorkItem>,
-    /// Outstanding settings and no-remediation failures deferred to a person.
+    /// Outstanding file changes with the airlock or agent fix kind.
+    pub agent_work: WorkGroup<WorkItem>,
+    /// Outstanding settings and no-fix failures deferred to a person.
     pub operator_deferred: WorkGroup<OperatorDeferredItem>,
-    /// Capability declarations a person must make before evaluation.
-    pub needs_decision: WorkGroup<UnsettledItem>,
-    /// Questions the audit could not settle, including non-gating ones.
-    pub unsettled: WorkGroup<UnsettledItem>,
-    /// Gaps that require admin access to verify.
-    ///
-    /// These never gate — a permanently red lane says nothing — but they are
-    /// listed at every severity, because an admin-only rule is not a passing
-    /// rule and a clear lane is not an aligned repository. The remaining move
-    /// is to verify them on the surface declared by each rule's disclosure
-    /// gate.
-    pub admin_only: WorkGroup<UnsettledItem>,
-    /// Manual judgments still awaiting a person.
-    pub manual: WorkGroup<AttentionItem>,
-    /// Authorized failures that remain standing debt.
-    pub suppressed: WorkGroup<AttentionItem>,
-    /// The lane-scoped conclusion.
-    pub outcome: Outcome,
+    /// Run errors prevent completion at every severity.
+    pub run_errors: WorkGroup<DeferredRule>,
+    /// Rules routed to a declared settling surface.
+    pub routed: WorkGroup<DeferredRule>,
+    /// Evaluations that reached a declared unbuilt check boundary.
+    pub unbuilt: WorkGroup<DeferredRule>,
+    /// Rules below their earliest maturity rung or outside declared release-unit scope.
+    pub out_of_scope: WorkGroup<DeferredRule>,
+    /// Waivers that prevented evaluation, with their authorization reasons.
+    pub waived: WorkGroup<AttentionItem>,
+    /// Evaluated Met outcomes, retained for complete handoff context.
+    pub met: WorkGroup<crate::findings::Finding>,
+    /// The fix kind-scoped conclusion.
+    pub outcome: WorkListResult,
 }
 
 impl AgentWorkList {
@@ -192,161 +231,217 @@ impl AgentWorkList {
     pub fn from_report(report: &Report) -> Self {
         let mut agent = Vec::new();
         let mut operator = Vec::new();
-        let mut decisions = Vec::new();
-        let mut unsettled = Vec::new();
-        let mut admin_only = Vec::new();
-        let mut manual = Vec::new();
-        let mut suppressed = Vec::new();
+        let mut run_errors = Vec::new();
+        let mut routed = Vec::new();
+        let mut unbuilt = Vec::new();
+        let mut out_of_scope = Vec::new();
+        let mut waived = Vec::new();
         let mut classification_unsettled = false;
 
-        for finding in &report.findings {
-            if let Some(kind) = finding.status.undecided() {
-                let item = UnsettledItem {
-                    rule: finding.rule.clone(),
-                    status: finding.status,
-                    undecided: Some(kind),
-                    severity: finding.severity.clone(),
-                    gating: finding.blocks_completeness(report.policy.gate),
-                    verified_by: crate::registry::find(&finding.rule)
-                        .and_then(crate::registry::CheckDefinition::disclosure_gate)
-                        .map(|gate| gate.verified_by.code().to_owned()),
-                    evidence_code: finding
-                        .evidence
+        for finding in report.entries() {
+            if finding.status.is_none() {
+                if finding.suppression.is_some() {
+                    waived.push(AttentionItem {
+                        new: finding.new,
+                        suppression: finding.suppression.clone(),
+                        evidence: finding.evidence.clone(),
+                        rule: finding.rule.clone(),
+                        statement: finding.statement.clone(),
+                        status: None,
+                        reason: finding.suppression.as_ref().and_then(|waiver| {
+                            waiver
+                                .policy_reason
+                                .clone()
+                                .or_else(|| waiver.requested_reason.clone())
+                        }),
+                        severity: finding.severity.clone(),
+                        source: finding.source.clone(),
+                    });
+                } else {
+                    let item = DeferredRule {
+                        new: finding.new,
+                        statement: finding.statement.clone(),
+                        evidence: finding.evidence.clone(),
+                        error: finding.error.clone(),
+                        routing: finding.routing.clone(),
+                        rule: finding.rule.clone(),
+                        status: None,
+                        reason: finding
+                            .routing
+                            .as_ref()
+                            .map(|route| route.reason.clone())
+                            .or_else(|| finding.error.as_ref().map(|error| error.cause.clone()))
+                            .or_else(|| {
+                                finding
+                                    .evidence
+                                    .as_ref()
+                                    .map(|evidence| evidence.code.clone())
+                            }),
+                        severity: finding.severity.clone(),
+                        gating: finding.blocks_completeness(),
+                        verified_by: finding.routing.as_ref().map(|r| r.settling_surface.clone()),
+                        evidence_code: finding.evidence.as_ref().map(|e| e.code.clone()),
+                        source: finding.source.clone(),
+                    };
+                    if finding
+                        .routing
                         .as_ref()
-                        .map(|evidence| evidence.code.clone()),
-                    source: finding.source.clone(),
-                };
-                match kind {
-                    // A structural gap belongs in its own group whatever its
-                    // evidence code: it is not a question this surface can be
-                    // asked again, so grouping it with the ones that can be
-                    // would invite a retry that cannot work.
-                    Undecided::Structural => admin_only.push(item),
-                    Undecided::Circumstantial => {
-                        if item.evidence_code.as_deref() == Some("capability_undeclared") {
-                            decisions.push(item);
-                        } else {
-                            unsettled.push(item);
-                        }
+                        .is_some_and(|route| route.reason == "unbuilt")
+                    {
+                        unbuilt.push(item);
+                    } else if finding
+                        .routing
+                        .as_ref()
+                        .is_some_and(|route| route.reason == "out-of-scope")
+                    {
+                        out_of_scope.push(item);
+                    } else if finding.routing.is_some() {
+                        routed.push(item);
+                    } else {
+                        run_errors.push(item);
                     }
                 }
                 continue;
             }
 
-            if matches!(finding.status, Status::Manual | Status::Suppressed) {
-                let item = AttentionItem {
-                    rule: finding.rule.clone(),
-                    statement: finding.statement.clone(),
-                    status: finding.status,
-                    severity: finding.severity.clone(),
-                    source: finding.source.clone(),
-                };
-                if finding.status == Status::Manual {
-                    manual.push(item);
-                } else {
-                    suppressed.push(item);
-                }
+            if finding.status != Some(Status::Gap) {
                 continue;
             }
 
-            if finding.status != Status::Fail {
-                continue;
-            }
-
-            let class = &finding.remediation_class;
-            if class.lane.is_none() && class.none_reason.is_some() {
+            let class = &finding.fix_class;
+            if class.fix_kind.is_none() && class.none_reason.is_some() {
                 operator.push(OperatorDeferredItem {
+                    new: finding.new,
+                    reversible: class.reversible,
+                    fix_detail: finding.fix.as_ref().map(|fix| fix.detail.clone()),
+                    evidence: finding.evidence.clone(),
                     rule: finding.rule.clone(),
                     statement: finding.statement.clone(),
                     severity: finding.severity.clone(),
-                    remediation_code: None,
+                    fix_code: None,
                     change: None,
-                    lane: None,
+                    fix_kind: None,
                     none_reason: class.none_reason.clone(),
                     source: finding.source.clone(),
                 });
                 continue;
             }
-            let (Some(lane), Some(code), Some(change)) = (&class.lane, &class.code, &class.change)
+            let (Some(fix_kind), Some(code), Some(change)) =
+                (&class.fix_kind, &class.code, &class.change)
             else {
                 classification_unsettled = true;
-                unsettled.push(UnsettledItem {
+                run_errors.push(DeferredRule {
+                    new: finding.new,
+                    statement: finding.statement.clone(),
+                    evidence: finding.evidence.clone(),
+                    error: finding.error.clone(),
+                    routing: finding.routing.clone(),
                     rule: finding.rule.clone(),
                     status: finding.status,
-                    undecided: None,
+                    reason: Some("fix-classification-missing".to_owned()),
                     severity: finding.severity.clone(),
                     gating: true,
                     verified_by: None,
-                    evidence_code: Some("remediation_class_undecided".to_owned()),
+                    evidence_code: Some("fix_class_undecided".to_owned()),
                     source: finding.source.clone(),
                 });
                 continue;
             };
-            let Some(lane_kind) = Lane::parse(lane) else {
+            let Some(lane_kind) = FixKind::parse(fix_kind) else {
                 classification_unsettled = true;
-                unsettled.push(UnsettledItem {
+                run_errors.push(DeferredRule {
+                    new: finding.new,
+                    statement: finding.statement.clone(),
+                    evidence: finding.evidence.clone(),
+                    error: finding.error.clone(),
+                    routing: finding.routing.clone(),
                     rule: finding.rule.clone(),
                     status: finding.status,
-                    undecided: None,
+                    reason: Some("fix-classification-missing".to_owned()),
                     severity: finding.severity.clone(),
                     gating: true,
                     verified_by: None,
-                    evidence_code: Some("remediation_lane_unknown".to_owned()),
+                    evidence_code: Some("fix_kind_unknown".to_owned()),
                     source: finding.source.clone(),
                 });
                 continue;
             };
             let item = WorkItem {
+                new: finding.new,
+                reversible: class.reversible,
+                fix_detail: finding.fix.as_ref().map(|fix| fix.detail.clone()),
+                evidence: finding.evidence.clone(),
                 rule: finding.rule.clone(),
                 statement: finding.statement.clone(),
                 severity: finding.severity.clone(),
-                remediation_code: code.clone(),
+                fix_code: code.clone(),
                 change: change.clone(),
-                lane: lane.clone(),
+                fix_kind: fix_kind.clone(),
                 source: finding.source.clone(),
             };
             match lane_kind {
-                Lane::DeterministicFile | Lane::JudgmentFile => agent.push(item),
-                Lane::OperatorSetting => operator.push(OperatorDeferredItem {
+                FixKind::Airlock | FixKind::Agent => agent.push(item),
+                FixKind::Operator => operator.push(OperatorDeferredItem {
+                    new: item.new,
+                    reversible: item.reversible,
+                    fix_detail: item.fix_detail,
+                    evidence: item.evidence,
                     rule: item.rule,
                     statement: item.statement,
                     severity: item.severity,
-                    remediation_code: Some(item.remediation_code),
+                    fix_code: Some(item.fix_code),
                     change: Some(item.change),
-                    lane: Some(item.lane),
+                    fix_kind: Some(item.fix_kind),
                     none_reason: None,
                     source: item.source,
                 }),
             }
         }
 
+        agent.sort_by(|a, b| a.rule.cmp(&b.rule));
+        operator.sort_by(|a, b| a.rule.cmp(&b.rule));
+        run_errors.sort_by(|a, b| a.rule.cmp(&b.rule));
+        routed.sort_by(|a, b| a.rule.cmp(&b.rule));
+        unbuilt.sort_by(|a, b| a.rule.cmp(&b.rule));
+        out_of_scope.sort_by(|a, b| a.rule.cmp(&b.rule));
+        waived.sort_by(|a, b| a.rule.cmp(&b.rule));
+
         let outcome = if !report.complete || classification_unsettled {
-            Outcome::CouldNotSettle
+            WorkListResult::CouldNotSettle
         } else if agent.is_empty() {
-            Outcome::AgentLaneClear
+            WorkListResult::AgentWorkClear
         } else {
-            Outcome::AgentLaneWorkRemains
+            WorkListResult::AgentWorkRemains
         };
 
         Self {
+            met: WorkGroup::new(
+                report
+                    .findings
+                    .iter()
+                    .filter(|finding| finding.status == Some(Status::Met))
+                    .cloned()
+                    .collect(),
+            ),
+            maturity: report.maturity.clone(),
             schema_version: SCHEMA_VERSION,
-            scope: "agent_lane_only_not_repository_conformance",
+            scope: "agent_work_only_not_repository_conformance",
             airlock: report.airlock.clone(),
             repository: report.repository.clone(),
             observation: report.observation.clone(),
             policy: report.policy.clone(),
-            agent_lane: WorkGroup::new(agent),
+            agent_work: WorkGroup::new(agent),
             operator_deferred: WorkGroup::new(operator),
-            needs_decision: WorkGroup::new(decisions),
-            unsettled: WorkGroup::new(unsettled),
-            admin_only: WorkGroup::new(admin_only),
-            manual: WorkGroup::new(manual),
-            suppressed: WorkGroup::new(suppressed),
+            run_errors: WorkGroup::new(run_errors),
+            routed: WorkGroup::new(routed),
+            unbuilt: WorkGroup::new(unbuilt),
+            out_of_scope: WorkGroup::new(out_of_scope),
+            waived: WorkGroup::new(waived),
             outcome,
         }
     }
 
-    /// The process exit code carrying this lane-scoped result.
+    /// The process exit code carrying this fix kind-scoped result.
     #[must_use]
     pub const fn exit_code(&self) -> u8 {
         self.outcome.exit_code()
@@ -356,20 +451,27 @@ impl AgentWorkList {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::findings::{Evidence, Finding, Gate, PolicyIdentity, RemediationClass};
+    use crate::findings::{Evidence, Finding, FixClass, PolicyIdentity};
 
-    fn finding(rule: &str, status: Status, severity: &str, source: Option<&str>) -> Finding {
+    fn finding(
+        rule: &str,
+        status: Option<Status>,
+        severity: &str,
+        source: Option<&str>,
+    ) -> Finding {
         Finding {
+            new: false,
             rule: rule.to_owned(),
             statement: format!("statement for {rule}"),
             severity: severity.to_owned(),
             status,
             evidence: Some(Evidence::new("fixture", "fixture observation")),
-            remediation: None,
-            remediation_class: RemediationClass::for_rule(rule),
+            fix: None,
+            fix_class: FixClass::for_rule(rule),
             suppression: None,
             source: source.map(ToOwned::to_owned),
             error: None,
+            routing: None,
         }
     }
 
@@ -394,7 +496,6 @@ mod tests {
                 commit: None,
                 sources: Vec::new(),
                 bundle_digest: "sha256:fixture".to_owned(),
-                gate: Gate::Blocking,
             },
             Vec::new(),
             Vec::new(),
@@ -403,18 +504,169 @@ mod tests {
     }
 
     #[test]
+    fn maturity_context_survives_without_becoming_agent_work() {
+        let mut source = report(vec![finding(
+            "REPO-LIC-01",
+            Some(Status::Met),
+            "blocking",
+            None,
+        )]);
+        source.maturity = Some(crate::maturity::MaturityReport {
+            observed: Some(crate::maturity::Observed {
+                rung: crate::rules::Lifecycle::Building,
+                baseline_tags: vec!["sample@0.0.0".to_owned()],
+                release_tags: Vec::new(),
+            }),
+            error: None,
+            transitions: vec![crate::maturity::Transition {
+                rung: crate::rules::Lifecycle::Released,
+                adds: 1,
+                already_met: 0,
+                rules: vec![crate::maturity::TransitionRule {
+                    rule: "REPO-LIC-04".to_owned(),
+                    outcome: "gap".to_owned(),
+                    new: true,
+                }],
+            }],
+        });
+        let list = AgentWorkList::from_report(&source);
+        assert_eq!(list.maturity, source.maturity);
+        assert_eq!(
+            serde_json::to_value(&list).unwrap()["maturity"],
+            serde_json::to_value(&source.maturity).unwrap()
+        );
+        assert_eq!(list.agent_work.count, 0);
+        assert_eq!(list.exit_code(), 0);
+    }
+
+    #[test]
+    fn every_report_result_keeps_its_observation_and_reason_in_the_work_list() {
+        let mut agent = finding("REPO-LIC-01", Some(Status::Gap), "blocking", Some("api"));
+        agent.fix = Some(crate::findings::Fix::new(
+            crate::FixGroup::CORRECT_MERGE_SETTINGS,
+            "context for this gap",
+        ));
+        let mut operator = finding("REPO-NAME-01", Some(Status::Gap), "advisory", Some("api"));
+        operator.fix = Some(crate::findings::Fix::new(
+            crate::FixGroup::RENAME_REPOSITORY,
+            "Rename Sample_Repository to sample-repository to use lower-kebab-case.",
+        ));
+        let expected_operator = operator.clone();
+        let mut outside = finding("REPO-LIC-04", None, "blocking", None);
+        outside.routing = Some(crate::findings::Routing {
+            reason: "out-of-scope".to_owned(),
+            settling_surface: "declared boundary".to_owned(),
+        });
+        let mut failed = finding("REPO-REL-01", None, "advisory", None);
+        failed.error = Some(crate::findings::FindingError {
+            cause: "transport".to_owned(),
+            status: None,
+            endpoint: "GET /repos/{owner}/{repo}".to_owned(),
+            request_id: Some("sample-request".to_owned()),
+            message: Some("request could not complete".to_owned()),
+            accepted_permissions: None,
+            documentation_url: None,
+            message_hints_version: 1,
+        });
+        let mut entries = vec![
+            agent,
+            operator,
+            finding("REPO-GIT-08", Some(Status::Gap), "advisory", Some("api")),
+            finding("REPO-FILE-01", Some(Status::Met), "blocking", Some("api")),
+            crate::findings::fixtures::waived(finding("REPO-FILE-02", None, "none", None)),
+            crate::findings::fixtures::routed(finding("REPO-GIT-04", None, "blocking", None)),
+            crate::findings::fixtures::unbuilt(finding("REPO-DOCS-05", None, "blocking", None)),
+            outside,
+            failed,
+        ];
+        for entry in &mut entries {
+            entry.new = true;
+        }
+        let source = report(entries);
+        let list = AgentWorkList::from_report(&source);
+        let value = serde_json::to_value(&list).unwrap();
+        assert_eq!(value["schema_version"], 2);
+        assert!(value.get("needs_decision").is_none());
+        let groups = [
+            "agent_work",
+            "operator_deferred",
+            "met",
+            "waived",
+            "routed",
+            "unbuilt",
+            "out_of_scope",
+            "run_errors",
+        ];
+        let rows: Vec<_> = groups
+            .iter()
+            .flat_map(|group| value[group]["items"].as_array().unwrap())
+            .collect();
+        assert_eq!(rows.len(), source.entries().count());
+        for entry in source.entries() {
+            let row = rows.iter().find(|row| row["rule"] == entry.rule).unwrap();
+            assert_eq!(row["new"], entry.new);
+            assert_eq!(row["statement"], entry.statement);
+            assert_eq!(
+                row["evidence"],
+                serde_json::to_value(&entry.evidence).unwrap()
+            );
+            if let Some(route) = &entry.routing {
+                assert_eq!(row["routing"], serde_json::to_value(route).unwrap());
+            }
+            if let Some(waiver) = &entry.suppression {
+                assert_eq!(row["suppression"], serde_json::to_value(waiver).unwrap());
+            }
+            if let Some(error) = &entry.error {
+                assert_eq!(row["error"], serde_json::to_value(error).unwrap());
+            }
+        }
+        assert_eq!(
+            list.agent_work.items[0].fix_detail.as_deref(),
+            Some("context for this gap")
+        );
+        assert_eq!(list.agent_work.items[0].reversible, Some(false));
+        assert_eq!(list.operator_deferred.count, 2);
+        let operator_row = value["operator_deferred"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| {
+                row["rule"] == expected_operator.rule
+                    && row["fix_code"] == "rename-repository-kebab"
+            })
+            .expect("the operator settings-fix must be emitted");
+        assert_eq!(
+            operator_row["reversible"],
+            expected_operator.fix_class.reversible.unwrap(),
+            "operator settings-fix reversible must survive report-to-work-list projection"
+        );
+        assert_eq!(
+            operator_row["fix_detail"],
+            expected_operator.fix.as_ref().unwrap().detail,
+            "operator settings-fix fix_detail must survive report-to-work-list projection"
+        );
+        assert_eq!(list.routed.count, 1);
+        assert_eq!(list.unbuilt.count, 1);
+        assert_eq!(list.out_of_scope.count, 1);
+        assert_eq!(list.waived.count, 1);
+        assert_eq!(list.run_errors.count, 1);
+        assert_eq!(list.met.count, 1);
+        assert_eq!(list.exit_code(), 2);
+    }
+
+    #[test]
     fn file_failures_are_split_from_operator_failures_by_declared_lane() {
         let report = report(vec![
             finding(
                 "REPO-META-01",
-                Status::Fail,
+                Some(Status::Gap),
                 "blocking",
                 Some("working-tree"),
             ),
-            finding("REPO-NAME-01", Status::Fail, "blocking", Some("api")),
+            finding("REPO-NAME-01", Some(Status::Gap), "blocking", Some("api")),
             finding(
                 "REPO-LIC-01",
-                Status::Fail,
+                Some(Status::Gap),
                 "blocking",
                 Some("working-tree"),
             ),
@@ -422,41 +674,38 @@ mod tests {
 
         let list = AgentWorkList::from_report(&report);
 
-        assert_eq!(list.outcome, Outcome::AgentLaneWorkRemains);
+        assert_eq!(list.outcome, WorkListResult::AgentWorkRemains);
         assert_eq!(list.exit_code(), 1);
-        assert_eq!(list.agent_lane.count, 2);
+        assert_eq!(list.agent_work.count, 2);
         assert_eq!(
-            list.agent_lane
+            list.agent_work
                 .items
                 .iter()
                 .map(|item| item.rule.as_str())
                 .collect::<Vec<_>>(),
             ["REPO-LIC-01", "REPO-META-01"]
         );
-        assert_eq!(
-            list.agent_lane.items[0].remediation_code,
-            "add-license-file"
-        );
-        assert_eq!(list.agent_lane.items[0].lane, "deterministic-file");
-        assert_eq!(list.agent_lane.items[1].lane, "judgment-file");
+        assert_eq!(list.agent_work.items[0].fix_code, "add-license-file");
+        assert_eq!(list.agent_work.items[0].fix_kind, "airlock");
+        assert_eq!(list.agent_work.items[1].fix_kind, "agent");
         assert_eq!(list.operator_deferred.count, 1);
         assert_eq!(list.operator_deferred.items[0].rule, "REPO-NAME-01");
     }
 
     #[test]
-    fn operator_work_never_prevents_an_agent_lane_clear_result() {
+    fn operator_work_never_prevents_an_agent_work_clear_result() {
         let list = AgentWorkList::from_report(&report(vec![finding(
             "REPO-NAME-01",
-            Status::Fail,
+            Some(Status::Gap),
             "blocking",
             Some("api"),
         )]));
 
-        assert_eq!(list.outcome, Outcome::AgentLaneClear);
+        assert_eq!(list.outcome, WorkListResult::AgentWorkClear);
         assert_eq!(list.exit_code(), 0);
-        assert_eq!(list.agent_lane.count, 0);
+        assert_eq!(list.agent_work.count, 0);
         assert_eq!(list.operator_deferred.count, 1);
-        assert_eq!(list.scope, "agent_lane_only_not_repository_conformance");
+        assert_eq!(list.scope, "agent_work_only_not_repository_conformance");
     }
 
     #[test]
@@ -464,31 +713,31 @@ mod tests {
         let list = AgentWorkList::from_report(&report(vec![
             finding(
                 "REPO-LIC-01",
-                Status::Fail,
+                Some(Status::Gap),
                 "blocking",
                 Some("working-tree"),
             ),
-            finding("REPO-GIT-02", Status::Error, "blocking", None),
+            finding("REPO-GIT-02", None, "blocking", None),
         ]));
 
-        assert_eq!(list.outcome, Outcome::CouldNotSettle);
+        assert_eq!(list.outcome, WorkListResult::CouldNotSettle);
         assert_eq!(list.exit_code(), 2);
-        assert_eq!(list.agent_lane.count, 1);
-        assert_eq!(list.unsettled.count, 1);
-        assert_eq!(list.unsettled.items[0].rule, "REPO-GIT-02");
-        assert!(list.unsettled.items[0].gating);
+        assert_eq!(list.agent_work.count, 1);
+        assert_eq!(list.run_errors.count, 1);
+        assert_eq!(list.run_errors.items[0].rule, "REPO-GIT-02");
+        assert!(list.run_errors.items[0].gating);
     }
 
     #[test]
-    fn declared_no_remediation_failures_are_deferred_to_the_operator() {
+    fn declared_no_fix_failures_are_deferred_to_the_operator() {
         let list = AgentWorkList::from_report(&report(vec![finding(
             "REPO-GIT-09",
-            Status::Fail,
+            Some(Status::Gap),
             "blocking",
             Some("api"),
         )]));
 
-        assert_eq!(list.outcome, Outcome::AgentLaneClear);
+        assert_eq!(list.outcome, WorkListResult::AgentWorkClear);
         assert_eq!(list.operator_deferred.count, 1);
         assert_eq!(list.operator_deferred.items[0].rule, "REPO-GIT-09");
         assert!(list.operator_deferred.items[0].none_reason.is_some());
@@ -498,47 +747,52 @@ mod tests {
     fn an_unknown_failure_classification_cannot_report_clear() {
         let list = AgentWorkList::from_report(&report(vec![finding(
             "RULE-UNKNOWN",
-            Status::Fail,
-            "observation",
+            Some(Status::Gap),
+            "advisory",
             Some("api"),
         )]));
 
-        assert_eq!(list.outcome, Outcome::CouldNotSettle);
-        assert_eq!(list.unsettled.count, 1);
+        assert_eq!(list.outcome, WorkListResult::CouldNotSettle);
+        assert_eq!(list.run_errors.count, 1);
         assert_eq!(
-            list.unsettled.items[0].evidence_code.as_deref(),
-            Some("remediation_class_undecided")
+            list.run_errors.items[0].evidence_code.as_deref(),
+            Some("fix_class_undecided")
         );
     }
 
     #[test]
-    fn non_gating_unanswered_questions_remain_visible_without_gating() {
+    fn advisory_run_errors_remain_visible_and_block_completeness() {
         let list = AgentWorkList::from_report(&report(vec![finding(
             "REPO-LIC-01",
-            Status::Inconclusive,
-            "observation",
+            None,
+            "advisory",
             None,
         )]));
 
-        assert_eq!(list.outcome, Outcome::AgentLaneClear);
-        assert_eq!(list.unsettled.count, 1);
-        assert!(!list.unsettled.items[0].gating);
+        assert_eq!(list.outcome, WorkListResult::CouldNotSettle);
+        assert_eq!(list.run_errors.count, 1);
+        assert!(list.run_errors.items[0].gating);
     }
 
     #[test]
     fn structural_gaps_get_their_own_group_and_never_gate_the_lane() {
         let list = AgentWorkList::from_report(&report(vec![
-            finding("REPO-GIT-04", Status::AdminOnly, "required", Some("api")),
-            finding("REPO-LIC-01", Status::Pass, "blocking", Some("api")),
+            crate::findings::fixtures::routed(finding(
+                "REPO-GIT-04",
+                None,
+                "advisory",
+                Some("api"),
+            )),
+            finding("REPO-LIC-01", Some(Status::Met), "blocking", Some("api")),
         ]));
 
-        assert_eq!(list.outcome, Outcome::AgentLaneClear);
+        assert_eq!(list.outcome, WorkListResult::AgentWorkClear);
         assert_eq!(list.exit_code(), 0);
-        assert_eq!(list.unsettled.count, 0);
-        assert_eq!(list.admin_only.count, 1);
-        let item = &list.admin_only.items[0];
+        assert_eq!(list.run_errors.count, 0);
+        assert_eq!(list.routed.count, 1);
+        let item = &list.routed.items[0];
         assert_eq!(item.rule, "REPO-GIT-04");
-        assert_eq!(item.undecided, Some(Undecided::Structural));
+        assert!(item.verified_by.is_some());
         assert!(
             !item.gating,
             "a gap that requires admin access to verify does not gate"
@@ -547,66 +801,65 @@ mod tests {
 
     #[test]
     fn a_clear_lane_beside_a_structural_gap_still_names_the_gap() {
-        // "My lane is clear" must never be read as "the repository is
-        // aligned". The lane is clear and the rule is unverified, and the
+        // "My fix kind is clear" must never be read as "the repository is
+        // aligned". The fix kind is clear and the rule is unverified, and the
         // document has to say both.
-        let list = AgentWorkList::from_report(&report(vec![finding(
-            "REPO-GIT-04",
-            Status::AdminOnly,
-            "required",
-            Some("api"),
+        let list = AgentWorkList::from_report(&report(vec![crate::findings::fixtures::routed(
+            finding("REPO-GIT-04", None, "advisory", Some("api")),
         )]));
 
-        assert_eq!(list.outcome, Outcome::AgentLaneClear);
-        assert_eq!(list.scope, "agent_lane_only_not_repository_conformance");
-        assert_eq!(list.admin_only.count, 1);
+        assert_eq!(list.outcome, WorkListResult::AgentWorkClear);
+        assert_eq!(list.scope, "agent_work_only_not_repository_conformance");
+        assert_eq!(list.routed.count, 1);
         let text = crate::render::agent_work_list_text(&list);
-        assert!(
-            text.contains("admin-only (requires admin access; never gates) (1)"),
-            "{text}"
-        );
+        assert!(text.contains("routed (exit code unchanged) (1)"), "{text}");
         assert!(text.contains("REPO-GIT-04"), "{text}");
-        assert!(text.contains("admin-only: 1"), "{text}");
+        assert!(text.contains("routed: 1"), "{text}");
     }
 
     #[test]
     fn a_structural_gap_does_not_hide_a_circumstantial_one() {
         let list = AgentWorkList::from_report(&report(vec![
-            finding("REPO-GIT-04", Status::AdminOnly, "required", Some("api")),
-            finding("REPO-GIT-02", Status::Error, "blocking", None),
+            crate::findings::fixtures::routed(finding(
+                "REPO-GIT-04",
+                None,
+                "advisory",
+                Some("api"),
+            )),
+            finding("REPO-GIT-02", None, "blocking", None),
         ]));
 
-        assert_eq!(list.outcome, Outcome::CouldNotSettle);
+        assert_eq!(list.outcome, WorkListResult::CouldNotSettle);
         assert_eq!(list.exit_code(), 2);
-        assert_eq!(list.admin_only.count, 1);
-        assert_eq!(list.unsettled.count, 1);
-        assert!(list.unsettled.items[0].gating);
+        assert_eq!(list.routed.count, 1);
+        assert_eq!(list.run_errors.count, 1);
+        assert!(list.run_errors.items[0].gating);
     }
 
     #[test]
-    fn capability_decisions_manual_judgments_and_suppressed_debt_are_distinct() {
-        let mut decision = finding(
-            "REPO-REL-01",
-            Status::Inconclusive,
-            "observation",
-            Some("working-tree"),
-        );
+    fn missing_inputs_unbuilt_checks_and_waivers_are_distinct() {
+        let mut decision = finding("REPO-REL-01", None, "advisory", Some("working-tree"));
         decision.evidence = Some(Evidence::new(
-            "capability_undeclared",
-            "the capability could not be selected",
+            "required_input_missing",
+            "a required input is missing",
         ));
         let list = AgentWorkList::from_report(&report(vec![
             decision,
-            finding("REPO-DOCS-05", Status::Manual, "blocking", None),
-            finding("REPO-LIC-01", Status::Suppressed, "blocking", Some("api")),
+            crate::findings::fixtures::unbuilt(finding("REPO-DOCS-05", None, "blocking", None)),
+            crate::findings::fixtures::waived(finding(
+                "REPO-LIC-01",
+                None,
+                "blocking",
+                Some("api"),
+            )),
         ]));
 
-        assert_eq!(list.needs_decision.count, 1);
-        assert_eq!(list.needs_decision.items[0].rule, "REPO-REL-01");
-        assert_eq!(list.manual.count, 1);
-        assert_eq!(list.manual.items[0].rule, "REPO-DOCS-05");
-        assert_eq!(list.suppressed.count, 1);
-        assert_eq!(list.suppressed.items[0].rule, "REPO-LIC-01");
+        assert_eq!(list.run_errors.count, 1);
+        assert_eq!(list.run_errors.items[0].rule, "REPO-REL-01");
+        assert_eq!(list.unbuilt.count, 1);
+        assert_eq!(list.unbuilt.items[0].rule, "REPO-DOCS-05");
+        assert_eq!(list.waived.count, 1);
+        assert_eq!(list.waived.items[0].rule, "REPO-LIC-01");
     }
 
     #[test]
@@ -631,5 +884,30 @@ mod tests {
         let text = crate::render::agent_work_list_text(&list);
         assert!(text.contains("files working-tree, platform not observed"));
         assert!(text.contains("(undetermined, includes uncommitted files)"));
+    }
+    #[test]
+    fn non_outcome_groups_retain_their_reasons_and_settling_surfaces() {
+        let report = report(vec![
+            crate::findings::fixtures::waived(finding("REPO-FILE-01", None, "none", None)),
+            crate::findings::fixtures::routed(finding("REPO-GIT-04", None, "blocking", None)),
+            crate::findings::fixtures::unbuilt(finding("REPO-DOCS-05", None, "blocking", None)),
+            finding("REPO-LIC-04", None, "advisory", None),
+        ]);
+        let list = AgentWorkList::from_report(&report);
+        assert_eq!(
+            list.waived.items[0].reason.as_deref(),
+            Some("fixture waiver")
+        );
+        assert_eq!(
+            list.routed.items[0].reason.as_deref(),
+            Some("needs-administration")
+        );
+        assert_eq!(
+            list.routed.items[0].verified_by.as_deref(),
+            Some("interactive-session")
+        );
+        assert_eq!(list.unbuilt.items[0].reason.as_deref(), Some("unbuilt"));
+        assert_eq!(list.run_errors.items[0].reason.as_deref(), Some("fixture"));
+        assert_eq!(list.exit_code(), 2);
     }
 }

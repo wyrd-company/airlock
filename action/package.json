@@ -1,0 +1,23 @@
+{
+  "name": "@airlock/action",
+  "private": true,
+  "type": "module",
+  "description": "The Airlock action: repository mode on the WebAssembly engine, bundled into dist/.",
+  "packageManager": "pnpm@12.21.0",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node --test --test-timeout=120000 tests/*.test.mjs"
+  },
+  "dependencies": {
+    "@actions/core": "3.0.1"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  },
+  "relationships": {
+    "implements": "../docs/action.md"
+  }
+}

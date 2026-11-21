@@ -1,0 +1,8 @@
+$schema: https://refinery.systems/ontology/term
+title: Check
+description: >-
+  The compiled procedure that evaluates a rule and decides Met or Gap, or reports a declared
+  routed, unbuilt or out-of-scope boundary. Effective severity none yields waived before
+  evaluation; a check never decides waived. A check is distinct from the requirement it
+  evaluates. An agent assessment is advisory evidence, never a check, and cannot replace the
+  compiled outcome or change the exit code.

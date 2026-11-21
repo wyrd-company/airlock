@@ -1,0 +1,474 @@
+{
+  "empty": {
+    "REPO-CI-01": {
+      "evidence": "ci_does_not_trigger_on_pull_request",
+      "status": "gap"
+    },
+    "REPO-CI-02": {
+      "evidence": "workflow_permissions_empty",
+      "status": "met"
+    },
+    "REPO-CI-04": {
+      "evidence": "actions_pinned",
+      "status": "met"
+    },
+    "REPO-CI-05": {
+      "evidence": "no_pull_request_target",
+      "status": "met"
+    },
+    "REPO-CI-06": {
+      "evidence": "no_pull_request_workflow",
+      "status": "gap"
+    },
+    "REPO-CI-07": {
+      "evidence": "jobs_invoke_tasks",
+      "status": "met"
+    },
+    "REPO-CI-08": {
+      "evidence": "no_title_check",
+      "status": "gap"
+    },
+    "REPO-CI-09": {
+      "evidence": "no_audit_workflow",
+      "status": "gap"
+    },
+    "REPO-FILE-01": {
+      "evidence": "file_missing",
+      "status": "gap"
+    },
+    "REPO-FILE-02": {
+      "evidence": "file_missing",
+      "status": "gap"
+    },
+    "REPO-FILE-03": {
+      "evidence": "file_missing",
+      "status": "gap"
+    },
+    "REPO-FILE-04": {
+      "evidence": "file_missing",
+      "status": "gap"
+    },
+    "REPO-FILE-05": {
+      "evidence": "file_missing",
+      "status": "gap"
+    },
+    "REPO-FILE-06": {
+      "evidence": "file_missing",
+      "status": "gap"
+    },
+    "REPO-FILE-07": {
+      "evidence": "ci_workflow_missing",
+      "status": "gap"
+    },
+    "REPO-FILE-08": {
+      "evidence": "file_missing",
+      "status": "gap"
+    },
+    "REPO-FILE-09": {
+      "evidence": "file_missing",
+      "status": "gap"
+    },
+    "REPO-FILE-10": {
+      "evidence": "directory_missing",
+      "status": "gap"
+    },
+    "REPO-FILE-11": {
+      "evidence": "file_missing",
+      "status": "gap"
+    },
+    "REPO-FILE-12": {
+      "evidence": "file_missing",
+      "status": "gap"
+    },
+    "REPO-FILE-13": {
+      "evidence": "no_harness_config",
+      "status": "met"
+    },
+    "REPO-FILE-14": {
+      "evidence": "no_codeowners",
+      "status": "met"
+    },
+    "REPO-FILE-16": {
+      "evidence": "file_missing",
+      "status": "gap"
+    },
+    "REPO-FILE-17": {
+      "evidence": "file_missing",
+      "status": "gap"
+    },
+    "REPO-GIT-01": {
+      "evidence": "default_branch_is_main",
+      "status": "met"
+    },
+    "REPO-GIT-02": {
+      "evidence": "no_org_ruleset",
+      "status": "gap"
+    },
+    "REPO-GIT-03": {
+      "evidence": "branch_rules_insufficient",
+      "status": "gap"
+    },
+    "REPO-GIT-04": {
+      "evidence": "merge_commits_disabled",
+      "status": "met"
+    },
+    "REPO-GIT-05": {
+      "evidence": "squash_enabled",
+      "status": "met"
+    },
+    "REPO-GIT-06": {
+      "evidence": "auto_delete_enabled",
+      "status": "met"
+    },
+    "REPO-GIT-07": {
+      "evidence": "optional_features_off",
+      "status": "met"
+    },
+    "REPO-GIT-08": {
+      "evidence": "no_v_prefixed_tags",
+      "status": "met"
+    },
+    "REPO-GIT-10": {
+      "evidence": "no_merge_commits",
+      "status": "met"
+    },
+    "REPO-GIT-13": {
+      "evidence": "app_identity_conventions_followed",
+      "status": "met"
+    },
+    "REPO-HOOK-01": {
+      "evidence": "file_missing",
+      "status": "gap"
+    },
+    "REPO-HOOK-02": {
+      "evidence": "file_missing",
+      "status": "gap"
+    },
+    "REPO-HOOK-03": {
+      "evidence": "file_missing",
+      "status": "gap"
+    },
+    "REPO-HOOK-04": {
+      "evidence": "file_missing",
+      "status": "gap"
+    },
+    "REPO-LIC-01": {
+      "evidence": "file_missing",
+      "status": "gap"
+    },
+    "REPO-LIC-03": {
+      "evidence": "not_dual_licensed",
+      "status": "met"
+    },
+    "REPO-META-01": {
+      "evidence": "file_missing",
+      "status": "gap"
+    },
+    "REPO-META-02": {
+      "evidence": "file_missing",
+      "status": "gap"
+    },
+    "REPO-META-06": {
+      "evidence": "file_missing",
+      "status": "gap"
+    },
+    "REPO-META-07": {
+      "evidence": "file_missing",
+      "status": "gap"
+    },
+    "REPO-META-09": {
+      "evidence": "file_missing",
+      "status": "gap"
+    },
+    "REPO-META-10": {
+      "evidence": "file_missing",
+      "status": "gap"
+    },
+    "REPO-META-11": {
+      "evidence": "file_missing",
+      "status": "gap"
+    },
+    "REPO-META-12": {
+      "evidence": "file_missing",
+      "status": "gap"
+    },
+    "REPO-META-13": {
+      "evidence": "file_missing",
+      "status": "gap"
+    },
+    "REPO-NAME-01": {
+      "evidence": "name_is_lower_kebab",
+      "status": "met"
+    },
+    "REPO-PROP-03": {
+      "evidence": "file_missing",
+      "status": "gap"
+    },
+    "REPO-PROP-04": {
+      "evidence": "no_workflow_writes_properties",
+      "status": "met"
+    },
+    "REPO-README-06": {
+      "evidence": "no_demo_gif_committed",
+      "status": "met"
+    },
+    "REPO-REL-01": {
+      "evidence": "file_missing",
+      "status": "gap"
+    },
+    "REPO-REL-07": {
+      "evidence": "no_publish_on_merge",
+      "status": "met"
+    },
+    "REPO-TASK-01": {
+      "evidence": "file_missing",
+      "status": "gap"
+    },
+    "REPO-TASK-05": {
+      "evidence": "file_missing",
+      "status": "gap"
+    },
+    "REPO-TASK-06": {
+      "evidence": "file_missing",
+      "status": "gap"
+    }
+  },
+  "populated": {
+    "REPO-CI-01": {
+      "evidence": "ci_triggers_on_pull_request",
+      "status": "met"
+    },
+    "REPO-CI-02": {
+      "evidence": "workflow_permissions_empty",
+      "status": "met"
+    },
+    "REPO-CI-04": {
+      "evidence": "actions_pinned",
+      "status": "met"
+    },
+    "REPO-CI-05": {
+      "evidence": "no_pull_request_target",
+      "status": "met"
+    },
+    "REPO-CI-06": {
+      "evidence": "concurrency_covers_pull_requests",
+      "status": "met"
+    },
+    "REPO-CI-07": {
+      "evidence": "jobs_invoke_tasks",
+      "status": "met"
+    },
+    "REPO-CI-08": {
+      "evidence": "no_title_check",
+      "status": "gap"
+    },
+    "REPO-CI-09": {
+      "evidence": "no_audit_workflow",
+      "status": "gap"
+    },
+    "REPO-FILE-01": {
+      "evidence": "file_present",
+      "status": "met"
+    },
+    "REPO-FILE-02": {
+      "evidence": "file_present",
+      "status": "met"
+    },
+    "REPO-FILE-04": {
+      "evidence": "line_endings_normalised",
+      "status": "met"
+    },
+    "REPO-FILE-05": {
+      "evidence": "file_present",
+      "status": "met"
+    },
+    "REPO-FILE-06": {
+      "evidence": "file_present",
+      "status": "met"
+    },
+    "REPO-FILE-07": {
+      "evidence": "ci_workflow_present",
+      "status": "met"
+    },
+    "REPO-FILE-08": {
+      "evidence": "file_missing",
+      "status": "gap"
+    },
+    "REPO-FILE-09": {
+      "evidence": "file_missing",
+      "status": "gap"
+    },
+    "REPO-FILE-10": {
+      "evidence": "directory_missing",
+      "status": "gap"
+    },
+    "REPO-FILE-11": {
+      "evidence": "file_present",
+      "status": "met"
+    },
+    "REPO-FILE-12": {
+      "evidence": "symlink_to_agents",
+      "status": "met"
+    },
+    "REPO-FILE-13": {
+      "evidence": "no_harness_config",
+      "status": "met"
+    },
+    "REPO-FILE-14": {
+      "evidence": "codeowners_present",
+      "status": "gap"
+    },
+    "REPO-FILE-16": {
+      "evidence": "file_present",
+      "status": "met"
+    },
+    "REPO-FILE-17": {
+      "evidence": "file_missing",
+      "status": "gap"
+    },
+    "REPO-GIT-01": {
+      "evidence": "default_branch_is_main",
+      "status": "met"
+    },
+    "REPO-GIT-02": {
+      "evidence": "no_org_ruleset",
+      "status": "gap"
+    },
+    "REPO-GIT-03": {
+      "evidence": "branch_rules_insufficient",
+      "status": "gap"
+    },
+    "REPO-GIT-04": {
+      "evidence": "merge_commits_disabled",
+      "status": "met"
+    },
+    "REPO-GIT-05": {
+      "evidence": "squash_enabled",
+      "status": "met"
+    },
+    "REPO-GIT-06": {
+      "evidence": "auto_delete_enabled",
+      "status": "met"
+    },
+    "REPO-GIT-07": {
+      "evidence": "optional_features_off",
+      "status": "met"
+    },
+    "REPO-GIT-08": {
+      "evidence": "no_v_prefixed_tags",
+      "status": "met"
+    },
+    "REPO-GIT-09": {
+      "evidence": "single_release_unit",
+      "status": "met"
+    },
+    "REPO-GIT-10": {
+      "evidence": "no_merge_commits",
+      "status": "met"
+    },
+    "REPO-GIT-13": {
+      "evidence": "app_identity_conventions_followed",
+      "status": "met"
+    },
+    "REPO-HOOK-01": {
+      "evidence": "file_missing",
+      "status": "gap"
+    },
+    "REPO-HOOK-02": {
+      "evidence": "file_missing",
+      "status": "gap"
+    },
+    "REPO-HOOK-03": {
+      "evidence": "file_missing",
+      "status": "gap"
+    },
+    "REPO-HOOK-04": {
+      "evidence": "file_missing",
+      "status": "gap"
+    },
+    "REPO-LIC-01": {
+      "evidence": "file_present",
+      "status": "met"
+    },
+    "REPO-LIC-03": {
+      "evidence": "not_dual_licensed",
+      "status": "met"
+    },
+    "REPO-LIC-04": {
+      "evidence": "license_declared_in_metadata",
+      "status": "met"
+    },
+    "REPO-META-01": {
+      "evidence": "description_declared",
+      "status": "met"
+    },
+    "REPO-META-06": {
+      "evidence": "topic_count_in_range",
+      "status": "met"
+    },
+    "REPO-META-10": {
+      "evidence": "no_org_topic",
+      "status": "met"
+    },
+    "REPO-META-11": {
+      "evidence": "merge_settings_wrong",
+      "status": "gap"
+    },
+    "REPO-META-12": {
+      "evidence": "no_visibility_declared",
+      "status": "met"
+    },
+    "REPO-META-13": {
+      "evidence": "live_matches_declared",
+      "status": "met"
+    },
+    "REPO-NAME-01": {
+      "evidence": "name_is_lower_kebab",
+      "status": "met"
+    },
+    "REPO-PROP-03": {
+      "evidence": "no_custom_properties_declared",
+      "status": "met"
+    },
+    "REPO-PROP-04": {
+      "evidence": "no_workflow_writes_properties",
+      "status": "met"
+    },
+    "REPO-README-06": {
+      "evidence": "no_demo_gif_committed",
+      "status": "met"
+    },
+    "REPO-REL-01": {
+      "evidence": "release_units_declared",
+      "status": "met"
+    },
+    "REPO-REL-02": {
+      "evidence": "changelog_per_unit",
+      "status": "met"
+    },
+    "REPO-REL-03": {
+      "evidence": "single_release_unit",
+      "status": "met"
+    },
+    "REPO-REL-07": {
+      "evidence": "no_publish_on_merge",
+      "status": "met"
+    },
+    "REPO-TASK-01": {
+      "evidence": "required_tasks_defined",
+      "status": "met"
+    },
+    "REPO-TASK-04": {
+      "evidence": "single_release_unit",
+      "status": "met"
+    },
+    "REPO-TASK-05": {
+      "evidence": "no_includes",
+      "status": "met"
+    },
+    "REPO-TASK-06": {
+      "evidence": "no_includes",
+      "status": "met"
+    }
+  }
+}

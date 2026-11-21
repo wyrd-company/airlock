@@ -1,0 +1,18 @@
+{
+  "relationships": {
+    "produced-by": "../../crates/core/tests/configurable_rules.rs",
+    "describes": "configurable-report.json"
+  },
+  "source_head": "c3a458961be4007bddb43141f7275dafc89986fa",
+  "producer": "crates/core/tests/configurable_rules.rs::report_contract_fixture_is_serialized_by_the_real_engine",
+  "command": "AIRLOCK_CONFIGURABLE_FIXTURE_OUTPUT=<output.json> CARGO_BUILD_JOBS=2 cargo test --offline --locked -p airlock-core --test configurable_rules report_contract_fixture_is_serialized_by_the_real_engine -- --exact",
+  "toolchain": {
+    "cargo": "cargo 1.97.1 (c980f4866 2026-06-30) (Homebrew)",
+    "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14) (Homebrew)"
+  },
+  "cargo_lock_sha256": "717229c27c14d544867b786dfcc1b4cc31e6864f2ede351a1721be46dcd1ce50",
+  "producer_file_sha256": "e0d533e24f7b77e5a45cfe5512e6c6500ed456ded505820efe8a91e971281f05",
+  "report_sha256": "bd0b57936474ec6844f96b17e062779bd61e62fc3f0a151217cd25eddba0a419",
+  "capture_time": "2026-10-22T05:24:15.893004+00:00",
+  "capture_time_is_audit_time": false
+}

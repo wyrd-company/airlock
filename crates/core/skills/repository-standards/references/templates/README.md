@@ -11,7 +11,7 @@ produces a correct file rather than filler.
 | `lefthook.yml`           | `.config/lefthook.yml`                     |
 | `taskfile.yml`           | `taskfile.yml`                             |
 | `ci.yml`                 | `.github/workflows/ci.yml`                 |
-| `repo-settings.yml`      | `.github/repo-settings.yml`                |
+| `airlock.yml`      | `.github/airlock.yml`                |
 | `reconcile-settings.yml` | `.github/workflows/reconcile-settings.yml` |
 
 There is deliberately **no template for `README.md`, `AGENTS.md`, or

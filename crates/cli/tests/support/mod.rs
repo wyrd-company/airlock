@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 
 use base64::Engine as _;
 use serde_json::{json, Value};
-use wiremock::matchers::{method, path};
+use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 /// The commit every fixture repository is audited at.
@@ -148,7 +148,7 @@ impl FakeRepo {
     }
 
     /// Answer the ruleset endpoints the way a repository governed as the
-    /// standards expect answers them: one active organisation branch ruleset,
+    /// rules expect answers them: one active organisation branch ruleset,
     /// requiring pull requests, squash and rebase only, and linear history.
     #[must_use]
     pub fn with_conforming_org_ruleset(mut self) -> Self {
@@ -346,6 +346,180 @@ async fn mount_response(server: &MockServer, route: &str, response: &Response) {
         .respond_with(response.template())
         .mount(server)
         .await;
+}
+
+/// The repository id the run's token reaches, as `GITHUB_REPOSITORY_ID`.
+pub const RUN_REPOSITORY_ID: u64 = 4242;
+
+/// Serve the workflow file GitHub ran, and GitHub's answer to which
+/// repository the run's token reaches: `repository` alone, as
+/// `RUN_REPOSITORY_ID`.
+pub async fn mount_workflow_at(
+    server: &MockServer,
+    repository: &str,
+    workflow_path: &str,
+    commit: &str,
+    content: &str,
+) {
+    let (owner, name) = repository.split_once('/').expect("owner/name");
+    Mock::given(method("GET"))
+        .and(path("/installation/repositories"))
+        .respond_with(
+            Response::Ok(json!({
+                "total_count": 1,
+                "repository_selection": "selected",
+                "repositories": [{
+                    "id": RUN_REPOSITORY_ID,
+                    "full_name": repository,
+                    "name": name,
+                    "owner": { "login": owner },
+                    "private": false,
+                    "default_branch": "main",
+                }],
+            }))
+            .template(),
+        )
+        .mount(server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(format!(
+            "/repos/{repository}/contents/{workflow_path}"
+        )))
+        .and(query_param("ref", commit))
+        .respond_with(
+            Response::Ok(json!({
+                "type": "file",
+                "encoding": "base64",
+                "content": base64(content),
+            }))
+            .template(),
+        )
+        .mount(server)
+        .await;
+}
+
+/// Central mode's fake services, each credential a distinct marker.
+pub mod central {
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use base64::Engine as _;
+    use serde_json::{json, Value};
+    use wiremock::matchers::{header, method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    pub const OIDC_REQUEST_TOKEN: &str = "oidc-request-token-MARKER1";
+    pub const ASSERTION: &str = "eyJassertionMARKER2";
+    pub const VAULT_TOKEN: &str = "vault-access-token-MARKER3";
+    pub const SIGNATURE: &[u8] = b"rs256-signature-bytes-MARKER4";
+    pub const MINTED: &str = "ghs_minted_MARKER5";
+    pub const TENANT: &str = "11111111-2222-3333-4444-555555555555";
+    pub const CLIENT: &str = "66666666-7777-8888-9999-000000000000";
+
+    /// Every value no output may contain.
+    pub fn secrets() -> Vec<String> {
+        vec![
+            OIDC_REQUEST_TOKEN.to_owned(),
+            ASSERTION.to_owned(),
+            VAULT_TOKEN.to_owned(),
+            URL_SAFE_NO_PAD.encode(SIGNATURE),
+            MINTED.to_owned(),
+        ]
+    }
+
+    /// Mount OIDC, Entra ID, Key Vault and the App's GitHub routes, at a low
+    /// priority so a test can override one, and list `repositories` as the
+    /// installation's reach.
+    pub async fn mount(server: &MockServer, repositories: &[(&str, &str)]) {
+        let routes: Vec<(&str, String, ResponseTemplate)> = vec![
+            (
+                "GET",
+                "/oidc".to_owned(),
+                ResponseTemplate::new(200).set_body_json(json!({ "value": ASSERTION })),
+            ),
+            (
+                "POST",
+                format!("/{TENANT}/oauth2/v2.0/token"),
+                ResponseTemplate::new(200).set_body_json(json!({ "access_token": VAULT_TOKEN })),
+            ),
+            (
+                "POST",
+                "/keys/airlock-safe//sign".to_owned(),
+                ResponseTemplate::new(200)
+                    .set_body_json(json!({ "value": URL_SAFE_NO_PAD.encode(SIGNATURE) })),
+            ),
+            (
+                "GET",
+                "/app".to_owned(),
+                ResponseTemplate::new(200).set_body_json(json!({
+                    "id": 4_409_712,
+                    "slug": "airlock-safe",
+                    "permissions": { "metadata": "read", "contents": "read" }
+                })),
+            ),
+            (
+                "GET",
+                "/orgs/wyrd-company/installation".to_owned(),
+                ResponseTemplate::new(200).set_body_json(json!({
+                    "id": 77,
+                    "app_id": 4_409_712,
+                    "app_slug": "airlock-safe",
+                    "account": { "login": "wyrd-company", "type": "Organization" },
+                    "repository_selection": "all",
+                    "permissions": { "metadata": "read", "contents": "read" }
+                })),
+            ),
+            (
+                "POST",
+                "/app/installations/77/access_tokens".to_owned(),
+                ResponseTemplate::new(201).set_body_json(json!({
+                    "token": MINTED,
+                    "expires_at": "2026-11-17T18:00:00Z",
+                    "permissions": { "metadata": "read", "contents": "read" },
+                    "repository_selection": "all"
+                })),
+            ),
+            (
+                "DELETE",
+                "/installation/token".to_owned(),
+                ResponseTemplate::new(204),
+            ),
+        ];
+        for (verb, route, response) in routes {
+            Mock::given(method(verb))
+                .and(path(route))
+                .respond_with(response)
+                .with_priority(10)
+                .mount(server)
+                .await;
+        }
+
+        let listed: Vec<Value> = repositories
+            .iter()
+            .enumerate()
+            .map(|(index, (owner, name))| {
+                json!({
+                    "id": 1000 + index,
+                    "name": name,
+                    "full_name": format!("{owner}/{name}"),
+                    "owner": { "login": owner },
+                    "default_branch": "main",
+                    "visibility": "public"
+                })
+            })
+            .collect();
+        Mock::given(method("GET"))
+            .and(path("/installation/repositories"))
+            .and(header("authorization", format!("Bearer {MINTED}").as_str()))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("x-ratelimit-remaining", "4999")
+                    .set_body_json(json!({
+                        "total_count": listed.len(),
+                        "repositories": listed
+                    })),
+            )
+            .mount(server)
+            .await;
+    }
 }
 
 fn base64(content: &str) -> String {

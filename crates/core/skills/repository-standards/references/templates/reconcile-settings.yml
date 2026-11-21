@@ -1,7 +1,7 @@
 name: Reconcile settings
 
 # Agents propose, deterministic workflows dispose. The declared state in
-# .github/repo-settings.yml is applied here, by a workflow holding the
+# .github/airlock.yml is applied here, by a workflow holding the
 # credential — never by an agent calling the API.
 #
 # Runs only on the default branch, which the ruleset already gates behind an
@@ -12,7 +12,7 @@ on:
     branches:
       - main
     paths:
-      - .github/repo-settings.yml
+      - .github/airlock.yml
   workflow_dispatch: {}
 
 permissions: {}
@@ -46,7 +46,7 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          settings=.github/repo-settings.yml
+          settings=.github/airlock.yml
           fail() { echo "::error file=$settings::$1"; exit 1; }
           [ -f "$settings" ] || fail "required file is missing"
           # There is no visibility field by design. Publishing a repository is

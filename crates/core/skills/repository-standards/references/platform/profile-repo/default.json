@@ -24,7 +24,7 @@
       "groupName": "dev dependencies"
     },
     {
-      "description": "Group Actions digest bumps. The standard requires SHA pinning, so these are frequent and individually uninteresting.",
+      "description": "Group Actions digest bumps. The rule requires SHA pinning, so these are frequent and individually uninteresting.",
       "matchManagers": ["github-actions"],
       "groupName": "github actions"
     },

@@ -1,0 +1,41 @@
+{
+  "$schema": "https://intentional.foo/schemas/release-model/1",
+  "paths": {
+    "config": ".intentional/config.yml",
+    "intents": ".intentional/intents",
+    "model": ".intentional/release-model.json"
+  },
+  "release_units": {
+    "sample": {
+      "path": ".",
+      "changelog": "CHANGELOG.md",
+      "disposition": "managed",
+      "release_record": "required",
+      "depends_on": [],
+      "ecosystems": [],
+      "projections": [
+        {
+          "adapter": "future-format",
+          "generic": true,
+          "file": "data.ini",
+          "workspace_file": "data.ini",
+          "mode": "committed",
+          "pointer": "version"
+        }
+      ],
+      "sources": [],
+      "tags": {
+        "primary": {
+          "role": "primary",
+          "template": "{version}",
+          "tag_after": []
+        }
+      }
+    }
+  },
+  "workspace_tags": {},
+  "release_groups": {
+    "fixed": [],
+    "linked": []
+  }
+}

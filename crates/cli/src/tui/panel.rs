@@ -141,10 +141,10 @@ pub fn heading(styles: Styles, text: &'static str) -> Line<'static> {
 pub struct Provenance {
     /// The version of airlock that produced the run.
     pub airlock_version: String,
-    /// The registry version the run attests to.
-    pub registry_version: String,
-    /// The digest over the compiled registry.
-    pub registry_digest: String,
+    /// The rules version the run attests to.
+    pub rules_version: String,
+    /// The digest over the compiled rules.
+    pub rules_digest: String,
     /// The version of the findings schema the run emitted.
     pub schema_version: u32,
     /// The commit the audit was of.
@@ -167,8 +167,8 @@ impl Provenance {
     pub fn of(report: &Report) -> Self {
         Self {
             airlock_version: drawable(&report.airlock.version),
-            registry_version: drawable(&report.airlock.registry_version),
-            registry_digest: drawable(&report.airlock.registry_digest),
+            rules_version: drawable(&report.airlock.rules_version),
+            rules_digest: drawable(&report.airlock.rules_digest),
             schema_version: report.schema_version,
             audited_commit: drawable(&report.repository.audited_commit),
             settings_observed_at: report
@@ -188,8 +188,8 @@ impl Provenance {
     pub fn fields(&self) -> Vec<(&'static str, String)> {
         vec![
             ("airlock", self.airlock_version.clone()),
-            ("registry", self.registry_version.clone()),
-            ("digest", self.registry_digest.clone()),
+            ("rules", self.rules_version.clone()),
+            ("digest", self.rules_digest.clone()),
             ("schema", self.schema_version.to_string()),
             ("commit", self.audited_commit.clone()),
             (
@@ -392,7 +392,7 @@ mod tests {
         let provenance = Provenance::of(&report);
         let rendered = text(&provenance.lines(styles(), 120, LABEL_WIDTH));
         assert!(rendered.contains(&provenance.airlock_version));
-        assert!(rendered.contains(&provenance.registry_digest));
+        assert!(rendered.contains(&provenance.rules_digest));
         assert!(rendered.contains(&provenance.audited_commit));
         assert!(rendered.contains(&provenance.schema_version.to_string()));
     }

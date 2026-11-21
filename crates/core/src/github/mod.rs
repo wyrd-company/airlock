@@ -407,15 +407,45 @@ pub struct CommitSummary {
     pub sha: String,
     /// How many parents the commit has. Two or more means a merge.
     pub parents: usize,
+    /// Parent identities for ancestry-based maturity observation.
+    pub parent_shas: Vec<String>,
 }
 
 /// A tag reference.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TagRef {
+    /// Git ref object type, distinguishing annotated tags from lightweight tags.
+    pub object_type: String,
     /// The tag name, with `refs/tags/` stripped.
     pub name: String,
     /// The object the tag points at.
     pub sha: String,
+}
+
+/// An annotated tag object, distinct from its ref.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AnnotatedTag {
+    /// Whether Git supplied a tagger identity.
+    pub has_tagger: bool,
+    /// Direct target type, before peeling.
+    pub target_kind: String,
+    /// Protocol message.
+    pub message: String,
+    /// Tagged commit from the object's `object.sha`.
+    pub commit: String,
+}
+
+/// One GitHub Release.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReleaseRecord {
+    /// Numeric release identity.
+    pub id: u64,
+    /// Tag carrying the release.
+    pub tag_name: String,
+    /// Whether the record is unpublished.
+    pub draft: bool,
+    /// Human-readable release address.
+    pub url: String,
 }
 
 /// A repository ruleset, including ones inherited from the organization.
@@ -532,6 +562,21 @@ pub trait GitHub {
     /// Resolve a branch name, tag, or sha to a commit sha.
     async fn resolve_commit(&self, owner: &str, repo: &str, reference: &str) -> ApiResult<String>;
 
+    /// Compare two template commits, using only GitHub ancestry status.
+    async fn compare_status(
+        &self,
+        owner: &str,
+        repo: &str,
+        base: &str,
+        head: &str,
+    ) -> ApiResult<String> {
+        Err(ApiError::local(
+            ErrorCause::Transport,
+            format!("GET /repos/{owner}/{repo}/compare/{base}...{head}?per_page=1"),
+            "comparison is not implemented by this client",
+        ))
+    }
+
     /// Fetch the recursive tree at a commit.
     async fn tree(&self, owner: &str, repo: &str, commit: &str) -> ApiResult<Tree>;
 
@@ -540,6 +585,24 @@ pub trait GitHub {
 
     /// List tags, bounded by the client's page budget.
     async fn tags(&self, owner: &str, repo: &str) -> ApiResult<Paged<TagRef>>;
+
+    /// Read an annotated tag object.
+    async fn annotated_tag(&self, owner: &str, repo: &str, sha: &str) -> ApiResult<AnnotatedTag> {
+        Err(ApiError::local(
+            ErrorCause::Malformed,
+            format!("GET /repos/{owner}/{repo}/git/tags/{sha}"),
+            "annotated tag observation is unavailable",
+        ))
+    }
+
+    /// List every release, including drafts and prereleases.
+    async fn releases(&self, owner: &str, repo: &str) -> ApiResult<Paged<ReleaseRecord>> {
+        Err(ApiError::local(
+            ErrorCause::Malformed,
+            format!("GET /repos/{owner}/{repo}/releases"),
+            "release observation is unavailable",
+        ))
+    }
 
     /// Walk history from a commit, bounded by the page and commit budgets.
     async fn history(
@@ -594,6 +657,38 @@ pub trait GitHub {
 
     /// Fetch the authenticated user and the scope header GitHub returned.
     async fn authenticated_user(&self) -> ApiResult<AuthenticatedUser>;
+
+    /// Read one file's bytes at an exact commit.
+    ///
+    /// Repository mode reads the running workflow at `GITHUB_WORKFLOW_SHA`
+    /// through this, so a checkout an earlier step changed cannot answer for
+    /// the file GitHub ran.
+    async fn file_at_commit(
+        &self,
+        owner: &str,
+        repo: &str,
+        commit: &str,
+        path: &str,
+    ) -> ApiResult<Vec<u8>> {
+        Err(ApiError::local(
+            ErrorCause::Transport,
+            format!("GET /repos/{owner}/{repo}/contents/{path}?ref={commit}"),
+            "this GitHub client does not implement reading a file at a commit",
+        ))
+    }
+
+    /// List every repository the credential's own installation reaches.
+    ///
+    /// Only an installation token can answer this, through
+    /// `GET /installation/repositories`. The central run reads it to know
+    /// which repositories it audits.
+    async fn token_repositories(&self) -> ApiResult<InstallationRepositories> {
+        Err(ApiError::local(
+            ErrorCause::Transport,
+            "GET /installation/repositories",
+            "this GitHub client does not implement the installation repository listing",
+        ))
+    }
 }
 
 #[cfg(test)]

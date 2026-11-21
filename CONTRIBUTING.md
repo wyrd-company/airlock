@@ -19,7 +19,7 @@ Airlock never writes to a repository it audits. A change that adds a mutating
 API call, accepts a write-capable credential, or falls back to an ambient token
 will not be accepted, regardless of how convenient it is.
 
-New checks come with the evidence they report and the remediation they suggest.
+New checks come with the evidence they report and the fix they suggest.
 A finding that says only that something failed is not finished.
 
 ## Reporting a problem

@@ -1,27 +1,27 @@
 $schema: https://refinery.systems/ontology/decision-record
-name: Embed the Repository Standards Skill
+name: Embed the Repository Rules Skill
 
 relationships:
   - implements:
       - repository-standards-skill-distribution
 
 description: >-
-  The repository-standards skill and Airlock's compiled registry described the
+  The repository-standards skill and Airlock's compiled rules described the
   same rules in separate hand-maintained artifacts. The standalone skill lived
   in a host-mounted local Git repository with no remote, so it was neither
   backed up nor shareable with adopters.
 
 considered-options:
-  1: Keep the standalone skill authoritative and test the registry for drift.
+  1: Keep the standalone skill authoritative and test the rules for drift.
   2: Embed a second hand-maintained skill copy in Airlock.
   3: Embed the hand-written skill material in Airlock and generate its
-     conformance reference from the compiled registry.
+     conformance reference from the compiled rules.
 
 decision-outcome:
   chosen-option: 3
   justification: >-
     Airlock gives the skill a durable home, release process, and offline
-    distribution path. Generating the conformance reference makes the registry
+    distribution path. Generating the conformance reference makes the rules
     the only author of rule statements, severities, sections, and evaluation
     modes, so divergence cannot be expressed. The multi-file skill is emitted
     as a complete directory. Existing targets are refused by default and an
@@ -29,7 +29,7 @@ decision-outcome:
     locally modified files cannot masquerade as the emitted version.
     Rule-by-rule inspection guidance remains hand-written in a separate
     reference and is joined into the generated checklist without owning any
-    registry field. Forced replacement requires Airlock's provenance marker,
+    rule field. Forced replacement requires Airlock's provenance marker,
     so a mistyped path cannot replace an arbitrary directory.
 
 expected-outcomes:

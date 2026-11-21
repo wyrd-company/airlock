@@ -1,16 +1,21 @@
-//! The findings screen: the whole standard as a work queue.
+// ---
+// relationships:
+//   implements: terminal-interface
+//   references: release-process-conformance
+// ---
+
+//! The findings screen: the whole rule as a work queue.
 //!
-//! Every rule the policy enables produces exactly one finding, and every
-//! finding is either aligned or it is not. Nothing is triaged away as
-//! unimportant, because an unimportant rule would not be in the policy. What
+//! Every governed rule has a result. Evaluated results are Met or Gap; waivers,
+//! declared gates and run errors retain their own labels and reasons. What
 //! differs between findings is how much reading each one needs before it can be
-//! closed, and who can close it — so the queue is ordered by the work, in eight
+//! closed, and who can close it — so the queue is ordered by the work, in nine
 //! groups, and only the last of them is done.
 //!
 //! Grouping layers on top of the three-lane status model and does not replace
 //! it. Every row still shows its status glyph in its lane, its severity bar, and
 //! a solid left rail when it actually gates, so nothing standing in the
-//! undecided lane can be read as a pass and no group heading decides what a row
+//! not evaluated lane can be read as a pass and no group heading decides what a row
 //! does to the run.
 //!
 //! The screen is read-only. Settings-level actions are offered on group one and
@@ -20,21 +25,21 @@
 use ratatui::style::Modifier;
 use ratatui::text::{Line, Span};
 
-use airlock_core::findings::{Finding, Gate, Outcome, Report, Status, Summary};
-use airlock_core::registry::{self, Severity};
+use airlock_core::findings::{AuditResult, Finding, Report, Status, Summary};
+use airlock_core::rules::{self, Severity};
 
 use crate::admin::sign_in::Density;
 use crate::admin::text::{drawable, sanitize};
 
 use super::chrome::fit;
 use super::detail::Detail;
-use super::lane::{self, Lane, GATING_RAIL, LANES_WIDTH};
+use super::lane::{self, GATING_RAIL, LANES_WIDTH};
 use super::panel::{self, Provenance};
 use super::theme::{Role, Styles};
 
 /// The most a rule id may be on a line the queue writes for itself.
 ///
-/// The registry's longest is fourteen characters. It bounds the queue's own
+/// The rules' longest is fourteen characters. It bounds the queue's own
 /// prose about a rule — a blocker banner, a repository name — and never the
 /// rule id a row draws, which is bounded by the column it draws it in.
 const RULE_LIMIT: usize = 24;
@@ -87,7 +92,7 @@ const MARKS: usize = UNFOCUSED.len() + 2 + 4 + LANES_WIDTH + 1;
 /// Everything a row spends before its section, on the line the statement is on.
 const SPENT: usize = MARKS + RULE_WIDTH + STATUS_WIDTH;
 
-/// One of the eight groups the queue is ordered into.
+/// One of the nine groups the queue is ordered into.
 ///
 /// The order is the work: what airlock closes, what an agent closes, what only
 /// a person can close, what nothing can close yet, and what is already done.
@@ -97,31 +102,34 @@ pub enum Group {
     Settings,
     /// File-level gaps, delivered as a pull request by an agent. Display only.
     AgentWork,
-    /// The repository has not declared what it is.
-    Decision,
-    /// Rules a person must attest to.
-    Judgment,
-    /// The undecided lane.
-    Unanswered,
-    /// Facts the registry declares behind a disclosure gate.
-    AdminOnly,
+    /// Gaps with no declared fix, deferred to the operator.
+    OperatorDeferred,
+    /// Rules whose reached check branch is not built.
+    Unbuilt,
+    /// Required evidence could not be established.
+    RunErrors,
+    /// Facts the rules declare behind a disclosure gate.
+    Routed,
     /// Suppressed failures: standing debt.
-    Authorized,
-    /// Passing rules, and rules a capability condition did not apply to.
-    Aligned,
+    Waived,
+    /// Rules outside their declared scope.
+    OutOfScope,
+    /// Evaluated Met outcomes.
+    Met,
 }
 
 impl Group {
     /// Every group, in queue order.
-    pub const ALL: [Group; 8] = [
+    pub const ALL: [Group; 9] = [
         Group::Settings,
         Group::AgentWork,
-        Group::Decision,
-        Group::Judgment,
-        Group::Unanswered,
-        Group::AdminOnly,
-        Group::Authorized,
-        Group::Aligned,
+        Group::OperatorDeferred,
+        Group::Unbuilt,
+        Group::RunErrors,
+        Group::Routed,
+        Group::Waived,
+        Group::OutOfScope,
+        Group::Met,
     ];
 
     /// The group's position in the queue, counting from one.
@@ -130,12 +138,13 @@ impl Group {
         match self {
             Self::Settings => 1,
             Self::AgentWork => 2,
-            Self::Decision => 3,
-            Self::Judgment => 4,
-            Self::Unanswered => 5,
-            Self::AdminOnly => 6,
-            Self::Authorized => 7,
-            Self::Aligned => 8,
+            Self::OperatorDeferred => 3,
+            Self::Unbuilt => 4,
+            Self::RunErrors => 5,
+            Self::Routed => 6,
+            Self::Waived => 7,
+            Self::OutOfScope => 8,
+            Self::Met => 9,
         }
     }
 
@@ -143,14 +152,15 @@ impl Group {
     #[must_use]
     pub const fn heading(self) -> &'static str {
         match self {
-            Self::Settings => "AIRLOCK CLOSES THIS",
-            Self::AgentWork => "CLOSES BY PULL REQUEST \u{2014} AGENT WORK",
-            Self::Decision => "NEEDS A DECISION",
-            Self::Judgment => "NEEDS A JUDGMENT",
-            Self::Unanswered => "AIRLOCK COULD NOT ANSWER",
-            Self::AdminOnly => "ADMIN-ONLY",
-            Self::Authorized => "AUTHORIZED BUT NOT ALIGNED",
-            Self::Aligned => "ALIGNED",
+            Self::Settings => "OPERATOR WORK",
+            Self::AgentWork => "AGENT WORK \u{2014} FILE FIXES",
+            Self::OperatorDeferred => "OPERATOR DEFERRED",
+            Self::Unbuilt => "UNBUILT",
+            Self::RunErrors => "RUN ERRORS",
+            Self::Routed => "ROUTED",
+            Self::Waived => "WAIVED",
+            Self::OutOfScope => "OUT OF SCOPE",
+            Self::Met => "MET",
         }
     }
 
@@ -162,24 +172,17 @@ impl Group {
             Self::AgentWork => {
                 "file-level gaps an agent closes and a pull request delivers; shown only"
             }
-            Self::Decision => {
-                "the repository has not declared what it is, so airlock cannot know \
-                 what to apply"
+            Self::OperatorDeferred => {
+                "gaps with no declared fix; the operator decides how to close them"
             }
-            Self::Judgment => "rules a person must attest to",
-            Self::Unanswered => "the undecided lane; the remedy often sits outside the repository",
-            Self::AdminOnly => {
-                "facts that require admin access to verify, answered on the surface \
-                 the gate names"
+            Self::Unbuilt => "rules whose reached check branch is not built",
+            Self::RunErrors => "required evidence could not be established; the run is incomplete",
+            Self::Routed => "rules routed to the settling surface their declared gate names",
+            Self::Waived => "rules not evaluated at severity none; their reasons remain visible",
+            Self::OutOfScope => {
+                "outside release-unit scope or below earliest maturity; no Met or Gap outcome"
             }
-            Self::Authorized => {
-                "the policy permitted the failure; it did not close the gap, and the \
-                 remediation is still on offer"
-            }
-            Self::Aligned => {
-                "passing rules, and rules skipped because a capability condition does \
-                 not apply"
-            }
+            Self::Met => "rules whose compiled checks decided Met",
         }
     }
 
@@ -189,12 +192,13 @@ impl Group {
         match self {
             Self::Settings => "settings",
             Self::AgentWork => "agent",
-            Self::Decision => "decision",
-            Self::Judgment => "judgment",
-            Self::Unanswered => "unanswered",
-            Self::AdminOnly => "admin-only",
-            Self::Authorized => "authorized",
-            Self::Aligned => "aligned",
+            Self::OperatorDeferred => "operator",
+            Self::Unbuilt => "unbuilt",
+            Self::RunErrors => "run-errors",
+            Self::Routed => "routed",
+            Self::Waived => "waived",
+            Self::OutOfScope => "out-of-scope",
+            Self::Met => "met",
         }
     }
 
@@ -207,17 +211,17 @@ impl Group {
     pub const fn needs_the_operator(self) -> bool {
         matches!(
             self,
-            Self::Decision | Self::Judgment | Self::Unanswered | Self::AdminOnly
+            Self::OperatorDeferred | Self::Unbuilt | Self::RunErrors | Self::Routed
         )
     }
 
     /// Whether the group opens collapsed.
     ///
-    /// Collapsing is screen space and never a judgment. Only the aligned group
+    /// Collapsing is screen space and never a judgment. Only the Met group
     /// starts collapsed, because it is the one group that needs no action.
     #[must_use]
     pub const fn starts_collapsed(self) -> bool {
-        matches!(self, Self::Aligned)
+        matches!(self, Self::Met)
     }
 
     /// What an empty group states, which is never "nothing here" by itself.
@@ -226,15 +230,13 @@ impl Group {
         match self {
             Self::Settings => "no failing rule closes by a setting",
             Self::AgentWork => "no failing rule closes by a file change",
-            Self::Decision => "the repository declared everything airlock asked",
-            Self::Judgment => "no rule is waiting on a person's attestation",
-            Self::Unanswered => "every rule this run asked was answered",
-            Self::AdminOnly => {
-                "no rule was withheld by a disclosure gate; this session's \
-                 credential is write-capable, so gated facts resolve under it"
-            }
-            Self::Authorized => "the policy authorized no failure",
-            Self::Aligned => "no rule passed and none was skipped",
+            Self::OperatorDeferred => "no gap is deferred without a declared fix",
+            Self::Unbuilt => "no check has an unbuilt requirement",
+            Self::RunErrors => "every rule this run asked was answered",
+            Self::Routed => "no rule was routed to another settling surface",
+            Self::Waived => "the policy authorized no failure",
+            Self::OutOfScope => "no rule is outside its declared scope",
+            Self::Met => "no compiled check decided Met",
         }
     }
 }
@@ -299,7 +301,7 @@ impl Deliveries {
 /// A choice among named sets rather than a text entry: nothing here types, so
 /// no key is captured and both chrome surfaces keep offering everything they
 /// offer. The whole working set is the default, because a default that narrowed
-/// what the operator saw first would hide part of the standard.
+/// what the operator saw first would hide part of the rule.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum FilterSet {
     /// Every finding, which is what the screen opens on.
@@ -307,8 +309,8 @@ pub enum FilterSet {
     Everything,
     /// Failures at a severity the effective gate enforces.
     GatingFailures,
-    /// Everything in the undecided lane.
-    Undecided,
+    /// Everything in the not evaluated lane.
+    NotEvaluated,
     /// Every failure, whatever its severity.
     AllFailures,
     /// Everything in the inert lane.
@@ -320,7 +322,7 @@ impl FilterSet {
     pub const ALL: [FilterSet; 5] = [
         FilterSet::Everything,
         FilterSet::GatingFailures,
-        FilterSet::Undecided,
+        FilterSet::NotEvaluated,
         FilterSet::AllFailures,
         FilterSet::Inert,
     ];
@@ -331,9 +333,9 @@ impl FilterSet {
         match self {
             Self::Everything => "the whole working set",
             Self::GatingFailures => "gating failures",
-            Self::Undecided => "undecided",
+            Self::NotEvaluated => "not evaluated",
             Self::AllFailures => "all failures",
-            Self::Inert => "inert",
+            Self::Inert => "waived and declared gates",
         }
     }
 
@@ -352,10 +354,10 @@ impl FilterSet {
     pub fn holds(self, row: &Row) -> bool {
         match self {
             Self::Everything => true,
-            Self::GatingFailures => row.status == Status::Fail && row.gate.enforces(row.severity),
-            Self::Undecided => row.status.undecided().is_some(),
-            Self::AllFailures => row.status == Status::Fail,
-            Self::Inert => lane::lane_of(row.status) == Lane::Inert,
+            Self::GatingFailures => row.status == Some(Status::Gap) && row.gates(),
+            Self::NotEvaluated => row.status.is_none(),
+            Self::AllFailures => row.status == Some(Status::Gap),
+            Self::Inert => row.status.is_none() && !row.gates(),
         }
     }
 }
@@ -368,6 +370,8 @@ impl FilterSet {
 /// question.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Row {
+    /// Visible new rules are excluded from the accepted-generation gate.
+    pub new: bool,
     /// The rule id.
     pub rule: String,
     /// The rule statement, verbatim.
@@ -375,11 +379,10 @@ pub struct Row {
     /// The severity the effective policy gave the rule.
     pub severity: Severity,
     /// What the audit concluded.
-    pub status: Status,
-    /// The section the registry gives the rule.
+    pub status: Option<Status>,
+    pub result_label: String,
+    /// The section the rules gives the rule.
     pub section: String,
-    /// The gate in force, carried so a row can say what it does to the run.
-    pub gate: Gate,
     /// The group this row takes.
     pub group: Group,
     /// Whether a pull request is open against this gap, for a file-level gap.
@@ -394,30 +397,26 @@ pub struct Row {
     /// together, and no second path exists by which a server-supplied string
     /// could reach a cell.
     pub detail: Detail,
-    /// The compiled remediation code, when one is declared.
-    pub remediation: Option<String>,
-    /// What the compiled remediation would change.
+    /// The compiled fix code, when one is declared.
+    pub fix: Option<String>,
+    /// What the compiled fix would change.
     pub change: Option<String>,
     /// Whether a later operation can reverse it.
     pub reversible: Option<bool>,
-    /// The raw policy-owned custom-property declaration offered by a decision
-    /// row. Drawing sanitizes a copy; the request body retains the exact value.
-    pub capability: Option<(String, String)>,
 }
 
 impl Row {
     /// Whether this row actually gates the run.
     ///
     /// Severity times status, never status alone: a failure at a severity the
-    /// gate does not enforce stops nothing, and neither does an undecided
+    /// gate does not enforce stops nothing, and neither does a non-evaluated
     /// result there. Only rows that gate carry the solid left rail.
     #[must_use]
     pub fn gates(&self) -> bool {
-        if !self.gate.enforces(self.severity) {
-            return false;
-        }
-        self.status == Status::Fail
-            || self.status.undecided() == Some(airlock_core::findings::Undecided::Circumstantial)
+        matches!(self.group, Group::RunErrors)
+            || (!self.new
+                && self.status == Some(Status::Gap)
+                && self.severity == Severity::Blocking)
     }
 }
 
@@ -426,8 +425,8 @@ impl Row {
 pub struct Blocker {
     /// The rule id.
     pub rule: String,
-    /// The undecided status it ended in.
-    pub status: Status,
+    /// The not evaluated status it ended in.
+    pub status: Option<Status>,
     /// What stopped it.
     pub why: String,
 }
@@ -436,7 +435,7 @@ pub struct Blocker {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Verdict {
     /// The overall conclusion.
-    pub outcome: Outcome,
+    pub outcome: AuditResult,
     /// Whether every rule at a gating severity was decided.
     pub complete: bool,
     /// Whether the gate is satisfied.
@@ -451,6 +450,14 @@ pub struct Verdict {
 /// which server text could reach a cell.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Queue {
+    /// The same audit's maturity context, made safe to draw without truncation.
+    pub maturity: Option<airlock_core::maturity::MaturityReport>,
+    /// Effective rules and their configuration provenance, in rule order.
+    pub rules: Vec<super::policy::Rule>,
+    /// Distinct sections represented by the effective rules.
+    pub sections: usize,
+    /// Configuration and exception sources from this same audit.
+    pub sources: Vec<super::policy::Source>,
     /// The repository the run is about.
     pub repository: String,
     /// The verdict and its two facts.
@@ -462,9 +469,8 @@ pub struct Queue {
     /// Every finding, ordered by group and then by rule id.
     pub rows: Vec<Row>,
     /// The gate the effective policy declared.
-    pub gate: Gate,
-    /// The registry version the run attests to.
-    pub registry_version: String,
+    /// The rules version the run attests to.
+    pub rules_version: String,
     /// What produced the reading, and what it was of.
     pub provenance: Provenance,
 }
@@ -473,11 +479,9 @@ impl Queue {
     /// Build the screen's read model from one run.
     #[must_use]
     pub fn of(report: &Report, deliveries: &Deliveries) -> Self {
-        let gate = report.policy.gate;
         let mut rows: Vec<Row> = report
-            .findings
-            .iter()
-            .map(|finding| row(finding, gate, deliveries, &report.effective_policy))
+            .entries()
+            .map(|finding| row(finding, deliveries, &report.effective_policy))
             .collect();
         // Grouped by the work, and by rule id inside each group: the audit's
         // own order is what makes a rule findable, and the group is what makes
@@ -489,16 +493,25 @@ impl Queue {
                 .then_with(|| left.rule.cmp(&right.rule))
         });
         let blockers = report
-            .findings
-            .iter()
-            .filter(|finding| finding.blocks_completeness(gate))
+            .entries()
+            .filter(|finding| finding.blocks_completeness())
             .map(|finding| Blocker {
                 rule: sanitize(&finding.rule, RULE_LIMIT),
                 status: finding.status,
                 why: why(finding),
             })
             .collect();
+        let rules = super::policy::effective_rules(report);
+        let sections = rules
+            .iter()
+            .map(|rule| &rule.section)
+            .collect::<std::collections::BTreeSet<_>>()
+            .len();
         Self {
+            maturity: report.maturity.as_ref().map(maturity_view),
+            sections,
+            sources: super::policy::sources(report),
+            rules,
             repository: drawable(&report.repository.full_name),
             verdict: Verdict {
                 outcome: report.outcome,
@@ -508,8 +521,7 @@ impl Queue {
             summary: report.summary.clone(),
             blockers,
             rows,
-            gate,
-            registry_version: sanitize(&report.airlock.registry_version, RULE_LIMIT),
+            rules_version: sanitize(&report.airlock.rules_version, RULE_LIMIT),
             provenance: Provenance::of(report),
         }
     }
@@ -543,45 +555,103 @@ impl Queue {
     }
 }
 
+/// Retain the audit's maturity result; this projection never observes it again.
+fn maturity_view(
+    source: &airlock_core::maturity::MaturityReport,
+) -> airlock_core::maturity::MaturityReport {
+    use airlock_core::maturity::{MaturityReport, Observed, Transition, TransitionRule};
+    MaturityReport {
+        observed: source.observed.as_ref().map(|observed| Observed {
+            rung: observed.rung,
+            baseline_tags: observed
+                .baseline_tags
+                .iter()
+                .map(|tag| drawable(tag))
+                .collect(),
+            release_tags: observed
+                .release_tags
+                .iter()
+                .map(|tag| drawable(tag))
+                .collect(),
+        }),
+        error: source.error.as_ref().map(|error| drawable(error)),
+        transitions: source
+            .transitions
+            .iter()
+            .map(|transition| Transition {
+                rung: transition.rung,
+                adds: transition.adds,
+                already_met: transition.already_met,
+                rules: transition
+                    .rules
+                    .iter()
+                    .map(|rule| TransitionRule {
+                        rule: drawable(&rule.rule),
+                        outcome: drawable(&rule.outcome),
+                        new: rule.new,
+                    })
+                    .collect(),
+            })
+            .collect(),
+    }
+}
+
 /// Which group a finding takes, tested in the specification's order.
 ///
 /// First match wins, and the tests are ordered so that a finding can never be
 /// read as more settled than it is: suppressed before anything that could make
-/// it look inert, admin-only before the rest of the undecided lane, and the
-/// undecided lane before every decided status.
+/// it look inert, admin-only before the rest of the not evaluated lane, and the
+/// not evaluated lane before every decided status.
 #[must_use]
 fn group_of(finding: &Finding) -> Group {
-    let evidence = finding
-        .evidence
-        .as_ref()
-        .map(|evidence| evidence.code.as_str());
+    if finding.suppression.is_some() {
+        return Group::Waived;
+    }
+    if let Some(route) = &finding.routing {
+        return match route.reason.as_str() {
+            "unbuilt" => Group::Unbuilt,
+            "out-of-scope" => Group::OutOfScope,
+            _ => Group::Routed,
+        };
+    }
     match finding.status {
-        Status::Suppressed => Group::Authorized,
-        Status::AdminOnly => Group::AdminOnly,
-        Status::Inconclusive if evidence == Some("capability_undeclared") => Group::Decision,
-        Status::Unimplemented | Status::Inconclusive | Status::Error => Group::Unanswered,
-        Status::Manual => Group::Judgment,
-        Status::Pass | Status::Skipped => Group::Aligned,
-        // A failure is grouped by what closing its gap takes, which is the
-        // rule's declared remediation lane. A failure airlock declares no
-        // remediation for — and one whose rule the registry does not classify
-        // at all — has a person as its only remaining move, so it stands with
-        // the judgments and the row says which of the two it is.
-        Status::Fail => match finding.remediation_class.lane.as_deref() {
-            Some("operator-setting") => Group::Settings,
-            Some("deterministic-file" | "judgment-file") => Group::AgentWork,
-            _ => Group::Judgment,
+        None => Group::RunErrors,
+        Some(Status::Met) => Group::Met,
+        Some(Status::Gap) => match finding.fix_class.fix_kind.as_deref() {
+            Some("operator") => Group::Settings,
+            Some("airlock" | "agent") => Group::AgentWork,
+            _ => Group::OperatorDeferred,
         },
     }
 }
 
 /// What the row says beyond its statement, where its group requires something.
-fn note_of(finding: &Finding, group: Group, gate: Gate, severity: Severity) -> Option<String> {
+fn note_of(finding: &Finding, group: Group, _severity: Severity) -> Option<String> {
+    if let Some(route) = &finding.routing {
+        let grant = rules::find(&finding.rule)
+            .and_then(rules::RuleDefinition::disclosure_gate)
+            .map_or(String::new(), |gate| {
+                format!("grant {} · ", gate.requires.code())
+            });
+        return Some(if grant.is_empty() {
+            format!(
+                "{} — {}",
+                route.reason,
+                sanitize(&route.settling_surface, REASON_LIMIT)
+            )
+        } else {
+            format!(
+                "{grant}verified by {}",
+                sanitize(&route.settling_surface, REASON_LIMIT)
+            )
+        });
+    }
+
     match group {
         // The grant the fact requires and the surface the gate names, both read
-        // from the registry declaration rather than composed here.
-        Group::AdminOnly => registry::find(&finding.rule)
-            .and_then(registry::CheckDefinition::disclosure_gate)
+        // from the rules declaration rather than composed here.
+        Group::Routed => rules::find(&finding.rule)
+            .and_then(rules::RuleDefinition::disclosure_gate)
             .map(|declared| {
                 format!(
                     "grant {} \u{b7} verified by {}",
@@ -591,23 +661,19 @@ fn note_of(finding: &Finding, group: Group, gate: Gate, severity: Severity) -> O
             }),
         // A row in this group that does not block says so on the row: it is
         // still an unanswered question, and it is not a pass.
-        Group::Unanswered if !gate.enforces(severity) => Some(format!(
-            "does not block: the {} gate does not enforce {}",
-            gate.code(),
-            severity.code()
-        )),
+        Group::RunErrors => Some("run error: blocks completeness at every severity".to_owned()),
         // The only remaining move is a person's, so the declared reason is what
         // says why airlock is not the one making it.
-        Group::Judgment if finding.status == Status::Fail => {
-            Some(finding.remediation_class.none_reason.as_ref().map_or_else(
-                || "airlock declares no remediation classification for this rule".to_owned(),
-                |reason| format!("no remediation: {}", sanitize(reason, REASON_LIMIT)),
+        Group::OperatorDeferred if finding.status == Some(Status::Gap) => {
+            Some(finding.fix_class.none_reason.as_ref().map_or_else(
+                || "airlock declares no fix classification for this rule".to_owned(),
+                |reason| format!("no fix: {}", sanitize(reason, REASON_LIMIT)),
             ))
         }
-        // Standing debt keeps its remediation: authorizing a failure does not
+        // Standing debt keeps its fix: authorizing a failure does not
         // delete the fix for it.
-        Group::Authorized => finding
-            .remediation_class
+        Group::Waived => finding
+            .fix_class
             .change
             .as_ref()
             .map(|change| format!("still on offer: {}", sanitize(change, REASON_LIMIT))),
@@ -617,17 +683,13 @@ fn note_of(finding: &Finding, group: Group, gate: Gate, severity: Severity) -> O
 
 fn row(
     finding: &Finding,
-    gate: Gate,
     deliveries: &Deliveries,
-    effective_policy: &[airlock_core::findings::EffectiveRule],
+    effective_policy: &[airlock_core::findings::EffectiveRuleRecord],
 ) -> Row {
-    let severity = Severity::parse(&finding.severity).unwrap_or(Severity::Observation);
+    let severity = Severity::parse(&finding.severity).unwrap_or(Severity::Advisory);
     let group = group_of(finding);
-    let declaration = finding
-        .evidence
-        .as_ref()
-        .and_then(|evidence| evidence.capability.as_ref());
     Row {
+        new: finding.new,
         // Whole in the model and shortened only where a column requires it.
         // The row has one line and bounds these at the moment it draws them;
         // the finding detail has the whole screen and carries them whole, and
@@ -636,43 +698,26 @@ fn row(
         statement: drawable(&finding.statement),
         severity,
         status: finding.status,
-        section: registry::find(&finding.rule).map_or_else(
+        result_label: if finding.new {
+            format!("new {}", finding.status_code())
+        } else {
+            finding.status_code().to_owned()
+        },
+        section: rules::find(&finding.rule).map_or_else(
             || "not registered".to_owned(),
             |check| check.section.code().to_owned(),
         ),
-        gate,
         group,
         delivery: deliveries.get(&finding.rule),
-        note: note_of(finding, group, gate, severity),
+        note: note_of(finding, group, severity),
         detail: Detail::of(finding, effective_policy),
-        remediation: declaration.map_or_else(
-            || {
-                finding
-                    .remediation_class
-                    .code
-                    .as_ref()
-                    .map(|value| drawable(value))
-            },
-            |_| Some("declare-capability-property".to_owned()),
-        ),
-        change: declaration.map_or_else(
-            || {
-                finding
-                    .remediation_class
-                    .change
-                    .as_ref()
-                    .map(|value| sanitize(value, REASON_LIMIT))
-            },
-            |declaration| {
-                Some(format!(
-                    "set organization custom property `{}` to `{}` for this repository",
-                    drawable(&declaration.property),
-                    drawable(&declaration.value)
-                ))
-            },
-        ),
-        reversible: declaration.map_or(finding.remediation_class.reversible, |_| Some(false)),
-        capability: declaration.map(|value| (value.property.clone(), value.value.clone())),
+        fix: finding.fix_class.code.as_ref().map(|value| drawable(value)),
+        change: finding
+            .fix_class
+            .change
+            .as_ref()
+            .map(|value| drawable(value)),
+        reversible: finding.fix_class.reversible,
     }
 }
 
@@ -701,7 +746,7 @@ pub struct State {
     /// Which entry is focused.
     selected: usize,
     /// Which groups are collapsed, indexed by [`Group::number`] minus one.
-    collapsed: [bool; 8],
+    collapsed: [bool; Group::ALL.len()],
     /// The set the filter has selected.
     filter: FilterSet,
     /// Whether the flat lookup view is open.
@@ -710,7 +755,7 @@ pub struct State {
 
 impl Default for State {
     fn default() -> Self {
-        let mut collapsed = [false; 8];
+        let mut collapsed = [false; Group::ALL.len()];
         for group in Group::ALL {
             collapsed[group.number() - 1] = group.starts_collapsed();
         }
@@ -808,7 +853,7 @@ pub enum Entry {
 /// The entries the queue draws, in order.
 ///
 /// Every group heading is present whatever the filter and whatever is
-/// collapsed, so the whole standard is always addressable and every count is
+/// collapsed, so the whole rule is always addressable and every count is
 /// always in view.
 #[must_use]
 pub fn entries(queue: &Queue, state: &State) -> Vec<Entry> {
@@ -863,16 +908,16 @@ pub fn focused_row<'a>(queue: &'a Queue, entries: &[Entry], selected: usize) -> 
 }
 
 /// The status line: the verdict, `complete` as its own boolean, the rule count,
-/// the registry version, and the gate in force.
+/// the rules version, and the gate in force.
 #[must_use]
 pub fn status(queue: &Queue) -> String {
     format!(
-        "{} \u{b7} complete {} \u{b7} {} rules \u{b7} registry {} \u{b7} gate {}",
+        "{} \u{b7} complete {} \u{b7} {} rules \u{b7} rules {} \u{b7} gate {}",
         queue.verdict.outcome.code(),
         queue.verdict.complete,
         queue.rows.len(),
-        queue.registry_version,
-        queue.gate.code()
+        queue.rules_version,
+        "blocking"
     )
 }
 
@@ -1028,7 +1073,7 @@ fn blockers(styles: Styles, width: usize, queue: &Queue, density: Density) -> Ve
         return Vec::new();
     }
     let mut lines = vec![Line::from(vec![
-        Span::styled("RUN INCOMPLETE  ", styles.bold(Role::Status(Status::Error))),
+        Span::styled("RUN INCOMPLETE  ", styles.bold(Role::Status(None))),
         Span::styled(
             fit(
                 "complete is false, and no verdict below it can be certified",
@@ -1047,7 +1092,7 @@ fn blockers(styles: Styles, width: usize, queue: &Queue, density: Density) -> Ve
             "  {} {:<RULE_WIDTH$}{:<STATUS_WIDTH$}",
             lane::glyph_of(blocker.status),
             blocker.rule,
-            blocker.status.code()
+            "run-error"
         );
         let room = width.saturating_sub(prefix.chars().count());
         lines.push(Line::from(vec![
@@ -1072,11 +1117,11 @@ fn blockers(styles: Styles, width: usize, queue: &Queue, density: Density) -> Ve
 fn verdict(styles: Styles, width: usize, queue: &Queue) -> Vec<Line<'static>> {
     let outcome = queue.verdict.outcome;
     let glyph = match outcome {
-        Outcome::Conformant => Status::Pass,
-        Outcome::Nonconformant => Status::Fail,
-        Outcome::Incomplete => Status::Inconclusive,
+        AuditResult::Conformant => Some(Status::Met),
+        AuditResult::Nonconformant => Some(Status::Gap),
+        AuditResult::Incomplete => None,
     };
-    let aligned = queue.count(Group::Aligned);
+    let aligned = queue.count(Group::Met);
     let total = queue.rows.len();
     let mut lines = vec![Line::from(vec![
         Span::styled("VERDICT  ", styles.bold(Role::Text)),
@@ -1086,16 +1131,16 @@ fn verdict(styles: Styles, width: usize, queue: &Queue) -> Vec<Line<'static>> {
         ),
         Span::styled("   ", styles.of(Role::Faint)),
         Span::styled(
-            format!("ALIGNED {aligned} of {total}"),
-            styles.bold(Role::Status(Status::Pass)),
+            format!("MET {aligned} of {total}"),
+            styles.bold(Role::Status(Some(Status::Met))),
         ),
         Span::styled(
             if aligned == total && total > 0 {
-                "  the repository is aligned".to_owned()
+                "  all rules are Met".to_owned()
             } else {
                 String::new()
             },
-            styles.of(Role::Status(Status::Pass)),
+            styles.of(Role::Status(Some(Status::Met))),
         ),
     ])];
     for (label, value, reason) in [
@@ -1103,27 +1148,24 @@ fn verdict(styles: Styles, width: usize, queue: &Queue) -> Vec<Line<'static>> {
             "complete",
             queue.verdict.complete,
             if queue.verdict.complete {
-                "every rule at a gating severity was decided".to_owned()
+                "no run errors".to_owned()
             } else {
-                format!(
-                    "{} rules at a gating severity ended undecided because this run \
-                     fell short",
-                    queue.blockers.len()
-                )
+                format!("{} run errors prevented completion", queue.blockers.len())
             },
         ),
         (
             "conformant",
             queue.verdict.conformant,
             if queue.verdict.conformant {
-                "no rule at a gating severity ended in fail".to_owned()
+                "no blocking Gaps".to_owned()
             } else {
                 format!(
-                    "{} rules at a gating severity ended in fail",
+                    "{} blocking Gaps",
                     queue
                         .rows
                         .iter()
-                        .filter(|row| row.status == Status::Fail && row.gate.enforces(row.severity))
+                        .filter(|row| row.status == Some(Status::Gap)
+                            && row.severity == Severity::Blocking)
                         .count()
                 )
             },
@@ -1137,16 +1179,15 @@ fn verdict(styles: Styles, width: usize, queue: &Queue) -> Vec<Line<'static>> {
         ]));
     }
     // A conformant verdict is never read as every rule having been decided.
-    let unanswered = queue.summary.count(Status::AdminOnly);
-    if unanswered > 0 {
-        let prefix = format!("  {:<12}{unanswered:<7}", "unanswered");
+    let routed = queue.summary.routed;
+    if routed > 0 {
+        let prefix = format!("  {:<12}{routed:<7}", "routed");
         let room = width.saturating_sub(prefix.chars().count());
         lines.push(Line::from(vec![
-            Span::styled(prefix, styles.of(Role::Status(Status::AdminOnly))),
+            Span::styled(prefix, styles.of(Role::Status(None))),
             Span::styled(
                 fit(
-                    "ended admin-only and are still undecided, so this verdict is not \
-                     every rule having been decided",
+                    "routed: no Met or Gap outcome; see the settling surface",
                     room,
                 ),
                 styles.of(Role::Dim),
@@ -1157,52 +1198,22 @@ fn verdict(styles: Styles, width: usize, queue: &Queue) -> Vec<Line<'static>> {
 }
 
 /// The status summary: every one of the nine statuses, under its lane.
-fn summary(styles: Styles, width: usize, queue: &Queue, density: Density) -> Vec<Line<'static>> {
-    let mut lines = Vec::new();
-    for lane in Lane::ALL {
-        let counts: Vec<String> = Status::ALL
-            .iter()
-            .filter(|status| lane::lane_of(**status) == lane)
-            .map(|status| {
-                format!(
-                    "{} {} {}",
-                    lane::glyph_of(*status),
-                    status.code(),
-                    queue.summary.count(*status)
-                )
-            })
-            .collect();
-        let heading = format!("{:<20}", lane.heading());
-        let counts = counts.join(" \u{b7} ");
-        // The counts are never elided: a status whose count was cut is a status
-        // the summary did not report. Where the width cannot carry the heading
-        // and the counts on one line, the counts take the next one.
-        if heading.chars().count() + counts.chars().count() <= width {
-            lines.push(Line::from(vec![
-                Span::styled(heading, styles.bold(Role::Dim)),
-                Span::styled(counts, styles.of(Role::Text)),
-            ]));
-        } else {
-            lines.push(Line::from(Span::styled(
-                lane.heading(),
-                styles.bold(Role::Dim),
-            )));
-            lines.push(Line::from(Span::styled(
-                format!("  {}", fit(&counts, width.saturating_sub(2))),
-                styles.of(Role::Text),
-            )));
-        }
-        // The undecided qualifier is printed at every width, because an
-        // undecided result at a severity the gate does not enforce leaves the
-        // run complete and the heading alone does not say so.
-        if density == Density::Full || lane == Lane::Undecided {
-            lines.push(Line::from(Span::styled(
-                format!("  {}", fit(lane.qualifier(), width.saturating_sub(2))),
-                styles.of(Role::Faint).add_modifier(Modifier::ITALIC),
-            )));
-        }
-    }
-    lines
+fn summary(styles: Styles, width: usize, queue: &Queue, _density: Density) -> Vec<Line<'static>> {
+    let summary = &queue.summary;
+    let counts = format!(
+        "met {} · gap {} · waived {} · routed {} · unbuilt {} · out-of-scope {} · errors {}",
+        summary.met,
+        summary.gap,
+        summary.waived,
+        summary.routed,
+        summary.unbuilt,
+        summary.out_of_scope,
+        summary.run_errors
+    );
+    super::chrome::wrap(&counts, width)
+        .into_iter()
+        .map(|line| Line::from(Span::styled(line, styles.of(Role::Text))))
+        .collect()
 }
 
 /// The standing tally: every group's count, whatever is collapsed or filtered.
@@ -1231,7 +1242,7 @@ fn filter_line(
     density: Density,
 ) -> Vec<Line<'static>> {
     let total = queue.rows.len();
-    let gate = queue.gate.code();
+    let gate = "blocking";
     let value = match (state.flat(), density) {
         (true, Density::Full) => format!(
             "lookup \u{b7} every finding ordered by rule id \u{b7} all {total} shown, \
@@ -1330,13 +1341,13 @@ fn row_lines(
         // drawn from severity times status rather than from the group.
         Span::styled(
             if row.gates() { GATING_RAIL } else { " " },
-            styles.of(Role::Status(Status::Fail)),
+            styles.of(Role::Status(Some(Status::Gap))),
         ),
         Span::raw(" "),
         Span::styled(lane::severity_bar(row.severity), styles.of(Role::Text)),
         Span::raw(" "),
     ];
-    spans.extend(lane::lanes_spans(Some(row.status), styles));
+    spans.extend(lane::lanes_spans(row.status, styles));
     spans.push(Span::raw(" "));
     spans.push(Span::styled(
         format!("{:<RULE_WIDTH$}", fit(&row.rule, RULE_WIDTH - 1)),
@@ -1347,13 +1358,13 @@ fn row_lines(
         },
     ));
     spans.push(Span::styled(
-        format!("{:<STATUS_WIDTH$}", row.status.code()),
+        format!("{:<STATUS_WIDTH$}", row.result_label),
         styles.of(Role::Status(row.status)),
     ));
     let room = width.saturating_sub(SPENT);
     if one_line(row, width, density) {
         // The fact is allocated out of everything the row has left, before the
-        // section takes its column: the section is bounded registry vocabulary
+        // section takes its column: the section is bounded rules vocabulary
         // and elides the way every bounded field here does, and the fact is
         // what the group exists to carry.
         let fact = fact(row, room);
@@ -1387,7 +1398,7 @@ fn row_lines(
             let left = room.saturating_sub(fact.chars().count() + 3);
             // A section cut to a character and an ellipsis tells a reader
             // nothing and reads as a fault, so below that it gives way
-            // altogether. It is bounded registry vocabulary and the finding
+            // altogether. It is bounded rules vocabulary and the finding
             // detail carries it; the fact is what the row cannot lose.
             if left < SECTION_STUB {
                 fact
@@ -1410,7 +1421,7 @@ fn row_lines(
 /// The fact arrives already allocated, because which of the two is allocated
 /// first is the whole question: the fact is what the group exists to carry —
 /// the delivery state of a file-level gap, the grant an admin-only fact
-/// requires, or why airlock declares no remediation. A statement the width
+/// requires, or why airlock declares no fix. A statement the width
 /// cannot hold is shortened; a fact is never shortened to make room for one.
 fn detail(fact: Option<String>, statement: &str, room: usize) -> String {
     let Some(fact) = fact else {
@@ -1492,31 +1503,62 @@ fn scroll(
 /// it — there is no GitHub here to give it anything else.
 #[cfg(test)]
 pub mod fixture {
+
+    pub fn routed(mut finding: Finding) -> Finding {
+        finding.status = None;
+        finding.routing = Some(airlock_core::findings::Routing {
+            reason: "needs-administration".to_owned(),
+            settling_surface: "interactive-session".to_owned(),
+        });
+        finding
+    }
+    pub fn unbuilt(mut finding: Finding) -> Finding {
+        finding.status = None;
+        finding.routing = Some(airlock_core::findings::Routing {
+            reason: "unbuilt".to_owned(),
+            settling_surface: "A release with the compiled check implemented".to_owned(),
+        });
+        finding
+    }
+    pub fn waived(mut finding: Finding) -> Finding {
+        finding.status = None;
+        finding.severity = "none".to_owned();
+        finding.suppression = Some(airlock_core::findings::Suppression {
+            source: airlock_core::findings::SuppressionSource::Policy,
+            requested_reason: None,
+            policy_reason: Some("fixture waiver".to_owned()),
+            authorized_by: "fixture policy".to_owned(),
+        });
+        finding
+    }
+
     use std::collections::BTreeMap;
 
     use super::{Deliveries, Delivery};
     use airlock_core::findings::{
-        AirlockIdentity, AuditedRepository, EffectiveRule, Evidence, Finding, FindingError, Gate,
-        ObservationRecord, PolicyIdentity, PolicySourceIdentity, Remediation, RemediationClass,
-        Report, Status, Suppression, SuppressionSource,
+        AirlockIdentity, AuditedRepository, EffectiveRuleRecord, Evidence, Finding, FindingError,
+        Fix, FixClass, ObservationRecord, PolicyIdentity, PolicySourceIdentity, Report, Status,
+        Suppression, SuppressionSource,
     };
-    use airlock_core::registry::{self, Severity};
-    use airlock_core::remediation::ActionGroup;
+    use airlock_core::fix::FixGroup;
+    use airlock_core::rules::{self, Severity};
 
-    /// One finding, with the registry's own classification joined onto it.
+    /// One finding, with the rules' own classification joined onto it.
     #[must_use]
-    pub fn finding(rule: &str, severity: Severity, status: Status) -> Finding {
+    pub fn finding(rule: &str, severity: Severity, status: Option<Status>) -> Finding {
         Finding {
+            new: false,
             rule: rule.to_owned(),
             statement: format!("the condition {rule} states"),
             severity: severity.code().to_owned(),
             status,
             evidence: None,
-            remediation: None,
-            remediation_class: RemediationClass::for_rule(rule),
+            fix: None,
+            fix_class: FixClass::for_rule(rule),
             suppression: None,
             source: Some("api".to_owned()),
             error: None,
+            routing: None,
         }
     }
 
@@ -1527,8 +1569,8 @@ pub mod fixture {
     /// because a capability selected it, and a fixture without that record
     /// would make every screen that reads it look emptier than any run is.
     #[must_use]
-    pub fn report(gate: Gate, findings: Vec<Finding>) -> Report {
-        let mut effective_policy: Vec<EffectiveRule> = Vec::new();
+    pub fn report(findings: Vec<Finding>) -> Report {
+        let mut effective_policy: Vec<EffectiveRuleRecord> = Vec::new();
         for finding in &findings {
             if effective_policy
                 .iter()
@@ -1536,14 +1578,14 @@ pub mod fixture {
             {
                 continue;
             }
-            effective_policy.push(EffectiveRule {
+            effective_policy.push(EffectiveRuleRecord {
+                new: finding.new,
                 rule: finding.rule.clone(),
                 severity: finding.severity.clone(),
                 params: BTreeMap::new(),
                 provenance: format!(
                     "capability:base/{}",
-                    registry::find(&finding.rule)
-                        .map_or("unregistered", |check| check.section.code())
+                    rules::find(&finding.rule).map_or("unregistered", |check| check.section.code())
                 ),
             });
         }
@@ -1562,14 +1604,13 @@ pub mod fixture {
                 source: "./policy.yml".to_owned(),
                 commit: None,
                 sources: vec![PolicySourceIdentity {
-                    name: "standards".to_owned(),
-                    source: "acme-industries/.github:standards.yml".to_owned(),
+                    name: "rules".to_owned(),
+                    source: "acme-industries/.github:rules.yml".to_owned(),
                     commit: Some("b".repeat(40)),
                     blob_sha: Some("c".repeat(40)),
                     content_digest: "sha256:2".to_owned(),
                 }],
                 bundle_digest: "sha256:0".to_owned(),
-                gate,
             },
             effective_policy,
             Vec::new(),
@@ -1579,16 +1620,16 @@ pub mod fixture {
 
     /// A failure whose declared lane is a setting: airlock closes it.
     ///
-    /// It carries a contextual remediation as well as the rule's declared
+    /// It carries a contextual fix as well as the rule's declared
     /// classification, because a real failing rule does: the classification
-    /// says what the rule's gap always takes, and the remediation is what this
+    /// says what the rule's gap always takes, and the fix is what this
     /// run produced to carry out.
     #[must_use]
     pub fn settings_failure() -> Finding {
-        let mut finding = finding("REPO-GIT-01", Severity::Blocking, Status::Fail);
+        let mut finding = finding("REPO-GIT-01", Severity::Blocking, Some(Status::Gap));
         finding.evidence = Some(Evidence::new("branch_unprotected", "no ruleset applies"));
-        finding.remediation = Some(Remediation::new(
-            ActionGroup::TIGHTEN_RULESET,
+        finding.fix = Some(Fix::new(
+            FixGroup::TIGHTEN_RULESET,
             "Protect the default branch with a ruleset that requires a pull request.",
         ));
         finding
@@ -1596,35 +1637,39 @@ pub mod fixture {
 
     /// A settings-level failure this run produced no remedy for.
     ///
-    /// The rule is classified `operator-setting` and the run offered nothing to
+    /// The rule is classified `operator` and the run offered nothing to
     /// carry out. The two facts live on different fields and a surface that
     /// reads only the classification cannot tell this apart from the case
     /// above — which is the whole reason it is a fixture.
     #[must_use]
     pub fn settings_failure_without_a_remedy() -> Finding {
         let mut finding = settings_failure();
-        finding.remediation = None;
+        finding.fix = None;
         finding
     }
 
     /// A failure whose declared lane is a file change: an agent closes it.
     #[must_use]
     pub fn file_failure() -> Finding {
-        finding("REPO-LIC-01", Severity::Required, Status::Fail)
+        finding("REPO-LIC-01", Severity::Advisory, Some(Status::Gap))
     }
 
     /// A rule the repository has not declared enough about to evaluate.
     #[must_use]
-    pub fn capability_undeclared() -> Finding {
-        let mut finding = finding("REPO-REL-04", Severity::Required, Status::Inconclusive);
-        finding.evidence = Some(Evidence::capability_undeclared("release", "true"));
+    pub fn missing_input() -> Finding {
+        let mut finding = finding("REPO-REL-04", Severity::Advisory, None);
+        finding.evidence = Some(Evidence::new(
+            "required_input_missing",
+            "a required input is missing",
+        ));
         finding
     }
 
     /// A failure the policy authorized, which is standing debt.
     #[must_use]
     pub fn suppressed() -> Finding {
-        let mut finding = finding("REPO-CI-02", Severity::Blocking, Status::Suppressed);
+        let mut finding =
+            crate::tui::findings::fixture::waived(finding("REPO-CI-02", Severity::Blocking, None));
         finding.suppression = Some(Suppression {
             source: SuppressionSource::Policy,
             requested_reason: None,
@@ -1637,7 +1682,7 @@ pub mod fixture {
     /// A rule an API failure stopped.
     #[must_use]
     pub fn errored() -> Finding {
-        let mut finding = finding("REPO-GIT-09", Severity::Blocking, Status::Error);
+        let mut finding = finding("REPO-GIT-09", Severity::Blocking, None);
         finding.error = Some(FindingError {
             cause: "permission".to_owned(),
             endpoint: "GET /repos/{owner}/{repo}/rulesets".to_owned(),
@@ -1654,34 +1699,32 @@ pub mod fixture {
     /// A run with every group populated.
     #[must_use]
     pub fn mixed() -> Report {
-        report(
-            Gate::Required,
-            vec![
-                settings_failure(),
-                file_failure(),
-                capability_undeclared(),
-                finding("REPO-README-04", Severity::Required, Status::Manual),
-                finding("REPO-CI-02", Severity::Blocking, Status::Unimplemented),
-                finding("REPO-GIT-04", Severity::Required, Status::AdminOnly),
-                suppressed(),
-                finding("REPO-META-01", Severity::Blocking, Status::Pass),
-                finding("REPO-META-02", Severity::Required, Status::Skipped),
-            ],
-        )
+        report(vec![
+            settings_failure(),
+            file_failure(),
+            missing_input(),
+            crate::tui::findings::fixture::unbuilt(finding(
+                "REPO-README-04",
+                Severity::Advisory,
+                None,
+            )),
+            errored(),
+            crate::tui::findings::fixture::routed(finding("REPO-GIT-04", Severity::Advisory, None)),
+            suppressed(),
+            finding("REPO-META-01", Severity::Blocking, Some(Status::Met)),
+            finding("REPO-META-02", Severity::Advisory, Some(Status::Met)),
+        ])
     }
 
     /// A run this session fell short of completing.
     #[must_use]
     pub fn incomplete() -> Report {
-        report(
-            Gate::Required,
-            vec![
-                errored(),
-                finding("REPO-CI-02", Severity::Blocking, Status::Unimplemented),
-                settings_failure(),
-                finding("REPO-META-01", Severity::Blocking, Status::Pass),
-            ],
-        )
+        report(vec![
+            errored(),
+            crate::tui::findings::fixture::unbuilt(finding("REPO-CI-02", Severity::Blocking, None)),
+            settings_failure(),
+            finding("REPO-META-01", Severity::Blocking, Some(Status::Met)),
+        ])
     }
 
     /// A failure whose declared reason is longer than the floor can carry.
@@ -1693,9 +1736,9 @@ pub mod fixture {
     /// takes one away.
     #[must_use]
     pub fn long_fact() -> Report {
-        let mut unremediable = finding("REPO-DOCS-05", Severity::Required, Status::Fail);
-        unremediable.remediation_class = RemediationClass {
-            lane: None,
+        let mut unfixable = finding("REPO-DOCS-05", Severity::Advisory, Some(Status::Gap));
+        unfixable.fix_class = FixClass {
+            fix_kind: None,
             code: None,
             change: None,
             reversible: None,
@@ -1705,13 +1748,10 @@ pub mod fixture {
                     .to_owned(),
             ),
         };
-        report(
-            Gate::Required,
-            vec![
-                unremediable,
-                finding("REPO-META-01", Severity::Blocking, Status::Pass),
-            ],
-        )
+        report(vec![
+            unfixable,
+            finding("REPO-META-01", Severity::Blocking, Some(Status::Met)),
+        ])
     }
 
     /// A run whose every server-supplied string is long and hostile.
@@ -1728,32 +1768,29 @@ pub mod fixture {
         // another: a test asserting a value survived would otherwise pass on a
         // different value that happened to contain it.
         let long = |seed: &str| format!("{seed}\u{1b}[2J\u{200b}\u{202e}{}", seed.repeat(120));
-        let mut failed = finding("REPO-GIT-01", Severity::Blocking, Status::Fail);
+        let mut failed = finding("REPO-GIT-01", Severity::Blocking, Some(Status::Gap));
         failed.statement = long("statement");
         failed.evidence = Some(Evidence::at(
             long("evidence-code"),
             long("evidence-path"),
             long("evidence-detail"),
         ));
-        failed.remediation = Some(Remediation::new(
-            ActionGroup::TIGHTEN_RULESET,
-            long("remediation-detail"),
-        ));
-        failed.remediation_class = RemediationClass {
-            lane: Some("operator-setting".to_owned()),
+        failed.fix = Some(Fix::new(FixGroup::TIGHTEN_RULESET, long("fix-detail")));
+        failed.fix_class = FixClass {
+            fix_kind: Some("operator".to_owned()),
             code: Some(long("class-code")),
             change: Some(long("class-change")),
             reversible: Some(true),
             none_reason: None,
         };
-        let mut errored = finding("REPO-GIT-09", Severity::Blocking, Status::Error);
+        let mut errored = finding("REPO-GIT-09", Severity::Blocking, None);
         errored.statement = long("error-statement");
-        errored.remediation_class = RemediationClass {
-            lane: None,
+        errored.fix_class = FixClass {
+            fix_kind: None,
             code: None,
             change: None,
             reversible: None,
-            none_reason: Some(long("no-remediation-reason")),
+            none_reason: Some(long("no-fix-reason")),
         };
         errored.error = Some(FindingError {
             cause: long("cause"),
@@ -1765,10 +1802,11 @@ pub mod fixture {
             request_id: Some(long("request")),
             message_hints_version: 1,
         });
-        let mut suppressed = finding("REPO-CI-02", Severity::Blocking, Status::Suppressed);
+        let mut suppressed =
+            crate::tui::findings::fixture::waived(finding("REPO-CI-02", Severity::Blocking, None));
         suppressed.statement = long("suppressed-statement");
-        suppressed.remediation_class = RemediationClass {
-            lane: Some("deterministic-file".to_owned()),
+        suppressed.fix_class = FixClass {
+            fix_kind: Some("airlock".to_owned()),
             code: Some(long("suppressed-class-code")),
             change: Some(long("suppressed-class-change")),
             reversible: Some(false),
@@ -1780,7 +1818,7 @@ pub mod fixture {
             policy_reason: Some(long("policy-reason")),
             authorized_by: long("authorized-by"),
         });
-        let mut report = report(Gate::Required, vec![failed, errored, suppressed]);
+        let mut report = report(vec![failed, errored, suppressed]);
         for entry in &mut report.effective_policy {
             entry.provenance = long("provenance");
         }
@@ -1789,8 +1827,8 @@ pub mod fixture {
         // here so a bound reintroduced anywhere on that path is caught by the
         // same fixture rather than by the next review.
         report.airlock.version = long("airlock-version");
-        report.airlock.registry_version = long("registry-version");
-        report.airlock.registry_digest = long("registry-digest");
+        report.airlock.rules_version = long("rules-version");
+        report.airlock.rules_digest = long("rules-digest");
         report.repository.audited_commit = long("audited-commit");
         report.repository.settings_observed_at = Some(long("settings-observed"));
         report.repository.full_name = long("repository-name");
@@ -1800,14 +1838,15 @@ pub mod fixture {
     /// A repository with nothing left to close.
     #[must_use]
     pub fn aligned() -> Report {
-        report(
-            Gate::Required,
-            vec![
-                finding("REPO-LIC-01", Severity::Blocking, Status::Pass),
-                finding("REPO-META-01", Severity::Required, Status::Pass),
-                finding("REPO-REL-04", Severity::Required, Status::Skipped),
-            ],
-        )
+        report(vec![
+            finding("REPO-LIC-01", Severity::Blocking, Some(Status::Met)),
+            finding("REPO-META-01", Severity::Advisory, Some(Status::Met)),
+            crate::tui::findings::fixture::unbuilt(finding(
+                "REPO-REL-04",
+                Severity::Advisory,
+                None,
+            )),
+        ])
     }
 
     /// What one observation established about work already in flight.
@@ -1820,19 +1859,92 @@ pub mod fixture {
 #[cfg(test)]
 mod tests {
     use super::fixture::{
-        capability_undeclared, file_failure, finding, report, settings_failure, suppressed,
+        file_failure, finding, missing_input, report, settings_failure, suppressed,
     };
     use super::*;
     use crate::tui::chrome::{FLOOR_HEIGHT, FLOOR_WIDTH, REFERENCE_HEIGHT, REFERENCE_WIDTH};
     use crate::tui::theme::{ColorMode, Theme};
-    use airlock_core::findings::{Evidence, FindingError, RemediationClass};
+    use airlock_core::findings::{Evidence, FindingError, FixClass};
+
+    #[test]
+    fn maturity_context_is_retained_without_terminal_controls() {
+        use airlock_core::maturity::{MaturityReport, Observed, Transition, TransitionRule};
+        let hostile = format!("{}\u{1b}[2J", "a".repeat(900));
+        let mut source = fixture::mixed();
+        source.maturity = Some(MaturityReport {
+            observed: Some(Observed {
+                rung: rules::Lifecycle::Building,
+                baseline_tags: vec![hostile.clone()],
+                release_tags: vec![hostile.clone()],
+            }),
+            error: None,
+            transitions: vec![Transition {
+                rung: rules::Lifecycle::Released,
+                adds: 1,
+                already_met: 0,
+                rules: vec![TransitionRule {
+                    rule: hostile.clone(),
+                    outcome: hostile.clone(),
+                    new: true,
+                }],
+            }],
+        });
+        let queue = Queue::of(&source, &Deliveries::default());
+        let projected = queue.maturity.as_ref().unwrap();
+        let observed = projected.observed.as_ref().unwrap();
+        assert_eq!(observed.rung, rules::Lifecycle::Building);
+        assert_eq!(observed.baseline_tags, vec![drawable(&hostile)]);
+        assert_eq!(observed.release_tags, vec![drawable(&hostile)]);
+        assert_eq!(projected.transitions[0].rules[0].rule, drawable(&hostile));
+        assert_eq!(
+            projected.transitions[0].rules[0].outcome,
+            drawable(&hostile)
+        );
+        assert!(projected.transitions[0].rules[0].new);
+        assert_eq!(projected.transitions[0].adds, 1);
+        assert_eq!(queue.rows.len(), source.entries().count());
+        source.maturity = Some(MaturityReport {
+            observed: None,
+            error: Some(hostile.clone()),
+            transitions: Vec::new(),
+        });
+        let failed = Queue::of(&source, &Deliveries::default());
+        assert_eq!(
+            failed.maturity.as_ref().unwrap().error,
+            Some(drawable(&hostile))
+        );
+        assert!(failed.maturity.as_ref().unwrap().observed.is_none());
+    }
+
+    #[test]
+    fn a_new_rule_run_error_still_gates_the_tui() {
+        let mut entry = finding("REPO-LIC-01", Severity::Advisory, None);
+        entry.new = true;
+        let queue = queue(vec![entry]);
+        assert!(!queue.verdict.complete);
+        assert!(queue.rows[0].gates());
+        assert_eq!(queue.rows[0].group, Group::RunErrors);
+        assert_eq!(queue.blockers.len(), 1);
+    }
+
+    #[test]
+    fn queue_marks_new_rules_while_preserving_their_gap() {
+        let mut item = finding("REPO-LIC-01", Severity::Blocking, Some(Status::Gap));
+        item.new = true;
+        let queue = queue(vec![item]);
+        assert!(queue.rules[0].new);
+        assert_eq!(queue.rows[0].result_label, "new gap");
+        assert_eq!(queue.rows[0].status, Some(Status::Gap));
+        assert!(!queue.rows[0].gates());
+        assert!(queue.shown(FilterSet::GatingFailures).is_empty());
+    }
 
     fn styles() -> Styles {
         Styles::new(Theme::Dark, ColorMode::Color)
     }
 
     fn queue(findings: Vec<Finding>) -> Queue {
-        Queue::of(&report(Gate::Required, findings), &Deliveries::default())
+        Queue::of(&report(findings), &Deliveries::default())
     }
 
     fn text(lines: &[Line<'static>]) -> String {
@@ -1855,33 +1967,79 @@ mod tests {
     // -----------------------------------------------------------------
 
     #[test]
+    fn one_read_model_retains_all_results_configuration_and_gate_reasons() {
+        let source = fixture::mixed();
+        let queue = Queue::of(&source, &Deliveries::default());
+        assert_eq!(queue.rows.len(), source.entries().count());
+        assert_eq!(queue.rules.len(), source.effective_policy.len());
+        assert!(!queue.sources.is_empty());
+        assert_eq!(queue.provenance, Provenance::of(&source));
+        for entry in source.entries() {
+            let row = queue
+                .rows
+                .iter()
+                .find(|row| row.rule == entry.rule)
+                .unwrap();
+            assert_eq!(row.status, entry.status);
+            assert_eq!(row.result_label, entry.status_code());
+            if let Some(route) = &entry.routing {
+                let projected = row.detail.routing.as_ref().expect("declared gate retained");
+                assert_eq!(projected.reason, drawable(&route.reason));
+                assert_eq!(
+                    projected.settling_surface,
+                    drawable(&route.settling_surface)
+                );
+                assert!(!row.gates());
+            }
+            if let Some(evidence) = &entry.evidence {
+                assert_eq!(
+                    row.detail.evidence.as_ref().unwrap().detail,
+                    drawable(&evidence.detail)
+                );
+            }
+        }
+    }
+
+    #[test]
     fn a_finding_takes_the_first_group_it_matches() {
         for (finding, expected) in [
-            (suppressed(), Group::Authorized),
+            (suppressed(), Group::Waived),
             (
-                finding("REPO-GIT-04", Severity::Required, Status::AdminOnly),
-                Group::AdminOnly,
+                crate::tui::findings::fixture::routed(finding(
+                    "REPO-GIT-04",
+                    Severity::Advisory,
+                    None,
+                )),
+                Group::Routed,
             ),
-            (capability_undeclared(), Group::Decision),
+            (missing_input(), Group::RunErrors),
             (
-                finding("REPO-CI-02", Severity::Blocking, Status::Unimplemented),
-                Group::Unanswered,
-            ),
-            (
-                finding("REPO-CI-02", Severity::Blocking, Status::Error),
-                Group::Unanswered,
-            ),
-            (
-                finding("REPO-README-04", Severity::Required, Status::Manual),
-                Group::Judgment,
-            ),
-            (
-                finding("REPO-LIC-01", Severity::Blocking, Status::Pass),
-                Group::Aligned,
+                crate::tui::findings::fixture::unbuilt(finding(
+                    "REPO-CI-02",
+                    Severity::Blocking,
+                    None,
+                )),
+                Group::Unbuilt,
             ),
             (
-                finding("REPO-REL-04", Severity::Blocking, Status::Skipped),
-                Group::Aligned,
+                finding("REPO-CI-02", Severity::Blocking, None),
+                Group::RunErrors,
+            ),
+            (
+                crate::tui::findings::fixture::unbuilt(finding(
+                    "REPO-README-04",
+                    Severity::Advisory,
+                    None,
+                )),
+                Group::Unbuilt,
+            ),
+            (
+                finding("REPO-LIC-01", Severity::Blocking, Some(Status::Met)),
+                Group::Met,
+            ),
+            (
+                finding("REPO-REL-04", Severity::Blocking, Some(Status::Met)),
+                Group::Met,
             ),
             (settings_failure(), Group::Settings),
             (file_failure(), Group::AgentWork),
@@ -1891,24 +2049,24 @@ mod tests {
     }
 
     #[test]
-    fn an_inconclusive_finding_is_a_decision_only_when_the_evidence_says_so() {
-        assert_eq!(group_of(&capability_undeclared()), Group::Decision);
-        let mut other = capability_undeclared();
+    fn missing_inputs_remain_run_errors_without_a_declared_gate() {
+        assert_eq!(group_of(&missing_input()), Group::RunErrors);
+        let mut other = missing_input();
         other.evidence = Some(Evidence::new("tree_truncated", "the tree was truncated"));
-        assert_eq!(group_of(&other), Group::Unanswered);
+        assert_eq!(group_of(&other), Group::RunErrors);
     }
 
     #[test]
-    fn a_failure_with_no_declared_remediation_stands_with_the_judgments_and_says_why() {
-        let mut finding = finding("REPO-XX-99", Severity::Blocking, Status::Fail);
-        finding.remediation_class = RemediationClass {
-            lane: None,
+    fn a_gap_with_no_declared_fix_is_deferred_to_the_operator_with_its_reason() {
+        let mut finding = finding("REPO-XX-99", Severity::Blocking, Some(Status::Gap));
+        finding.fix_class = FixClass {
+            fix_kind: None,
             code: None,
             change: None,
             reversible: None,
             none_reason: Some("the choice is the maintainer's".to_owned()),
         };
-        assert_eq!(group_of(&finding), Group::Judgment);
+        assert_eq!(group_of(&finding), Group::OperatorDeferred);
         let queue = queue(vec![finding]);
         let note = queue.rows[0]
             .note
@@ -1918,29 +2076,27 @@ mod tests {
     }
 
     #[test]
-    fn a_long_remediation_code_round_trips_through_the_queue_row() {
-        let finding = finding("REPO-GIT-06", Severity::Blocking, Status::Fail);
+    fn a_long_fix_code_round_trips_through_the_queue_row() {
+        let finding = finding("REPO-GIT-06", Severity::Blocking, Some(Status::Gap));
         let expected = finding
-            .remediation_class
+            .fix_class
             .code
             .clone()
-            .expect("REPO-GIT-06 has a remediation code");
+            .expect("REPO-GIT-06 has a fix code");
 
         let queue = queue(vec![finding]);
 
-        assert_eq!(
-            queue.rows[0].remediation.as_deref(),
-            Some(expected.as_str())
-        );
+        assert_eq!(queue.rows[0].fix.as_deref(), Some(expected.as_str()));
     }
 
     #[test]
     fn a_long_repository_name_round_trips_through_the_queue() {
         let full_name = format!("{}/{}", "o".repeat(39), "r".repeat(100));
-        let mut report = report(
-            Gate::Required,
-            vec![finding("REPO-GIT-04", Severity::Blocking, Status::Fail)],
-        );
+        let mut report = report(vec![finding(
+            "REPO-GIT-04",
+            Severity::Blocking,
+            Some(Status::Gap),
+        )]);
         report.repository.full_name.clone_from(&full_name);
 
         let queue = Queue::of(&report, &Deliveries::default());
@@ -1952,17 +2108,17 @@ mod tests {
     fn a_suppressed_failure_never_stands_with_the_passing_rules() {
         let queue = queue(vec![
             suppressed(),
-            finding("REPO-LIC-01", Severity::Blocking, Status::Pass),
+            finding("REPO-LIC-01", Severity::Blocking, Some(Status::Met)),
         ]);
         let suppressed = queue
             .rows
             .iter()
-            .find(|row| row.status == Status::Suppressed)
+            .find(|row| row.status.is_none())
             .expect("the suppressed row");
-        assert_eq!(suppressed.group, Group::Authorized);
-        assert_ne!(suppressed.group, Group::Aligned);
-        assert_eq!(queue.count(Group::Aligned), 1);
-        assert_eq!(queue.count(Group::Authorized), 1);
+        assert_eq!(suppressed.group, Group::Waived);
+        assert_ne!(suppressed.group, Group::Met);
+        assert_eq!(queue.count(Group::Met), 1);
+        assert_eq!(queue.count(Group::Waived), 1);
     }
 
     #[test]
@@ -1971,7 +2127,11 @@ mod tests {
             .iter()
             .enumerate()
             .map(|(index, status)| {
-                finding(&format!("REPO-AA-{index:02}"), Severity::Blocking, *status)
+                finding(
+                    &format!("REPO-AA-{index:02}"),
+                    Severity::Blocking,
+                    Some(*status),
+                )
             })
             .collect();
         let queue = queue(findings);
@@ -1991,16 +2151,21 @@ mod tests {
     #[test]
     fn the_rail_is_severity_times_status_and_never_the_group() {
         let queue = Queue::of(
-            &report(
-                Gate::Blocking,
-                vec![
-                    finding("REPO-AA-01", Severity::Blocking, Status::Fail),
-                    finding("REPO-AA-02", Severity::Observation, Status::Fail),
-                    finding("REPO-AA-03", Severity::Blocking, Status::AdminOnly),
-                    finding("REPO-AA-04", Severity::Blocking, Status::Inconclusive),
-                    finding("REPO-AA-05", Severity::Blocking, Status::Suppressed),
-                ],
-            ),
+            &report(vec![
+                finding("REPO-AA-01", Severity::Blocking, Some(Status::Gap)),
+                finding("REPO-AA-02", Severity::Advisory, Some(Status::Gap)),
+                crate::tui::findings::fixture::routed(finding(
+                    "REPO-AA-03",
+                    Severity::Blocking,
+                    None,
+                )),
+                finding("REPO-AA-04", Severity::Blocking, None),
+                crate::tui::findings::fixture::waived(finding(
+                    "REPO-AA-05",
+                    Severity::Blocking,
+                    None,
+                )),
+            ]),
             &Deliveries::default(),
         );
         let gates = |rule: &str| {
@@ -2022,33 +2187,26 @@ mod tests {
     }
 
     #[test]
-    fn a_non_blocking_row_in_the_undecided_group_says_so_on_the_row() {
+    fn an_advisory_run_error_still_blocks_completeness() {
         let queue = Queue::of(
-            &report(
-                Gate::Blocking,
-                vec![finding(
-                    "REPO-AA-01",
-                    Severity::Observation,
-                    Status::Inconclusive,
-                )],
-            ),
+            &report(vec![finding("REPO-AA-01", Severity::Advisory, None)]),
             &Deliveries::default(),
         );
         let row = &queue.rows[0];
-        assert_eq!(row.group, Group::Unanswered);
-        assert!(!row.gates());
+        assert_eq!(row.group, Group::RunErrors);
+        assert!(row.gates());
         let note = row.note.clone().expect("the row says it does not block");
-        assert!(note.contains("does not block"), "{note}");
-        assert!(note.contains("observation"), "{note}");
+        assert!(note.contains("blocks completeness"), "{note}");
+        assert_eq!(row.severity, Severity::Advisory);
     }
 
     #[test]
-    fn an_admin_only_row_states_the_grant_and_the_surface_the_registry_declares() {
-        let queue = queue(vec![finding(
+    fn an_admin_only_row_states_the_grant_and_the_surface_the_rules_declares() {
+        let queue = queue(vec![crate::tui::findings::fixture::routed(finding(
             "REPO-GIT-04",
-            Severity::Required,
-            Status::AdminOnly,
-        )]);
+            Severity::Advisory,
+            None,
+        ))]);
         let note = queue.rows[0].note.clone().expect("the declaration");
         assert!(note.contains("contents:write"), "{note}");
         assert!(note.contains("interactive-session"), "{note}");
@@ -2062,10 +2220,7 @@ mod tests {
     fn an_unestablished_pull_request_state_is_never_drawn_as_none() {
         assert_ne!(Delivery::Unknown.label(), Delivery::None.label());
         assert!(!Delivery::Unknown.label().contains("no pull request"));
-        let queue = Queue::of(
-            &report(Gate::Required, vec![file_failure()]),
-            &Deliveries::default(),
-        );
+        let queue = Queue::of(&report(vec![file_failure()]), &Deliveries::default());
         assert_eq!(queue.rows[0].delivery, Delivery::Unknown);
         let rendered = rendered(&queue, &State::default(), 120, 40);
         assert!(rendered.contains("not established"), "{rendered}");
@@ -2079,7 +2234,7 @@ mod tests {
             (Delivery::None, "no pull request open"),
         ] {
             let queue = Queue::of(
-                &report(Gate::Required, vec![file_failure()]),
+                &report(vec![file_failure()]),
                 &Deliveries::of(vec![("REPO-LIC-01".to_owned(), delivery)]),
             );
             let rendered = rendered(&queue, &State::default(), 120, 40);
@@ -2089,10 +2244,7 @@ mod tests {
 
     #[test]
     fn no_row_in_the_agent_group_offers_an_action() {
-        let queue = Queue::of(
-            &report(Gate::Required, vec![file_failure()]),
-            &Deliveries::default(),
-        );
+        let queue = Queue::of(&report(vec![file_failure()]), &Deliveries::default());
         let rendered = rendered(&queue, &State::default(), 120, 40);
         assert!(rendered.contains("shown only"), "{rendered}");
         assert!(!rendered.contains("a apply"), "{rendered}");
@@ -2146,7 +2298,7 @@ mod tests {
                     "{group:?} count is not in view: {reading}"
                 );
             }
-            assert!(reading.contains("ALIGNED 2 of 9"), "{reading}");
+            assert!(reading.contains("MET 2 of 9"), "{reading}");
         }
     }
 
@@ -2154,11 +2306,7 @@ mod tests {
     fn only_the_aligned_group_opens_collapsed() {
         let state = State::default();
         for group in Group::ALL {
-            assert_eq!(
-                state.is_collapsed(group),
-                group == Group::Aligned,
-                "{group:?}"
-            );
+            assert_eq!(state.is_collapsed(group), group == Group::Met, "{group:?}");
         }
     }
 
@@ -2175,18 +2323,15 @@ mod tests {
     #[test]
     fn a_fully_aligned_repository_reads_as_finished_rather_than_as_an_empty_list() {
         let queue = Queue::of(
-            &report(
-                Gate::Required,
-                vec![
-                    finding("REPO-LIC-01", Severity::Blocking, Status::Pass),
-                    finding("REPO-META-01", Severity::Required, Status::Pass),
-                ],
-            ),
+            &report(vec![
+                finding("REPO-LIC-01", Severity::Blocking, Some(Status::Met)),
+                finding("REPO-META-01", Severity::Advisory, Some(Status::Met)),
+            ]),
             &Deliveries::default(),
         );
         let rendered = rendered(&queue, &State::default(), 120, 40);
-        assert!(rendered.contains("ALIGNED 2 of 2"), "{rendered}");
-        assert!(rendered.contains("the repository is aligned"), "{rendered}");
+        assert!(rendered.contains("MET 2 of 2"), "{rendered}");
+        assert!(rendered.contains("all rules are Met"), "{rendered}");
         assert!(rendered.contains("conformant"), "{rendered}");
         // Every empty group still states what would have populated it.
         assert!(rendered.contains(Group::Settings.emptiness()), "{rendered}");
@@ -2194,7 +2339,7 @@ mod tests {
 
     #[test]
     fn an_incomplete_run_opens_with_its_blockers_above_the_verdict() {
-        let mut blocked = finding("REPO-CI-02", Severity::Blocking, Status::Error);
+        let mut blocked = finding("REPO-CI-02", Severity::Blocking, None);
         blocked.error = Some(FindingError {
             cause: "permission".to_owned(),
             endpoint: "GET /repos/{owner}/{repo}/rulesets".to_owned(),
@@ -2206,13 +2351,10 @@ mod tests {
             message_hints_version: 1,
         });
         let queue = Queue::of(
-            &report(
-                Gate::Blocking,
-                vec![
-                    blocked,
-                    finding("REPO-LIC-01", Severity::Blocking, Status::Pass),
-                ],
-            ),
+            &report(vec![
+                blocked,
+                finding("REPO-LIC-01", Severity::Blocking, Some(Status::Met)),
+            ]),
             &Deliveries::default(),
         );
         let rendered = rendered(&queue, &State::default(), 120, 40);
@@ -2228,21 +2370,22 @@ mod tests {
     #[test]
     fn a_fact_requiring_admin_access_is_never_a_blocker_and_is_still_counted() {
         let queue = Queue::of(
-            &report(
-                Gate::Required,
-                vec![
-                    finding("REPO-GIT-04", Severity::Required, Status::AdminOnly),
-                    finding("REPO-LIC-01", Severity::Blocking, Status::Pass),
-                ],
-            ),
+            &report(vec![
+                crate::tui::findings::fixture::routed(finding(
+                    "REPO-GIT-04",
+                    Severity::Advisory,
+                    None,
+                )),
+                finding("REPO-LIC-01", Severity::Blocking, Some(Status::Met)),
+            ]),
             &Deliveries::default(),
         );
         assert!(queue.blockers.is_empty(), "a gated fact is not a blocker");
         assert!(queue.verdict.complete);
         let rendered = rendered(&queue, &State::default(), 120, 40);
         assert!(!rendered.contains("RUN INCOMPLETE"), "{rendered}");
-        assert!(rendered.contains("unanswered"), "{rendered}");
-        assert!(rendered.contains("admin-only"), "{rendered}");
+        assert!(rendered.contains("routed"), "{rendered}");
+        assert!(rendered.contains("routed"), "{rendered}");
     }
 
     #[test]
@@ -2252,26 +2395,28 @@ mod tests {
         assert!(rendered.contains("complete"), "{rendered}");
         assert!(rendered.contains("conformant"), "{rendered}");
         assert!(
-            rendered.contains("every rule at a gating severity was decided")
-                || rendered.contains("ended undecided"),
+            rendered.contains("no run errors")
+                || rendered.contains("run errors prevented completion"),
             "{rendered}"
         );
     }
 
     #[test]
-    fn the_summary_prints_all_nine_statuses_under_their_lanes() {
+    fn the_summary_keeps_outcomes_and_non_outcome_counts_visible() {
         let queue = mixed();
-        let rendered = rendered(&queue, &State::default(), 80, 24);
-        for status in Status::ALL {
-            assert!(rendered.contains(status.code()), "{status:?}: {rendered}");
+        for width in [80u16, 120] {
+            let text = rendered(&queue, &State::default(), width, 40);
+            for value in [
+                "met 2",
+                "gap 2",
+                "waived 1",
+                "routed 1",
+                "unbuilt 1",
+                "errors 2",
+            ] {
+                assert!(text.contains(value), "{value} at {width}: {text}");
+            }
         }
-        for lane in Lane::ALL {
-            assert!(rendered.contains(lane.heading()), "{lane:?}: {rendered}");
-        }
-        assert!(
-            rendered.contains("makes the run incomplete at a gating severity"),
-            "the undecided qualifier survives the floor: {rendered}"
-        );
     }
 
     // -----------------------------------------------------------------
@@ -2296,8 +2441,8 @@ mod tests {
         assert_eq!(set, FilterSet::Everything, "the five cycle");
         assert_eq!(seen.len(), 5);
         assert_eq!(queue.shown(FilterSet::AllFailures).len(), 2);
-        assert_eq!(queue.shown(FilterSet::GatingFailures).len(), 2);
-        assert_eq!(queue.shown(FilterSet::Undecided).len(), 3);
+        assert_eq!(queue.shown(FilterSet::GatingFailures).len(), 1);
+        assert_eq!(queue.shown(FilterSet::NotEvaluated).len(), 5);
         assert_eq!(queue.shown(FilterSet::Inert).len(), 3);
     }
 
@@ -2314,7 +2459,7 @@ mod tests {
             rendered.contains(FilterSet::GatingFailures.label()),
             "{rendered}"
         );
-        assert!(rendered.contains("gate required"), "{rendered}");
+        assert!(rendered.contains("gate blocking"), "{rendered}");
         assert!(rendered.contains("of 9 shown"), "{rendered}");
     }
 
@@ -2455,18 +2600,18 @@ mod tests {
     }
 
     #[test]
-    fn no_suppressed_or_undecided_row_can_be_read_as_a_pass_without_colour() {
+    fn no_suppressed_or_not_evaluated_row_can_be_read_as_a_pass_without_colour() {
         let queue = mixed();
         let mut state = State::default();
         // Every group expanded, so every row is drawable.
-        state.toggle(Group::Aligned, 0);
+        state.toggle(Group::Met, 0);
         let mut seen = Vec::new();
         for index in 0..entries(&queue, &state).len() {
             state.selected = index;
             seen.push(monochrome(&queue, &state, 120, 40));
         }
         let seen = seen.join("\n");
-        let pass = lane::glyph_of(Status::Pass);
+        let pass = lane::glyph_of(Some(Status::Met));
         for line in seen.lines() {
             if line.contains("suppressed") || line.contains("admin-only") {
                 assert!(
@@ -2475,8 +2620,8 @@ mod tests {
                 );
             }
         }
-        assert!(seen.contains(lane::glyph_of(Status::Suppressed)));
-        assert!(seen.contains(lane::glyph_of(Status::AdminOnly)));
+        assert!(seen.contains(lane::glyph_of(None)));
+        assert!(seen.contains(lane::glyph_of(None)));
     }
 
     #[test]
@@ -2506,7 +2651,7 @@ mod tests {
 
     #[test]
     fn server_supplied_text_is_made_safe_at_the_one_boundary_that_builds_the_queue() {
-        let mut hostile = finding("REPO-CI-02", Severity::Blocking, Status::Error);
+        let mut hostile = finding("REPO-CI-02", Severity::Blocking, None);
         hostile.error = Some(FindingError {
             cause: "transport\u{1b}[2Jcleared".to_owned(),
             endpoint: "GET /repos\u{202e}".to_owned(),
@@ -2517,10 +2662,7 @@ mod tests {
             request_id: None,
             message_hints_version: 1,
         });
-        let queue = Queue::of(
-            &report(Gate::Blocking, vec![hostile]),
-            &Deliveries::default(),
-        );
+        let queue = Queue::of(&report(vec![hostile]), &Deliveries::default());
         let why = &queue.blockers[0].why;
         assert!(!why.contains('\u{1b}'), "{why}");
         assert!(!why.contains('\u{202e}'), "{why}");
@@ -2533,8 +2675,8 @@ mod tests {
         let row = queue
             .rows
             .iter()
-            .find(|row| row.group == Group::Judgment)
-            .expect("the failure with no declared remediation");
+            .find(|row| row.group == Group::OperatorDeferred)
+            .expect("the failure with no declared fix");
         let reason = row.note.clone().expect("the declared reason");
 
         // The floor has no reading of it to give, so it says so and prints no
@@ -2560,23 +2702,23 @@ mod tests {
     /// A row carrying a fact of a chosen length, and nothing else unusual.
     fn carrying(fact: &str) -> Row {
         Row {
+            new: false,
             rule: "REPO-DOCS-05".to_owned(),
             statement: "the condition REPO-DOCS-05 states".to_owned(),
-            severity: Severity::Required,
-            status: Status::Fail,
+            severity: Severity::Advisory,
+            status: Some(Status::Gap),
+            result_label: "gap".to_owned(),
             section: "docs".to_owned(),
-            gate: Gate::Required,
-            group: Group::Judgment,
+            group: Group::Unbuilt,
             delivery: Delivery::Unknown,
             note: Some(fact.to_owned()),
             detail: Detail::of(
-                &finding("REPO-DOCS-05", Severity::Required, Status::Fail),
+                &finding("REPO-DOCS-05", Severity::Advisory, Some(Status::Gap)),
                 &[],
             ),
-            remediation: None,
+            fix: None,
             change: None,
             reversible: None,
-            capability: None,
         }
     }
 
@@ -2672,11 +2814,11 @@ mod tests {
 
     #[test]
     fn a_fact_that_fits_is_printed_whole_at_both_widths() {
-        let queue = queue(vec![finding(
+        let queue = queue(vec![crate::tui::findings::fixture::routed(finding(
             "REPO-GIT-04",
-            Severity::Required,
-            Status::AdminOnly,
-        )]);
+            Severity::Advisory,
+            None,
+        ))]);
         let whole = queue.rows[0].note.clone().expect("the declaration");
         for width in [120u16, 80] {
             let rendered = rendered(&queue, &State::default(), width, 40);
@@ -2691,7 +2833,26 @@ mod tests {
         let status = status(&queue);
         assert!(status.contains("complete"), "{status}");
         assert!(status.contains("9 rules"), "{status}");
-        assert!(status.contains("registry"), "{status}");
-        assert!(status.contains("gate required"), "{status}");
+        assert!(status.contains("rules"), "{status}");
+        assert!(status.contains("gate blocking"), "{status}");
+    }
+    #[test]
+    fn out_of_scope_rules_have_their_own_non_gating_group() {
+        let mut entry = finding("REPO-LIC-04", Severity::Blocking, None);
+        entry.routing = Some(airlock_core::findings::Routing {
+            reason: "out-of-scope".to_owned(),
+            settling_surface: "An audit with declared release units".to_owned(),
+        });
+        let queue = queue(vec![entry]);
+        assert_eq!(queue.count(Group::OutOfScope), 1);
+        assert_eq!(queue.count(Group::Routed), 0);
+        assert_eq!(queue.count(Group::Met), 0);
+        assert_eq!(queue.count(Group::Unbuilt), 0);
+        assert_eq!(queue.summary.out_of_scope, 1);
+        assert!(!queue.rows[0].gates());
+        assert_eq!(queue.rows[0].result_label, "out-of-scope");
+        let output = rendered(&queue, &State::default(), 120, 60);
+        assert!(output.contains("OUT OF SCOPE"), "{output}");
+        assert!(output.contains("out-of-scope 1"), "{output}");
     }
 }

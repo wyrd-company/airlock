@@ -1,0 +1,7 @@
+$schema: https://refinery.systems/ontology/term
+title: Tag record
+description: >-
+  A term owned by the release process program and Intentional. Its definition is supplied by
+  Intentional docs/specifications/tag-record.yml and tag-record.schema.yml; Airlock consumes the
+  term through docs/technical-designs/release-process-conformance.yml, tag-record-reading. This
+  entry is a reference to that contract, not an Airlock definition.

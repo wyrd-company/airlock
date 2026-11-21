@@ -1,0 +1,15 @@
+{
+  "repository": "github.com/wyrd-company/toha",
+  "revision": "epic/composition (unreleased)",
+  "commit": "99740b11f60966a7e6fea736a9903754d144f87a",
+  "path": "docs/specifications/applied-record-1.schema.yml",
+  "copy": "applied-record-1.schema.yml",
+  "sha256": "c4c75c5ab0f4f965617af06df0bef4399175cb97adb40bc79ea0b1f13e5f5ddc",
+  "schema_id": "https://wyrd.foo/toha/schemas/applied-record/1",
+  "relationships": {
+    "references": [
+      "release-process-conformance",
+      "applied-record"
+    ]
+  }
+}

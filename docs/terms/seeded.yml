@@ -1,0 +1,7 @@
+$schema: https://refinery.systems/ontology/term
+title: Seeded
+description: >-
+  The lifecycle rung before the repository's first Intentional baseline tag, whatever its
+  version. Every repository has a baseline tag, including repositories that do not publish
+  versioned output. A takeover baseline can be above 0.0.0; it ends seeded but does not establish
+  a release.

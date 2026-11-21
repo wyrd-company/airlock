@@ -466,6 +466,22 @@ impl<'de> Visitor<'de> for KeySeed<'_, '_> {
     }
 }
 
+/// Convert validated JSON-compatible parameter data to the bounded YAML value model.
+pub(crate) fn from_json(value: &serde_json::Value) -> Yaml {
+    match value {
+        serde_json::Value::Null => Yaml::Null,
+        serde_json::Value::Bool(v) => Yaml::Bool(*v),
+        serde_json::Value::Number(v) => v
+            .as_i64()
+            .map_or_else(|| Yaml::Float(v.as_f64().unwrap_or_default()), Yaml::Int),
+        serde_json::Value::String(v) => Yaml::String(v.clone()),
+        serde_json::Value::Array(v) => Yaml::Seq(v.iter().map(from_json).collect()),
+        serde_json::Value::Object(v) => {
+            Yaml::Map(v.iter().map(|(k, v)| (k.clone(), from_json(v))).collect())
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

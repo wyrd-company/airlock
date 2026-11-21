@@ -91,7 +91,7 @@ impl Pty {
     }
 
     /// Start `airlock` with this pty as its controlling terminal, on all three
-    /// standard descriptors, exactly as a shell would.
+    /// rule descriptors, exactly as a shell would.
     fn spawn_console(&self) -> Child {
         self.spawn_console_in(&[], None)
     }

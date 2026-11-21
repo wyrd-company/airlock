@@ -1,13 +1,13 @@
 //! Git configuration: branches, rulesets, merge settings, tags, and history.
 
-use crate::findings::Remediation;
-use crate::policy::RuleInstance;
-use crate::registry::CheckDefinition;
-use crate::ActionGroup;
+use crate::findings::Fix;
+use crate::policy::EffectiveRule;
+use crate::rules::RuleDefinition;
+use crate::FixGroup;
 
 use super::{AuditContext, Verdict};
 
-pub(crate) fn run(id: &str, rule: &RuleInstance, context: &AuditContext) -> Option<Verdict> {
+pub(crate) fn run(id: &str, rule: &EffectiveRule, context: &AuditContext) -> Option<Verdict> {
     Some(match id {
         "REPO-GIT-01" => default_branch(context),
         "REPO-GIT-02" => org_ruleset_coverage(context),
@@ -20,8 +20,21 @@ pub(crate) fn run(id: &str, rule: &RuleInstance, context: &AuditContext) -> Opti
         "REPO-GIT-09" => multi_unit_tag_shape(context),
         "REPO-GIT-10" => no_merge_commits(rule, context),
         "REPO-GIT-13" => app_identity_conventions(context),
+        "REPO-GIT-15" => baseline(context),
         _ => return None,
     })
+}
+
+fn baseline(context: &AuditContext) -> Verdict {
+    match &context.maturity {
+        Err(error) => error.verdict(),
+        Ok(observed) if observed.rung == crate::rules::Lifecycle::Seeded => Verdict::fail(
+            "repository_seeded",
+            "The repository is seeded. Establish an Intentional baseline tag with intentional tag --baseline to enter Building.",
+            Fix::new(FixGroup::ESTABLISH_BASELINE, "Use intentional tag --baseline, then publish the baseline tag."),
+        ),
+        Ok(observed) => Verdict::pass("baseline_observed", format!("Observed {} from baseline tag(s): {}", observed.rung.code(), observed.baseline_tags.join(", "))),
+    }
 }
 
 fn default_branch(context: &AuditContext) -> Verdict {
@@ -32,8 +45,8 @@ fn default_branch(context: &AuditContext) -> Verdict {
         Verdict::fail(
             "default_branch_is_not_main",
             format!("the default branch is `{branch}`"),
-            Remediation::new(
-                ActionGroup::RENAME_DEFAULT_BRANCH,
+            Fix::new(
+                FixGroup::RENAME_DEFAULT_BRANCH,
                 "Rename the default branch to `main`.",
             ),
         )
@@ -58,7 +71,7 @@ fn org_ruleset_coverage(context: &AuditContext) -> Verdict {
     if covering.is_empty() {
         // Absence over a listing airlock only saw part of is not absence.
         if rulesets.truncated {
-            return Verdict::inconclusive(
+            return Verdict::run_error(
                 "ruleset_listing_truncated",
                 format!(
                     "no organisation ruleset was found in the {} rulesets airlock could read, \
@@ -70,8 +83,8 @@ fn org_ruleset_coverage(context: &AuditContext) -> Verdict {
         Verdict::fail(
             "no_org_ruleset",
             "no active organisation-sourced branch ruleset covers the repository",
-            Remediation::new(
-                ActionGroup::APPLY_ORG_RULESET,
+            Fix::new(
+                FixGroup::APPLY_ORG_RULESET,
                 "Apply an organisation ruleset targeting the default branch. Rulesets are an \
                  organisation-side setting airlock cannot change.",
             ),
@@ -107,7 +120,7 @@ fn branch_rule_shape(context: &AuditContext) -> Verdict {
     // A rule airlock did not see is not a rule that is absent. Only a complete
     // listing can support "this branch is not protected".
     if rules.truncated && (pull_request.is_none() || !linear) {
-        return Verdict::inconclusive(
+        return Verdict::run_error(
             "branch_rule_listing_truncated",
             format!(
                 "the rules on `{branch}` stopped at the page budget after {} rules, so a \
@@ -158,8 +171,8 @@ fn report_branch_gaps(branch: &str, gaps: Vec<String>) -> Verdict {
         Verdict::fail(
             "branch_rules_insufficient",
             format!("on `{branch}`: {}", gaps.join("; ")),
-            Remediation::new(
-                ActionGroup::TIGHTEN_RULESET,
+            Fix::new(
+                FixGroup::TIGHTEN_RULESET,
                 "Update the ruleset to require pull requests, allow only squash and rebase, and \
                  require linear history.",
             ),
@@ -205,14 +218,14 @@ const AUTO_DELETE: BooleanSetting = BooleanSetting {
     remedy: "Enable auto-delete of head branches on merge.",
 };
 
-/// Compare one live boolean setting against what the standard expects.
+/// Compare one live boolean setting against what the rule expects.
 ///
-/// An absent value is not a false one. What absence means is the registry's
+/// An absent value is not a false one. What absence means is the rules'
 /// call, not this function's: it reports the field as undisclosed and the
 /// rule's declaration decides whether that is a permanent gate or a run that
 /// fell short.
 fn boolean_setting(
-    def: &CheckDefinition,
+    def: &RuleDefinition,
     context: &AuditContext,
     setting: &BooleanSetting,
     actual: Option<bool>,
@@ -231,15 +244,15 @@ fn boolean_setting(
         Verdict::fail(
             setting.code_fail,
             format!("{} is {actual}, expected {expected}", setting.subject),
-            Remediation::new(
-                ActionGroup::CHANGE_REPOSITORY_SETTING,
+            Fix::new(
+                FixGroup::CHANGE_REPOSITORY_SETTING,
                 setting.remedy.to_owned(),
             ),
         )
     }
 }
 
-fn merge_commits_disabled(def: &CheckDefinition, context: &AuditContext) -> Verdict {
+fn merge_commits_disabled(def: &RuleDefinition, context: &AuditContext) -> Verdict {
     let live = super::merge_setting("merge_commit");
     boolean_setting(
         def,
@@ -250,7 +263,7 @@ fn merge_commits_disabled(def: &CheckDefinition, context: &AuditContext) -> Verd
     )
 }
 
-fn squash_enabled(def: &CheckDefinition, context: &AuditContext) -> Verdict {
+fn squash_enabled(def: &RuleDefinition, context: &AuditContext) -> Verdict {
     let live = super::merge_setting("squash");
     boolean_setting(
         def,
@@ -261,7 +274,7 @@ fn squash_enabled(def: &CheckDefinition, context: &AuditContext) -> Verdict {
     )
 }
 
-fn auto_delete_enabled(def: &CheckDefinition, context: &AuditContext) -> Verdict {
+fn auto_delete_enabled(def: &RuleDefinition, context: &AuditContext) -> Verdict {
     let live = super::merge_setting("delete_branch_on_merge");
     boolean_setting(
         def,
@@ -292,7 +305,7 @@ fn optional_features_off(context: &AuditContext) -> Verdict {
     } else {
         // Whether an enabled feature is deliberate is not something the API
         // can answer, so airlock reports it rather than failing it.
-        Verdict::manual(
+        Verdict::unbuilt(
             "optional_features_on",
             format!(
                 "{} enabled; whether that is deliberate use is a judgment call",
@@ -321,7 +334,7 @@ fn tags_have_no_v_prefix(context: &AuditContext) -> Verdict {
         // "No tag carries a `v` prefix" is an assertion about every tag. A
         // clean prefix of the tag list does not establish it.
         if tags.truncated {
-            return Verdict::inconclusive(
+            return Verdict::run_error(
                 "tag_listing_truncated",
                 format!(
                     "none of the {} tags airlock read carry a `v` prefix, but the listing \
@@ -338,8 +351,8 @@ fn tags_have_no_v_prefix(context: &AuditContext) -> Verdict {
         Verdict::fail(
             "v_prefixed_tags",
             format!("{} carry a `v` prefix", offenders.join(", ")),
-            Remediation::new(
-                ActionGroup::RETAG_WITHOUT_PREFIX,
+            Fix::new(
+                FixGroup::RETAG_WITHOUT_PREFIX,
                 "Tag releases without the `v` prefix.",
             ),
         )
@@ -347,14 +360,8 @@ fn tags_have_no_v_prefix(context: &AuditContext) -> Verdict {
 }
 
 fn multi_unit_tag_shape(context: &AuditContext) -> Verdict {
-    // Built-in applicability intercepts this; retain the guard as belt-and-braces defense.
-    let Some(units) = context.release_units() else {
-        return Verdict::inconclusive(
-            "no_release_units_declared",
-            "the repository declares no release units, so whether its tags should be scoped \
-             could not be established",
-        );
-    };
+    // This branch requires the rule's declared release-unit scope.
+    let units = try_verdict!(context.release_units());
     if units.len() <= 1 {
         return Verdict::pass(
             "single_release_unit",
@@ -375,7 +382,7 @@ fn multi_unit_tag_shape(context: &AuditContext) -> Verdict {
 
     if offenders.is_empty() {
         if tags.truncated {
-            return Verdict::inconclusive(
+            return Verdict::run_error(
                 "tag_listing_truncated",
                 format!(
                     "all {} tags airlock read are scoped, but the listing stopped at the page \
@@ -399,17 +406,21 @@ fn multi_unit_tag_shape(context: &AuditContext) -> Verdict {
                 offenders.join(", "),
                 units.len()
             ),
-            Remediation::new(
-                ActionGroup::SCOPE_TAGS,
+            Fix::new(
+                FixGroup::SCOPE_TAGS,
                 "Tag each release unit as `@scope/name@version`.",
             ),
         )
     }
 }
 
-fn no_merge_commits(rule: &RuleInstance, context: &AuditContext) -> Verdict {
+fn no_merge_commits(rule: &EffectiveRule, context: &AuditContext) -> Verdict {
+    // Report the actual run's bound, which may override the compiled default
+    // history limit. A resource budget is run state, not a computed default.
     let budget = rule
-        .param_u64("max-commits")
+        .params
+        .get("max-commits")
+        .and_then(serde_json::Value::as_u64)
         .unwrap_or(context.limits.max_history_commits as u64) as usize;
 
     let history = match &context.history {
@@ -434,8 +445,8 @@ fn no_merge_commits(rule: &RuleInstance, context: &AuditContext) -> Verdict {
                 commits.len(),
                 merges[0]
             ),
-            Remediation::new(
-                ActionGroup::REWRITE_OR_PREVENT_MERGES,
+            Fix::new(
+                FixGroup::REWRITE_OR_PREVENT_MERGES,
                 "Require linear history so merge commits cannot enter the default branch.",
             ),
         );
@@ -444,7 +455,7 @@ fn no_merge_commits(rule: &RuleInstance, context: &AuditContext) -> Verdict {
     if truncated {
         // The assertion is about the whole history. A clean prefix does not
         // prove it, so this is inconclusive with the bound named.
-        return Verdict::inconclusive(
+        return Verdict::run_error(
             "history_scan_truncated",
             format!(
                 "no merge commits in the newest {} commits, but the walk stopped at the {budget} \
@@ -495,8 +506,8 @@ fn app_identity_conventions(context: &AuditContext) -> Verdict {
         Verdict::fail(
             "app_identity_conventions_broken",
             offenders.join("; "),
-            Remediation::new(
-                ActionGroup::MOVE_APP_IDENTITY,
+            Fix::new(
+                FixGroup::MOVE_APP_IDENTITY,
                 "Store the app id as a variable named `<APP>_APP_ID` and only the private key as \
                  a secret named `<APP>_APP_PRIVATE_KEY`.",
             ),
@@ -522,7 +533,7 @@ mod tests {
     use super::super::fixtures::*;
     use crate::findings::Status;
     use crate::github::{ApiError, BranchRule, CommitSummary, ErrorCause, Paged, Ruleset, TagRef};
-    use crate::ActionGroup;
+    use crate::FixGroup;
     use serde_json::json;
 
     #[test]
@@ -530,12 +541,12 @@ mod tests {
         let mut fixture = CheckFixture::new(&[]);
         assert_eq!(
             evaluate(&rule("REPO-GIT-01"), &fixture.context()).status,
-            Status::Pass
+            Some(Status::Met)
         );
         fixture.snapshot.repository.default_branch = "master".to_owned();
         assert_eq!(
             evaluate(&rule("REPO-GIT-01"), &fixture.context()).status,
-            Status::Fail
+            Some(Status::Gap)
         );
     }
 
@@ -545,7 +556,7 @@ mod tests {
         let mut context = fixture.context();
         assert_eq!(
             evaluate(&rule("REPO-GIT-02"), &context).status,
-            Status::Fail
+            Some(Status::Gap)
         );
 
         context.rulesets = Ok(Paged::complete(vec![Ruleset {
@@ -558,7 +569,7 @@ mod tests {
         }]));
         assert_eq!(
             evaluate(&rule("REPO-GIT-02"), &context).status,
-            Status::Pass
+            Some(Status::Met)
         );
     }
 
@@ -576,7 +587,7 @@ mod tests {
         }]));
         assert_eq!(
             evaluate(&rule("REPO-GIT-02"), &context).status,
-            Status::Fail
+            Some(Status::Gap)
         );
     }
 
@@ -594,7 +605,7 @@ mod tests {
             request_id: Some("REQ:1".to_owned()),
         });
         let verdict = evaluate(&rule("REPO-GIT-02"), &context);
-        assert_eq!(verdict.status, Status::Error);
+        assert_eq!(verdict.status, None);
         let error = verdict.error.unwrap();
         assert_eq!(error.cause, "permission");
         assert_eq!(
@@ -617,11 +628,8 @@ mod tests {
             request_id: None,
         });
         let verdict = evaluate(&rule("REPO-GIT-02"), &context);
-        assert_eq!(verdict.status, Status::Error);
-        assert_eq!(
-            verdict.remediation.unwrap().action_group,
-            ActionGroup::PLAN_GATE
-        );
+        assert_eq!(verdict.status, None);
+        assert_eq!(verdict.fix.unwrap().fix_group, FixGroup::PLAN_GATE);
     }
 
     #[test]
@@ -641,7 +649,7 @@ mod tests {
         ]));
         assert_eq!(
             evaluate(&rule("REPO-GIT-03"), &context).status,
-            Status::Pass
+            Some(Status::Met)
         );
 
         context.branch_rules = Ok(Paged::complete(vec![BranchRule {
@@ -650,13 +658,13 @@ mod tests {
         }]));
         assert_eq!(
             evaluate(&rule("REPO-GIT-03"), &context).status,
-            Status::Fail
+            Some(Status::Gap)
         );
 
         context.branch_rules = Ok(Paged::complete(Vec::new()));
         assert_eq!(
             evaluate(&rule("REPO-GIT-03"), &context).status,
-            Status::Fail
+            Some(Status::Gap)
         );
     }
 
@@ -665,14 +673,18 @@ mod tests {
         let mut fixture = CheckFixture::new(&[]);
         assert_eq!(
             evaluate(&rule("REPO-GIT-04"), &fixture.context()).status,
-            Status::Pass
+            Some(Status::Met)
         );
         fixture.snapshot.repository.allow_merge_commit = Some(true);
         fixture.snapshot.repository.allow_squash_merge = Some(false);
         fixture.snapshot.repository.delete_branch_on_merge = Some(false);
         let context = fixture.context();
         for id in ["REPO-GIT-04", "REPO-GIT-05", "REPO-GIT-06"] {
-            assert_eq!(evaluate(&rule(id), &context).status, Status::Fail, "{id}");
+            assert_eq!(
+                evaluate(&rule(id), &context).status,
+                Some(Status::Gap),
+                "{id}"
+            );
         }
     }
 
@@ -686,11 +698,11 @@ mod tests {
 
         for id in ["REPO-GIT-04", "REPO-GIT-05", "REPO-GIT-06"] {
             let verdict = evaluate(&rule(id), &context);
-            assert_eq!(verdict.status, Status::AdminOnly, "{id}");
+            assert_eq!(verdict.status, None, "{id}");
             let evidence = verdict.evidence.expect("admin-only evidence");
             assert_eq!(
                 evidence.code,
-                crate::registry::MERGE_SETTINGS_DISCLOSURE.evidence_code,
+                crate::rules::MERGE_SETTINGS_DISCLOSURE.evidence_code,
                 "{id}"
             );
             assert!(
@@ -711,10 +723,7 @@ mod tests {
         let mut fixture = CheckFixture::new(&[]);
         fixture.snapshot.repository.has_wiki = true;
         let context = fixture.context();
-        assert_eq!(
-            evaluate(&rule("REPO-GIT-07"), &context).status,
-            Status::Manual
-        );
+        assert_eq!(evaluate(&rule("REPO-GIT-07"), &context).status, None);
     }
 
     #[test]
@@ -723,33 +732,37 @@ mod tests {
         let mut context = fixture.context();
         context.tags = Ok(Paged::complete(vec![
             TagRef {
+                object_type: "commit".to_owned(),
                 name: "1.0.0".to_owned(),
                 sha: "a".to_owned(),
             },
             TagRef {
+                object_type: "commit".to_owned(),
                 name: "v2.0.0".to_owned(),
                 sha: "b".to_owned(),
             },
         ]));
         assert_eq!(
             evaluate(&rule("REPO-GIT-08"), &context).status,
-            Status::Fail
+            Some(Status::Gap)
         );
 
         context.tags = Ok(Paged::complete(vec![
             TagRef {
+                object_type: "commit".to_owned(),
                 name: "1.0.0".to_owned(),
                 sha: "a".to_owned(),
             },
             // A tag that merely starts with the letter v is not a prefix.
             TagRef {
+                object_type: "commit".to_owned(),
                 name: "very-old".to_owned(),
                 sha: "b".to_owned(),
             },
         ]));
         assert_eq!(
             evaluate(&rule("REPO-GIT-08"), &context).status,
-            Status::Pass
+            Some(Status::Met)
         );
     }
 
@@ -761,12 +774,13 @@ mod tests {
         )]);
         let mut context = fixture.context();
         context.tags = Ok(Paged::complete(vec![TagRef {
+            object_type: "commit".to_owned(),
             name: "1.0.0".to_owned(),
             sha: "a".to_owned(),
         }]));
         assert_eq!(
             evaluate(&rule("REPO-GIT-09"), &context).status,
-            Status::Pass
+            Some(Status::Met)
         );
     }
 
@@ -778,21 +792,23 @@ mod tests {
         )]);
         let mut context = fixture.context();
         context.tags = Ok(Paged::complete(vec![TagRef {
+            object_type: "commit".to_owned(),
             name: "1.0.0".to_owned(),
             sha: "a".to_owned(),
         }]));
         assert_eq!(
             evaluate(&rule("REPO-GIT-09"), &context).status,
-            Status::Fail
+            Some(Status::Gap)
         );
 
         context.tags = Ok(Paged::complete(vec![TagRef {
+            object_type: "commit".to_owned(),
             name: "one@1.0.0".to_owned(),
             sha: "a".to_owned(),
         }]));
         assert_eq!(
             evaluate(&rule("REPO-GIT-09"), &context).status,
-            Status::Pass
+            Some(Status::Met)
         );
     }
 
@@ -804,15 +820,17 @@ mod tests {
             CommitSummary {
                 sha: "a".to_owned(),
                 parents: 1,
+                parent_shas: Vec::new(),
             },
             CommitSummary {
                 sha: "b".to_owned(),
                 parents: 2,
+                parent_shas: Vec::new(),
             },
         ]));
         assert_eq!(
             evaluate(&rule("REPO-GIT-10"), &context).status,
-            Status::Fail
+            Some(Status::Gap)
         );
     }
 
@@ -824,12 +842,32 @@ mod tests {
             items: vec![CommitSummary {
                 sha: "a".to_owned(),
                 parents: 1,
+                parent_shas: Vec::new(),
             }],
             truncated: true,
         });
         let verdict = evaluate(&rule("REPO-GIT-10"), &context);
-        assert_eq!(verdict.status, Status::Inconclusive);
+        assert_eq!(verdict.status, None);
         assert!(verdict.evidence.unwrap().detail.contains("budget"));
+    }
+
+    #[test]
+    fn history_evidence_uses_the_custom_run_budget_or_explicit_parameter() {
+        let fixture = CheckFixture::new(&[]);
+        let mut context = fixture.context();
+        context.limits.max_history_commits = 17;
+        context.history = Ok(Paged {
+            items: vec![],
+            truncated: true,
+        });
+        let detail = evaluate(&rule("REPO-GIT-10"), &context)
+            .evidence
+            .unwrap()
+            .detail;
+        assert!(detail.contains("17 commit budget"), "{detail}");
+        let configured = rule_with("REPO-GIT-10", &[("max-commits", serde_json::json!(23))]);
+        let detail = evaluate(&configured, &context).evidence.unwrap().detail;
+        assert!(detail.contains("23 commit budget"), "{detail}");
     }
 
     #[test]
@@ -839,10 +877,11 @@ mod tests {
         context.history = Ok(Paged::complete(vec![CommitSummary {
             sha: "a".to_owned(),
             parents: 1,
+            parent_shas: Vec::new(),
         }]));
         assert_eq!(
             evaluate(&rule("REPO-GIT-10"), &context).status,
-            Status::Pass
+            Some(Status::Met)
         );
     }
 
@@ -855,7 +894,7 @@ mod tests {
         let context = fixture.context();
         assert_eq!(
             evaluate(&rule("REPO-GIT-13"), &context).status,
-            Status::Fail
+            Some(Status::Gap)
         );
     }
 
@@ -872,7 +911,7 @@ mod tests {
         let context = fixture.context();
         assert_eq!(
             evaluate(&rule("REPO-GIT-13"), &context).status,
-            Status::Pass
+            Some(Status::Met)
         );
     }
 
@@ -882,13 +921,14 @@ mod tests {
         let mut context = fixture.context();
         context.tags = Ok(Paged {
             items: vec![TagRef {
+                object_type: "commit".to_owned(),
                 name: "1.0.0".to_owned(),
                 sha: "a".to_owned(),
             }],
             truncated: true,
         });
         let verdict = evaluate(&rule("REPO-GIT-08"), &context);
-        assert_eq!(verdict.status, Status::Inconclusive);
+        assert_eq!(verdict.status, None);
         assert_eq!(verdict.evidence.unwrap().code, "tag_listing_truncated");
     }
 
@@ -899,6 +939,7 @@ mod tests {
         let mut context = fixture.context();
         context.tags = Ok(Paged {
             items: vec![TagRef {
+                object_type: "commit".to_owned(),
                 name: "v1.0.0".to_owned(),
                 sha: "a".to_owned(),
             }],
@@ -906,7 +947,7 @@ mod tests {
         });
         assert_eq!(
             evaluate(&rule("REPO-GIT-08"), &context).status,
-            Status::Fail
+            Some(Status::Gap)
         );
     }
 
@@ -919,15 +960,13 @@ mod tests {
         let mut context = fixture.context();
         context.tags = Ok(Paged {
             items: vec![TagRef {
+                object_type: "commit".to_owned(),
                 name: "one@1.0.0".to_owned(),
                 sha: "a".to_owned(),
             }],
             truncated: true,
         });
-        assert_eq!(
-            evaluate(&rule("REPO-GIT-09"), &context).status,
-            Status::Inconclusive
-        );
+        assert_eq!(evaluate(&rule("REPO-GIT-09"), &context).status, None);
     }
 
     #[test]
@@ -946,7 +985,7 @@ mod tests {
             truncated: true,
         });
         let verdict = evaluate(&rule("REPO-GIT-02"), &context);
-        assert_eq!(verdict.status, Status::Inconclusive);
+        assert_eq!(verdict.status, None);
         assert_eq!(verdict.evidence.unwrap().code, "ruleset_listing_truncated");
     }
 
@@ -967,7 +1006,7 @@ mod tests {
         });
         assert_eq!(
             evaluate(&rule("REPO-GIT-02"), &context).status,
-            Status::Pass
+            Some(Status::Met)
         );
     }
 
@@ -983,7 +1022,7 @@ mod tests {
             truncated: true,
         });
         let verdict = evaluate(&rule("REPO-GIT-03"), &context);
-        assert_eq!(verdict.status, Status::Inconclusive);
+        assert_eq!(verdict.status, None);
         assert_eq!(
             verdict.evidence.unwrap().code,
             "branch_rule_listing_truncated"
@@ -1009,7 +1048,7 @@ mod tests {
         });
         assert_eq!(
             evaluate(&rule("REPO-GIT-03"), &context).status,
-            Status::Pass
+            Some(Status::Met)
         );
     }
 
@@ -1023,7 +1062,7 @@ mod tests {
             "the 300 second audit budget was exhausted before this request completed",
         ));
         let verdict = evaluate(&rule("REPO-GIT-02"), &context);
-        assert_eq!(verdict.status, Status::Error);
+        assert_eq!(verdict.status, None);
         assert_eq!(verdict.error.unwrap().cause, "budget_exhausted");
     }
 
@@ -1041,9 +1080,6 @@ mod tests {
                 parameters: json!({}),
             },
         ]));
-        assert_eq!(
-            evaluate(&rule("REPO-GIT-03"), &context).status,
-            Status::Inconclusive
-        );
+        assert_eq!(evaluate(&rule("REPO-GIT-03"), &context).status, None);
     }
 }

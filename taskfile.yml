@@ -28,18 +28,21 @@ tasks:
     desc: Run the full test suite
     cmds:
       - cargo test --workspace
-      - scripts/test-action.sh
 
   lint:
     desc: Static analysis and a formatting check, both non-mutating
     cmds:
       - cargo fmt --all -- --check
       - cargo clippy --workspace --all-targets -- -D warnings
+      # The core and the module as the WebAssembly build compiles them.
+      - >-
+        cargo clippy -p airlock-core -p airlock-wasm --no-default-features
+        --target wasm32-unknown-unknown -- -D warnings
       - actionlint .github/workflows/*.yml
-      - shellcheck scripts/*.sh
+      - shellcheck scripts/*.sh action/*.sh
       - >-
         ryl check --config-file .ryl.yml .github/workflows/*.yml
-        .github/repo-settings.yml docs/examples/*.yml taskfile.yml
+        .github/airlock.yml docs taskfile.yml action.yml
       - rumdl check .
       - intentional check
 
@@ -57,6 +60,81 @@ tasks:
       # airlock, and dev-dependencies (wiremock needs 1.88) are not part of it.
       # The full suite runs on stable in the test job.
       - cargo build --workspace --locked
+
+  wasm:install:
+    desc: >-
+      Install the wasm32 target and the wasm-bindgen command line that
+      Cargo.lock locks
+    cmds:
+      - rustup target add wasm32-unknown-unknown
+      - >-
+        cargo install --locked wasm-bindgen-cli --version
+        "$(sed -n '/^name = "wasm-bindgen"$/{n;s/^version = "\(.*\)"$/\1/p;}' Cargo.lock)"
+
+  wasm:build:
+    desc: Build the WebAssembly module and its bindings into target/wasm-pkg
+    cmds:
+      - scripts/build-wasm.sh
+
+  wasm:size:
+    desc: Fail when the module is over the size budget docs/wasm.md states
+    cmds:
+      - scripts/check-wasm-size.sh
+
+  wasm:test:
+    desc: >-
+      Run the module's tests under Node: central sign-in against fakes, the
+      host's clock, and parity with the native build
+    cmds:
+      - scripts/test-wasm.sh
+
+  wasm:
+    desc: Everything CI runs for the WebAssembly module
+    cmds:
+      - task: wasm:build
+      - task: wasm:size
+      - task: wasm:test
+
+  action:install:
+    desc: Install the action's locked JavaScript dependencies
+    cmds:
+      - pnpm --dir action install --frozen-lockfile
+
+  action:build:
+    desc: >-
+      Build the action's dist/: the WebAssembly module and the bundle that
+      loads it. Commit the result
+    cmds:
+      - scripts/build-action.sh
+
+  action:check-dist:
+    desc: Rebuild dist/ and fail on any difference from the committed copy
+    cmds:
+      - scripts/check-action-dist.sh
+
+  action:test:
+    desc: >-
+      Run the action end to end, dist/index.mjs against a fake GitHub and a
+      fake artifact service
+    cmds:
+      - pnpm --dir action test
+
+  action:forge:
+    desc: >-
+      In CI's forged-run-token job: arm, assert or show live one forge leg
+      (scripts/ci-forge.sh)
+    requires:
+      vars:
+        - LEG
+        - MARKER
+    cmds:
+      - scripts/ci-forge.sh {{.CLI_ARGS}}
+
+  action:
+    desc: Everything CI runs for the action
+    cmds:
+      - task: action:check-dist
+      - task: action:test
 
   ci:install-linters:
     desc: Install the repository linters used by CI
@@ -95,20 +173,26 @@ tasks:
 
   dogfood:
     desc: Audit this repository with the binary it builds
-    # Deliberately absent from `check`: it needs AIRLOCK_TOKEN, a credential
-    # `task check` has no business requiring on a contributor's machine.
+    # Deliberately absent from `check`: it needs a read-only credential
+    # (`airlock auth login`, or AIRLOCK_TOKEN), which `task check` has no
+    # business requiring on a contributor's machine.
     cmds:
       - cargo run --quiet -p airlock-cli -- audit wyrd-company/airlock --format json
 
-  dogfood:when-provisioned:
-    desc: Run the dogfood audit when CI has its read-only credential
+  dogfood:ci:
+    desc: >-
+      Audit the running repository in repository mode with the run's own
+      token, which AIRLOCK_RUN_TOKEN holds; runs only inside GitHub Actions
+    requires:
+      vars:
+        - GITHUB_REPOSITORY
+        - AIRLOCK_RUN_TOKEN
     cmds:
-      - |
-        if [ -n "${AIRLOCK_TOKEN:-}" ]; then
-          task dogfood
-        else
-          echo "AIRLOCK_TOKEN is not provisioned; skipping the dogfood audit."
-        fi
+      # The token goes in on standard input and stays in AIRLOCK_RUN_TOKEN,
+      # which Airlock compares it with before admitting it.
+      - >-
+        printenv AIRLOCK_RUN_TOKEN | cargo run --quiet -p airlock-cli --
+        audit "$GITHUB_REPOSITORY" --mode repository --format json --token-stdin
 
   check:
     desc: Everything CI runs that needs no secret — run this before pushing
@@ -117,3 +201,5 @@ tasks:
       - task: test
       - task: build
       - task: msrv
+      - task: wasm
+      - task: action

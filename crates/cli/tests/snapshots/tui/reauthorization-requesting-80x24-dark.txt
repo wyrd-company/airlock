@@ -21,7 +21,7 @@ storage       none. No credential of any kind is stored, anywhere, ever. Its
               value is never displayed.                                         
                                                                                 
 holding       findings · acme-industries/widget · row 3 · gating failures ·     
-              groups 8 collapsed · detail closed                                
+              groups 9 collapsed · detail closed                                
 esc abandon and exit · r issue a new code · 3 more…                             
 re-authorizing · findings · acme-industries/widget · row 3 · gating failures    
 --- style keys ---

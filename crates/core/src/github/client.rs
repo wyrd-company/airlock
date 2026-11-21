@@ -8,7 +8,8 @@
 #![allow(clippy::result_large_err)]
 
 use std::collections::BTreeMap;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::sync::Arc;
+use std::time::Duration;
 
 use base64::Engine as _;
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
@@ -22,6 +23,7 @@ use super::{
     Paged, Repository, RepositorySelection, Ruleset, TagRef, Tree, TreeEntry,
 };
 use crate::limits::Limits;
+use crate::transport::{self, FailureKind, Method, Transport};
 
 /// Everything in a path segment that is not unreserved gets escaped. Git path
 /// bytes are arbitrary, so nothing is interpolated raw.
@@ -87,6 +89,15 @@ pub struct RestClientConfig {
     /// a write-capable credential sets this false: there, the host is the whole
     /// of what the binding protects.
     pub follow_redirects: bool,
+    /// Whether an error keeps only what Airlock can vouch for.
+    ///
+    /// A response's `message` and `documentation_url` are free text the server
+    /// chose, and a server or proxy that echoes a request's credential puts it
+    /// there. The central run sets this, so its report carries the status, the
+    /// classified cause and the endpoint, never that text. The permission and
+    /// request-id headers are kept only when they have the shape GitHub gives
+    /// them.
+    pub withhold_response_text: bool,
 }
 
 impl Default for RestClientConfig {
@@ -114,6 +125,7 @@ impl RestClientConfig {
             max_rate_limit_retries: 2,
             max_rate_limit_wait_seconds: 60,
             follow_redirects: true,
+            withhold_response_text: false,
         }
     }
 
@@ -125,14 +137,53 @@ impl RestClientConfig {
             ..self
         }
     }
+
+    /// The same configuration, keeping no server-chosen text in its errors.
+    #[must_use]
+    pub fn withholding_response_text(self) -> Self {
+        Self {
+            withhold_response_text: true,
+            ..self
+        }
+    }
+}
+
+/// Whether an `X-Accepted-GitHub-Permissions` value has GitHub's shape:
+/// `name=level` pairs, joined by commas or semicolons.
+fn has_permission_shape(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 512
+        && value
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || matches!(c, '_' | '=' | ',' | ';' | ' ' | '|'))
+}
+
+/// Whether a `Date` value reads as an HTTP date, such as
+/// `Tue, 17 Nov 2026 16:20:21 GMT`.
+fn has_http_date_shape(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 40
+        && value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, ' ' | ',' | ':'))
+}
+
+/// Whether an `X-GitHub-Request-Id` value has GitHub's shape: hexadecimal
+/// fields joined by colons.
+fn has_request_id_shape(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && value.chars().all(|c| c.is_ascii_hexdigit() || c == ':')
 }
 
 /// A GitHub REST client bound to one credential.
 pub struct RestClient {
-    http: reqwest::Client,
+    transport: Arc<dyn Transport>,
     token: String,
     config: RestClientConfig,
-    deadline: Instant,
+    /// The end of the wall-clock budget, on the transport's monotonic clock,
+    /// or why the clock could not give one.
+    deadline: Result<Duration, transport::TransportError>,
 }
 
 impl Drop for RestClient {
@@ -179,7 +230,7 @@ impl RawResponse {
 }
 
 impl RestClient {
-    /// Build a client for `token`.
+    /// Build a client for `token`, over the native transport.
     ///
     /// The wall-clock budget starts here, so verification and the audit that
     /// follows share one deadline.
@@ -187,49 +238,78 @@ impl RestClient {
     /// # Errors
     ///
     /// Returns an error when the underlying HTTP stack cannot be built.
+    #[cfg(feature = "native")]
     pub fn new(token: impl Into<String>, config: RestClientConfig) -> ApiResult<Self> {
-        let http = reqwest::Client::builder()
-            .user_agent(config.user_agent.clone())
-            // Audits are bursty, and the interactive session may sit idle
-            // longer than GitHub keeps a connection alive. Retain connections
-            // within a burst, but drop them across the longer idle stretches.
-            .pool_idle_timeout(Duration::from_secs(5))
-            // Without these, a server that accepts a connection and never
-            // finishes the body hangs the audit forever.
-            .connect_timeout(config.connect_timeout)
-            .timeout(config.request_timeout)
-            .redirect(if config.follow_redirects {
-                reqwest::redirect::Policy::default()
-            } else {
-                reqwest::redirect::Policy::none()
-            })
-            .build()
-            .map_err(|error| ApiError::local(ErrorCause::Transport, "client", error.to_string()))?;
-        let deadline = Instant::now() + config.audit_budget;
-        Ok(Self {
-            http,
+        let transport = transport::ReqwestTransport::new(config.connect_timeout)
+            .map_err(|error| ApiError::local(ErrorCause::Transport, "client", error.detail))?;
+        Ok(Self::with_transport(token, config, Arc::new(transport)))
+    }
+
+    /// Build a client for `token` that sends every request through
+    /// `transport`.
+    ///
+    /// The wall-clock budget starts here, on the transport's clock.
+    #[must_use]
+    pub fn with_transport(
+        token: impl Into<String>,
+        config: RestClientConfig,
+        transport: Arc<dyn Transport>,
+    ) -> Self {
+        // Saturating, because the clock is the host's: a reading near the
+        // top of the range ends the budget rather than overflowing it.
+        let deadline = transport
+            .monotonic()
+            .map(|now| now.saturating_add(config.audit_budget));
+        Self {
+            transport,
             token: token.into(),
             config,
             deadline,
-        })
+        }
     }
 
     /// How long is left of the wall-clock budget.
+    ///
+    /// Zero when the clock gives no usable reading; the next request then
+    /// reports why.
     #[must_use]
     pub fn remaining_budget(&self) -> Duration {
-        self.deadline.saturating_duration_since(Instant::now())
+        match (&self.deadline, self.transport.monotonic()) {
+            (Ok(deadline), Ok(now)) => deadline.saturating_sub(now),
+            _ => Duration::ZERO,
+        }
+    }
+
+    fn clock_failed(endpoint: &str, error: &transport::TransportError) -> ApiError {
+        ApiError::local(
+            ErrorCause::Transport,
+            endpoint,
+            format!("the clock gave no usable time: {}", error.detail),
+        )
+    }
+
+    fn budget_exhausted(&self, endpoint: &str) -> ApiError {
+        ApiError::local(
+            ErrorCause::Budget,
+            endpoint,
+            format!(
+                "the {} second audit budget was exhausted before this request completed",
+                self.config.audit_budget.as_secs()
+            ),
+        )
     }
 
     fn check_deadline(&self, endpoint: &str) -> ApiResult<()> {
-        if Instant::now() >= self.deadline {
-            return Err(ApiError::local(
-                ErrorCause::Budget,
-                endpoint,
-                format!(
-                    "the {} second audit budget was exhausted before this request completed",
-                    self.config.audit_budget.as_secs()
-                ),
-            ));
+        let deadline = self
+            .deadline
+            .as_ref()
+            .map_err(|error| Self::clock_failed(endpoint, error))?;
+        let now = self
+            .transport
+            .monotonic()
+            .map_err(|error| Self::clock_failed(endpoint, &error))?;
+        if now >= *deadline {
+            return Err(self.budget_exhausted(endpoint));
         }
         Ok(())
     }
@@ -237,70 +317,53 @@ impl RestClient {
     async fn send(&self, endpoint: &str, url: &str) -> ApiResult<RawResponse> {
         self.check_deadline(endpoint)?;
 
+        // The request may not outlast the audit's budget, so a body that
+        // trickles in is cut off at the deadline rather than at the next
+        // request.
+        let mut request = transport::Request::new(Method::Get, url)
+            .bearer(&self.token)
+            .header("accept", "application/vnd.github+json")
+            .header("x-github-api-version", "2022-11-28")
+            .header("user-agent", self.config.user_agent.as_str());
+        request.follow_redirects = self.config.follow_redirects;
+        request.timeout = self.config.request_timeout.min(self.remaining_budget());
+        request.max_response_bytes = self.config.max_response_bytes;
+
         let response = self
-            .http
-            .get(url)
-            .bearer_auth(&self.token)
-            .header("Accept", "application/vnd.github+json")
-            .header("X-GitHub-Api-Version", "2022-11-28")
-            .send()
+            .transport
+            .send(request)
             .await
-            .map_err(|error| transport_error(endpoint, &error))?;
+            .map_err(|error| match error.kind {
+                // A timeout is a budget failure, not a network failure:
+                // airlock chose the deadline, and the distinction changes the
+                // fix.
+                FailureKind::Timeout if self.check_deadline(endpoint).is_err() => {
+                    self.budget_exhausted(endpoint)
+                }
+                FailureKind::Timeout | FailureKind::TooLarge => {
+                    ApiError::local(ErrorCause::Budget, endpoint, error.detail)
+                }
+                FailureKind::Clock => Self::clock_failed(endpoint, &error),
+                FailureKind::Connect | FailureKind::Other => {
+                    ApiError::local(ErrorCause::Transport, endpoint, error.detail)
+                }
+            })?;
 
-        let status = response.status().as_u16();
-        // Multi-valued, because HTTP lets a field repeat and a security
-        // decision made from whichever repetition survived a map insert is not
-        // a decision.
         let mut headers = Headers::new();
-        for (name, value) in response.headers() {
-            if let Ok(value) = value.to_str() {
-                headers
-                    .entry(name.as_str().to_lowercase())
-                    .or_default()
-                    .push(value.to_owned());
-            }
+        for (name, value) in &response.headers {
+            headers
+                .entry(name.to_lowercase())
+                .or_default()
+                .push(value.clone());
         }
-
-        let body = self.read_body(endpoint, response).await?;
+        let body = String::from_utf8(response.body.to_vec())
+            .map_err(|error| ApiError::local(ErrorCause::Malformed, endpoint, error.to_string()))?;
 
         Ok(RawResponse {
-            status,
+            status: response.status,
             headers,
             body,
         })
-    }
-
-    /// Read a response body under the byte budget.
-    ///
-    /// Chunked rather than buffered whole, so an endless or enormous body is
-    /// abandoned at the limit instead of being materialised first.
-    async fn read_body(
-        &self,
-        endpoint: &str,
-        mut response: reqwest::Response,
-    ) -> ApiResult<String> {
-        let mut bytes: Vec<u8> = Vec::new();
-        loop {
-            self.check_deadline(endpoint)?;
-            let chunk = response
-                .chunk()
-                .await
-                .map_err(|error| transport_error(endpoint, &error))?;
-            let Some(chunk) = chunk else { break };
-            if bytes.len() + chunk.len() > self.config.max_response_bytes {
-                return Err(ApiError::local(
-                    ErrorCause::Budget,
-                    endpoint,
-                    format!(
-                        "the response exceeded the {} byte limit and was abandoned",
-                        self.config.max_response_bytes
-                    ),
-                ));
-            }
-            bytes.extend_from_slice(&chunk);
-        }
-        String::from_utf8(bytes)
-            .map_err(|error| ApiError::local(ErrorCause::Malformed, endpoint, error.to_string()))
     }
 
     /// Perform one GET, retrying one request transport failure and rate-limited
@@ -335,7 +398,12 @@ impl RestClient {
 
             let summary = summarise(&raw);
             let cause = classify::classify(&summary);
-            let wait = classify::retry_delay_seconds(&summary, now_epoch_seconds()).unwrap_or(1);
+            let now = self
+                .transport
+                .unix_time()
+                .map_err(|error| Self::clock_failed(endpoint, &error))?
+                .as_secs();
+            let wait = classify::retry_delay_seconds(&summary, now).unwrap_or(1);
             let error = self.to_error(endpoint, &raw, cause, summary);
             if error.cause != ErrorCause::RateLimit
                 || rate_limit_attempt >= self.config.max_rate_limit_retries
@@ -350,7 +418,10 @@ impl RestClient {
             {
                 return Err(error);
             }
-            tokio::time::sleep(Duration::from_secs(wait)).await;
+            self.transport
+                .sleep(Duration::from_secs(wait))
+                .await
+                .map_err(|error| Self::clock_failed(endpoint, &error))?;
             rate_limit_attempt += 1;
         }
     }
@@ -362,19 +433,33 @@ impl RestClient {
         cause: ErrorCause,
         summary: Response,
     ) -> ApiError {
+        // A repeated accepted-permissions header has no single answer, so
+        // every value is reported rather than one arbitrary member.
+        let accepted_permissions = match raw.all("x-accepted-github-permissions") {
+            [] => None,
+            values => Some(values.join(" | ")),
+        };
+        let request_id = raw.single("x-github-request-id").map(ToOwned::to_owned);
+        if self.config.withhold_response_text {
+            return ApiError {
+                cause,
+                endpoint: endpoint.to_owned(),
+                status: Some(raw.status),
+                message: None,
+                documentation_url: None,
+                accepted_permissions: accepted_permissions
+                    .filter(|value| has_permission_shape(value)),
+                request_id: request_id.filter(|value| has_request_id_shape(value)),
+            };
+        }
         ApiError {
             cause,
             endpoint: endpoint.to_owned(),
             status: Some(raw.status),
             message: summary.message,
             documentation_url: summary.documentation_url,
-            // A repeated accepted-permissions header has no single answer, so
-            // every value is reported rather than one arbitrary member.
-            accepted_permissions: match raw.all("x-accepted-github-permissions") {
-                [] => None,
-                values => Some(values.join(" | ")),
-            },
-            request_id: raw.single("x-github-request-id").map(ToOwned::to_owned),
+            accepted_permissions,
+            request_id,
         }
     }
 
@@ -417,17 +502,6 @@ impl RestClient {
         }
         Ok((collected, true))
     }
-}
-
-fn transport_error(endpoint: &str, error: &reqwest::Error) -> ApiError {
-    // A timeout is a budget failure, not a network failure: airlock chose the
-    // deadline, and the distinction changes the remediation.
-    let cause = if error.is_timeout() {
-        ErrorCause::Budget
-    } else {
-        ErrorCause::Transport
-    };
-    ApiError::local(cause, endpoint, error.to_string())
 }
 
 fn summarise(raw: &RawResponse) -> Response {
@@ -480,13 +554,6 @@ fn next_link(endpoint: &str, raw: &RawResponse) -> ApiResult<Option<String>> {
         }
     }
     Ok(None)
-}
-
-fn now_epoch_seconds() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_secs())
-        .unwrap_or_default()
 }
 
 // ---------------------------------------------------------------------------
@@ -615,6 +682,7 @@ fn decode_tag(endpoint: &str, item: &Value) -> ApiResult<TagRef> {
     Ok(TagRef {
         name: name.to_owned(),
         sha: require_string(endpoint, object, "sha")?,
+        object_type: require_string(endpoint, object, "type")?,
     })
 }
 
@@ -624,6 +692,10 @@ fn decode_commit(endpoint: &str, item: &Value) -> ApiResult<CommitSummary> {
     Ok(CommitSummary {
         sha,
         parents: parents.len(),
+        parent_shas: parents
+            .iter()
+            .map(|parent| require_string(endpoint, parent, "sha"))
+            .collect::<ApiResult<Vec<_>>>()?,
     })
 }
 
@@ -777,7 +849,12 @@ impl GitHub for RestClient {
             has_projects: field_bool(&value, "has_projects"),
             has_discussions: field_bool(&value, "has_discussions"),
             has_issues: field_bool(&value, "has_issues"),
-            observed_at: raw.single("date").map(ToOwned::to_owned),
+            // The settings' observation time is the server's `Date` header,
+            // kept by a withholding client only when it reads as an HTTP date.
+            observed_at: raw
+                .single("date")
+                .filter(|value| !self.config.withhold_response_text || has_http_date_shape(value))
+                .map(ToOwned::to_owned),
         })
     }
 
@@ -912,6 +989,36 @@ impl GitHub for RestClient {
         require_string(&endpoint, &value, "sha")
     }
 
+    async fn compare_status(
+        &self,
+        owner: &str,
+        repo: &str,
+        base: &str,
+        head: &str,
+    ) -> ApiResult<String> {
+        let endpoint = format!("GET /repos/{owner}/{repo}/compare/{base}...{head}?per_page=1");
+        let path = format!(
+            "/repos/{}/{}/compare/{}...{}?per_page=1",
+            encode_segment(owner),
+            encode_segment(repo),
+            encode_segment(base),
+            encode_segment(head)
+        );
+        let (value, _) = self.get_json(&endpoint, &path).await?;
+        let status = require_string(&endpoint, &value, "status")?;
+        if !matches!(
+            status.as_str(),
+            "identical" | "ahead" | "behind" | "diverged"
+        ) {
+            return Err(ApiError::local(
+                ErrorCause::Malformed,
+                endpoint,
+                "unknown comparison status",
+            ));
+        }
+        Ok(status)
+    }
+
     async fn tree(&self, owner: &str, repo: &str, commit: &str) -> ApiResult<Tree> {
         let endpoint = format!("GET /repos/{owner}/{repo}/git/trees/{commit}");
         let path = format!(
@@ -990,6 +1097,60 @@ impl GitHub for RestClient {
                 .collect::<ApiResult<Vec<TagRef>>>()?,
             truncated,
         })
+    }
+
+    async fn annotated_tag(
+        &self,
+        owner: &str,
+        repo: &str,
+        sha: &str,
+    ) -> ApiResult<super::AnnotatedTag> {
+        let endpoint = format!("GET /repos/{owner}/{repo}/git/tags/{sha}");
+        let path = format!(
+            "/repos/{}/{}/git/tags/{}",
+            encode_segment(owner),
+            encode_segment(repo),
+            encode_segment(sha)
+        );
+        let (value, _) = self.get_json(&endpoint, &path).await?;
+        let object = value
+            .get("object")
+            .ok_or_else(|| malformed(&endpoint, "tag has no target object"))?;
+        Ok(super::AnnotatedTag {
+            has_tagger: value.get("tagger").is_some_and(Value::is_object),
+            target_kind: object
+                .get("type")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned(),
+            message: require_string(&endpoint, &value, "message")?,
+            commit: require_string(&endpoint, object, "sha")?,
+        })
+    }
+
+    async fn releases(&self, owner: &str, repo: &str) -> ApiResult<Paged<super::ReleaseRecord>> {
+        let endpoint = format!("GET /repos/{owner}/{repo}/releases");
+        let path = format!(
+            "/repos/{}/{}/releases?per_page=100",
+            encode_segment(owner),
+            encode_segment(repo)
+        );
+        let (items, truncated) = self.get_paged(&endpoint, &path).await?;
+        let items = items
+            .iter()
+            .map(|item| {
+                Ok(super::ReleaseRecord {
+                    id: require_u64(&endpoint, item, "id")?,
+                    tag_name: require_string(&endpoint, item, "tag_name")?,
+                    draft: item
+                        .get("draft")
+                        .and_then(Value::as_bool)
+                        .ok_or_else(|| malformed(&endpoint, "release draft must be boolean"))?,
+                    url: require_string(&endpoint, item, "html_url")?,
+                })
+            })
+            .collect::<ApiResult<Vec<_>>>()?;
+        Ok(Paged { items, truncated })
     }
 
     async fn history(
@@ -1095,10 +1256,88 @@ impl GitHub for RestClient {
         installation_id: u64,
     ) -> ApiResult<InstallationRepositories> {
         let endpoint = "GET /user/installations/{installation_id}/repositories".to_owned();
-        let mut url = format!(
+        let url = format!(
             "{}/user/installations/{installation_id}/repositories?per_page=100",
             self.config.base_url
         );
+        self.walk_installation_repositories(&endpoint, url).await
+    }
+
+    async fn token_repositories(&self) -> ApiResult<InstallationRepositories> {
+        let endpoint = "GET /installation/repositories".to_owned();
+        let url = format!(
+            "{}/installation/repositories?per_page=100",
+            self.config.base_url
+        );
+        self.walk_installation_repositories(&endpoint, url).await
+    }
+
+    async fn file_at_commit(
+        &self,
+        owner: &str,
+        repo: &str,
+        commit: &str,
+        path: &str,
+    ) -> ApiResult<Vec<u8>> {
+        let endpoint = format!("GET /repos/{owner}/{repo}/contents/{path}?ref={commit}");
+        let encoded_path = path
+            .split('/')
+            .map(encode_segment)
+            .collect::<Vec<_>>()
+            .join("/");
+        let request = format!(
+            "/repos/{}/{}/contents/{encoded_path}?ref={}",
+            encode_segment(owner),
+            encode_segment(repo),
+            encode_segment(commit)
+        );
+        let (value, _) = self.get_json(&endpoint, &request).await?;
+        // A directory answers with an array and a symlink or submodule with
+        // another type. Neither is the file that was asked for.
+        if optional_string(&value, "type").as_deref() != Some("file") {
+            return Err(malformed(&endpoint, "the path is not a regular file"));
+        }
+        let content = require_string(&endpoint, &value, "content")?;
+        match optional_string(&value, "encoding").as_deref() {
+            Some("base64") => {
+                let stripped: String = content
+                    .chars()
+                    .filter(|c| !c.is_ascii_whitespace())
+                    .collect();
+                base64::engine::general_purpose::STANDARD
+                    .decode(stripped)
+                    .map_err(|error| {
+                        malformed(&endpoint, format!("file content was not base64: {error}"))
+                    })
+            }
+            // GitHub answers `none` for a file too large to inline, and an
+            // unread file is not an empty one.
+            other => Err(malformed(
+                &endpoint,
+                format!("unsupported file encoding `{}`", other.unwrap_or("absent")),
+            )),
+        }
+    }
+
+    async fn authenticated_user(&self) -> ApiResult<AuthenticatedUser> {
+        let endpoint = "GET /user".to_owned();
+        let (value, raw) = self.get_json(&endpoint, "/user").await?;
+        Ok(AuthenticatedUser {
+            login: require_string(&endpoint, &value, "login")?,
+            oauth_scopes: OAuthScopeHeader::from_values(raw.all("x-oauth-scopes")),
+        })
+    }
+}
+
+impl RestClient {
+    /// Walk one installation repository listing, which both the user-token and
+    /// the installation-token endpoints answer in the same shape.
+    async fn walk_installation_repositories(
+        &self,
+        endpoint: &str,
+        mut url: String,
+    ) -> ApiResult<InstallationRepositories> {
+        let endpoint = endpoint.to_owned();
         let mut repositories = Vec::new();
         // GitHub's own count, taken from the first page. A later page repeating
         // a different one is not averaged or overwritten: the first answer is
@@ -1134,15 +1373,6 @@ impl GitHub for RestClient {
             total_count: total_count.unwrap_or(repositories.len() as u64),
             repositories,
             truncated: true,
-        })
-    }
-
-    async fn authenticated_user(&self) -> ApiResult<AuthenticatedUser> {
-        let endpoint = "GET /user".to_owned();
-        let (value, raw) = self.get_json(&endpoint, "/user").await?;
-        Ok(AuthenticatedUser {
-            login: require_string(&endpoint, &value, "login")?,
-            oauth_scopes: OAuthScopeHeader::from_values(raw.all("x-oauth-scopes")),
         })
     }
 }
@@ -1374,7 +1604,7 @@ mod tests {
 
     #[test]
     fn only_an_exact_tag_ref_decodes_as_a_tag() {
-        let tag = serde_json::json!({ "ref": "refs/tags/1.0.0", "object": { "sha": "a" } });
+        let tag = serde_json::json!({ "ref": "refs/tags/1.0.0", "object": { "sha": "a", "type": "tag" } });
         assert_eq!(decode_tag("GET /refs", &tag).unwrap().name, "1.0.0");
     }
 
@@ -1390,7 +1620,8 @@ mod tests {
             "1.0.0",
             "",
         ] {
-            let item = serde_json::json!({ "ref": reference, "object": { "sha": "a" } });
+            let item =
+                serde_json::json!({ "ref": reference, "object": { "sha": "a", "type": "tag" } });
             let error = decode_tag("GET /refs", &item).unwrap_err();
             assert_eq!(error.cause, ErrorCause::Malformed, "`{reference}`");
         }
@@ -1398,7 +1629,8 @@ mod tests {
 
     #[test]
     fn an_empty_tag_name_is_malformed() {
-        let item = serde_json::json!({ "ref": "refs/tags/", "object": { "sha": "a" } });
+        let item =
+            serde_json::json!({ "ref": "refs/tags/", "object": { "sha": "a", "type": "tag" } });
         assert_eq!(
             decode_tag("GET /refs", &item).unwrap_err().cause,
             ErrorCause::Malformed

@@ -1,0 +1,7 @@
+$schema: https://refinery.systems/ontology/term
+title: Severity
+description: >-
+  How an unmet rule affects the audit: none prevents evaluation and lists the waiver or
+  missing configuration; advisory evaluates and reports gaps; blocking evaluates, reports
+  gaps and fails the Action when the rule is within the accepted version. Severity has no
+  other meaning. A run error still exits 2.

@@ -1,0 +1,7 @@
+$schema: https://refinery.systems/ontology/term
+title: Baseline tag
+description: >-
+  A term owned by Intentional. Its definition is supplied by Intentional docs/initialization.md,
+  Establish a missing baseline, and docs/specifications/tag-record.yml. Airlock consumes the
+  term through docs/technical-designs/release-process-conformance.yml,
+  baseline-is-not-a-release. This entry is a reference to that contract, not an Airlock definition.

@@ -1,0 +1,7 @@
+$schema: https://refinery.systems/ontology/term
+title: Exception
+description: >-
+  Reasoned configuration under one rule's id that changes its parameters or severity. Every
+  exception requires a reason. Organization configuration can restrict repository overrides
+  according to the rule's compiled allow-override rule. A repository exception is a request,
+  effective only when allowed. Exceptions do not select which rules govern a repository.

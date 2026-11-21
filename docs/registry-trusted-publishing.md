@@ -403,7 +403,7 @@ accepts an owner-authenticated API token for the configuration write, so it can
 be scripted once a token exists. pub.dev requires a web session and npm requires
 an OTP, so both stay guided human steps.
 
-**GHCR gets detection but not remediation.** Airlock can assert the real state —
+**GHCR gets detection but not fix.** Airlock can assert the real state —
 `visibility` and `repository` — under the credential it already holds, then stop
 at the one irreversible flip and hand the operator the settings URL. Getting
 `org.opencontainers.image.source` onto the image before the first push collapses

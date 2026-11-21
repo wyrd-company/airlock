@@ -1,0 +1,34 @@
+version: "3"
+relationships:
+  implements: ../docs/hosted-browser.md
+
+tasks:
+  default:
+    desc: List hosted development commands
+    cmds:
+      - task --list
+  dev:
+    desc: Serve local fixture data and the browser
+    cmds:
+      - pnpm dev
+  build:
+    desc: Build browser assets for the local Worker
+    cmds:
+      - pnpm build
+  test:
+    desc: Run hosted boundary tests
+    cmds:
+      - pnpm test
+  lint:
+    desc: Check hosted formatting and types
+    cmds:
+      - pnpm format:check
+      - pnpm typecheck
+  format:
+    desc: Format hosted source
+    cmds:
+      - pnpm format
+  check:
+    desc: Check the independent hosted increment
+    cmds:
+      - pnpm check

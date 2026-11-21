@@ -1,0 +1,7 @@
+$schema: https://refinery.systems/ontology/term
+title: Accepted revision
+description: >-
+  A recorded template commit reachable from the configured ref in the template repository and,
+  when minimum is configured, equal to or descended from that minimum. A content digest alone is
+  never an accepted revision. References are resolved at audit time; a ref equal to minimum pins
+  one commit.

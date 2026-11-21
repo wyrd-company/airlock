@@ -3,9 +3,7 @@
 use crossterm::event::KeyCode;
 use ratatui::text::{Line, Span};
 
-use crate::admin::remediation::{
-    valid_repository_name, ScaffoldCapability, ScaffoldPlan, ScaffoldRequest,
-};
+use crate::admin::fix::{valid_repository_name, ScaffoldCapability, ScaffoldPlan, ScaffoldRequest};
 
 use super::chrome::wrap;
 use super::theme::{Role, Styles};

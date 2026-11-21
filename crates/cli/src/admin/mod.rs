@@ -21,9 +21,9 @@
 
 pub mod bootstrap;
 pub mod catalogue;
+pub mod fix;
 pub mod flow;
 pub mod identity;
-pub mod remediation;
 pub mod scan;
 pub mod session;
 pub mod sign_in;

@@ -1,17 +1,21 @@
+// ---
+// relationships:
+//   implements: terminal-interface
+//   references: release-process-conformance
+// ---
+
 //! The policy inspector: the effective policy, and where each rule came from.
 //!
 //! The findings screen answers what the run concluded. This answers what the
 //! run asked, which is the prior question: a verdict over a policy nobody can
 //! read is a number. Every rule the run asked about is listed with its
-//! severity, its evaluation mode, and its provenance; the registry digest is
+//! severity, its evaluation mode, and its provenance; the rules digest is
 //! printed in full with a statement of what it proves; and the sources block
 //! says where the rules came from, including the material the policy supplied
-//! rather than the registry.
+//! rather than the rules.
 //!
-//! Evaluation is a property of the rule and not of the run. A manual rule
-//! reports its judgment mode every time it is listed and never becomes
-//! mechanical, so the column is read from the compiled registry rather than
-//! from anything this run observed.
+//! Evaluation is a property of the compiled rule. The column names its
+//! declared unbuilt boundary where one exists.
 //!
 //! The digest, the sources, the provenance, and the table are one reading and
 //! scroll as one. None of them is a decoration of the others.
@@ -19,13 +23,13 @@
 use ratatui::text::{Line, Span};
 
 use airlock_core::findings::{Report, SuppressionSource};
-use airlock_core::registry::{self, Applicability, Severity};
+use airlock_core::rules::{self, Severity};
 
 use crate::admin::text::sanitize;
 
 use super::chrome::fit;
 use super::lane;
-use super::panel::{self, field_at, heading, Provenance, Scroll};
+use super::panel::{self, field_at, heading, Scroll};
 use super::theme::{Role, Styles};
 
 /// The column every labelled value on this screen starts in.
@@ -59,14 +63,18 @@ const SPENT: usize = INDENT.len() + RULE_WIDTH + SEVERITY_WIDTH + EVALUATION_WID
 /// One rule of the effective policy, as this screen draws it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Rule {
+    /// Whether the introduction generation is still unaccepted.
+    pub new: bool,
+    /// Effective parameter names and values, safe to draw without truncation.
+    pub params: Vec<(String, String)>,
     /// The rule id.
     pub rule: String,
     /// The severity that applies after refinement, which is what the run used.
     pub severity: Severity,
     /// How the rule is evaluated. A property of the rule, read from the
-    /// registry, so it cannot change with what a run happened to observe.
+    /// rules, so it cannot change with what a run happened to observe.
     pub evaluation: &'static str,
-    /// The section the registry gives the rule.
+    /// The section the rules gives the rule.
     pub section: String,
     /// The run's own record of where the rule came from.
     pub provenance: String,
@@ -84,62 +92,51 @@ pub struct Source {
     pub blob: String,
 }
 
-/// The whole screen's read model, built once from one run.
-///
-/// The second of the interface's two sanitizing boundaries, and it holds to the
-/// same rule as the first: a [`Report`] carries strings a server supplied, and
-/// nothing built here does. No `Report` is retained anywhere the renderer can
-/// reach.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Inspector {
-    /// Every rule the run asked about, in rule-id order.
-    pub rules: Vec<Rule>,
-    /// How many distinct sections those rules fall into.
-    pub sections: usize,
-    /// Where the rules and the policy material came from.
-    pub sources: Vec<Source>,
-    /// What produced the reading, and what it was of.
-    pub provenance: Provenance,
+/// Build the effective rules at the queue's single sanitizing boundary.
+pub fn effective_rules(report: &Report) -> Vec<Rule> {
+    let mut rules: Vec<Rule> = report
+        .effective_policy
+        .iter()
+        .map(|entry| {
+            let definition = rules::find(&entry.rule);
+            Rule {
+                new: entry.new,
+                params: entry
+                    .params
+                    .iter()
+                    .map(|(name, value)| {
+                        (
+                            crate::admin::text::drawable(name),
+                            crate::admin::text::drawable(&value.to_string()),
+                        )
+                    })
+                    .collect(),
+                rule: sanitize(&entry.rule, VALUE_LIMIT),
+                severity: Severity::parse(&entry.severity).unwrap_or(Severity::Advisory),
+                evaluation: definition.map_or("not registered", |check| {
+                    if check.unbuilt_reason().is_some() {
+                        "unbuilt gate"
+                    } else {
+                        "compiled"
+                    }
+                }),
+                section: definition.map_or_else(
+                    || "not registered".to_owned(),
+                    |check| check.section.code().to_owned(),
+                ),
+                provenance: sanitize(&entry.provenance, VALUE_LIMIT),
+            }
+        })
+        .collect();
+    rules.sort_by(|left, right| left.rule.cmp(&right.rule));
+    rules
 }
 
-impl Inspector {
-    /// Build the screen's read model from one run.
-    #[must_use]
-    pub fn of(report: &Report) -> Self {
-        let mut rules: Vec<Rule> = report
-            .effective_policy
-            .iter()
-            .map(|entry| {
-                let definition = registry::find(&entry.rule);
-                Rule {
-                    rule: sanitize(&entry.rule, VALUE_LIMIT),
-                    severity: Severity::parse(&entry.severity).unwrap_or(Severity::Observation),
-                    evaluation: definition
-                        .map_or("not registered", |check| check.evaluation.code()),
-                    section: definition.map_or_else(
-                        || "not registered".to_owned(),
-                        |check| check.section.code().to_owned(),
-                    ),
-                    provenance: sanitize(&entry.provenance, VALUE_LIMIT),
-                }
-            })
-            .collect();
-        rules.sort_by(|left, right| left.rule.cmp(&right.rule));
-        let mut sections: Vec<&str> = rules.iter().map(|rule| rule.section.as_str()).collect();
-        sections.sort_unstable();
-        sections.dedup();
-        Self {
-            sections: sections.len(),
-            sources: sources(report, &rules),
-            provenance: Provenance::of(report),
-            rules,
-        }
-    }
-
+impl super::findings::Queue {
     /// The digest as the status line quotes it.
     #[must_use]
     pub fn abbreviated_digest(&self) -> String {
-        let digest = &self.provenance.registry_digest;
+        let digest = &self.provenance.rules_digest;
         let (algorithm, value) = digest.split_once(':').unwrap_or(("", digest.as_str()));
         if value.chars().count() <= DIGEST_PREFIX {
             return digest.clone();
@@ -154,12 +151,12 @@ impl Inspector {
 }
 
 /// Where the rules came from: the policy, its references, and the material the
-/// policy supplied rather than the registry.
+/// policy supplied rather than the rules.
 ///
 /// Policy-sourced material is marked as such rather than being listed beside a
-/// blob identity it does not have. A suppression has no bytes in the registry
+/// blob identity it does not have. A suppression has no bytes in the rules
 /// to point at, and printing a digest next to one would say it did.
-fn sources(report: &Report, rules: &[Rule]) -> Vec<Source> {
+pub fn sources(report: &Report) -> Vec<Source> {
     let mut sources = vec![Source {
         name: sanitize(&report.policy.name, VALUE_LIMIT),
         reference: reference(&report.policy.source, report.policy.commit.as_deref()),
@@ -183,7 +180,7 @@ fn sources(report: &Report, rules: &[Rule]) -> Vec<Source> {
     // because the authorization is the source and one clause commonly covers
     // more than one rule.
     let mut authorizations: Vec<(String, usize)> = Vec::new();
-    for finding in &report.findings {
+    for finding in report.entries() {
         let Some(suppression) = finding.suppression.as_ref() else {
             continue;
         };
@@ -203,34 +200,7 @@ fn sources(report: &Report, rules: &[Rule]) -> Vec<Source> {
         sources.push(Source {
             name: "suppressions".to_owned(),
             reference: format!("{authorized_by} \u{b7} {count} rule(s)"),
-            blob: "\u{2014} policy-sourced, not registry".to_owned(),
-        });
-    }
-    // Rules the registry enables only under a declared repository state. They
-    // are in the effective policy and they are not unconditional, and a reader
-    // who cannot tell the two apart cannot tell why a rule was asked about.
-    let mut conditions: Vec<(Applicability, usize)> = Vec::new();
-    for rule in rules {
-        let applicability = registry::find(&rule.rule).map_or(
-            Applicability::Always,
-            registry::CheckDefinition::applicability,
-        );
-        if applicability == Applicability::Always {
-            continue;
-        }
-        match conditions
-            .iter_mut()
-            .find(|(declared, _)| *declared == applicability)
-        {
-            Some((_, count)) => *count += 1,
-            None => conditions.push((applicability, 1)),
-        }
-    }
-    for (applicability, count) in conditions {
-        sources.push(Source {
-            name: "conditional".to_owned(),
-            reference: format!("{count} rule(s) enabled by {}", applicability.code()),
-            blob: "\u{2014} registry-declared applicability".to_owned(),
+            blob: "\u{2014} policy-sourced, not rules".to_owned(),
         });
     }
     sources
@@ -250,7 +220,7 @@ pub fn body(
     styles: Styles,
     width: u16,
     height: u16,
-    inspector: &Inspector,
+    inspector: &super::findings::Queue,
     state: &Scroll,
 ) -> Vec<Line<'static>> {
     let width = width as usize;
@@ -258,7 +228,7 @@ pub fn body(
 }
 
 /// Every region, in order.
-fn regions(styles: Styles, width: usize, inspector: &Inspector) -> Vec<Line<'static>> {
+fn regions(styles: Styles, width: usize, inspector: &super::findings::Queue) -> Vec<Line<'static>> {
     let mut lines = vec![
         Line::from(vec![
             Span::styled("EFFECTIVE POLICY", styles.bold(Role::Accent)),
@@ -280,27 +250,85 @@ fn regions(styles: Styles, width: usize, inspector: &Inspector) -> Vec<Line<'sta
     lines.push(Line::default());
     lines.extend(inspector.provenance.lines(styles, width, LABEL_WIDTH));
     lines.push(Line::default());
+    if let Some(maturity) = &inspector.maturity {
+        lines.push(heading(styles, "MATURITY"));
+        if let Some(observed) = &maturity.observed {
+            lines.extend(value(styles, width, "observed rung", observed.rung.code()));
+            for tag in &observed.baseline_tags {
+                lines.extend(value(styles, width, "baseline tag", tag));
+            }
+            for tag in &observed.release_tags {
+                lines.extend(value(styles, width, "release tag", tag));
+            }
+        }
+        if let Some(error) = &maturity.error {
+            lines.extend(value(styles, width, "run error", error));
+        }
+        for transition in &maturity.transitions {
+            lines.extend(value(
+                styles,
+                width,
+                transition.rung.code(),
+                &format!(
+                    "adds {} rules; {} already Met",
+                    transition.adds, transition.already_met
+                ),
+            ));
+            for rule in &transition.rules {
+                lines.extend(value(
+                    styles,
+                    width,
+                    &rule.rule,
+                    &format!("{}{}", rule.outcome, if rule.new { " (new)" } else { "" }),
+                ));
+            }
+        }
+        lines.push(Line::default());
+    }
     lines.extend(table(styles, width, inspector));
+    for rule in &inspector.rules {
+        if rule.new || !rule.params.is_empty() {
+            lines.push(Line::from(Span::styled(
+                rule.rule.clone(),
+                styles.bold(Role::Accent),
+            )));
+            if rule.new {
+                lines.extend(value(
+                    styles,
+                    width,
+                    "generation",
+                    "new; excluded from the accepted-generation gate",
+                ));
+            }
+            for (name, parameter) in &rule.params {
+                lines.extend(value(styles, width, name, parameter));
+            }
+        }
+    }
     lines
 }
 
 /// The digest, and what it proves.
-fn digest_region(styles: Styles, width: usize, inspector: &Inspector) -> Vec<Line<'static>> {
-    let mut lines = vec![heading(styles, "REGISTRY DIGEST")];
+fn digest_region(
+    styles: Styles,
+    width: usize,
+    inspector: &super::findings::Queue,
+) -> Vec<Line<'static>> {
+    let mut lines = vec![heading(styles, "RULES DIGEST")];
     // In full. An abbreviated digest cannot be compared against another run's,
     // and comparing them is the only thing a digest is for.
     lines.extend(value(
         styles,
         width,
         "digest",
-        &inspector.provenance.registry_digest,
+        &inspector.provenance.rules_digest,
     ));
     lines.extend(value(
         styles,
         width,
         "computed over",
-        "every rule the compiled registry declares: its id, its statement, its \
-         default severity, its section, and its evaluation mode.",
+        "every rule the compiled rules declare: its id, its statement, its \
+         default severity, earliest maturity rung, unbuilt boundary, release-unit scope, required topic categories, since release and override permission.",
     ));
     lines.extend(value(
         styles,
@@ -312,7 +340,7 @@ fn digest_region(styles: Styles, width: usize, inspector: &Inspector) -> Vec<Lin
         styles,
         width,
         "excludes",
-        "remediation classification. Two binaries that agree on the digest agree \
+        "fix classification. Two binaries that agree on the digest agree \
          on what every rule means, and may still differ on how they would close a \
          gap.",
     ));
@@ -320,14 +348,18 @@ fn digest_region(styles: Styles, width: usize, inspector: &Inspector) -> Vec<Lin
 }
 
 /// Where the rules came from.
-fn sources_region(styles: Styles, width: usize, inspector: &Inspector) -> Vec<Line<'static>> {
+fn sources_region(
+    styles: Styles,
+    width: usize,
+    inspector: &super::findings::Queue,
+) -> Vec<Line<'static>> {
     let mut lines = vec![heading(styles, "SOURCES")];
     if inspector.sources.is_empty() {
         lines.extend(empty(
             styles,
             width,
             "each policy source with its reference and its blob identity, and the \
-             material the policy supplied rather than the registry.",
+             material the policy supplied rather than the rules.",
             "the run recorded no policy identity at all, which happens when a report \
              is read from a document that predates the field.",
         ));
@@ -345,7 +377,7 @@ fn sources_region(styles: Styles, width: usize, inspector: &Inspector) -> Vec<Li
 }
 
 /// Every rule the run asked about.
-fn table(styles: Styles, width: usize, inspector: &Inspector) -> Vec<Line<'static>> {
+fn table(styles: Styles, width: usize, inspector: &super::findings::Queue) -> Vec<Line<'static>> {
     let mut lines = vec![heading(styles, "RULES")];
     if inspector.rules.is_empty() {
         lines.extend(empty(
@@ -395,13 +427,13 @@ fn table(styles: Styles, width: usize, inspector: &Inspector) -> Vec<Line<'stati
     lines
 }
 
-/// The status line: the registry version, the abbreviated digest, the rule
+/// The status line: the rules version, the abbreviated digest, the rule
 /// count, and the section count.
 #[must_use]
-pub fn status(inspector: &Inspector) -> String {
+pub fn status(inspector: &super::findings::Queue) -> String {
     format!(
-        "registry {} \u{b7} {} \u{b7} {} rules \u{b7} {} sections",
-        inspector.provenance.registry_version,
+        "rules {} \u{b7} {} \u{b7} {} rules \u{b7} {} sections",
+        inspector.provenance.rules_version,
         inspector.abbreviated_digest(),
         inspector.rules.len(),
         inspector.sections
@@ -411,7 +443,7 @@ pub fn status(inspector: &Inspector) -> String {
 /// What the status line says after `y`.
 #[must_use]
 pub fn copied() -> String {
-    "the registry digest was offered to the terminal's clipboard \u{b7} a terminal \
+    "the rules digest was offered to the terminal's clipboard \u{b7} a terminal \
      that does not take it ignores it, and the digest is above in full"
         .to_owned()
 }
@@ -431,7 +463,7 @@ pub fn nothing_observed(styles: Styles, width: usize) -> Vec<Line<'static>> {
     lines.extend(empty(
         styles,
         width,
-        "every rule the run asked about, the registry digest and what it proves, \
+        "every rule the run asked about, the rules digest and what it proves, \
          where the rules came from, and the run's provenance.",
         "the effective policy is a property of a run, and no repository has been \
          observed in this session.",
@@ -461,10 +493,15 @@ mod tests {
     use super::*;
     use crate::tui::chrome::{FLOOR_WIDTH, REFERENCE_WIDTH};
     use crate::tui::findings::fixture;
+    use crate::tui::panel::Provenance;
     use crate::tui::theme::{ColorMode, Theme};
 
     fn styles() -> Styles {
         Styles::new(Theme::Dark, ColorMode::Color)
+    }
+
+    fn queue(report: &Report) -> crate::tui::findings::Queue {
+        crate::tui::findings::Queue::of(report, &crate::tui::findings::Deliveries::default())
     }
 
     fn text(lines: &[Line<'static>]) -> String {
@@ -484,13 +521,34 @@ mod tests {
     }
 
     fn drawn(report: &Report, width: u16) -> String {
-        text(&regions(styles(), width as usize, &Inspector::of(report)))
+        text(&regions(styles(), width as usize, &queue(report)))
+    }
+
+    #[test]
+    fn effective_configuration_retains_long_parameters_and_generation_without_terminal_controls() {
+        let mut source = fixture::mixed();
+        let entry = &mut source.effective_policy[0];
+        entry.new = true;
+        let parameter = format!("{}\u{1b}[2J", "a".repeat(900));
+        entry
+            .params
+            .insert("sample-value".to_owned(), serde_json::json!(parameter));
+        let id = entry.rule.clone();
+        let model = queue(&source);
+        let rule = model.rules.iter().find(|rule| rule.rule == id).unwrap();
+        assert!(rule.new);
+        assert_eq!(rule.params[0].0, "sample-value");
+        assert_eq!(rule.params[0].1, serde_json::json!(parameter).to_string());
+        let text = text(&regions(styles(), 120, &model));
+        assert!(text.contains("excluded from the accepted-generation gate"));
+        assert!(text.replace(' ', "").contains(&"a".repeat(900)));
+        assert!(!text.contains('\u{1b}'));
     }
 
     #[test]
     fn every_rule_the_run_asked_about_is_listed_with_its_severity_and_evaluation() {
         let report = fixture::mixed();
-        let inspector = Inspector::of(&report);
+        let inspector = queue(&report);
         assert!(!inspector.rules.is_empty());
         let rendered = drawn(&report, REFERENCE_WIDTH);
         for rule in &inspector.rules {
@@ -504,34 +562,26 @@ mod tests {
     fn evaluation_is_a_property_of_the_rule_and_never_of_the_run() {
         // The same rule, observed twice with different statuses. What the run
         // concluded does not touch how the rule is evaluated.
-        let manual = fixture::report(
-            airlock_core::findings::Gate::Required,
-            vec![fixture::finding(
-                "REPO-DOCS-05",
-                Severity::Required,
-                airlock_core::findings::Status::Manual,
-            )],
-        );
-        let failed = fixture::report(
-            airlock_core::findings::Gate::Required,
-            vec![fixture::finding(
-                "REPO-DOCS-05",
-                Severity::Required,
-                airlock_core::findings::Status::Fail,
-            )],
-        );
+        let manual = fixture::report(vec![crate::tui::findings::fixture::unbuilt(
+            fixture::finding("REPO-DOCS-05", Severity::Advisory, None),
+        )]);
+        let failed = fixture::report(vec![fixture::finding(
+            "REPO-DOCS-05",
+            Severity::Advisory,
+            Some(airlock_core::findings::Status::Gap),
+        )]);
         assert_eq!(
-            Inspector::of(&manual).rules[0].evaluation,
-            Inspector::of(&failed).rules[0].evaluation
+            queue(&manual).rules[0].evaluation,
+            queue(&failed).rules[0].evaluation
         );
-        assert_eq!(Inspector::of(&failed).rules[0].evaluation, "manual");
+        assert_eq!(queue(&failed).rules[0].evaluation, "unbuilt gate");
     }
 
     #[test]
     fn the_digest_is_printed_in_full_with_what_it_proves() {
         let report = fixture::mixed();
         let rendered = drawn(&report, REFERENCE_WIDTH);
-        let digest = Inspector::of(&report).provenance.registry_digest;
+        let digest = queue(&report).provenance.rules_digest;
         // Compared without the spaces the wrapping put in: the digest is one
         // token, and a width that broke it did not shorten it.
         assert!(
@@ -540,7 +590,7 @@ mod tests {
         );
         assert!(rendered.contains("same questions"), "{rendered}");
         assert!(
-            rendered.contains("remediation classification"),
+            rendered.contains("fix classification"),
             "the digest says what it does not cover: {rendered}"
         );
     }
@@ -548,13 +598,13 @@ mod tests {
     #[test]
     fn the_abbreviated_digest_is_marked_and_keeps_its_algorithm() {
         let mut report = fixture::mixed();
-        report.airlock.registry_digest = format!("sha256:{}", "a".repeat(64));
+        report.airlock.rules_digest = format!("sha256:{}", "a".repeat(64));
         assert_eq!(
-            Inspector::of(&report).abbreviated_digest(),
+            queue(&report).abbreviated_digest(),
             "sha256:aaaaaaaa\u{2026}"
         );
-        report.airlock.registry_digest = "sha256:abcd".to_owned();
-        assert_eq!(Inspector::of(&report).abbreviated_digest(), "sha256:abcd");
+        report.airlock.rules_digest = "sha256:abcd".to_owned();
+        assert_eq!(queue(&report).abbreviated_digest(), "sha256:abcd");
     }
 
     /// A string carrying everything a terminal reads as an instruction.
@@ -600,7 +650,7 @@ mod tests {
         // what it shows whole. A bound applied where it is built would break
         // that promise for both screens at once, so it is asserted from both.
         let report = fixture::hostile();
-        let inspector = Inspector::of(&report);
+        let inspector = queue(&report);
         for width in [REFERENCE_WIDTH, FLOOR_WIDTH] {
             let block = text(
                 &inspector
@@ -628,13 +678,13 @@ mod tests {
         // is not the defect the block avoids: it is marked as an abbreviation,
         // and the whole digest is above it on the screen.
         let report = fixture::hostile();
-        let inspector = Inspector::of(&report);
+        let inspector = queue(&report);
         assert!(status(&inspector).contains('\u{2026}'));
         assert!(inspector.abbreviated_digest().ends_with('\u{2026}'));
         assert!(
             text(&regions(styles(), REFERENCE_WIDTH as usize, &inspector))
                 .replace(' ', "")
-                .contains(&inspector.provenance.registry_digest.replace(' ', "")),
+                .contains(&inspector.provenance.rules_digest.replace(' ', "")),
             "the whole digest is on the screen the abbreviation summarises"
         );
     }
@@ -642,41 +692,18 @@ mod tests {
     #[test]
     fn policy_sourced_material_is_marked_as_such_rather_than_given_a_blob() {
         let report = fixture::mixed();
-        let inspector = Inspector::of(&report);
+        let inspector = queue(&report);
         let suppression = inspector
             .sources
             .iter()
             .find(|source| source.name == "suppressions")
             .expect("the run carries a policy-authorized suppression");
         assert!(
-            suppression.blob.contains("policy-sourced, not registry"),
+            suppression.blob.contains("policy-sourced, not rules"),
             "{}",
             suppression.blob
         );
         assert!(suppression.reference.contains("policy"));
-    }
-
-    #[test]
-    fn a_conditionally_enabled_rule_is_named_as_conditional() {
-        let report = fixture::report(
-            airlock_core::findings::Gate::Required,
-            vec![fixture::finding(
-                "REPO-GIT-09",
-                Severity::Required,
-                airlock_core::findings::Status::Pass,
-            )],
-        );
-        let inspector = Inspector::of(&report);
-        let conditional = inspector
-            .sources
-            .iter()
-            .find(|source| source.name == "conditional")
-            .expect("REPO-GIT-09 is enabled only where release units are declared");
-        assert!(
-            conditional.reference.contains("release-units-declared"),
-            "{}",
-            conditional.reference
-        );
     }
 
     #[test]
@@ -697,12 +724,9 @@ mod tests {
     #[test]
     fn the_status_line_carries_the_four_facts_the_specification_names() {
         let report = fixture::mixed();
-        let inspector = Inspector::of(&report);
+        let inspector = queue(&report);
         let line = status(&inspector);
-        assert!(
-            line.contains(&inspector.provenance.registry_version),
-            "{line}"
-        );
+        assert!(line.contains(&inspector.provenance.rules_version), "{line}");
         assert!(line.contains(&inspector.abbreviated_digest()), "{line}");
         assert!(
             line.contains(&format!("{} rules", inspector.rules.len())),
@@ -717,7 +741,7 @@ mod tests {
     #[test]
     fn no_line_overflows_at_either_size() {
         let report = fixture::mixed();
-        let inspector = Inspector::of(&report);
+        let inspector = queue(&report);
         for width in [REFERENCE_WIDTH, FLOOR_WIDTH] {
             for line in regions(styles(), width as usize, &inspector) {
                 let rendered: String = line

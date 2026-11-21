@@ -3,12 +3,18 @@
 //! Every response here is a fixture served by `wiremock`. Nothing in this file
 //! reaches `api.github.com`.
 
-use airlock_core::auth::{verify, TokenKind, AIRLOCK_SAFE_APP_ID, AIRLOCK_SAFE_APP_SLUG};
+use airlock_core::auth::{
+    verify, verify_for, Admission, Refusal, TokenKind, VerifiedGrant, AIRLOCK_SAFE_APP_ID,
+    AIRLOCK_SAFE_APP_SLUG,
+};
 use airlock_core::github::{
     AccountKind, ErrorCause, GitHub, OAuthScopeHeader, RepositorySelection, RestClient,
     RestClientConfig,
 };
 use airlock_core::limits::Limits;
+use airlock_core::rules::CredentialCapability;
+use airlock_core::workflow_token::ActionsRun;
+use base64::Engine as _;
 use serde_json::{json, Value};
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -273,6 +279,75 @@ async fn open_pull_requests_are_observed_by_well_known_head_and_base() {
 }
 
 #[tokio::test]
+async fn a_withholding_client_keeps_no_server_text_in_its_errors() {
+    // A placeholder stands in for an echoed credential.
+    let echo = "Bearer placeholder-echoed-credential";
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/repos/owner/name"))
+        .respond_with(
+            ResponseTemplate::new(403)
+                .insert_header("x-github-request-id", echo)
+                .insert_header("x-accepted-github-permissions", echo)
+                .set_body_json(json!({ "message": echo, "documentation_url": echo })),
+        )
+        .mount(&server)
+        .await;
+
+    let withheld = client_with(
+        &server,
+        RestClientConfig::default().withholding_response_text(),
+    )
+    .repository("owner", "name")
+    .await
+    .unwrap_err();
+    assert_eq!(withheld.status, Some(403));
+    assert_eq!(withheld.message, None);
+    assert_eq!(withheld.documentation_url, None);
+    assert_eq!(withheld.accepted_permissions, None);
+    assert_eq!(withheld.request_id, None);
+    assert!(!withheld.to_string().contains("placeholder"), "{withheld}");
+
+    // Without it the attended surfaces keep GitHub's diagnostics.
+    let kept = client(&server)
+        .repository("owner", "name")
+        .await
+        .unwrap_err();
+    assert_eq!(kept.message.as_deref(), Some(echo));
+}
+
+#[tokio::test]
+async fn a_withholding_client_keeps_headers_that_have_githubs_shape() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/repos/owner/name"))
+        .respond_with(
+            ResponseTemplate::new(403)
+                .insert_header("x-github-request-id", "C3A4:1B2F:3E4D5:6F7A8:65A1B2C3")
+                .insert_header("x-accepted-github-permissions", "administration=read")
+                .set_body_json(json!({ "message": "Resource not accessible by integration" })),
+        )
+        .mount(&server)
+        .await;
+    let error = client_with(
+        &server,
+        RestClientConfig::default().withholding_response_text(),
+    )
+    .repository("owner", "name")
+    .await
+    .unwrap_err();
+    assert_eq!(
+        error.request_id.as_deref(),
+        Some("C3A4:1B2F:3E4D5:6F7A8:65A1B2C3")
+    );
+    assert_eq!(
+        error.accepted_permissions.as_deref(),
+        Some("administration=read")
+    );
+    assert_eq!(error.message, None);
+}
+
+#[tokio::test]
 async fn a_plan_limitation_403_is_not_mistaken_for_a_permission_failure() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
@@ -424,6 +499,19 @@ async fn a_repository_snapshot_reads_settings_and_the_observation_time() {
     assert_eq!(repository.allow_merge_commit, Some(false));
     assert_eq!(
         repository.observed_at.as_deref(),
+        Some("Mon, 27 Jul 2026 12:00:00 GMT")
+    );
+
+    // A withholding client keeps a Date that reads as one.
+    let withheld = client_with(
+        &server,
+        RestClientConfig::default().withholding_response_text(),
+    )
+    .repository("owner", "name")
+    .await
+    .unwrap();
+    assert_eq!(
+        withheld.observed_at.as_deref(),
         Some("Mon, 27 Jul 2026 12:00:00 GMT")
     );
 }
@@ -823,6 +911,278 @@ async fn unverifiable_token_kinds_are_refused_without_any_request() {
 }
 
 // ---------------------------------------------------------------------------
+// Repository mode: the run's own token
+// ---------------------------------------------------------------------------
+
+const RUN_SHA: &str = "0123456789abcdef0123456789abcdef01234567";
+/// A synthetic run token in the form GitHub mints `GITHUB_TOKEN` in.
+const RUN_TOKEN: &str = "ghs_15368_eyJhbGciOiJFUzI1NiJ9.eyJzeW50aGV0aWMiOjF9.c2lnbmF0dXJl";
+const RUN_REPOSITORY_ID: u64 = 4242;
+
+fn run_in(repository: &str) -> ActionsRun {
+    let variables = [
+        ("GITHUB_ACTIONS", "true".to_owned()),
+        ("GITHUB_REPOSITORY", repository.to_owned()),
+        ("GITHUB_REPOSITORY_ID", RUN_REPOSITORY_ID.to_string()),
+        (
+            "GITHUB_WORKFLOW_REF",
+            format!("{repository}/.github/workflows/audit.yml@refs/heads/main"),
+        ),
+        ("GITHUB_WORKFLOW_SHA", RUN_SHA.to_owned()),
+        ("GITHUB_JOB", "audit".to_owned()),
+    ];
+    ActionsRun::from_lookup(|name| {
+        variables
+            .iter()
+            .find(|(variable, _)| *variable == name)
+            .map(|(_, value)| value.clone())
+    })
+    .expect("the run is described")
+}
+
+/// `GET /installation/repositories` as GitHub answers it for the run token.
+fn token_repositories(total_count: u64, repositories: &[(u64, &str)]) -> Value {
+    json!({
+        "total_count": total_count,
+        "repository_selection": "selected",
+        "repositories": repositories.iter().map(|(id, full_name)| {
+            let (owner, name) = full_name.split_once('/').unwrap();
+            json!({
+                "id": id,
+                "full_name": full_name,
+                "name": name,
+                "owner": { "login": owner },
+                "private": true,
+                "default_branch": "main",
+            })
+        }).collect::<Vec<_>>(),
+    })
+}
+
+async fn mount_token_repositories(server: &MockServer, status: u16, body: Value) {
+    Mock::given(method("GET"))
+        .and(path("/installation/repositories"))
+        .respond_with(quota_headers(ResponseTemplate::new(status)).set_body_json(body))
+        .mount(server)
+        .await;
+}
+
+async fn mount_workflow(server: &MockServer, workflow: &str) {
+    mount_token_repositories(
+        server,
+        200,
+        token_repositories(1, &[(RUN_REPOSITORY_ID, "owner/name")]),
+    )
+    .await;
+    mount_workflow_only(server, workflow).await;
+}
+
+async fn mount_workflow_only(server: &MockServer, workflow: &str) {
+    Mock::given(method("GET"))
+        .and(path(
+            "/repos/owner/name/contents/.github/workflows/audit.yml",
+        ))
+        .and(query_param("ref", RUN_SHA))
+        .respond_with(
+            quota_headers(ResponseTemplate::new(200)).set_body_json(json!({
+                "type": "file",
+                "encoding": "base64",
+                "content": base64::engine::general_purpose::STANDARD.encode(workflow),
+            })),
+        )
+        .mount(server)
+        .await;
+}
+
+fn run_token_client(server: &MockServer) -> RestClient {
+    RestClient::new(
+        RUN_TOKEN,
+        RestClientConfig {
+            base_url: server.uri(),
+            max_rate_limit_retries: 0,
+            ..RestClientConfig::default()
+        },
+    )
+    .expect("the client builds")
+}
+
+const READING_JOB: &str = "\
+permissions: {}
+jobs:
+  audit:
+    permissions:
+      contents: read
+      actions: read
+      attestations: read
+    steps:
+      - uses: wyrd-company/airlock@0123456789abcdef0123456789abcdef01234567 # 1.0.0
+";
+
+#[tokio::test]
+async fn the_runs_token_is_accepted_when_its_job_declares_only_reads() {
+    let server = MockServer::start().await;
+    mount_workflow(&server, READING_JOB).await;
+    let run = run_in("owner/name");
+
+    let grant = verify_for(
+        RUN_TOKEN,
+        &run_token_client(&server),
+        Admission::Repository {
+            run: &run,
+            owner: "owner",
+            repo: "name",
+            run_token: Some(RUN_TOKEN),
+        },
+    )
+    .await
+    .expect("the run's read-only token is accepted");
+
+    assert_eq!(grant.kind, TokenKind::Installation);
+    let run_grant = grant.run.as_ref().expect("the grant names its job");
+    assert_eq!(run_grant.job, "audit");
+    assert_eq!(
+        run_grant.workflow,
+        format!(".github/workflows/audit.yml@{RUN_SHA}")
+    );
+    assert_eq!(
+        run_grant.permissions,
+        vec!["contents=read", "actions=read", "attestations=read"]
+    );
+    assert_eq!(grant.capability(), CredentialCapability::ReadOnly);
+}
+
+#[tokio::test]
+async fn the_runs_token_is_refused_when_its_job_holds_a_write_permission() {
+    let server = MockServer::start().await;
+    mount_workflow(
+        &server,
+        "\
+jobs:
+  audit:
+    permissions:
+      contents: write
+    steps: []
+",
+    )
+    .await;
+    let run = run_in("owner/name");
+
+    let refusal = verify_for(
+        RUN_TOKEN,
+        &run_token_client(&server),
+        Admission::Repository {
+            run: &run,
+            owner: "owner",
+            repo: "name",
+            run_token: Some(RUN_TOKEN),
+        },
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(refusal.code.code(), "write_permission");
+    assert!(refusal.detail.contains("contents=write"), "{refusal}");
+}
+
+#[tokio::test]
+async fn the_runs_token_audits_only_the_runs_repository() {
+    let server = MockServer::start().await;
+    // No workflow is mounted: the refusal comes before any request.
+    let run = run_in("owner/name");
+    let refusal = verify_for(
+        RUN_TOKEN,
+        &run_token_client(&server),
+        Admission::Repository {
+            run: &run,
+            owner: "owner",
+            repo: "other",
+            run_token: Some(RUN_TOKEN),
+        },
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(refusal.code.code(), "foreign_repository");
+}
+
+#[tokio::test]
+async fn an_unreadable_workflow_file_is_refused_not_assumed() {
+    let server = MockServer::start().await;
+    // The token is placed, and then the contents endpoint 404s: nothing else
+    // is mounted.
+    mount_token_repositories(
+        &server,
+        200,
+        token_repositories(1, &[(RUN_REPOSITORY_ID, "owner/name")]),
+    )
+    .await;
+    let run = run_in("owner/name");
+    let refusal = verify_for(
+        RUN_TOKEN,
+        &run_token_client(&server),
+        Admission::Repository {
+            run: &run,
+            owner: "owner",
+            repo: "name",
+            run_token: Some(RUN_TOKEN),
+        },
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(refusal.code.code(), "workflow_unreadable");
+}
+
+#[tokio::test]
+async fn an_installation_token_other_than_the_runs_is_refused_without_a_request() {
+    let server = MockServer::start().await;
+    mount_workflow(&server, READING_JOB).await;
+    let run = run_in("owner/name");
+    for (run_token, code) in [
+        (
+            Some("ghs_placeholder_the_run"),
+            "foreign_installation_token",
+        ),
+        (None, "run_token_unbound"),
+        (Some("   "), "run_token_unbound"),
+    ] {
+        let refusal = verify_for(
+            RUN_TOKEN,
+            &run_token_client(&server),
+            Admission::Repository {
+                run: &run,
+                owner: "owner",
+                repo: "name",
+                run_token,
+            },
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(refusal.code.code(), code, "{run_token:?}");
+    }
+    assert!(
+        server
+            .received_requests()
+            .await
+            .unwrap_or_default()
+            .is_empty(),
+        "the binding is checked before the workflow is read"
+    );
+}
+
+#[tokio::test]
+async fn an_installation_token_outside_repository_mode_is_refused_without_a_request() {
+    let server = MockServer::start().await;
+    mount_workflow(&server, READING_JOB).await;
+    let refusal = verify_for(RUN_TOKEN, &run_token_client(&server), Admission::Standard)
+        .await
+        .unwrap_err();
+    assert_eq!(refusal.code.code(), "unverifiable_installation_token");
+    assert!(server
+        .received_requests()
+        .await
+        .unwrap_or_default()
+        .is_empty());
+}
+
+// ---------------------------------------------------------------------------
 // Page-budget truncation
 // ---------------------------------------------------------------------------
 
@@ -855,9 +1215,9 @@ async fn a_tag_listing_stopped_at_the_page_budget_says_so() {
     mount_two_pages(
         &server,
         "/repos/owner/name/git/matching-refs/tags/",
-        json!([{ "ref": "refs/tags/1.0.0", "object": { "sha": "a" } }]),
+        json!([{ "ref": "refs/tags/1.0.0", "object": { "sha": "a", "type": "tag" } }]),
         // The `v`-prefixed tag lives on the page a one-page budget never sees.
-        json!([{ "ref": "refs/tags/v2.0.0", "object": { "sha": "b" } }]),
+        json!([{ "ref": "refs/tags/v2.0.0", "object": { "sha": "b", "type": "commit" } }]),
     )
     .await;
 
@@ -1168,7 +1528,7 @@ async fn a_malformed_tag_fails_the_listing() {
         .and(path("/repos/owner/name/git/matching-refs/tags/"))
         .respond_with(
             quota_headers(ResponseTemplate::new(200)).set_body_json(json!([
-                { "ref": "refs/tags/1.0.0", "object": { "sha": "a" } },
+                { "ref": "refs/tags/1.0.0", "object": { "sha": "a", "type": "tag" } },
                 { "ref": "refs/tags/v2.0.0" }
             ])),
         )
@@ -1610,5 +1970,510 @@ async fn a_client_that_refuses_redirects_never_carries_its_credential_to_another
             .unwrap_or_default()
             .is_empty(),
         "the client followed a redirect off the host it was pointed at"
+    );
+}
+
+#[tokio::test]
+async fn release_record_pages_preserve_drafts_and_prereleases_and_budget() {
+    let server = MockServer::start().await;
+    mount_two_pages(&server, "/repos/owner/name/releases",
+        json!([{"id": 1, "tag_name": "1.0.0", "draft": true, "html_url": "https://example.test/1"}]),
+        json!([{"id": 2, "tag_name": "2.0.0-rc.1", "draft": false, "prerelease": true, "html_url": "https://example.test/2"}])).await;
+    let bounded = client_with_page_budget(&server, 1)
+        .releases("owner", "name")
+        .await
+        .unwrap();
+    assert!(bounded.truncated);
+    let all = client(&server).releases("owner", "name").await.unwrap();
+    assert!(!all.truncated);
+    assert_eq!(all.items.len(), 2);
+    assert!(all.items[0].draft);
+    assert!(!all.items[1].draft);
+    assert_eq!(all.items[1].tag_name, "2.0.0-rc.1");
+}
+
+#[tokio::test]
+async fn annotated_tag_reads_message_and_target_object_sha() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET")).and(path("/repos/owner/name/git/tags/tag-object"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"sha": "tag-object", "message": "protocol message", "object": {"type": "commit", "sha": "target-commit"}})))
+        .mount(&server).await;
+    let tag = client(&server)
+        .annotated_tag("owner", "name", "tag-object")
+        .await
+        .unwrap();
+    assert_eq!(tag.commit, "target-commit");
+    assert_eq!(tag.message, "protocol message");
+}
+
+#[tokio::test]
+async fn tag_ref_object_type_is_preserved() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/repos/owner/name/git/matching-refs/tags/"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            {"ref": "refs/tags/1.0.0", "object": {"sha": "tag", "type": "tag"}},
+            {"ref": "refs/tags/0.1.0", "object": {"sha": "commit", "type": "commit"}}
+        ])))
+        .mount(&server)
+        .await;
+    let tags = client(&server).tags("owner", "name").await.unwrap();
+    assert_eq!(tags.items[0].object_type, "tag");
+    assert_eq!(tags.items[1].object_type, "commit");
+}
+
+async fn release_audit(
+    server: &MockServer,
+    tags: ResponseTemplate,
+    releases: ResponseTemplate,
+    max_pages: usize,
+    release_record_policy: &str,
+) -> airlock_core::findings::Report {
+    let model = json!({"$schema": "https://intentional.foo/schemas/release-model/1",
+        "paths": {"config": ".intentional/config.yml", "intents": ".intentional/intents", "model": ".intentional/release-model.json"},
+        "release_units": {"sample": {"path": ".", "changelog": "CHANGELOG.md", "disposition": "managed", "release_record": release_record_policy,
+            "depends_on": [], "ecosystems": [], "projections": [], "sources": [], "tags": {"primary": {"role": "primary", "template": "{version}", "tag_after": []}}}},
+        "workspace_tags": {}, "release_groups": {"fixed": [], "linked": []}}).to_string();
+    for (route, body) in [
+        (
+            "/repos/owner/name",
+            json!({"id": 1, "name": "name", "full_name": "owner/name", "default_branch": "main"}),
+        ),
+        (
+            "/repos/owner/name/commits/main",
+            json!({"sha": "audited-commit"}),
+        ),
+        ("/repos/owner/name/topics", json!({"names": []})),
+        (
+            "/repos/owner/name/commits",
+            json!([
+                {"sha":"audited-commit","parents":[{"sha":"target-commit"}]},
+                {"sha":"target-commit","parents":[{"sha":"baseline-commit"}]},
+                {"sha":"baseline-commit","parents":[]}
+            ]),
+        ),
+        (
+            "/repos/owner/name/git/trees/audited-commit",
+            json!({"sha": "tree", "truncated": false, "tree": [{"path": ".intentional/release-model.json", "mode": "100644", "sha": "model-blob", "size": model.len()}]}),
+        ),
+        (
+            "/repos/owner/name/git/blobs/model-blob",
+            json!({"encoding": "utf-8", "content": model}),
+        ),
+    ] {
+        Mock::given(method("GET"))
+            .and(path(route))
+            .respond_with(ResponseTemplate::new(200).set_body_json(body))
+            .mount(server)
+            .await;
+    }
+    Mock::given(method("GET"))
+        .and(path("/repos/owner/name/git/matching-refs/tags/"))
+        .respond_with(tags)
+        .mount(server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/repos/owner/name/releases"))
+        .respond_with(releases)
+        .mount(server)
+        .await;
+    let record = format!("intentional release record\n\ncontract: contract-1\ngenerator: intentional 0.2.0\nplan-digest: sha256:{}\ntag-id: release-unit/sample/primary\nversion: 1.0.0\nbaseline: false\n", "a".repeat(64));
+    Mock::given(method("GET"))
+        .and(path("/repos/owner/name/git/tags/tag-object"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({"message": record, "tagger": {"name":"fixture","email":"fixture@example.invalid"}, "object": {"type":"commit", "sha": "target-commit"}})),
+        )
+        .mount(server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/repos/owner/name/git/tags/baseline-object"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "message": record.replace("version: 1.0.0", "version: 0.0.0").replace("baseline: false", "baseline: true"),
+            "tagger":{"name":"fixture","email":"fixture@example.invalid"},
+            "object":{"type":"commit","sha":"baseline-commit"}
+        }))).mount(server).await;
+    let def = airlock_core::rules::find("REPO-REL-08").unwrap();
+    let policy = airlock_core::policy::ResolvedPolicy {
+        name: "fixture".into(),
+        source: "fixture".into(),
+        commit: None,
+        bundle_digest: "sha256:fixture".into(),
+        sources: vec![],
+        rules: vec![airlock_core::policy::EffectiveRule {
+            def,
+            severity: def.severity,
+            params: Default::default(),
+            provenance: "fixture".into(),
+        }],
+        suppressions: Default::default(),
+
+        accepted_version: airlock_core::policy::current_generation(),
+        exceptions: Default::default(),
+    };
+    airlock_core::audit::run(
+        &client_with_page_budget(server, max_pages),
+        "owner",
+        "name",
+        &policy,
+        &airlock_core::audit::AuditOptions::default(),
+        None,
+    )
+    .await
+    .unwrap()
+}
+
+fn release_tag_response() -> ResponseTemplate {
+    ResponseTemplate::new(200).set_body_json(
+        json!([{"ref": "refs/tags/1.0.0", "object": {"sha": "tag-object", "type": "tag"}},
+            {"ref":"refs/tags/0.0.0","object":{"sha":"baseline-object","type":"tag"}}]),
+    )
+}
+
+#[tokio::test]
+async fn release_audit_reports_missing_and_published_records_at_audited_revision() {
+    for published in [false, true] {
+        let server = MockServer::start().await;
+        let releases = if published {
+            json!([{"id": 42, "tag_name": "1.0.0", "draft": false, "prerelease": true, "html_url": "https://example.test/42"}])
+        } else {
+            json!([])
+        };
+        let report = release_audit(
+            &server,
+            release_tag_response(),
+            ResponseTemplate::new(200).set_body_json(releases),
+            3,
+            "required",
+        )
+        .await;
+        assert_eq!(report.exit_code(), 0); // advisory gaps do not fail a run
+        assert_eq!(report.findings.len(), 1);
+        assert_eq!(
+            report.findings[0].status,
+            Some(if published {
+                airlock_core::findings::Status::Met
+            } else {
+                airlock_core::findings::Status::Gap
+            })
+        );
+        assert_eq!(report.repository.audited_commit, "audited-commit");
+        assert!(report.findings[0]
+            .evidence
+            .as_ref()
+            .unwrap()
+            .detail
+            .contains("target-commit"));
+    }
+}
+
+#[tokio::test]
+async fn release_audit_truncated_listings_and_api_failure_exit_two() {
+    for kind in [
+        "tag-budget",
+        "release-budget",
+        "tag-api",
+        "release-api",
+        "malformed-release",
+        "tag-truncated-json",
+    ] {
+        let server = MockServer::start().await;
+        let next = format!(
+            "<{}/repos/owner/name/releases?page=2>; rel=\"next\"",
+            server.uri()
+        );
+        let mut tags = release_tag_response();
+        let mut releases = ResponseTemplate::new(200).set_body_json(json!([]));
+        let endpoint = if kind.starts_with("tag") {
+            "/git/matching-refs/tags/"
+        } else {
+            "/releases"
+        };
+        match kind {
+            "tag-budget" => tags = tags.insert_header("link", next.as_str()),
+            "release-budget" => releases = releases.insert_header("link", next.as_str()),
+            "tag-api" => tags = ResponseTemplate::new(503),
+            "release-api" => releases = ResponseTemplate::new(503),
+            "malformed-release" => releases = ResponseTemplate::new(200).set_body_string("["),
+            "tag-truncated-json" => tags = ResponseTemplate::new(200).set_body_string("["),
+            _ => unreachable!(),
+        }
+        let report = release_audit(&server, tags, releases, 1, "required").await;
+        assert_eq!(report.exit_code(), 2, "{kind}");
+        assert!(report.findings.is_empty(), "{kind}: neither Met nor Gap");
+        assert_eq!(report.run_errors.len(), 1, "{kind}");
+        assert!(
+            report.run_errors[0]
+                .error
+                .as_ref()
+                .unwrap()
+                .endpoint
+                .ends_with(endpoint),
+            "{kind}"
+        );
+        assert_ne!(
+            report.run_errors[0]
+                .evidence
+                .as_ref()
+                .map(|e| e.code.as_str()),
+            Some("release-record-missing")
+        );
+    }
+}
+
+#[tokio::test]
+async fn units_with_no_release_record_policy_do_not_read_release_endpoints() {
+    let server = MockServer::start().await;
+    let report = release_audit(
+        &server,
+        release_tag_response(),
+        ResponseTemplate::new(503),
+        1,
+        "none",
+    )
+    .await;
+    assert_eq!(report.exit_code(), 0);
+    assert_eq!(
+        report.findings[0].status,
+        Some(airlock_core::findings::Status::Met)
+    );
+    let requests = server.received_requests().await.unwrap();
+    assert!(!requests
+        .iter()
+        .any(|request| request.url.path().ends_with("/releases")));
+}
+
+#[tokio::test]
+async fn release_listing_malformed_members_are_run_errors() {
+    for release in [
+        json!({"id": 42, "tag_name": "1.0.0", "html_url": "https://example.test/42"}),
+        json!({"id":42, "tag_name":"1.0.0", "draft":"false", "html_url":"https://example.test/42"}),
+        json!({"id":42,"tag_name":"1.0.0","draft":false}),
+    ] {
+        let server = MockServer::start().await;
+        let report = release_audit(
+            &server,
+            release_tag_response(),
+            ResponseTemplate::new(200).set_body_json(json!([release])),
+            1,
+            "required",
+        )
+        .await;
+        assert_eq!(report.exit_code(), 2);
+        assert!(report.findings.is_empty());
+        assert!(report.run_errors[0]
+            .error
+            .as_ref()
+            .unwrap()
+            .endpoint
+            .ends_with("/releases"));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Repository mode: placing the run's token before it is used
+// ---------------------------------------------------------------------------
+
+async fn admit(server: &MockServer, token: &str) -> Result<VerifiedGrant, Refusal> {
+    admit_with(server, token, RestClientConfig::default().max_pages).await
+}
+
+async fn admit_with(
+    server: &MockServer,
+    token: &str,
+    max_pages: usize,
+) -> Result<VerifiedGrant, Refusal> {
+    let run = run_in("owner/name");
+    let client = RestClient::new(
+        token,
+        RestClientConfig {
+            base_url: server.uri(),
+            max_rate_limit_retries: 0,
+            max_pages,
+            ..RestClientConfig::default()
+        },
+    )
+    .expect("the client builds");
+    verify_for(
+        token,
+        &client,
+        Admission::Repository {
+            run: &run,
+            owner: "owner",
+            repo: "name",
+            run_token: Some(token),
+        },
+    )
+    .await
+}
+
+#[tokio::test]
+async fn a_token_not_in_the_actions_apps_form_is_refused_without_a_request() {
+    let server = MockServer::start().await;
+    // Nothing is mounted, so any request would fail differently.
+    for token in [
+        // The forged pair: another App's installation token, as both sides.
+        "ghs_999999_eyJhbGciOiJFUzI1NiJ9.eyJmb3JnZWQiOjF9.c2lnbmF0dXJl",
+        // The prefix without an app id.
+        "ghs_eyJhbGciOiJFUzI1NiJ9.eyJmb3JnZWQiOjF9.c2lnbmF0dXJl",
+        // A legacy installation token.
+        "ghs_16C7e42F292c6912E7710c838347Ae178B4a",
+    ] {
+        let refusal = admit(&server, token).await.unwrap_err();
+        assert_eq!(refusal.code.code(), "not_actions_token", "{token}");
+    }
+    assert!(server.received_requests().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn the_run_token_must_reach_the_runs_repository_alone() {
+    for (label, status, body, code) in [
+        (
+            "no repository",
+            200,
+            token_repositories(0, &[]),
+            "run_repository_mismatch",
+        ),
+        (
+            "two repositories",
+            200,
+            token_repositories(2, &[(RUN_REPOSITORY_ID, "owner/name"), (7, "owner/other")]),
+            "run_repository_mismatch",
+        ),
+        (
+            "the wrong id",
+            200,
+            token_repositories(1, &[(RUN_REPOSITORY_ID + 1, "owner/name")]),
+            "run_repository_mismatch",
+        ),
+        (
+            "the wrong name",
+            200,
+            token_repositories(1, &[(RUN_REPOSITORY_ID, "owner/other")]),
+            "run_repository_mismatch",
+        ),
+        (
+            "a count that disagrees",
+            200,
+            token_repositories(3, &[(RUN_REPOSITORY_ID, "owner/name")]),
+            "run_repository_mismatch",
+        ),
+        (
+            "401",
+            401,
+            json!({ "message": "Bad credentials" }),
+            "run_token_unconfirmed",
+        ),
+    ] {
+        let server = MockServer::start().await;
+        mount_token_repositories(&server, status, body).await;
+        mount_workflow_only(&server, READING_JOB).await;
+        let refusal = admit(&server, RUN_TOKEN).await.unwrap_err();
+        assert_eq!(refusal.code.code(), code, "{label}");
+        // Refused at the first request: the workflow file was never read.
+        let requests = server.received_requests().await.unwrap();
+        assert_eq!(requests.len(), 1, "{label}");
+        assert_eq!(
+            requests[0].url.path(),
+            "/installation/repositories",
+            "{label}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn the_repository_listing_is_the_first_request_and_its_pages_are_read() {
+    let server = MockServer::start().await;
+    // A first page that names the run's repository and links a second page
+    // that names another: the walk reads both, and two are refused.
+    let next = format!(
+        "{}/installation/repositories?per_page=100&page=2",
+        server.uri()
+    );
+    Mock::given(method("GET"))
+        .and(path("/installation/repositories"))
+        .and(query_param_is_missing("page"))
+        .respond_with(
+            quota_headers(ResponseTemplate::new(200))
+                .insert_header("link", format!("<{next}>; rel=\"next\"").as_str())
+                .set_body_json(token_repositories(1, &[(RUN_REPOSITORY_ID, "owner/name")])),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/installation/repositories"))
+        .and(query_param("page", "2"))
+        .respond_with(
+            quota_headers(ResponseTemplate::new(200))
+                .set_body_json(token_repositories(1, &[(7, "owner/other")])),
+        )
+        .mount(&server)
+        .await;
+    mount_workflow_only(&server, READING_JOB).await;
+    let refusal = admit(&server, RUN_TOKEN).await.unwrap_err();
+    assert_eq!(refusal.code.code(), "run_repository_mismatch");
+
+    // Admitted, the listing still comes before the workflow file.
+    let server = MockServer::start().await;
+    mount_workflow(&server, READING_JOB).await;
+    admit(&server, RUN_TOKEN)
+        .await
+        .expect("the run's token is admitted");
+    let requests = server.received_requests().await.unwrap();
+    assert_eq!(requests[0].url.path(), "/installation/repositories");
+    assert_eq!(
+        requests[1].url.path(),
+        "/repos/owner/name/contents/.github/workflows/audit.yml"
+    );
+}
+
+#[tokio::test]
+async fn a_repository_listing_cut_short_by_the_page_budget_is_refused() {
+    // The run's repository on the first page, with total_count 1, then empty
+    // pages that keep linking a next one: the walk stops at the budget, and a
+    // listing it could not read to the end places nothing.
+    let server = MockServer::start().await;
+    let page = |n: u32| {
+        format!(
+            "{}/installation/repositories?per_page=100&page={n}",
+            server.uri()
+        )
+    };
+    Mock::given(method("GET"))
+        .and(path("/installation/repositories"))
+        .and(query_param_is_missing("page"))
+        .respond_with(
+            quota_headers(ResponseTemplate::new(200))
+                .insert_header("link", format!("<{}>; rel=\"next\"", page(2)).as_str())
+                .set_body_json(token_repositories(1, &[(RUN_REPOSITORY_ID, "owner/name")])),
+        )
+        .mount(&server)
+        .await;
+    for n in 2..=4 {
+        Mock::given(method("GET"))
+            .and(path("/installation/repositories"))
+            .and(query_param("page", n.to_string()))
+            .respond_with(
+                quota_headers(ResponseTemplate::new(200))
+                    .insert_header("link", format!("<{}>; rel=\"next\"", page(n + 1)).as_str())
+                    .set_body_json(token_repositories(1, &[])),
+            )
+            .mount(&server)
+            .await;
+    }
+    mount_workflow_only(&server, READING_JOB).await;
+    let refusal = admit_with(&server, RUN_TOKEN, 3).await.unwrap_err();
+    assert_eq!(refusal.code.code(), "run_repository_mismatch");
+    assert!(
+        refusal
+            .detail
+            .contains("more repositories than one listing walk reads"),
+        "{refusal}"
+    );
+    let requests = server.received_requests().await.unwrap();
+    assert_eq!(
+        requests.len(),
+        3,
+        "three pages, the budget, and no workflow read"
     );
 }

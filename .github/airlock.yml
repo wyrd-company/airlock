@@ -1,0 +1,46 @@
+# relationships:
+#   references: repository-config
+version: 0.6.0
+# Declared repository metadata. Applied to GitHub by an operator through
+# Airlock's terminal interface, never by `airlock align-files`.
+#
+# This file is the source of truth. Changing settings in the GitHub UI is
+# drift, not a change; the scheduled read-only audit detects the discrepancy.
+#
+# There is deliberately no `visibility` field. Publishing a repository is an
+# unrecoverable act and stays a manual decision.
+
+description: >-
+  Audits a GitHub repository against compiled rules and reports gaps that would
+  block a release.
+
+# Topic vocabulary comes from organization exceptions and this file's
+# approved reasoned REPO-META-09 request.
+topics:
+  - cli
+  - rust
+  - github
+  - release-automation
+  - devops
+
+merge:
+  squash: true
+  rebase: true
+  merge_commit: false
+  delete_branch_on_merge: true
+
+features:
+  wiki: false
+  projects: false
+  discussions: false
+
+exceptions:
+  REPO-FILE-08:
+    reason: This repository uses the organization's named Renovate configuration
+    renovate-preset: github>wyrd-company/.github:renovate-config
+  REPO-META-09:
+    reason: Repository discovery includes GitHub release automation and DevOps
+    topics:
+      artifact-type: [cli, library, application]
+      ecosystem: [rust, node, go]
+      purpose: [github, release-automation, devops]

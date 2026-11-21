@@ -68,7 +68,7 @@ pub const DEFAULT_LIMITS: Limits = Limits {
     max_total_bytes: 16 * 1024 * 1024,
     max_tree_entries: 20_000,
     max_pages: 20,
-    max_history_commits: 1_000,
+    max_history_commits: crate::rules::git::repo_git_10::DEFAULT_MAX_COMMITS,
     max_workflow_files: 100,
     max_policy_references: 16,
     max_policy_reference_depth: 4,

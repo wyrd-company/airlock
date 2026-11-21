@@ -1,0 +1,6 @@
+$schema: https://refinery.systems/ontology/term
+title: Released
+description: >-
+  The lifecycle rung established by a non-baseline release tag after the repository's baseline,
+  at a release version below 1.0.0. A baseline tag alone, including a takeover baseline above
+  0.0.0, establishes Building. A rule governing Released and above also governs Stable.

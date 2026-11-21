@@ -27,7 +27,7 @@ grant         metadata read · actions read · administration write · contents 
 storage       none. No credential of any kind is stored: not in a file, not in the environment, not in a child process, 
               and not after this session ends. Its value is never displayed.                                            
                                                                                                                         
-holding       findings · acme-industries/widget · row 3 · gating failures · groups 8 collapsed · detail closed          
+holding       findings · acme-industries/widget · row 3 · gating failures · groups 9 collapsed · detail closed          
 discarded     every observation this session made. Each row is observed again once the authorization returns, because a 
               reading taken under a grant that has lapsed is not evidence of the present state.                         
                                                                                                                         

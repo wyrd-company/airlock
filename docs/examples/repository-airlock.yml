@@ -1,0 +1,19 @@
+# Place at .github/airlock.yml in the audited repository.
+# relationships:
+#   references: repository-config
+version: 0.6.0
+description: A small command line utility
+topics: [cli, rust]
+merge:
+  squash: true
+  rebase: true
+  merge_commit: false
+  delete_branch_on_merge: true
+features:
+  wiki: false
+  projects: false
+  discussions: false
+exceptions:
+  REPO-DOCS-02:
+    reason: This utility has no architecture beyond one module
+    severity: none

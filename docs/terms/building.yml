@@ -1,0 +1,7 @@
+$schema: https://refinery.systems/ontology/term
+title: Building
+description: >-
+  The lifecycle rung established by the repository's first Intentional baseline tag, whatever
+  its version, until a subsequent non-baseline release tag establishes a higher rung. Committed
+  Change Intents are not a precondition. Repositories that do not release versioned output
+  remain Building after their baseline.
