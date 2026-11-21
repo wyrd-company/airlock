@@ -28,18 +28,18 @@ credential.
 
 **The binary never shells out.** No `git`, no `gh`, no subprocess at all from
 `airlock` or anything it depends on. Airlock speaks the GitHub REST API
-directly. This is a rule about the binary, not repository automation in
-general: the composite Action in `action.yml` invokes Cargo and
-`scripts/run-action.sh` while the Airlock binary remains subprocess-free. No
-workflow receives automated settings-write authority.
+directly. The same holds for the WebAssembly module and the JavaScript action
+that loads it: every request goes through the host's `fetch`, and nothing
+starts a process. No workflow receives automated settings-write authority.
 
 **No ambient credentials.** `GH_TOKEN`, `GITHUB_TOKEN`, the `gh` credential
 store, and git credential helpers are off limits as sources and must not be
 mentioned as fallbacks in error messages. Suggesting them defeats the point of
 refusing write access. The run's own token reaches Airlock only when a
 workflow passes it explicitly, as the Action's `token` input in repository
-mode. `AIRLOCK_RUN_TOKEN` is not a credential source: repository mode admits
-an installation token only when it equals that value, and sends nothing with
+mode. `AIRLOCK_RUN_TOKEN`, and the action's `run-token` input, are not
+credential sources: repository mode admits an installation token only when it
+equals that value, and sends nothing with
 it.
 
 **A token whose permissions cannot be enumerated is refused.** Unverifiable is
@@ -101,10 +101,13 @@ file holds declarations and exception requests. Both accept an Airlock
 generation through `version`. Configuration loading and integration tests
 validate these shapes against the compiled rules.
 
-`action.yml` defines the adopter-facing composite Action, in repository and
-central mode. `crates/core/src/central_audit.rs` audits every repository
-central mode reaches into one report.
-`scripts/run-action.sh` adapts the CLI exit and report contracts to GitHub
-Actions; `scripts/test-action.sh` pins that adapter behavior.
+`action.yml` defines the adopter-facing JavaScript action, repository mode
+only, on `node24`. It runs the committed `dist/`, which `task action:build`
+builds from `action/src/` and the module; commit `dist/` with any change that
+reaches it, because CI fails when it differs from the source. The action's
+decisions about its inputs are in `action/src/main.mjs`; every check on the
+token is in the engine. See `docs/action.md`.
+`crates/core/src/central_audit.rs` audits every repository central mode
+reaches into one report.
 
 Wider design context lives in memory and in the kanban task, not here.

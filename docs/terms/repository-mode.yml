@@ -1,10 +1,11 @@
 $schema: https://refinery.systems/ontology/term
 title: Repository mode
 description: >-
-  The Airlock Action's audit of the one repository running it, with the run's own GITHUB_TOKEN
-  given as its token input. GitHub lists no installation token's permissions, so Airlock
-  enumerates this token's grant from the running job's declared permissions. It reads them from the
-  workflow file at GITHUB_WORKFLOW_SHA, and accepts the token only inside Actions, for the run's
-  repository, when every declared permission is read. The token must equal AIRLOCK_RUN_TOKEN, which
-  the Action sets to github.token, so no other installation token is judged by permissions that
-  are not its own. Every other surface refuses an installation token.
+  The Airlock action's audit of the one repository running it, and the only mode the action runs,
+  with the run's own GITHUB_TOKEN given as its token input. GitHub lists no installation token's
+  permissions, so Airlock enumerates this token's grant from the running job's declared
+  permissions. It reads them from the workflow file at GITHUB_WORKFLOW_SHA, and accepts the token
+  only inside Actions, for the run's repository, when every declared permission is read. The token
+  must equal the run's own token, which the action's run-token input holds as github.token, so no
+  other installation token is judged by permissions that are not its own. Every other surface
+  refuses an installation token.
