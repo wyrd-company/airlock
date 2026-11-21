@@ -392,6 +392,94 @@ impl OidcRequest {
     }
 }
 
+/// How central mode proves itself to Entra ID for the Key Vault token.
+///
+/// The token is the same in every case: Key Vault's data-plane scope, for
+/// the identity `azure-client-id` names. Only the proof differs, by where
+/// Airlock runs.
+pub enum AzureCredential {
+    /// The job's GitHub OpenID Connect token, which the identity's federated
+    /// credential trusts. This is how a GitHub Actions job signs in.
+    GitHubOidc(OidcRequest),
+    /// A client assertion the host made and signed, for an identity with a
+    /// certificate credential. The engine sends it as it is, and the host
+    /// keeps the certificate's key.
+    ClientAssertion(Zeroizing<String>),
+    /// The identity's client secret. This is how a host with no OpenID
+    /// Connect issuer signs in, such as a Worker holding the secret in its
+    /// secrets store.
+    ClientSecret(Zeroizing<String>),
+}
+
+impl AzureCredential {
+    /// A client secret.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `inputs` error for an empty value.
+    pub fn client_secret(value: impl Into<String>) -> Result<Self, CentralError> {
+        let value = Zeroizing::new(value.into());
+        if value.trim().is_empty() {
+            return Err(CentralError::new(
+                Step::Inputs,
+                "the Entra ID client secret is empty",
+            ));
+        }
+        Ok(Self::ClientSecret(value))
+    }
+
+    /// A client assertion the host signed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `inputs` error for a value that is not a compact JSON Web
+    /// Token: three base64url segments.
+    pub fn client_assertion(value: impl Into<String>) -> Result<Self, CentralError> {
+        let value = Zeroizing::new(value.into());
+        let segments: Vec<&str> = value.trim().split('.').collect();
+        let compact = segments.len() == 3
+            && segments.iter().all(|segment| {
+                !segment.is_empty()
+                    && segment
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
+            });
+        if !compact {
+            return Err(CentralError::new(
+                Step::Inputs,
+                "the Entra ID client assertion is not a compact JSON Web Token",
+            ));
+        }
+        Ok(Self::ClientAssertion(value))
+    }
+
+    /// The credential's kind, which is safe to show.
+    #[must_use]
+    pub const fn kind(&self) -> &'static str {
+        match self {
+            Self::GitHubOidc(_) => "github-oidc",
+            Self::ClientAssertion(_) => "client-assertion",
+            Self::ClientSecret(_) => "client-secret",
+        }
+    }
+}
+
+impl From<OidcRequest> for AzureCredential {
+    fn from(request: OidcRequest) -> Self {
+        Self::GitHubOidc(request)
+    }
+}
+
+impl fmt::Debug for AzureCredential {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // The value is deliberately absent.
+        formatter
+            .debug_struct("AzureCredential")
+            .field("kind", &self.kind())
+            .finish_non_exhaustive()
+    }
+}
+
 /// The hosts central mode talks to. Overridden in tests.
 #[derive(Debug, Clone)]
 pub struct Endpoints {
@@ -487,7 +575,7 @@ impl CentralSession {
 /// Returns a [`CentralError`] naming the first step that failed.
 pub async fn sign_in(
     config: &CentralConfig,
-    oidc: &OidcRequest,
+    credential: &AzureCredential,
     endpoints: &Endpoints,
     limits: Limits,
     transport: Arc<dyn Transport>,
@@ -498,7 +586,7 @@ pub async fn sign_in(
     };
     let budget = limits.max_response_bytes;
 
-    let vault_token = azure_sign_in(&http, config, oidc, endpoints, budget).await?;
+    let vault_token = azure_sign_in(&http, config, credential, endpoints, budget).await?;
     let now = http.transport.unix_time().as_secs();
     let jwt = sign_app_jwt(&http, config, &vault_token, budget, now).await?;
     drop(vault_token);
@@ -542,8 +630,97 @@ pub async fn sign_in(
 async fn azure_sign_in(
     http: &Http,
     config: &CentralConfig,
-    oidc: &OidcRequest,
+    credential: &AzureCredential,
     endpoints: &Endpoints,
+    budget: usize,
+) -> Result<Zeroizing<String>, CentralError> {
+    let assertion;
+    let (proof, refused) = match credential {
+        AzureCredential::GitHubOidc(oidc) => {
+            assertion = github_oidc_assertion(http, oidc, budget).await?;
+            (
+                ("client_assertion", assertion.as_str()),
+                "Entra ID refused the job's federated credential",
+            )
+        }
+        AzureCredential::ClientAssertion(value) => (
+            ("client_assertion", value.as_str()),
+            "Entra ID refused the host's client assertion",
+        ),
+        AzureCredential::ClientSecret(value) => (
+            ("client_secret", value.as_str()),
+            "Entra ID refused the client secret",
+        ),
+    };
+
+    let mut form = vec![
+        ("client_id", config.azure_client_id.as_str()),
+        ("scope", KEY_VAULT_SCOPE),
+    ];
+    if proof.0 == "client_assertion" {
+        form.push((
+            "client_assertion_type",
+            "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+        ));
+    }
+    form.push(proof);
+    form.push(("grant_type", "client_credentials"));
+    let encoded = Zeroizing::new(
+        form.iter()
+            .map(|(name, value)| {
+                format!(
+                    "{name}={}",
+                    percent_encoding::utf8_percent_encode(value, FORM_VALUE)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("&"),
+    );
+    drop(form);
+    let request = transport::Request::new(
+        Method::Post,
+        format!(
+            "{}/{}/oauth2/v2.0/token",
+            endpoints.azure_login, config.azure_tenant_id
+        ),
+    )
+    .header("content-type", "application/x-www-form-urlencoded")
+    .header("accept", "application/json")
+    .body(encoded.as_bytes());
+    let (status, body) = http
+        .call(
+            request,
+            Step::AzureSignIn,
+            "the Entra ID token request",
+            budget,
+        )
+        .await?;
+    if !(200..300).contains(&status) {
+        // Entra ID names the failure in `error`, such as `invalid_client`,
+        // and in the numbers of `error_codes`, such as AADSTS70021. Only a
+        // code from OAuth's closed list and those numbers are carried; the
+        // description is the service's free text and is not.
+        return Err(answered(
+            Step::AzureSignIn,
+            refused,
+            status,
+            entra_code(&body),
+        ));
+    }
+    string_field(&body, "access_token")
+        .map(|token| Zeroizing::new(token.to_owned()))
+        .ok_or_else(|| {
+            CentralError::new(
+                Step::AzureSignIn,
+                "Entra ID's answer carried no access token",
+            )
+        })
+}
+
+/// The job's OpenID Connect token, for Entra ID's federated credential.
+async fn github_oidc_assertion(
+    http: &Http,
+    oidc: &OidcRequest,
     budget: usize,
 ) -> Result<Zeroizing<String>, CentralError> {
     let separator = if oidc.url.contains('?') { '&' } else { '?' };
@@ -582,66 +759,7 @@ async fn azure_sign_in(
             .to_owned(),
     );
     drop(body);
-
-    let form = [
-        ("client_id", config.azure_client_id.as_str()),
-        ("scope", KEY_VAULT_SCOPE),
-        (
-            "client_assertion_type",
-            "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
-        ),
-        ("client_assertion", assertion.as_str()),
-        ("grant_type", "client_credentials"),
-    ];
-    let encoded = Zeroizing::new(
-        form.iter()
-            .map(|(name, value)| {
-                format!(
-                    "{name}={}",
-                    percent_encoding::utf8_percent_encode(value, FORM_VALUE)
-                )
-            })
-            .collect::<Vec<_>>()
-            .join("&"),
-    );
-    let request = transport::Request::new(
-        Method::Post,
-        format!(
-            "{}/{}/oauth2/v2.0/token",
-            endpoints.azure_login, config.azure_tenant_id
-        ),
-    )
-    .header("content-type", "application/x-www-form-urlencoded")
-    .header("accept", "application/json")
-    .body(encoded.as_bytes());
-    let (status, body) = http
-        .call(
-            request,
-            Step::AzureSignIn,
-            "the Entra ID token request",
-            budget,
-        )
-        .await?;
-    if !(200..300).contains(&status) {
-        // Entra ID names the failure in `error`, such as `invalid_client`,
-        // and in the numbers of `error_codes`, such as AADSTS70021. Only a
-        // code from OAuth's closed list and those numbers are carried; the
-        // description is the service's free text and is not.
-        return Err(answered(
-            Step::AzureSignIn,
-            "Entra ID refused the job's federated credential",
-            status,
-            entra_code(&body),
-        ));
-    }
-    string_field(&body, "access_token")
-        .map(|token| Zeroizing::new(token.to_owned()))
-        .ok_or_else(|| {
-            CentralError::new(
-                Step::AzureSignIn,
-                "Entra ID's answer carried no access token",
-            )
-        })
+    Ok(assertion)
 }
 
 /// The App's JSON Web Token, signed by Key Vault.

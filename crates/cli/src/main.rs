@@ -927,9 +927,15 @@ async fn central_command(args: &AuditArgs, format: Format) -> Result<u8> {
     let client_config = client_config(limits);
     let transport = ReqwestTransport::new(limits.connect_timeout)
         .map_err(|error| anyhow::anyhow!("central mode stopped at inputs: {error}"))?;
-    let session = central::sign_in(&config, &oidc, &endpoints, limits, Arc::new(transport))
-        .await
-        .map_err(stopped)?;
+    let session = central::sign_in(
+        &config,
+        &oidc.into(),
+        &endpoints,
+        limits,
+        Arc::new(transport),
+    )
+    .await
+    .map_err(stopped)?;
 
     // From the minted token to its revocation nothing returns early: the
     // audit and its rendering are collected first, as text, and printed only
