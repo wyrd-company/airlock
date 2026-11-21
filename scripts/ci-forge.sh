@@ -30,13 +30,16 @@ case "${1:?}" in
         ;;
       proxy)
         # A dead proxy, Node told to use it, and TLS checks off. Set after
-        # checkout, which a dead proxy would stop.
+        # checkout, which a dead proxy would stop. Upper case only: Actions
+        # reads env names without regard to case when it loads action.yml,
+        # so the action can blank HTTPS_PROXY for its Node actions but not
+        # https_proxy beside it. The lower-case forms still reach setup-node
+        # and upload-artifact; docs/action.md lists that as not covered.
+        # The audit step's allowlist drops both (action/tests).
         {
           echo "NODE_USE_ENV_PROXY=1"
           echo "HTTPS_PROXY=http://127.0.0.1:9"
           echo "HTTP_PROXY=http://127.0.0.1:9"
-          echo "https_proxy=http://127.0.0.1:9"
-          echo "http_proxy=http://127.0.0.1:9"
           echo "NODE_TLS_REJECT_UNAUTHORIZED=0"
         } >>"$GITHUB_ENV"
         ;;

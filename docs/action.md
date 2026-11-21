@@ -76,9 +76,8 @@ token is refused" does the same on GitHub's runners, with `NODE_OPTIONS`,
 
 setup-node and upload-artifact are Node actions, which the runner starts with
 the job's environment, and an action cannot start them any other way. Each
-blanks `NODE_OPTIONS`, `NODE_USE_ENV_PROXY`, `HTTPS_PROXY`, `HTTP_PROXY`
-(Actions reads `env` names without regard to case, so these stand for the
-lowercase forms too), `NODE_TLS_REJECT_UNAUTHORIZED`,
+blanks `NODE_OPTIONS`, `NODE_USE_ENV_PROXY`, `HTTPS_PROXY`, `HTTP_PROXY`,
+`NODE_TLS_REJECT_UNAUTHORIZED`,
 `NODE_EXTRA_CA_CERTS`, `LD_PRELOAD` and `LD_LIBRARY_PATH` in its own `env`.
 
 ## Requirements
@@ -233,7 +232,14 @@ it as the run's own, by what a caller cannot forge:
   and upload-artifact run with the job's environment, less the names they
   blank. A variable not on that list can still influence them in ways no
   action can fully prevent: for example, how setup-node finds or fetches
-  Node, or what upload-artifact uploads.
+  Node, or what upload-artifact uploads. The lower-case `https_proxy` and
+  `http_proxy` are such variables. When Actions loads `action.yml`, it reads
+  `env` names without regard to case and refuses `https_proxy` beside
+  `HTTPS_PROXY`, yet it exports both to the step, so the action cannot blank
+  the lower-case forms. CI
+  [run 44925829010](https://github.com/wyrd-company/airlock/actions/runs/44925829010)
+  shows it: with a dead `https_proxy` in the job's env, the audit reached
+  GitHub directly, and upload-artifact failed through the proxy.
 
 A repository's own audit is therefore evidence about the repository, not
 proof against its own workflow's author. The Airlock Worker's scheduled
