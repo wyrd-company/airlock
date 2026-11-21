@@ -19,6 +19,7 @@ crate-type = ["cdylib", "rlib"]
 # Not the workspace entry: inheriting it would keep core's default
 # features, and the native transport cannot build for wasm32.
 airlock-core = { path = "../core", default-features = false }
+percent-encoding.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 zeroize.workspace = true
