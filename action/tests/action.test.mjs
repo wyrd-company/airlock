@@ -221,7 +221,11 @@ test("a job with a write permission is refused, and the refusal is the report", 
   assert.equal(document.mode, "repository");
   assert.match(document.message, /write_permission/);
   assert.match(document.message, /pull-requests=write/);
-  assert.equal(github.requests.length, 1, "nothing but the workflow file was read");
+  assert.deepEqual(
+    github.requests.map((sent) => sent.path.split("?")[0]),
+    ["/installation/repositories", "/repos/wyrd-company/airlock/contents/.github/workflows/audit.yml"],
+    "nothing but the token's reach and the workflow file was read",
+  );
   assert.equal(run.artifact.name, ARTIFACT);
   assertNoToken(run);
 });
@@ -343,6 +347,25 @@ test("a forged pair is refused: the caller cannot supply the run's token", async
   assert.equal(run.status, 1);
   assert.equal(run.outputs.outcome, "incomplete");
   assert.match(JSON.parse(run.findings).message, /foreign_installation_token/);
+  assert.equal(github.requests.length, 0, "the forged token was never sent");
+  assertNoToken(run, [RUN_TOKEN, forged]);
+});
+
+test("the forged pair is refused even when the environment defences were bypassed", async () => {
+  // Caller code rewrote AIRLOCK_RUN_TOKEN to the forged token too, so the
+  // two sides agree: the engine's form check refuses it before any request.
+  const forged = "ghs_999999_eyJhbGciOiJSUzI1NiJ9.eyJGT1JHRUQiOiJvdGhlci1hcHAifQ.Rk9SR0VE-c2lnbmF0dXJl_MARKER7";
+  github = repositoryFetch(recording, { base, bearer: forged });
+  const run = await runAction({
+    inputs: { ...TEMPLATE_INPUTS, token: forged },
+    env: { AIRLOCK_RUN_TOKEN: forged },
+    name: "bypassed",
+  });
+  assert.equal(run.status, 1);
+  assert.equal(run.outputs.outcome, "incomplete");
+  const message = JSON.parse(run.findings).message;
+  assert.match(message, /not_actions_token/);
+  assert.match(message, /changed its token format/);
   assert.equal(github.requests.length, 0, "the forged token was never sent");
   assertNoToken(run, [RUN_TOKEN, forged]);
 });

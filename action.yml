@@ -94,6 +94,7 @@ runs:
         AIRLOCK_JOB_CHECK_RUN_ID: ${{ job.check_run_id }}
         # The run, from the github context rather than the caller's env.
         GITHUB_REPOSITORY: ${{ github.repository }}
+        GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
         GITHUB_WORKFLOW_REF: ${{ github.workflow_ref }}
         GITHUB_WORKFLOW_SHA: ${{ github.workflow_sha }}
         GITHUB_JOB: ${{ github.job }}

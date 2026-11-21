@@ -165,6 +165,9 @@ pub enum RefusalCode {
     PermissionsUndeclared,
     RunTokenUnbound,
     ForeignInstallationToken,
+    NotActionsToken,
+    RunTokenUnconfirmed,
+    RunRepositoryMismatch,
 }
 
 impl RefusalCode {
@@ -195,6 +198,9 @@ impl RefusalCode {
             Self::PermissionsUndeclared => "permissions_undeclared",
             Self::RunTokenUnbound => "run_token_unbound",
             Self::ForeignInstallationToken => "foreign_installation_token",
+            Self::NotActionsToken => "not_actions_token",
+            Self::RunTokenUnconfirmed => "run_token_unconfirmed",
+            Self::RunRepositoryMismatch => "run_repository_mismatch",
         }
     }
 }
@@ -409,6 +415,9 @@ pub async fn verify_for<G: GitHub>(
                 run_token,
             } => {
                 bind_to_run(token, run_token)?;
+                // Placed by what a caller cannot forge, before any request:
+                // the run's token is the GitHub Actions app's.
+                crate::workflow_token::check_actions_token_form(token)?;
                 crate::workflow_token::verify_run_token(client, run, owner, repo).await
             }
             Admission::Standard => Err(Refusal::new(

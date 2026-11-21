@@ -11,6 +11,14 @@
 //!
 //! The enumeration holds only inside Actions and only for the repository the
 //! token was issued for, so both are required before anything is read.
+//!
+//! The token is placed before its permissions are read, by what a caller
+//! cannot forge. It must be in the form GitHub mints the run's token in,
+//! `ghs_15368_<JSON Web Token>`, where 15368 is the GitHub Actions app; GitHub
+//! refuses a token whose app id was edited. Its first request then asks
+//! GitHub which repositories it reaches, and the answer must be the run's
+//! repository alone, by id and by name. See `docs/action.md`, "What the action
+//! proves", for what this does and does not establish.
 
 use crate::auth::{Refusal, RefusalCode, RunGrant, TokenKind, VerifiedGrant};
 use crate::github::GitHub;
@@ -21,6 +29,7 @@ use crate::yaml::{self, Yaml};
 pub const ACTIONS_VARIABLES: &[&str] = &[
     "GITHUB_ACTIONS",
     "GITHUB_REPOSITORY",
+    "GITHUB_REPOSITORY_ID",
     "GITHUB_WORKFLOW_REF",
     "GITHUB_WORKFLOW_SHA",
     "GITHUB_JOB",
@@ -31,6 +40,8 @@ pub const ACTIONS_VARIABLES: &[&str] = &[
 pub struct ActionsRun {
     /// `owner/repo` the run, and so its token, belongs to.
     pub repository: String,
+    /// That repository's numeric id, `GITHUB_REPOSITORY_ID`.
+    pub repository_id: u64,
     /// The workflow file's path within that repository.
     pub workflow_path: String,
     /// The commit GitHub read the workflow file from.
@@ -73,6 +84,14 @@ impl ActionsRun {
                 })
         };
         let repository = required("GITHUB_REPOSITORY")?;
+        let repository_id = required("GITHUB_REPOSITORY_ID")?
+            .parse::<u64>()
+            .map_err(|_| {
+                Refusal::new(
+                    RefusalCode::RunUndescribed,
+                    "`GITHUB_REPOSITORY_ID` is not a repository id.",
+                )
+            })?;
         let workflow_ref = required("GITHUB_WORKFLOW_REF")?;
         let workflow_sha = required("GITHUB_WORKFLOW_SHA")?;
         let job = required("GITHUB_JOB")?;
@@ -88,6 +107,7 @@ impl ActionsRun {
 
         Ok(Self {
             repository,
+            repository_id,
             workflow_path,
             workflow_sha: workflow_sha.to_ascii_lowercase(),
             job,
@@ -135,6 +155,86 @@ fn workflow_path(repository: &str, workflow_ref: &str) -> Result<String, Refusal
     }
 }
 
+/// The GitHub Actions app, whose installation token is the run's
+/// `GITHUB_TOKEN`.
+pub const ACTIONS_APP_ID: &str = "15368";
+
+/// Refuse an installation token that is not in the form GitHub mints the
+/// run's `GITHUB_TOKEN` in: `ghs_15368_<JSON Web Token>`.
+///
+/// GitHub refuses a token whose app id was edited (observed 2026-11-21, see
+/// `docs/action.md`), so the prefix names the app that minted it. GitHub asks
+/// clients to treat these tokens as opaque and has not documented the form,
+/// so a token in any other form is refused, never admitted on a guess.
+///
+/// # Errors
+///
+/// Returns a `not_actions_token` refusal.
+pub fn check_actions_token_form(token: &str) -> Result<(), Refusal> {
+    let rest = token
+        .trim()
+        .strip_prefix("ghs_")
+        .and_then(|rest| rest.split_once('_'));
+    match rest {
+        Some((app, jwt)) if app == ACTIONS_APP_ID && !jwt.is_empty() => Ok(()),
+        _ => Err(Refusal::new(
+            RefusalCode::NotActionsToken,
+            "Repository mode admits an installation token only in the form GitHub mints the \
+             run's GITHUB_TOKEN in, `ghs_15368_<JSON Web Token>`, where 15368 is the GitHub \
+             Actions app. This token is not in that form: it is another App's token, a \
+             legacy one, or GitHub has changed its token format, in which case Airlock must \
+             be updated to read the new one.",
+        )),
+    }
+}
+
+/// Ask GitHub which repositories the token reaches, and require the run's
+/// repository alone, by id and by name.
+async fn check_token_repository<G: GitHub>(client: &G, run: &ActionsRun) -> Result<(), Refusal> {
+    let listing = client.token_repositories().await.map_err(|error| {
+        Refusal::new(
+            RefusalCode::RunTokenUnconfirmed,
+            format!(
+                "GitHub did not say which repository the run's token reaches, so it cannot be \
+                 placed as this run's token: {error}"
+            ),
+        )
+    })?;
+    let mismatch = |what: String| {
+        Refusal::new(
+            RefusalCode::RunRepositoryMismatch,
+            format!(
+                "The run's token must reach {} (id {}) alone, and GitHub says it reaches {what}.",
+                run.repository, run.repository_id
+            ),
+        )
+    };
+    if listing.truncated {
+        return Err(mismatch(
+            "more repositories than one listing walk reads".to_owned(),
+        ));
+    }
+    match listing.repositories.as_slice() {
+        [only]
+            if listing.total_count == 1
+                && only.id == run.repository_id
+                && only.full_name.eq_ignore_ascii_case(&run.repository) =>
+        {
+            Ok(())
+        }
+        listed => Err(mismatch(format!(
+            "{} repositories (total_count {}): {}",
+            listed.len(),
+            listing.total_count,
+            listed
+                .iter()
+                .map(|repository| format!("{} (id {})", repository.full_name, repository.id))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ))),
+    }
+}
+
 /// Verify the run's own token for an audit of `owner/repo`.
 ///
 /// The caller has already classified the token as an installation token.
@@ -161,6 +261,10 @@ pub async fn verify_run_token<G: GitHub>(
             ),
         ));
     }
+
+    // The first request: GitHub's own answer places the token in this run's
+    // repository before anything is audited with it.
+    check_token_repository(client, run).await?;
 
     let (run_owner, run_repo) = run.repository.split_once('/').unwrap_or((owner, repo));
     let bytes = client
@@ -301,6 +405,7 @@ mod tests {
         let mut map: BTreeMap<String, String> = [
             ("GITHUB_ACTIONS", "true"),
             ("GITHUB_REPOSITORY", "wyrd-company/example"),
+            ("GITHUB_REPOSITORY_ID", "1313516770"),
             (
                 "GITHUB_WORKFLOW_REF",
                 "wyrd-company/example/.github/workflows/audit.yml@refs/heads/main",
@@ -368,6 +473,45 @@ mod tests {
         ] {
             let refusal = run(&[("GITHUB_WORKFLOW_REF", Some(workflow_ref))]).unwrap_err();
             assert_eq!(refusal.code, RefusalCode::RunUndescribed, "{workflow_ref}");
+        }
+    }
+
+    #[test]
+    fn a_repository_id_must_be_a_number() {
+        for id in ["", "abc", "-1", "12 34"] {
+            let refusal = run(&[("GITHUB_REPOSITORY_ID", Some(id))]).unwrap_err();
+            assert_eq!(refusal.code, RefusalCode::RunUndescribed, "{id:?}");
+        }
+        assert_eq!(run(&[]).unwrap().repository_id, 1_313_516_770);
+    }
+
+    #[test]
+    fn only_the_actions_apps_stateless_form_is_an_actions_token() {
+        assert!(check_actions_token_form("ghs_15368_eyJhbGciOiJFUzI1NiJ9.e30.c2ln").is_ok());
+        assert!(check_actions_token_form(" ghs_15368_x\n").is_ok());
+        for token in [
+            // Another App's installation token.
+            "ghs_999999_eyJhbGciOiJFUzI1NiJ9.e30.c2ln",
+            "ghs_153680_eyJ.e30.c2ln",
+            "ghs_1536_eyJ.e30.c2ln",
+            // The prefix without the app id, and the legacy form.
+            "ghs_eyJhbGciOiJFUzI1NiJ9.e30.c2ln",
+            "ghs_16C7e42F292c6912E7710c838347Ae178B4a",
+            // The app id with nothing after it.
+            "ghs_15368_",
+            "ghs_15368",
+            "15368_eyJ.e30.c2ln",
+            "ghu_15368_eyJ.e30.c2ln",
+        ] {
+            let refusal = check_actions_token_form(token).unwrap_err();
+            assert_eq!(refusal.code, RefusalCode::NotActionsToken, "{token}");
+            assert!(refusal.detail.contains("ghs_15368_<JSON Web Token>"));
+            assert!(refusal.detail.contains("changed its token format"));
+            // The message is fixed text: it repeats nothing of the token.
+            assert_eq!(
+                refusal.detail,
+                check_actions_token_form("x").unwrap_err().detail
+            );
         }
     }
 

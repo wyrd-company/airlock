@@ -470,7 +470,8 @@ async fn audit_refuses_a_credential_it_cannot_prove_read_only() {
 // Repository mode: the run's own token
 // ---------------------------------------------------------------------------
 
-const RUN_TOKEN: &str = "ghs_fixture_run_token";
+/// A synthetic run token in the form GitHub mints `GITHUB_TOKEN` in.
+const RUN_TOKEN: &str = "ghs_15368_eyJhbGciOiJFUzI1NiJ9.eyJmaXh0dXJlIjoxfQ.cnVuX3Rva2Vu";
 const RUN_WORKFLOW_SHA: &str = "2222222222222222222222222222222222222222";
 
 /// The variables GitHub Actions sets for a run of `audit.yml` job `audit`.
@@ -478,6 +479,10 @@ fn actions_run<'a>(command: &'a mut Command, repository: &str) -> &'a mut Comman
     command
         .env("GITHUB_ACTIONS", "true")
         .env("GITHUB_REPOSITORY", repository)
+        .env(
+            "GITHUB_REPOSITORY_ID",
+            support::RUN_REPOSITORY_ID.to_string(),
+        )
         .env(
             "GITHUB_WORKFLOW_REF",
             format!("{repository}/.github/workflows/audit.yml@refs/heads/main"),
