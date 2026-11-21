@@ -62,7 +62,14 @@ impl ReqwestTransport {
             .request(method, request.url.as_str())
             .timeout(request.timeout);
         for (name, value) in &request.headers {
-            builder = builder.header(name.as_str(), value.as_str());
+            let mut value =
+                reqwest::header::HeaderValue::from_str(value.as_str()).map_err(|_| {
+                    TransportError::new(FailureKind::Other, "a header value is not valid")
+                })?;
+            // As reqwest's own bearer_auth does: a credential header is kept
+            // out of reqwest's debug output.
+            value.set_sensitive(name == "authorization");
+            builder = builder.header(name.as_str(), value);
         }
         if let Some(body) = request.body.take() {
             builder = builder.body(body.to_vec());
