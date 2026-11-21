@@ -39,18 +39,26 @@ case "${1:?}" in
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-static int held(const char *name) {
-  const char *value = getenv(name);
-  return value != NULL && *value != '\0';
+static const char *held(void) {
+  static const char *names[] = {"AIRLOCK_RUN_TOKEN", "AIRLOCK_CREDENTIALS_ON_STDIN",
+                                "INPUT_NODE-VERSION", "INPUT_IF-NO-FILES-FOUND",
+                                "AIRLOCK_RUNNER_OS", "AIRLOCK_FORGE_PROBE"};
+  for (unsigned i = 0; i < sizeof names / sizeof *names; i++) {
+    const char *value = getenv(names[i]);
+    if (value != NULL && *value != '\0') return names[i];
+  }
+  return NULL;
 }
 __attribute__((constructor)) static void mark(void) {
-  if (held("AIRLOCK_RUN_TOKEN") || held("AIRLOCK_CREDENTIALS_ON_STDIN") ||
-      held("INPUT_NODE-VERSION") || held("INPUT_IF-NO-FILES-FOUND") ||
-      held("AIRLOCK_RUNNER_OS") || held("AIRLOCK_FORGE_PROBE")) {
+  const char *name = held();
+  if (name != NULL) {
+    char exe[256] = "?";
+    ssize_t size = readlink("/proc/self/exe", exe, sizeof exe - 1);
+    if (size > 0) exe[size] = '\0';
     int fd = open("/tmp/airlock-forge-marker", O_WRONLY | O_CREAT | O_APPEND, 0644);
     if (fd >= 0) {
-      char line[32];
-      int length = snprintf(line, sizeof line, "%d\n", (int)getpid());
+      char line[400];
+      int length = snprintf(line, sizeof line, "%d %s %s\n", (int)getpid(), exe, name);
       if (length > 0) (void)write(fd, line, (size_t)length);
       close(fd);
     }
@@ -113,7 +121,8 @@ C
         ;;
     esac
     if [ -e "$marker" ]; then
-      echo "the caller's NODE_OPTIONS or preloaded library ran inside the action" >&2
+      echo "the caller's NODE_OPTIONS or preloaded library ran inside the action:" >&2
+      cat "$marker" >&2
       exit 1
     fi
     echo "no step of the action ran the caller's NODE_OPTIONS or preloaded library"

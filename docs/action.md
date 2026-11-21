@@ -18,7 +18,8 @@ the run's own `GITHUB_TOKEN`. It is a composite action of four steps:
    itself.
 2. `action/check-runner.sh` refuses, with a message, a runner whose
    `/bin/sh` is not dash or whose OS is not Linux (see
-   [Requirements](#requirements)).
+   [Requirements](#requirements)). It holds no credential, and blanks the
+   loader's variables too.
 3. A `run` step, in `sh`, runs `action/step.sh`. That starts the pinned Node
    on the committed `dist/index.mjs` with an allowlisted environment (see
    [the audit step's environment](#the-audit-steps-environment)). It loads
