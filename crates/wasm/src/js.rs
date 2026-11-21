@@ -65,40 +65,63 @@ extern "C" {
     #[wasm_bindgen(typescript_type = "AirlockHost")]
     pub type Host;
 
+    // Each returns a bare value, checked here, rather than a type
+    // wasm-bindgen would cast to unchecked: a host is untrusted input, and a
+    // wrong type must be an error, not a trap or a JavaScript exception
+    // thrown through the module.
     #[wasm_bindgen(method, catch)]
-    fn fetch(this: &Host, request: &JsValue) -> Result<Promise, JsValue>;
+    fn fetch(this: &Host, request: &JsValue) -> Result<JsValue, JsValue>;
 
     #[wasm_bindgen(method, catch)]
-    fn sleep(this: &Host, ms: f64) -> Result<Promise, JsValue>;
+    fn sleep(this: &Host, ms: f64) -> Result<JsValue, JsValue>;
 
     #[wasm_bindgen(method, catch)]
-    fn now(this: &Host) -> Result<f64, JsValue>;
+    fn now(this: &Host) -> Result<JsValue, JsValue>;
+}
+
+/// The latest time a JavaScript `Date` can hold, in milliseconds since the
+/// epoch. A host clock beyond it is not a clock.
+const MAX_CLOCK_MS: f64 = 8.64e15;
+
+fn clock_failure(detail: &str) -> TransportError {
+    TransportError::new(FailureKind::Clock, detail)
 }
 
 /// The host's [`Transport`].
 struct HostTransport {
     host: Host,
-    /// The latest clock reading, so the monotonic clock never moves back
-    /// even when the host's wall clock does.
-    latest: Cell<f64>,
+    /// The latest clock reading. A reading earlier than it is refused, so a
+    /// clock that steps back cannot hand budget back.
+    latest: Cell<u64>,
 }
 
 impl HostTransport {
     fn new(host: Host) -> Self {
         Self {
             host,
-            latest: Cell::new(0.0),
+            latest: Cell::new(0),
         }
     }
 
-    fn read_clock(&self) -> f64 {
-        // A host whose clock throws or answers nonsense reads as the epoch,
-        // which ends a budget early rather than never.
-        self.host
+    /// One reading of the host's clock, in whole milliseconds, checked.
+    ///
+    /// The host's own message is not kept: it is the host's text.
+    fn read_clock(&self) -> Result<u64, TransportError> {
+        let value = self
+            .host
             .now()
-            .ok()
-            .filter(|value| value.is_finite() && *value >= 0.0)
-            .unwrap_or(0.0)
+            .map_err(|_| clock_failure("the host's now() threw"))?;
+        let ms = value
+            .as_f64()
+            .ok_or_else(|| clock_failure("the host's now() did not return a number"))?;
+        if !ms.is_finite() || !(0.0..=MAX_CLOCK_MS).contains(&ms) {
+            return Err(clock_failure(
+                "the host's now() returned a time outside 1970 to the year 275760",
+            ));
+        }
+        // In range, so the cast neither truncates past u64 nor wraps.
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        Ok(ms.floor() as u64)
     }
 
     async fn perform(&self, request: Request) -> Result<Response, TransportError> {
@@ -107,8 +130,10 @@ impl HostTransport {
             TransportError::new(FailureKind::Other, "the request could not be built")
         })?;
         drop(request);
-        let promise = self.host.fetch(&value).map_err(|error| rejection(&error))?;
-        let answer = JsFuture::from(promise)
+        let answer = self.host.fetch(&value).map_err(|error| rejection(&error))?;
+        // A host that answers with a plain value rather than a promise is
+        // read as having resolved to it.
+        let answer = JsFuture::from(Promise::resolve(&answer))
             .await
             .map_err(|error| rejection(&error))?;
         response_from(&answer, max)
@@ -225,25 +250,32 @@ impl Transport for HostTransport {
         Box::pin(self.perform(request))
     }
 
-    fn sleep(&self, duration: Duration) -> TransportFuture<'_, ()> {
+    fn sleep(&self, duration: Duration) -> TransportFuture<'_, Result<(), TransportError>> {
         #[allow(clippy::cast_precision_loss)]
         let ms = duration.as_millis() as f64;
-        let promise = self.host.sleep(ms);
+        let started = self.host.sleep(ms);
         Box::pin(async move {
-            if let Ok(promise) = promise {
-                let _ = JsFuture::from(promise).await;
-            }
+            let value = started.map_err(|_| clock_failure("the host's sleep() threw"))?;
+            JsFuture::from(Promise::resolve(&value))
+                .await
+                .map(|_| ())
+                .map_err(|_| clock_failure("the host's sleep() rejected"))
         })
     }
 
-    fn monotonic(&self) -> Duration {
-        let now = self.read_clock().max(self.latest.get());
+    fn monotonic(&self) -> Result<Duration, TransportError> {
+        let now = self.read_clock()?;
+        if now < self.latest.get() {
+            return Err(clock_failure(
+                "the host's now() moved backwards, so the audit budget cannot be measured",
+            ));
+        }
         self.latest.set(now);
-        Duration::from_secs_f64(now / 1000.0)
+        Ok(Duration::from_millis(now))
     }
 
-    fn unix_time(&self) -> Duration {
-        Duration::from_secs_f64(self.read_clock() / 1000.0)
+    fn unix_time(&self) -> Result<Duration, TransportError> {
+        self.read_clock().map(Duration::from_millis)
     }
 }
 

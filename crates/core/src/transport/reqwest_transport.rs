@@ -119,18 +119,21 @@ impl Transport for ReqwestTransport {
         Box::pin(self.perform(request))
     }
 
-    fn sleep(&self, duration: Duration) -> TransportFuture<'_, ()> {
-        Box::pin(tokio::time::sleep(duration))
+    fn sleep(&self, duration: Duration) -> TransportFuture<'_, Result<(), TransportError>> {
+        Box::pin(async move {
+            tokio::time::sleep(duration).await;
+            Ok(())
+        })
     }
 
-    fn monotonic(&self) -> Duration {
-        self.origin.elapsed()
+    fn monotonic(&self) -> Result<Duration, TransportError> {
+        Ok(self.origin.elapsed())
     }
 
-    fn unix_time(&self) -> Duration {
+    fn unix_time(&self) -> Result<Duration, TransportError> {
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap_or(Duration::ZERO)
+            .map_err(|_| TransportError::new(FailureKind::Clock, "the system clock is before 1970"))
     }
 }
 

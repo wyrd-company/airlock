@@ -181,8 +181,9 @@ pub struct RestClient {
     transport: Arc<dyn Transport>,
     token: String,
     config: RestClientConfig,
-    /// The end of the wall-clock budget, on the transport's monotonic clock.
-    deadline: Duration,
+    /// The end of the wall-clock budget, on the transport's monotonic clock,
+    /// or why the clock could not give one.
+    deadline: Result<Duration, transport::TransportError>,
 }
 
 impl Drop for RestClient {
@@ -254,7 +255,11 @@ impl RestClient {
         config: RestClientConfig,
         transport: Arc<dyn Transport>,
     ) -> Self {
-        let deadline = transport.monotonic() + config.audit_budget;
+        // Saturating, because the clock is the host's: a reading near the
+        // top of the range ends the budget rather than overflowing it.
+        let deadline = transport
+            .monotonic()
+            .map(|now| now.saturating_add(config.audit_budget));
         Self {
             transport,
             token: token.into(),
@@ -264,9 +269,23 @@ impl RestClient {
     }
 
     /// How long is left of the wall-clock budget.
+    ///
+    /// Zero when the clock gives no usable reading; the next request then
+    /// reports why.
     #[must_use]
     pub fn remaining_budget(&self) -> Duration {
-        self.deadline.saturating_sub(self.transport.monotonic())
+        match (&self.deadline, self.transport.monotonic()) {
+            (Ok(deadline), Ok(now)) => deadline.saturating_sub(now),
+            _ => Duration::ZERO,
+        }
+    }
+
+    fn clock_failed(endpoint: &str, error: &transport::TransportError) -> ApiError {
+        ApiError::local(
+            ErrorCause::Transport,
+            endpoint,
+            format!("the clock gave no usable time: {}", error.detail),
+        )
     }
 
     fn budget_exhausted(&self, endpoint: &str) -> ApiError {
@@ -281,7 +300,15 @@ impl RestClient {
     }
 
     fn check_deadline(&self, endpoint: &str) -> ApiResult<()> {
-        if self.transport.monotonic() >= self.deadline {
+        let deadline = self
+            .deadline
+            .as_ref()
+            .map_err(|error| Self::clock_failed(endpoint, error))?;
+        let now = self
+            .transport
+            .monotonic()
+            .map_err(|error| Self::clock_failed(endpoint, &error))?;
+        if now >= *deadline {
             return Err(self.budget_exhausted(endpoint));
         }
         Ok(())
@@ -316,6 +343,7 @@ impl RestClient {
                 FailureKind::Timeout | FailureKind::TooLarge => {
                     ApiError::local(ErrorCause::Budget, endpoint, error.detail)
                 }
+                FailureKind::Clock => Self::clock_failed(endpoint, &error),
                 FailureKind::Connect | FailureKind::Other => {
                     ApiError::local(ErrorCause::Transport, endpoint, error.detail)
                 }
@@ -370,7 +398,11 @@ impl RestClient {
 
             let summary = summarise(&raw);
             let cause = classify::classify(&summary);
-            let now = self.transport.unix_time().as_secs();
+            let now = self
+                .transport
+                .unix_time()
+                .map_err(|error| Self::clock_failed(endpoint, &error))?
+                .as_secs();
             let wait = classify::retry_delay_seconds(&summary, now).unwrap_or(1);
             let error = self.to_error(endpoint, &raw, cause, summary);
             if error.cause != ErrorCause::RateLimit
@@ -386,7 +418,10 @@ impl RestClient {
             {
                 return Err(error);
             }
-            self.transport.sleep(Duration::from_secs(wait)).await;
+            self.transport
+                .sleep(Duration::from_secs(wait))
+                .await
+                .map_err(|error| Self::clock_failed(endpoint, &error))?;
             rate_limit_attempt += 1;
         }
     }

@@ -184,6 +184,9 @@ pub enum FailureKind {
     Connect,
     /// The body passed `max_response_bytes` and was abandoned.
     TooLarge,
+    /// The host's clock or timer gave a value the engine cannot use: not a
+    /// number, negative, out of range, or earlier than one it gave before.
+    Clock,
     /// Anything else.
     Other,
 }
@@ -228,13 +231,27 @@ pub trait Transport: TransportBounds {
     fn send(&self, request: Request) -> TransportFuture<'_, Result<Response, TransportError>>;
 
     /// Wait for `duration`. Used only between rate-limited retries.
-    fn sleep(&self, duration: Duration) -> TransportFuture<'_, ()>;
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`FailureKind::Clock`] error when the timer cannot wait.
+    fn sleep(&self, duration: Duration) -> TransportFuture<'_, Result<(), TransportError>>;
 
     /// Time since an arbitrary origin that never moves backwards. Budgets are
     /// measured on it.
-    fn monotonic(&self) -> Duration;
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`FailureKind::Clock`] error when the clock gives no usable
+    /// reading. The engine stops rather than guess at a budget.
+    fn monotonic(&self) -> Result<Duration, TransportError>;
 
     /// Time since the Unix epoch. Rate-limit resets and the App's JSON Web
     /// Token are stated on it.
-    fn unix_time(&self) -> Duration;
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`FailureKind::Clock`] error when the clock gives no usable
+    /// reading.
+    fn unix_time(&self) -> Result<Duration, TransportError>;
 }

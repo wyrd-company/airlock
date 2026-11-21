@@ -108,15 +108,15 @@ impl Transport for Recorder {
         Box::pin(self.perform(request))
     }
 
-    fn sleep(&self, duration: Duration) -> TransportFuture<'_, ()> {
+    fn sleep(&self, duration: Duration) -> TransportFuture<'_, Result<(), TransportError>> {
         self.inner.sleep(duration)
     }
 
-    fn monotonic(&self) -> Duration {
+    fn monotonic(&self) -> Result<Duration, TransportError> {
         self.inner.monotonic()
     }
 
-    fn unix_time(&self) -> Duration {
+    fn unix_time(&self) -> Result<Duration, TransportError> {
         self.inner.unix_time()
     }
 }
