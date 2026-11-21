@@ -9,8 +9,8 @@ use std::sync::Arc;
 use airlock_core::audit::AuditOptions;
 use airlock_core::auth::{TokenKind, AIRLOCK_SAFE_APP_ID};
 use airlock_core::central::{
-    jwt_signing_input, sign_in, CentralConfig, CentralError, CentralInputs, Endpoints, OidcRequest,
-    Step,
+    jwt_signing_input, sign_in, AzureCredential, CentralConfig, CentralError, CentralInputs,
+    Endpoints, OidcRequest, Step,
 };
 use airlock_core::findings::AuditResult;
 use airlock_core::github::RestClientConfig;
@@ -30,6 +30,8 @@ const ASSERTION: &str = "eyJassertionMARKER2";
 const VAULT_TOKEN: &str = "vault-access-token-MARKER3";
 const SIGNATURE: &[u8] = b"rs256-signature-bytes-MARKER4";
 const MINTED: &str = "ghs_minted_MARKER5";
+const CLIENT_SECRET: &str = "client-secret-MARKER6";
+const HOST_ASSERTION: &str = "eyJob3N0.eyJhc3NlcnRpb24.c2lnbmVkMARKER7";
 const TENANT: &str = "11111111-2222-3333-4444-555555555555";
 const CLIENT: &str = "66666666-7777-8888-9999-000000000000";
 const INSTALLATION: u64 = 77;
@@ -46,6 +48,8 @@ fn secrets() -> Vec<String> {
         VAULT_TOKEN.to_owned(),
         signature(),
         MINTED.to_owned(),
+        CLIENT_SECRET.to_owned(),
+        HOST_ASSERTION.to_owned(),
     ]
 }
 
@@ -233,7 +237,7 @@ fn endpoints(server: &MockServer) -> Endpoints {
 async fn refused(server: &MockServer) -> CentralError {
     let error = sign_in(
         &config(server),
-        &oidc(server),
+        &oidc(server).into(),
         &endpoints(server),
         Limits::default(),
         native(),
@@ -259,7 +263,7 @@ async fn central_mode_signs_in_as_airlock_safe_and_mints_a_read_only_token() {
     let server = fake().await;
     let session = sign_in(
         &config(&server),
-        &oidc(&server),
+        &oidc(&server).into(),
         &endpoints(&server),
         Limits::default(),
         native(),
@@ -325,6 +329,122 @@ async fn central_mode_signs_in_as_airlock_safe_and_mints_a_read_only_token() {
     );
 }
 
+/// The Entra ID form a sign-in sent.
+async fn entra_form(server: &MockServer) -> String {
+    let token = requests_to(server, "POST", &format!("/{TENANT}/oauth2/v2.0/token")).await;
+    assert_eq!(token.len(), 1);
+    String::from_utf8(token[0].body.clone()).unwrap()
+}
+
+#[tokio::test]
+async fn a_host_signs_in_to_entra_id_with_a_client_secret() {
+    let server = fake().await;
+    Mock::given(method("POST"))
+        .and(path(format!("/{TENANT}/oauth2/v2.0/token")))
+        .and(body_string_contains(format!(
+            "client_secret={CLIENT_SECRET}"
+        )))
+        .and(body_string_contains(format!("client_id={CLIENT}")))
+        .and(body_string_contains(
+            "scope=https%3A%2F%2Fvault.azure.net%2F.default",
+        ))
+        .and(body_string_contains("grant_type=client_credentials"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "token_type": "Bearer",
+            "access_token": VAULT_TOKEN
+        })))
+        .mount(&server)
+        .await;
+    let credential = AzureCredential::client_secret(CLIENT_SECRET).unwrap();
+    assert!(!format!("{credential:?}").contains(CLIENT_SECRET));
+    let session = sign_in(
+        &config(&server),
+        &credential,
+        &endpoints(&server),
+        Limits::default(),
+        native(),
+    )
+    .await
+    .expect("the sign-in succeeds");
+
+    assert_eq!(session.token(), MINTED);
+    // No OpenID Connect token was asked for, and no assertion was sent.
+    assert!(requests_to(&server, "GET", "/oidc").await.is_empty());
+    let form = entra_form(&server).await;
+    assert!(!form.contains("client_assertion"), "{form}");
+}
+
+#[tokio::test]
+async fn a_host_signs_in_to_entra_id_with_its_own_client_assertion() {
+    let server = fake().await;
+    Mock::given(method("POST"))
+        .and(path(format!("/{TENANT}/oauth2/v2.0/token")))
+        .and(body_string_contains(format!(
+            "client_assertion={HOST_ASSERTION}"
+        )))
+        .and(body_string_contains(
+            "client_assertion_type=urn%3Aietf%3Aparams%3Aoauth%3Aclient-assertion-type%3Ajwt-bearer",
+        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "token_type": "Bearer",
+            "access_token": VAULT_TOKEN
+        })))
+        .mount(&server)
+        .await;
+    let session = sign_in(
+        &config(&server),
+        &AzureCredential::client_assertion(HOST_ASSERTION).unwrap(),
+        &endpoints(&server),
+        Limits::default(),
+        native(),
+    )
+    .await
+    .expect("the sign-in succeeds");
+
+    assert_eq!(session.token(), MINTED);
+    assert!(requests_to(&server, "GET", "/oidc").await.is_empty());
+    assert!(!entra_form(&server).await.contains("client_secret"));
+}
+
+#[tokio::test]
+async fn a_refused_client_secret_stops_at_azure_sign_in_without_repeating_it() {
+    let server = fake().await;
+    Mock::given(method("POST"))
+        .and(path(format!("/{TENANT}/oauth2/v2.0/token")))
+        .respond_with(ResponseTemplate::new(401).set_body_json(json!({
+            "error": "invalid_client",
+            "error_description": format!("AADSTS7000215: Invalid client secret {CLIENT_SECRET}"),
+            "error_codes": [7_000_215]
+        })))
+        .mount(&server)
+        .await;
+    let error = sign_in(
+        &config(&server),
+        &AzureCredential::client_secret(CLIENT_SECRET).unwrap(),
+        &endpoints(&server),
+        Limits::default(),
+        native(),
+    )
+    .await
+    .expect_err("the sign-in is refused");
+    assert_carries_no_secret(&error);
+    assert_eq!(error.step, Step::AzureSignIn);
+    assert_eq!(error.status, Some(401));
+    assert_eq!(error.code.as_deref(), Some("invalid_client, AADSTS7000215"));
+    assert!(error.detail.contains("client secret"), "{error}");
+}
+
+#[test]
+fn an_empty_client_secret_or_a_malformed_assertion_is_refused_before_any_request() {
+    let secret = AzureCredential::client_secret("  ").unwrap_err();
+    assert_eq!(secret.step, Step::Inputs);
+    for value in ["", "one.two", "a.b.c.d", "a.b.c d", "a..c"] {
+        let error = AzureCredential::client_assertion(value).unwrap_err();
+        assert_eq!(error.step, Step::Inputs, "{value}");
+        assert!(!error.to_string().contains(value) || value.is_empty());
+    }
+}
+
 #[tokio::test]
 async fn a_user_owner_is_found_on_its_own_route() {
     let server = fake().await;
@@ -341,7 +461,7 @@ async fn a_user_owner_is_found_on_its_own_route() {
         .await;
     let session = sign_in(
         &config(&server),
-        &oidc(&server),
+        &oidc(&server).into(),
         &endpoints(&server),
         Limits::default(),
         native(),
@@ -502,7 +622,7 @@ async fn installation_repositories_other_than_the_owner_stop_at_installation_sco
     .unwrap();
     let error = sign_in(
         &config,
-        &oidc(&server),
+        &oidc(&server).into(),
         &endpoints(&server),
         Limits::default(),
         native(),
@@ -606,7 +726,7 @@ async fn a_listing_cut_short_makes_the_central_run_incomplete() {
         .await;
     let session = sign_in(
         &config(&server),
-        &oidc(&server),
+        &oidc(&server).into(),
         &endpoints(&server),
         Limits::default(),
         native(),
@@ -842,7 +962,7 @@ async fn a_failed_revocation_repeats_nothing_github_said() {
     .await;
     let session = sign_in(
         &config(&server),
-        &oidc(&server),
+        &oidc(&server).into(),
         &endpoints(&server),
         Limits::default(),
         native(),
@@ -868,7 +988,7 @@ async fn an_expiry_that_is_not_a_timestamp_is_not_kept() {
     .await;
     let session = sign_in(
         &config(&server),
-        &oidc(&server),
+        &oidc(&server).into(),
         &endpoints(&server),
         Limits::default(),
         native(),
@@ -883,7 +1003,7 @@ async fn the_session_redacts_its_token_from_any_text() {
     let server = fake().await;
     let session = sign_in(
         &config(&server),
-        &oidc(&server),
+        &oidc(&server).into(),
         &endpoints(&server),
         Limits::default(),
         native(),
