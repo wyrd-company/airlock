@@ -62,24 +62,43 @@ outputs:
     description: The name of the artifact the findings document was uploaded as
     value: ${{ steps.audit.outputs.artifact }}
 
-# A composite, so the run's own token reaches the engine through this step's
-# own env, which nothing the caller sets can override; an input could be set
-# by the caller to any token. The step runs the bundled dist/index.mjs on a
-# pinned Node, and installs no Rust. A composite's run step gets no Actions
-# runtime credential, so upload-artifact, an action, uploads the report.
+# A composite, so the run's own token reaches the engine through the audit
+# step's own env, which nothing the caller sets can override; an input could
+# be set by the caller to any token. The audit step passes Node an
+# allowlisted environment and nothing else (action/step.sh). The two
+# GitHub-maintained steps are Node actions the runner starts with the job's
+# env; each blanks the variables that load code or redirect its requests.
+# A composite's run step gets no Actions runtime credential, so
+# upload-artifact, an action, uploads the report. No step installs Rust.
 runs:
   using: composite
   steps:
     - name: Set up the pinned Node for the Airlock action
       uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      # The same blanks as the upload step below.
+      env:
+        NODE_OPTIONS: ""
+        NODE_USE_ENV_PROXY: ""
+        HTTPS_PROXY: ""
+        HTTP_PROXY: ""
+        https_proxy: ""
+        http_proxy: ""
+        NODE_TLS_REJECT_UNAUTHORIZED: ""
+        NODE_EXTRA_CA_CERTS: ""
+        LD_PRELOAD: ""
+        LD_LIBRARY_PATH: ""
       with:
         node-version: 24.22.3
         # The caller's package.json is not the action's: never cache for it.
         package-manager-cache: false
     - name: Audit repository
       id: audit
-      shell: bash
+      # dash: it imports no functions from the environment and reads $ENV
+      # only when interactive.
+      shell: sh
       env:
+        BASH_ENV: ""
+        ENV: ""
         INPUT_MODE: ${{ inputs.mode }}
         INPUT_TOKEN: ${{ inputs.token }}
         INPUT_REPOSITORY: ${{ inputs.repository }}
@@ -92,31 +111,41 @@ runs:
         AIRLOCK_RUN_TOKEN: ${{ github.token }}
         # Unique to this job and attempt, so the artifact name is too.
         AIRLOCK_JOB_CHECK_RUN_ID: ${{ job.check_run_id }}
-        # The run, from the github context rather than the caller's env.
+        # The run, from the github and runner contexts rather than the
+        # caller's env.
         GITHUB_REPOSITORY: ${{ github.repository }}
         GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
         GITHUB_WORKFLOW_REF: ${{ github.workflow_ref }}
         GITHUB_WORKFLOW_SHA: ${{ github.workflow_sha }}
         GITHUB_JOB: ${{ github.job }}
         GITHUB_API_URL: ${{ github.api_url }}
-        # Defence in depth: a caller can set these in the job env, the step
-        # env or $GITHUB_ENV to run its own code in this step, before the
-        # engine, and so rewrite AIRLOCK_RUN_TOKEN. Blanked here. This is not
-        # the boundary: the engine's own check on the token is (see
-        # docs/action.md, "What the action proves").
-        BASH_ENV: ""
-        ENV: ""
-        NODE_OPTIONS: ""
-        NODE_PATH: ""
-        NODE_EXTRA_CA_CERTS: ""
-        LD_PRELOAD: ""
-        LD_LIBRARY_PATH: ""
-      run: node "$GITHUB_ACTION_PATH/dist/index.mjs"
+        GITHUB_ACTION: ${{ github.action }}
+        GITHUB_RUN_ID: ${{ github.run_id }}
+        GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+        RUNNER_TEMP: ${{ runner.temp }}
+        # Where setup-node installs the pinned Node.
+        AIRLOCK_NODE_VERSION: 24.22.3
+        AIRLOCK_NODE_DIR: >-
+          ${{ runner.tool_cache }}/node/24.22.3/${{ runner.arch == 'ARM64' && 'arm64' || 'x64' }}/bin
+        AIRLOCK_ACTION_PATH: ${{ github.action_path }}
+      run: '"$AIRLOCK_ACTION_PATH/action/step.sh"'
     # Even when the audit failed the step, so a refused or nonconformant run
     # still leaves its report for the Worker.
     - name: Upload the findings
       if: always() && steps.audit.outputs.artifact-directory != ''
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      # The same blanks as the setup-node step above.
+      env:
+        NODE_OPTIONS: ""
+        NODE_USE_ENV_PROXY: ""
+        HTTPS_PROXY: ""
+        HTTP_PROXY: ""
+        https_proxy: ""
+        http_proxy: ""
+        NODE_TLS_REJECT_UNAUTHORIZED: ""
+        NODE_EXTRA_CA_CERTS: ""
+        LD_PRELOAD: ""
+        LD_LIBRARY_PATH: ""
       with:
         name: ${{ steps.audit.outputs.artifact }}
         path: ${{ steps.audit.outputs.artifact-directory }}

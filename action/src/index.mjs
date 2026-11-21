@@ -20,10 +20,20 @@ function load() {
   }
 }
 
-// action.yml's step hands each input over as INPUT_<NAME>, with `-` as `_`.
+// action/step.sh hands each input over as INPUT_<NAME>, with `-` as `_`,
+// and the three credentials on standard input, NUL-separated, so they are in
+// no process's arguments or environment. They live only in this object.
 const env = { ...process.env };
+if (env.AIRLOCK_CREDENTIALS_ON_STDIN === "1") {
+  const [token = "", airlockToken = "", runToken = ""] = readFileSync(0, "utf8").split("\0");
+  env.INPUT_TOKEN = token;
+  env.AIRLOCK_TOKEN = airlockToken;
+  env.AIRLOCK_RUN_TOKEN = runToken;
+}
 // Read once; no later code, and nothing this process starts, sees it.
 delete process.env.AIRLOCK_RUN_TOKEN;
+delete process.env.AIRLOCK_TOKEN;
+delete process.env.INPUT_TOKEN;
 
 await run({
   input: (name) => (env[`INPUT_${name.toUpperCase().replace(/-/g, "_")}`] ?? "").trim(),
