@@ -351,9 +351,10 @@ pub struct CentralRequest {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CredentialRequest {
-    /// `client-secret` or `client-assertion`.
+    /// `client-secret`, the only kind the module takes
+    /// (wyrd-company/.github#26).
     pub kind: String,
-    /// The secret, or the assertion the host signed.
+    /// The secret.
     pub value: String,
 }
 
@@ -453,17 +454,14 @@ async fn sign_in_unredacted(
     .map_err(|error| EngineError::central(&error))?;
     // The module has no GitHub Actions job to ask for an OpenID Connect
     // token; a host proves itself with its own credential.
-    let credential = match request.credential.kind.as_str() {
-        "client-secret" => AzureCredential::client_secret(request.credential.value.as_str()),
-        "client-assertion" => AzureCredential::client_assertion(request.credential.value.as_str()),
-        _ => {
-            return Err(EngineError::new(
-                "inputs",
-                "the credential kind must be `client-secret` or `client-assertion`",
-            ))
-        }
+    if request.credential.kind != "client-secret" {
+        return Err(EngineError::new(
+            "inputs",
+            "the credential kind must be `client-secret`",
+        ));
     }
-    .map_err(|error| EngineError::central(&error))?;
+    let credential = AzureCredential::client_secret(request.credential.value.as_str())
+        .map_err(|error| EngineError::central(&error))?;
 
     let defaults = Endpoints::default();
     let endpoints = Endpoints {

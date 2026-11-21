@@ -401,13 +401,9 @@ pub enum AzureCredential {
     /// The job's GitHub OpenID Connect token, which the identity's federated
     /// credential trusts. This is how a GitHub Actions job signs in.
     GitHubOidc(OidcRequest),
-    /// A client assertion the host made and signed, for an identity with a
-    /// certificate credential. The engine sends it as it is, and the host
-    /// keeps the certificate's key.
-    ClientAssertion(Zeroizing<String>),
     /// The identity's client secret. This is how a host with no OpenID
-    /// Connect issuer signs in, such as a Worker holding the secret in its
-    /// secrets store.
+    /// Connect issuer signs in: the Airlock Worker, holding the secret in the
+    /// Cloudflare Secrets Store (wyrd-company/.github#26).
     ClientSecret(Zeroizing<String>),
 }
 
@@ -428,37 +424,11 @@ impl AzureCredential {
         Ok(Self::ClientSecret(value))
     }
 
-    /// A client assertion the host signed.
-    ///
-    /// # Errors
-    ///
-    /// Returns an `inputs` error for a value that is not a compact JSON Web
-    /// Token: three base64url segments.
-    pub fn client_assertion(value: impl Into<String>) -> Result<Self, CentralError> {
-        let value = Zeroizing::new(value.into());
-        let segments: Vec<&str> = value.trim().split('.').collect();
-        let compact = segments.len() == 3
-            && segments.iter().all(|segment| {
-                !segment.is_empty()
-                    && segment
-                        .chars()
-                        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
-            });
-        if !compact {
-            return Err(CentralError::new(
-                Step::Inputs,
-                "the Entra ID client assertion is not a compact JSON Web Token",
-            ));
-        }
-        Ok(Self::ClientAssertion(value))
-    }
-
     /// The credential's kind, which is safe to show.
     #[must_use]
     pub const fn kind(&self) -> &'static str {
         match self {
             Self::GitHubOidc(_) => "github-oidc",
-            Self::ClientAssertion(_) => "client-assertion",
             Self::ClientSecret(_) => "client-secret",
         }
     }
@@ -652,10 +622,6 @@ async fn azure_sign_in(
                 "Entra ID refused the job's federated credential",
             )
         }
-        AzureCredential::ClientAssertion(value) => (
-            ("client_assertion", value.as_str()),
-            "Entra ID refused the host's client assertion",
-        ),
         AzureCredential::ClientSecret(value) => (
             ("client_secret", value.as_str()),
             "Entra ID refused the client secret",

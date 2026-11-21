@@ -31,7 +31,6 @@ const VAULT_TOKEN: &str = "vault-access-token-MARKER3";
 const SIGNATURE: &[u8] = b"rs256-signature-bytes-MARKER4";
 const MINTED: &str = "ghs_minted_MARKER5";
 const CLIENT_SECRET: &str = "client-secret-MARKER6";
-const HOST_ASSERTION: &str = "eyJob3N0.eyJhc3NlcnRpb24.c2lnbmVkMARKER7";
 const TENANT: &str = "11111111-2222-3333-4444-555555555555";
 const CLIENT: &str = "66666666-7777-8888-9999-000000000000";
 const INSTALLATION: u64 = 77;
@@ -49,7 +48,6 @@ fn secrets() -> Vec<String> {
         signature(),
         MINTED.to_owned(),
         CLIENT_SECRET.to_owned(),
-        HOST_ASSERTION.to_owned(),
     ]
 }
 
@@ -375,38 +373,6 @@ async fn a_host_signs_in_to_entra_id_with_a_client_secret() {
 }
 
 #[tokio::test]
-async fn a_host_signs_in_to_entra_id_with_its_own_client_assertion() {
-    let server = fake().await;
-    Mock::given(method("POST"))
-        .and(path(format!("/{TENANT}/oauth2/v2.0/token")))
-        .and(body_string_contains(format!(
-            "client_assertion={HOST_ASSERTION}"
-        )))
-        .and(body_string_contains(
-            "client_assertion_type=urn%3Aietf%3Aparams%3Aoauth%3Aclient-assertion-type%3Ajwt-bearer",
-        ))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "token_type": "Bearer",
-            "access_token": VAULT_TOKEN
-        })))
-        .mount(&server)
-        .await;
-    let session = sign_in(
-        &config(&server),
-        &AzureCredential::client_assertion(HOST_ASSERTION).unwrap(),
-        &endpoints(&server),
-        Limits::default(),
-        native(),
-    )
-    .await
-    .expect("the sign-in succeeds");
-
-    assert_eq!(session.token(), MINTED);
-    assert!(requests_to(&server, "GET", "/oidc").await.is_empty());
-    assert!(!entra_form(&server).await.contains("client_secret"));
-}
-
-#[tokio::test]
 async fn a_refused_client_secret_stops_at_azure_sign_in_without_repeating_it() {
     let server = fake().await;
     Mock::given(method("POST"))
@@ -435,14 +401,9 @@ async fn a_refused_client_secret_stops_at_azure_sign_in_without_repeating_it() {
 }
 
 #[test]
-fn an_empty_client_secret_or_a_malformed_assertion_is_refused_before_any_request() {
+fn an_empty_client_secret_is_refused_before_any_request() {
     let secret = AzureCredential::client_secret("  ").unwrap_err();
     assert_eq!(secret.step, Step::Inputs);
-    for value in ["", "one.two", "a.b.c.d", "a.b.c d", "a..c"] {
-        let error = AzureCredential::client_assertion(value).unwrap_err();
-        assert_eq!(error.step, Step::Inputs, "{value}");
-        assert!(!error.to_string().contains(value) || value.is_empty());
-    }
 }
 
 #[tokio::test]

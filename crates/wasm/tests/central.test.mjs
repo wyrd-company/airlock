@@ -112,26 +112,16 @@ test("signs in as Airlock Safe with a client secret, in the order of the sign-in
   }
 });
 
-test("signs in with a client assertion the host signed", async () => {
-  const fake = fakeCentral();
-  const session = await airlock.CentralSession.signIn(
-    fetchHost({ fetch: fake.fetch }),
-    centralRequest({ kind: "client-assertion", value: SECRETS.assertion }),
-  );
-  session.free();
-  const form = new URLSearchParams(fake.requests[0].body);
-  assert.equal(form.get("client_assertion"), SECRETS.assertion);
-  assert.equal(
-    form.get("client_assertion_type"),
-    "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
-  );
-  assert.equal(form.get("client_secret"), null);
-});
-
 test("refuses a credential kind the module does not take, before any request", async () => {
   const fake = fakeCentral();
-  const error = await refused(fake, centralRequest({ kind: "github-oidc", value: "x" }));
-  assert.equal(error.kind, "inputs");
+  for (const credential of [
+    { kind: "github-oidc", value: "x" },
+    // .github#26 settled on a client secret, so the module takes no other.
+    { kind: "client-assertion", value: "eyJhbGciOiJSUzI1NiJ9.eyJpc3MiOiJ4In0.c2ln" },
+  ]) {
+    const error = await refused(fake, centralRequest(credential));
+    assert.equal(error.kind, "inputs");
+  }
   assert.equal(fake.requests.length, 0);
 });
 

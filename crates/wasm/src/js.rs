@@ -340,8 +340,7 @@ impl CentralSession {
     ///
     /// `request` is JSON: `{ owner, appId, keyName, installationRepositories,
     /// vaultUrl, azureTenantId, azureClientId, credential: { kind, value },
-    /// githubApi?, azureLogin? }`, where `kind` is `client-secret` or
-    /// `client-assertion`.
+    /// githubApi?, azureLogin? }`, where `kind` is `client-secret`.
     ///
     /// # Errors
     ///
