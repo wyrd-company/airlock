@@ -194,19 +194,19 @@ impl Drop for AuditRequest {
 }
 
 impl AuditRequest {
-    /// Refuse a token too short to redact, or that is not one printable
-    /// word, before it is sent anywhere.
+    /// Refuse, before it is sent anywhere, a token that is not shaped like a
+    /// GitHub token. Only such a token is redacted wherever it is echoed:
+    /// one holding `"`, `\` or `%` has escaped forms the redactor would not
+    /// match.
     fn check_token(&self) -> Result<(), EngineError> {
-        let token = self.token.as_str();
-        let printable = token.chars().all(|c| c.is_ascii_graphic());
-        if token.len() < MIN_SECRET_LENGTH || token.len() > 4096 || !printable {
-            return Err(EngineError::new(
+        if auth::has_token_shape(&self.token) {
+            Ok(())
+        } else {
+            Err(EngineError::new(
                 "inputs",
-                "the token is not a credential: it must be 8 to 4096 printable characters \
-                 with no space",
-            ));
+                "the token is not a GitHub token: it must be 8 to 4096 letters, digits and `_`",
+            ))
         }
-        Ok(())
     }
 
     /// Parse a request from its JSON text.
@@ -650,12 +650,25 @@ mod tests {
 
     #[test]
     fn a_token_too_short_to_redact_is_refused_before_any_request() {
-        for token in ["ghu_x", "ghu_has space", ""] {
+        for token in [
+            "ghu_x",
+            "ghu_has space",
+            "",
+            "ghu_SYN\"THE\\TICtoken0123456789",
+            "ghu_per%2fcent0123456789",
+            "ghu_dash-token0123456789",
+        ] {
             let request = AuditRequest::parse(
                 &serde_json::json!({ "token": token, "owner": "o", "repo": "r" }).to_string(),
             )
             .unwrap();
             assert_eq!(request.check_token().unwrap_err().kind, "inputs", "{token}");
         }
+        let request = AuditRequest::parse(
+            &serde_json::json!({ "token": "ghu_SYNTHETICtoken0123456789", "owner": "o", "repo": "r" })
+                .to_string(),
+        )
+        .unwrap();
+        assert!(request.check_token().is_ok());
     }
 }

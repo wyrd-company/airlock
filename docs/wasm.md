@@ -195,9 +195,14 @@ the error code. `audit` holds the caller's token. `CentralSession.signIn`
 holds the Entra credential, and a session holds Safe's installation token.
 Each credential is matched as sent, form-encoded and JSON-escaped. A server,
 proxy or host that echoes one, in a message, a header, a body or a rejection,
-therefore cannot carry it out, whichever code path let the text through. A
-token shorter than 8 characters, or with a space, is refused before any
-request, so redacting never rewrites ordinary text. The module installs no
+therefore cannot carry it out, whichever code path let the text through.
+
+A token must be shaped like a GitHub token: 8 to 4096 letters, digits and
+`_`. The caller's token is refused before any request when it is not. Safe's
+minted token is refused at `token-request`, and revoked, when it is not. Every
+encoding of such a value, escaped once or twice, is the value itself, so the
+redactor matches it wherever it is echoed. The length floor means redacting
+never rewrites ordinary text. The module installs no
 panic hook, so a panic carries no message out. `secrets.test.mjs` feeds a
 synthetic token through each reachable error path.
 

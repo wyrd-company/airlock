@@ -214,6 +214,22 @@ test("stops at installation-scope when the installation reaches selected reposit
   assert.equal(fake.to("POST", `${GITHUB}/app/installations`).length, 0);
 });
 
+test("stops at token-request and revokes a minted token not shaped like a GitHub token", async () => {
+  for (const token of ["ghs_s", 'ghs_quote"d_0123456789', "ghs_per%2fcent_0123456789"]) {
+    const fake = fakeCentral({
+      overrides: {
+        [`POST ${GITHUB}/app/installations/${INSTALLATION}/access_tokens`]: () =>
+          json(201, { token, permissions: { metadata: "read" } }),
+      },
+    });
+    const error = await refused(fake);
+    assert.equal(error.step, "token-request", token);
+    assert.match(error.message, /not shaped like a GitHub token/);
+    assert.ok(!error.message.includes(token));
+    assert.equal(fake.to("DELETE", `${GITHUB}/installation/token`).length, 1, token);
+  }
+});
+
 test("stops at token-request and revokes a minted token that can write", async () => {
   const fake = fakeCentral({
     overrides: {

@@ -335,7 +335,7 @@ test("a host's timeout is a budget failure, and a refused connection a transport
 });
 
 test("a token whose grant cannot be enumerated is refused before any request", async () => {
-  for (const token of ["github_pat_unverifiable", "ghs_installation", "not-a-token"]) {
+  for (const token of ["github_pat_unverifiable", "ghs_installation", "unknown_prefix_0123"]) {
     const fake = replayed();
     const { error } = await settle(
       airlock.audit(
