@@ -21,6 +21,9 @@ import {
 
 const ENTRY = resolve(repositoryRoot, "dist/index.mjs");
 const RUN_ID = "4242";
+/** job.check_run_id, as action.yml hands it over. */
+const CHECK_RUN_ID = "51725241954";
+const ARTIFACT = `airlock-findings-${CHECK_RUN_ID}`;
 
 /** A runtime token the artifact client can read its backend ids from. */
 const RUNTIME_TOKEN = [
@@ -120,10 +123,16 @@ async function runAction({ inputs = {}, variables = actionsVariables(), env = {}
     GITHUB_SERVER_URL: "https://github.com",
     ACTIONS_RUNTIME_TOKEN: RUNTIME_TOKEN,
     ACTIONS_RESULTS_URL: `${base}/`,
+    // What action.yml's step sets in its own env.
+    AIRLOCK_RUN_TOKEN: RUN_TOKEN,
+    AIRLOCK_JOB_CHECK_RUN_ID: CHECK_RUN_ID,
     ...variables,
     ...env,
   };
-  for (const [input, value] of Object.entries(inputs)) environment[`INPUT_${input.toUpperCase()}`] = value;
+  // action.yml hands each input over as INPUT_<NAME>, with `-` as `_`.
+  for (const [input, value] of Object.entries(inputs)) {
+    environment[`INPUT_${input.toUpperCase().replace(/-/g, "_")}`] = value;
+  }
   for (const [key, value] of Object.entries(environment)) if (value === undefined) delete environment[key];
 
   const child = spawn(process.execPath, [ENTRY], { env: environment, cwd: directory });
@@ -167,7 +176,13 @@ function parseCommandFile(text) {
 }
 
 /** Fail when the run left a token anywhere a person or a later step reads. */
-function assertNoToken(run, tokens = [RUN_TOKEN]) {
+function assertNoToken(run, tokens = [RUN_TOKEN], { uploaded = true } = {}) {
+  // An absent artifact would make "the artifact carries no token" hold for
+  // nothing: every run here but a refused upload uploads exactly one file.
+  if (uploaded) {
+    assert.equal(run.artifact?.finalized, true, "the artifact was uploaded and finalized");
+    assert.equal(Object.keys(run.artifactFiles ?? {}).length, 1, "the artifact holds one file");
+  }
   for (const token of tokens) {
     // The only line that names a token is the mask command, which the
     // runner consumes; it must come before anything else is printed.
@@ -191,7 +206,6 @@ function assertNoToken(run, tokens = [RUN_TOKEN]) {
 const TEMPLATE_INPUTS = {
   mode: "repository",
   token: RUN_TOKEN,
-  "run-token": RUN_TOKEN,
   policy: "wyrd-company/.github:airlock/policy.yml",
 };
 
@@ -232,8 +246,9 @@ test("the template's with: block audits the run's repository and uploads the rep
   assert.equal(run.exported.AIRLOCK_COMPLETE, "true");
   assert.equal(run.exported.AIRLOCK_FINDINGS, run.outputs["findings-location"]);
   // The report, under the name the Worker reads.
-  assert.equal(run.artifact.name, "airlock-findings");
+  assert.equal(run.artifact.name, ARTIFACT);
   assert.equal(run.artifact.finalized, true);
+  assert.equal(run.outputs.artifact, ARTIFACT);
   assert.deepEqual(Object.keys(run.artifactFiles), ["airlock-findings.json"]);
   assert.equal(run.artifactFiles["airlock-findings.json"], run.findings);
   assertNoToken(run);
@@ -264,7 +279,7 @@ test("a job with a write permission is refused, and the refusal is the report", 
   assert.match(document.message, /write_permission/);
   assert.match(document.message, /pull-requests=write/);
   assert.equal(github.requests.length, 1, "nothing but the workflow file was read");
-  assert.equal(run.artifact.name, "airlock-findings");
+  assert.equal(run.artifact.name, ARTIFACT);
   assertNoToken(run);
 });
 
@@ -322,7 +337,7 @@ test("fail-on-incomplete: false lets a refused repository-mode audit succeed, st
   assert.equal(run.status, 0);
   assert.equal(run.outputs.outcome, "incomplete");
   assert.equal(run.outputs.complete, "false");
-  assert.equal(run.artifact.name, "airlock-findings");
+  assert.equal(run.artifact.name, ARTIFACT);
 });
 
 test("invalid inputs are incomplete documents in the requested shape", async () => {
@@ -330,7 +345,7 @@ test("invalid inputs are incomplete documents in the requested shape", async () 
   for (const [inputs, pattern] of [
     [{ format: "xml" }, /format must be/],
     [{ "fail-on-incomplete": "maybe" }, /fail-on-incomplete must be/],
-    [{ token: "", "run-token": RUN_TOKEN }, /needs the token input/],
+    [{ token: "" }, /needs the token input/],
     [{ policy: "./policy.yml" }, /owner\/repo:path/],
   ]) {
     const run = await runAction({ inputs: { ...TEMPLATE_INPUTS, ...inputs }, name: "invalid" });
@@ -377,6 +392,50 @@ test("an artifact service that refuses the upload fails the step", async () => {
     name: "upload",
   });
   assert.equal(run.status, 1);
-  assert.match(run.log, /could not be uploaded as the airlock-findings artifact/);
-  assertNoToken(run);
+  assert.match(run.log, new RegExp(`could not be uploaded as the ${ARTIFACT} artifact`));
+  assertNoToken(run, [RUN_TOKEN], { uploaded: false });
+});
+
+test("a forged pair is refused: the caller cannot supply the run's token", async () => {
+  // Another App's installation token, which the caller holds, passed as
+  // `token` and offered as the run's token in every way a caller could.
+  // action.yml sets AIRLOCK_RUN_TOKEN to github.token in its step's own env,
+  // and the action reads the run's token from there alone; a run-token input
+  // no longer exists. The CI job "Action: a forged run token is refused"
+  // proves the step env wins over the caller's job and step env.
+  const forged = "ghs_999999_eyJhbGciOiJSUzI1NiJ9.eyJGT1JHRUQiOiJvdGhlci1hcHAifQ.Rk9SR0VE-c2lnbmF0dXJl_MARKER7";
+  github = repositoryFetch(recording, { base, bearer: forged });
+  const run = await runAction({
+    inputs: { ...TEMPLATE_INPUTS, token: forged, "run-token": forged },
+    env: { "INPUT_RUN-TOKEN": forged },
+    name: "forged",
+  });
+  assert.equal(run.status, 1);
+  assert.equal(run.outputs.outcome, "incomplete");
+  assert.match(JSON.parse(run.findings).message, /foreign_installation_token/);
+  assert.equal(github.requests.length, 0, "the forged token was never sent");
+  assertNoToken(run, [RUN_TOKEN, forged]);
+});
+
+test("each job, matrix leg and attempt uploads under its own artifact name", async () => {
+  github = repositoryFetch(recording, { base });
+  const names = [];
+  for (const [env, expected] of [
+    [{ AIRLOCK_JOB_CHECK_RUN_ID: "100" }, "airlock-findings-100"],
+    // A re-run of the job is a new check run.
+    [{ AIRLOCK_JOB_CHECK_RUN_ID: "101", GITHUB_RUN_ATTEMPT: "2" }, "airlock-findings-101"],
+    // A runner without job.check_run_id falls back to the job and attempt.
+    [{ AIRLOCK_JOB_CHECK_RUN_ID: "", GITHUB_RUN_ATTEMPT: "3" }, "airlock-findings-audit-3"],
+  ]) {
+    const run = await runAction({
+      inputs: TEMPLATE_INPUTS,
+      variables: actionsVariables({ GITHUB_ACTIONS: undefined }),
+      env,
+      name: "names",
+    });
+    assert.equal(run.artifact.name, expected);
+    assert.equal(run.outputs.artifact, expected);
+    names.push(run.artifact.name);
+  }
+  assert.equal(new Set(names).size, names.length);
 });

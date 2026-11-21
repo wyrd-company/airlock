@@ -8,13 +8,22 @@ import { test } from "node:test";
 
 import { run } from "../src/main.mjs";
 
-const TOKEN = "ghs_15368_eyJhbGciOiJub25lIn0.eyJTWU5USEVUSUMiOnRydWV9.bWFpbi10ZXN0_MARKER6";
+const TOKEN = "ghu_SYNTHETICcallerTOKEN0123456789abcdefMARKER6";
+/** The run's own token, distinct from `token`, as action.yml's step env holds it. */
+const RUN = "ghs_15368_eyJhbGciOiJub25lIn0.eyJTWU5USEVUSUMiOnRydWV9.bWFpbi10ZXN0_MARKER8";
 
-function runner({ inputs = {}, audit }) {
+function runner({ inputs = {}, audit, env = {} }) {
   const written = { secrets: [], outputs: {}, exported: {}, log: [], failed: [], files: {}, uploads: [] };
   const io = {
     input: (name) => (inputs[name] ?? "").trim(),
-    env: { GITHUB_REPOSITORY: "wyrd-company/airlock", RUNNER_TEMP: "/runner/temp", GITHUB_ACTIONS: "true" },
+    env: {
+      GITHUB_REPOSITORY: "wyrd-company/airlock",
+      RUNNER_TEMP: "/runner/temp",
+      GITHUB_ACTIONS: "true",
+      AIRLOCK_RUN_TOKEN: RUN,
+      AIRLOCK_JOB_CHECK_RUN_ID: "7",
+      ...env,
+    },
     setSecret: (value) => written.secrets.push(value),
     setOutput: (name, value) => (written.outputs[name] = value),
     exportVariable: (name, value) => (written.exported[name] = value),
@@ -24,24 +33,26 @@ function runner({ inputs = {}, audit }) {
     setFailed: (message) => written.failed.push(message),
     writeFile: (path, text) => (written.files[path] = text),
     audit,
-    upload: async (path) => written.uploads.push(path),
+    upload: async (path, extension, name) => written.uploads.push({ path, extension, name }),
   };
   return { io, written };
 }
 
 function assertClean(written) {
   const everything = JSON.stringify({ ...written, secrets: [] });
-  assert.ok(!everything.includes(TOKEN), everything.slice(0, 400));
+  for (const secret of [TOKEN, RUN]) assert.ok(!everything.includes(secret), everything.slice(0, 400));
 }
 
 test("a document that carries a token is redacted before it is written, printed or uploaded", async () => {
   const { io, written } = runner({
-    inputs: { token: TOKEN, "run-token": TOKEN },
+    inputs: { token: TOKEN },
     audit: async () =>
-      JSON.stringify({ outcome: "conformant", complete: true, document: `{"echo":"${TOKEN}"}` }),
+      JSON.stringify({ outcome: "conformant", complete: true, document: `{"echo":"${TOKEN}","run":"${RUN}"}` }),
   });
   await run(io);
-  assert.deepEqual(written.secrets, [TOKEN, TOKEN]);
+  // Each masked on its own, before anything else.
+  assert.deepEqual(written.secrets, [TOKEN, RUN]);
+  assert.equal(Object.values(written.files)[0].match(/\[redacted\]/g).length, 2);
   assert.match(Object.values(written.files)[0], /\[redacted\]/);
   assert.deepEqual(written.failed, []);
   assertClean(written);
@@ -49,9 +60,9 @@ test("a document that carries a token is redacted before it is written, printed 
 
 test("an engine error that carries a token is redacted in the incomplete document and the log", async () => {
   const { io, written } = runner({
-    inputs: { token: TOKEN, "run-token": TOKEN },
+    inputs: { token: TOKEN },
     audit: async () => {
-      const error = new Error(`refused ${TOKEN}`);
+      const error = new Error(`refused ${TOKEN} bound to ${RUN}`);
       error.kind = "refused";
       throw error;
     },
@@ -64,11 +75,11 @@ test("an engine error that carries a token is redacted in the incomplete documen
 
 test("an upload error that carries a token is redacted", async () => {
   const { io, written } = runner({
-    inputs: { token: TOKEN, "run-token": TOKEN },
+    inputs: { token: TOKEN },
     audit: async () => JSON.stringify({ outcome: "conformant", complete: true, document: "{}" }),
   });
   io.upload = async () => {
-    throw new Error(`upload refused ${TOKEN}`);
+    throw new Error(`upload refused ${TOKEN} ${RUN}`);
   };
   await run(io);
   assert.match(written.failed[0], /could not be uploaded/);
@@ -78,7 +89,7 @@ test("an upload error that carries a token is redacted", async () => {
 test("an outcome the engine does not name is incomplete, never a pass", async () => {
   for (const outcome of ["", "passed", undefined]) {
     const { io, written } = runner({
-      inputs: { token: TOKEN, "run-token": TOKEN },
+      inputs: { token: TOKEN },
       audit: async () => JSON.stringify({ outcome, complete: true, document: "{}" }),
     });
     await run(io);
@@ -86,4 +97,28 @@ test("an outcome the engine does not name is incomplete, never a pass", async ()
     assert.equal(written.outputs.complete, "false");
     assert.equal(written.failed.length, 1);
   }
+});
+
+test("the run's token comes from the step's env, never from an input", async () => {
+  let sent;
+  const { io } = runner({
+    inputs: { token: TOKEN, "run-token": "ghs_999999_FORGED.forged-token_value" },
+    audit: async (request) => {
+      sent = JSON.parse(request);
+      return JSON.stringify({ outcome: "conformant", complete: true, document: "{}" });
+    },
+  });
+  await run(io);
+  assert.equal(sent.runToken, RUN);
+  assert.equal(sent.token, TOKEN);
+});
+
+test("the artifact is named for the job's check run", async () => {
+  const { io, written } = runner({
+    inputs: { token: TOKEN },
+    audit: async () => JSON.stringify({ outcome: "conformant", complete: true, document: "{}" }),
+  });
+  await run(io);
+  assert.equal(written.uploads[0].name, "airlock-findings-7");
+  assert.equal(written.outputs.artifact, "airlock-findings-7");
 });

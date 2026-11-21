@@ -125,6 +125,41 @@ jobs:
       - run: task action:install
       - run: task action
 
+  # The run's own token reaches the engine through the action step's own env,
+  # which nothing the caller sets may override. Here the caller tries: a
+  # synthetic installation token of another App is the token input and is
+  # set as AIRLOCK_RUN_TOKEN at job and step level. The action must refuse it
+  # as an installation token other than the run's own, before any request.
+  # Two matrix legs also show each job uploads under its own artifact name.
+  action-forged-run-token:
+    name: "Action: a forged run token is refused"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        leg: [one, two]
+    env:
+      AIRLOCK_RUN_TOKEN: ghs_999999_eyJhbGciOiJub25lIn0.eyJmb3JnZWQiOjF9.Zm9yZ2Vk-PLACEHOLDER
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: go-task/setup-task@01a4adf9db2d14c1de7a560f09170b6e0df736aa # v2
+      - id: forged
+        uses: ./
+        env:
+          AIRLOCK_RUN_TOKEN: ghs_999999_eyJhbGciOiJub25lIn0.eyJmb3JnZWQiOjF9.Zm9yZ2Vk-PLACEHOLDER
+        with:
+          mode: repository
+          token: ghs_999999_eyJhbGciOiJub25lIn0.eyJmb3JnZWQiOjF9.Zm9yZ2Vk-PLACEHOLDER
+          fail-on-incomplete: "false"
+      - env:
+          OUTCOME: ${{ steps.forged.outputs.outcome }}
+          FINDINGS: ${{ steps.forged.outputs.findings-location }}
+          ARTIFACT: ${{ steps.forged.outputs.artifact }}
+        run: task action:assert-forged-refused
+
   # rust-version in Cargo.toml is a promise. This job is what keeps it true:
   # the toolchain is pinned to the declared minimum and the lockfile is not
   # allowed to move, so a dependency that quietly needs a newer compiler fails

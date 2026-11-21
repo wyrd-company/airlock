@@ -10,7 +10,7 @@ import * as core from "@actions/core";
 import { fetchHost } from "../../crates/wasm/js/host.mjs";
 import { initSync, repositoryAudit } from "airlock-wasm";
 
-import { ARTIFACT_NAME, run } from "./main.mjs";
+import { ARTIFACT_PREFIX, run } from "./main.mjs";
 
 let loaded = false;
 function load() {
@@ -21,9 +21,14 @@ function load() {
   }
 }
 
+// action.yml's step hands each input over as INPUT_<NAME>, with `-` as `_`.
+const env = { ...process.env };
+// Read once; no later code, and nothing this process starts, sees it.
+delete process.env.AIRLOCK_RUN_TOKEN;
+
 await run({
-  input: (name) => core.getInput(name),
-  env: process.env,
+  input: (name) => (env[`INPUT_${name.toUpperCase().replace(/-/g, "_")}`] ?? "").trim(),
+  env,
   setSecret: core.setSecret,
   setOutput: core.setOutput,
   exportVariable: core.exportVariable,
@@ -36,14 +41,14 @@ await run({
     load();
     return repositoryAudit(fetchHost(), request);
   },
-  upload: async (path, extension) => {
+  upload: async (path, extension, name) => {
     // The artifact holds one file under a fixed name, whatever the
     // findings location is called, so the Worker reads it by name.
     const base = process.env.RUNNER_TEMP || process.env.TMPDIR || "/tmp";
     mkdirSync(base, { recursive: true });
     const directory = mkdtempSync(join(base, "airlock-artifact-"));
-    const file = join(directory, `${ARTIFACT_NAME}.${extension}`);
+    const file = join(directory, `${ARTIFACT_PREFIX}.${extension}`);
     copyFileSync(path, file);
-    await new DefaultArtifactClient().uploadArtifact(ARTIFACT_NAME, [file], directory);
+    await new DefaultArtifactClient().uploadArtifact(name, [file], directory);
   },
 });
