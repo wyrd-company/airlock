@@ -137,7 +137,7 @@ test("a request's timeout is cut to what is left of the budget", async () => {
   assert.equal(recorded.timeouts[at + 1].timeoutMs, 5_000);
 });
 
-test("a clock that steps back does not give the budget back", async () => {
+test("a clock that steps back is refused, so it cannot give the budget back", async () => {
   const clock = fakeClock();
   let ahead = false;
   const fake = replayed((path, answer) => {
@@ -146,9 +146,7 @@ test("a clock that steps back does not give the budget back", async () => {
     return response;
   });
   const start = clock.now;
-  // One reading 295 s on, then the clock is back where it started. The
-  // budget has five seconds left from that reading on, whatever the clock
-  // says after it.
+  // One reading 295 s on, then the clock is back where it started.
   const now = () => {
     if (ahead) {
       ahead = false;
@@ -157,14 +155,139 @@ test("a clock that steps back does not give the budget back", async () => {
     return start;
   };
   const recorded = host(fake.fetch, { read: now, sleep: clock.sleep });
-  const { error } = await settle(airlock.audit(recorded, request()));
-  assert.equal(error, undefined);
+  const { report, error } = await settle(airlock.audit(recorded, request()));
+  const text = error ? error.message : JSON.stringify(report.run_errors);
+  assert.match(text, /moved backwards/);
   const at = recorded.timeouts.findIndex((entry) => entry.url === `${BASE}${REPOSITORY}`);
-  const after = recorded.timeouts.slice(at + 1);
-  assert.ok(after.length > 0);
-  for (const entry of after) {
+  for (const entry of recorded.timeouts.slice(at + 1)) {
     assert.ok(entry.timeoutMs <= 5_000, `${entry.url} was given ${entry.timeoutMs} ms`);
   }
+});
+
+/** A full audit still runs, so a refused host value did not trap the module. */
+async function stillWorks() {
+  const fake = replayed();
+  const { report, error } = await settle(airlock.audit(host(fake.fetch, fakeClock()), request()));
+  assert.equal(error, undefined, "the module no longer runs");
+  assert.ok(report.findings.length > 0);
+}
+
+for (const [name, value] of [
+  ["a finite value too large for any clock", 1e300],
+  ["the largest finite number", Number.MAX_VALUE],
+  ["one past the latest Date", 8.64e15 + 1],
+  ["NaN", Number.NaN],
+  ["infinity", Number.POSITIVE_INFINITY],
+  ["a negative time", -1],
+  ["a string", "1800000000000"],
+  ["an object", { valueOf: () => 1_800_000_000_000 }],
+  ["undefined", undefined],
+]) {
+  test(`a host clock that gives ${name} is a clock error, not a trap`, async () => {
+    const fake = replayed();
+    const hosted = fetchHost({ fetch: fake.fetch, now: () => value, sleep: async () => {} });
+    const { error } = await settle(airlock.audit(hosted, request()));
+    assert.ok(error, "the audit stopped");
+    assert.equal(error.name, "AirlockError");
+    assert.match(error.message, /clock gave no usable time/);
+    assert.deepEqual(fake.seen, [], "a request was sent on an unusable clock");
+    await stillWorks();
+  });
+}
+
+test("a clock that overflows later in the run stops it with a clock error", async () => {
+  const clock = fakeClock();
+  let broken = false;
+  const fake = replayed((path, answer) => {
+    if (path === REPOSITORY) broken = true;
+    return answer();
+  });
+  const now = () => (broken ? 1e300 : clock.now);
+  const { report, error } = await settle(airlock.audit(host(fake.fetch, { read: now, sleep: clock.sleep }), request()));
+  const text = error ? error.message : JSON.stringify(report.run_errors);
+  assert.match(text, /clock gave no usable time/);
+  await stillWorks();
+});
+
+test("a clock that throws is a clock error", async () => {
+  const fake = replayed();
+  const hosted = fetchHost({
+    fetch: fake.fetch,
+    now: () => {
+      throw new Error("no clock");
+    },
+  });
+  const { error } = await settle(airlock.audit(hosted, request()));
+  assert.match(error.message, /now\(\) threw/);
+  await stillWorks();
+});
+
+for (const [name, sleep] of [
+  ["throws", () => {
+    throw new Error("no timer");
+  }],
+  ["rejects", async () => {
+    throw new Error("no timer");
+  }],
+]) {
+  test(`a host sleep that ${name} stops the rate-limit wait with a clock error`, async () => {
+    const clock = fakeClock();
+    const fake = replayed((path, answer) =>
+      path.startsWith("/user/installations")
+        ? new Response("{}", { status: 429, headers: { "retry-after": "2" } })
+        : answer(),
+    );
+    const hosted = fetchHost({ fetch: fake.fetch, now: clock.read, sleep });
+    const { error } = await settle(airlock.audit(hosted, request()));
+    assert.ok(error);
+    assert.match(error.message, /sleep\(\) (threw|rejected)/);
+    await stillWorks();
+  });
+}
+
+test("a host sleep that returns no promise is waited on as already done", async () => {
+  const clock = fakeClock();
+  let limited = false;
+  const fake = replayed((path, answer) => {
+    if (path.startsWith("/user/installations") && !limited) {
+      limited = true;
+      return new Response("{}", { status: 429, headers: { "retry-after": "2" } });
+    }
+    return answer();
+  });
+  const hosted = fetchHost({ fetch: fake.fetch, now: clock.read, sleep: () => undefined });
+  const { error } = await settle(airlock.audit(hosted, request()));
+  assert.equal(error, undefined);
+});
+
+test("a host fetch that answers without a promise, or with nonsense, is an error, not a trap", async () => {
+  const clock = fakeClock();
+  for (const answer of [
+    null,
+    42,
+    "text",
+    { status: 1e300, headers: [], body: new Uint8Array() },
+    { status: Number.NaN, headers: [], body: new Uint8Array() },
+    { status: 200.5, headers: [], body: new Uint8Array() },
+    { status: 200, headers: "x", body: new Uint8Array() },
+    { status: 200, headers: [["a"]], body: new Uint8Array() },
+    { status: 200, headers: [], body: "not bytes" },
+  ]) {
+    const plain = { fetch: () => answer, sleep: clock.sleep, now: clock.read };
+    const { error } = await settle(airlock.audit(plain, request()));
+    assert.ok(error, JSON.stringify(answer));
+    assert.equal(error.name, "AirlockError");
+  }
+  await stillWorks();
+});
+
+test("a host that is not an object is an error, not a trap", async () => {
+  for (const hosted of [undefined, null, 7, {}]) {
+    const { error } = await settle(airlock.audit(hosted, request()));
+    assert.ok(error);
+    assert.equal(error.name, "AirlockError");
+  }
+  await stillWorks();
 });
 
 test("the settings' observation time is the server's Date header, kept as text", async () => {

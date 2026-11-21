@@ -55,7 +55,9 @@ async function readCapped(response, max) {
 export function fetchHost(parts = {}) {
   const fetchImpl = parts.fetch ?? globalThis.fetch;
   const sleep = parts.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
-  const now = parts.now ?? (() => Date.now());
+  // performance.now() never steps back, as Date.now() can when the system
+  // clock is set; the module refuses a clock that moves backwards.
+  const now = parts.now ?? (() => performance.timeOrigin + performance.now());
   return {
     async fetch(request) {
       const signal = AbortSignal.timeout(Math.max(1, request.timeoutMs));

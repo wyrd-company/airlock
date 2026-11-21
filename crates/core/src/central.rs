@@ -587,7 +587,16 @@ pub async fn sign_in(
     let budget = limits.max_response_bytes;
 
     let vault_token = azure_sign_in(&http, config, credential, endpoints, budget).await?;
-    let now = http.transport.unix_time().as_secs();
+    let now = http
+        .transport
+        .unix_time()
+        .map_err(|_| {
+            CentralError::new(
+                Step::KeyVaultSign,
+                "the clock gave no usable time to date the App's JSON Web Token",
+            )
+        })?
+        .as_secs();
     let jwt = sign_app_jwt(&http, config, &vault_token, budget, now).await?;
     drop(vault_token);
 
@@ -832,7 +841,7 @@ pub fn jwt_signing_input(app_id: u64, now: u64) -> String {
     let claims = format!(
         r#"{{"iat":{},"exp":{},"iss":"{app_id}"}}"#,
         now.saturating_sub(60),
-        now + 540
+        now.saturating_add(540)
     );
     format!(
         "{}.{}",
@@ -1158,6 +1167,7 @@ impl Http {
                 }
                 FailureKind::Timeout => "timed out",
                 FailureKind::Connect => "could not connect",
+                FailureKind::Clock => "stopped: the clock gave no usable time",
                 FailureKind::Other => "failed",
             };
             CentralError::new(step, format!("{what} {kind}"))
