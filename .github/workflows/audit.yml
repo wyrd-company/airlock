@@ -12,9 +12,12 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Repository mode on the run's own token. Airlock reads this job's
-  # permissions from this file at GITHUB_WORKFLOW_SHA and accepts the token
-  # only because every one of them is read. No secret is read.
+  # Repository mode on the run's own token, through the action at the root
+  # of this repository, which runs the WebAssembly engine from dist/. Airlock
+  # reads this job's permissions from this file at GITHUB_WORKFLOW_SHA and
+  # accepts the token only because every one of them is read. No secret is
+  # read, and no step installs Rust. The action uploads the report as the
+  # airlock-findings artifact itself.
   audit:
     name: Audit this repository
     runs-on: ubuntu-latest
@@ -35,13 +38,6 @@ jobs:
           mode: repository
           token: ${{ github.token }}
           format: json
-      - name: Attach findings
-        if: always() && env.AIRLOCK_FINDINGS != ''
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: airlock-findings
-          path: ${{ env.AIRLOCK_FINDINGS }}
-          if-no-files-found: error
       - name: Summarize outcome
         if: always() && env.AIRLOCK_OUTCOME != ''
         env:
