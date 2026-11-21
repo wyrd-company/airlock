@@ -5,6 +5,7 @@
 //! calls them with reqwest's. Both builds therefore run exactly this code,
 //! and a difference between their findings is a difference in the engine.
 
+use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::Arc;
 
@@ -17,7 +18,9 @@ use airlock_core::central_audit;
 use airlock_core::github::{RestClient, RestClientConfig};
 use airlock_core::limits::Limits;
 use airlock_core::policy::{self, PolicySource};
+use airlock_core::render;
 use airlock_core::transport::Transport;
+use airlock_core::workflow_token::ActionsRun;
 use serde::{Deserialize, Serialize};
 use zeroize::{Zeroize as _, Zeroizing};
 
@@ -240,9 +243,20 @@ fn client_config(limits: Limits, github_api: Option<&str>) -> RestClientConfig {
 
 fn policy_source(policy: Option<&str>, owner: &str) -> Result<PolicySource, EngineError> {
     match policy {
-        Some(value) => PolicySource::parse(value).map_err(|error| {
-            EngineError::new("inputs", format!("cannot read the policy: {error}"))
-        }),
+        Some(value) => match PolicySource::parse(value) {
+            // The module reads no file system: a policy is read through the
+            // API or not at all.
+            Ok(PolicySource::Local(_)) => Err(EngineError::new(
+                "inputs",
+                "the module reads the policy through the GitHub API, so it must be named as \
+                 `owner/repo:path[@ref]`, not as a local path",
+            )),
+            Ok(source) => Ok(source),
+            Err(error) => Err(EngineError::new(
+                "inputs",
+                format!("cannot read the policy: {error}"),
+            )),
+        },
         None => Ok(PolicySource::default_for_owner(owner)),
     }
 }
@@ -317,6 +331,196 @@ async fn audit_unredacted(
     })?;
     serde_json::to_string_pretty(&report)
         .map_err(|error| EngineError::new("render", error.to_string()))
+}
+
+/// What [`repository_audit`] audits: repository mode, as the JavaScript
+/// action runs it inside GitHub Actions.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RepositoryRequest {
+    /// The credential: the run's own `GITHUB_TOKEN`, or another token
+    /// Airlock can verify as read-only.
+    pub token: String,
+    /// The run's own token, as `github.token` gives it. Never sent: an
+    /// installation token is admitted only when it is this one.
+    #[serde(default)]
+    pub run_token: Option<String>,
+    /// `owner/repo` to audit; repository mode audits the run's own only.
+    pub repository: String,
+    /// The commit, branch or tag to audit. Absent: the default branch.
+    #[serde(default)]
+    pub reference: Option<String>,
+    /// The policy, as `owner/repo:path[@ref]`. Absent: the owner's default.
+    #[serde(default)]
+    pub policy: Option<String>,
+    /// `json`, the default, or `text`.
+    #[serde(default)]
+    pub format: Option<String>,
+    /// The variables that describe the run (see
+    /// [`airlock_core::workflow_token::ACTIONS_VARIABLES`]), as the runner
+    /// set them. Others are ignored.
+    #[serde(default)]
+    pub actions: BTreeMap<String, String>,
+    /// The GitHub REST API root. Absent: `https://api.github.com`.
+    #[serde(default)]
+    pub github_api: Option<String>,
+}
+
+impl Drop for RepositoryRequest {
+    fn drop(&mut self) {
+        self.token.zeroize();
+        if let Some(run_token) = &mut self.run_token {
+            run_token.zeroize();
+        }
+    }
+}
+
+impl RepositoryRequest {
+    /// Parse a request from its JSON text.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `inputs` error that does not repeat the text.
+    pub fn parse(json: &str) -> Result<Self, EngineError> {
+        serde_json::from_str(json).map_err(|error| {
+            EngineError::new(
+                "inputs",
+                format!(
+                    "the repository audit request is not valid (line {}, column {})",
+                    error.line(),
+                    error.column()
+                ),
+            )
+        })
+    }
+}
+
+/// A repository-mode audit's result.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepositoryAudit {
+    /// `conformant`, `nonconformant` or `incomplete`, as the report states.
+    pub outcome: &'static str,
+    /// Whether the audit completed without a run error.
+    pub complete: bool,
+    /// The findings document, in the requested format.
+    pub document: String,
+}
+
+impl Redactable for RepositoryAudit {
+    fn redacted(self, redactor: &Redactor) -> Self {
+        Self {
+            document: redactor.redact(&self.document),
+            ..self
+        }
+    }
+}
+
+/// Audit the run's own repository in repository mode, as the JavaScript
+/// action does, and return the outcome with the findings document.
+///
+/// Repository mode is settled first: outside GitHub Actions, or for a run
+/// the variables do not describe, nothing is read. The token is then
+/// admitted as the command line's repository mode admits it. The run's
+/// `GITHUB_TOKEN` is accepted only when it is the run's own token, for the
+/// run's own repository, and every permission the job declares in the
+/// workflow file at `GITHUB_WORKFLOW_SHA` is `read`.
+///
+/// # Errors
+///
+/// Returns an [`EngineError`] when the run or the token is refused, the
+/// policy cannot be resolved, or the repository cannot be read.
+pub async fn repository_audit(
+    transport: Arc<dyn Transport>,
+    request: &RepositoryRequest,
+) -> Result<RepositoryAudit, EngineError> {
+    let mut redactor = Redactor::of([request.token.as_str()]);
+    if let Some(run_token) = &request.run_token {
+        redactor.add(run_token);
+    }
+    redactor.result(repository_audit_unredacted(transport, request).await)
+}
+
+async fn repository_audit_unredacted(
+    transport: Arc<dyn Transport>,
+    request: &RepositoryRequest,
+) -> Result<RepositoryAudit, EngineError> {
+    let run =
+        ActionsRun::from_lookup(|name| request.actions.get(name).cloned()).map_err(|refusal| {
+            EngineError::new("refused", format!("repository mode was refused: {refusal}"))
+        })?;
+    let text = match request.format.as_deref() {
+        None | Some("json") => false,
+        Some("text") => true,
+        Some(_) => {
+            return Err(EngineError::new(
+                "inputs",
+                "format must be `json` or `text`",
+            ))
+        }
+    };
+    if !auth::has_token_shape(&request.token) {
+        return Err(EngineError::new(
+            "inputs",
+            "the token is not a GitHub token: it must be 8 to 4096 letters, digits and `_`",
+        ));
+    }
+    let Some((owner, repo)) = request
+        .repository
+        .split_once('/')
+        .filter(|(owner, repo)| !owner.is_empty() && !repo.is_empty() && !repo.contains('/'))
+    else {
+        return Err(EngineError::new(
+            "inputs",
+            "the repository must be named as `owner/repo`",
+        ));
+    };
+    let limits = Limits::default();
+    let client = RestClient::with_transport(
+        request.token.as_str(),
+        client_config(limits, request.github_api.as_deref()),
+        transport,
+    );
+    let admission = Admission::Repository {
+        run: &run,
+        owner,
+        repo,
+        run_token: request.run_token.as_deref(),
+    };
+    let grant = auth::verify_for(&request.token, &client, admission)
+        .await
+        .map_err(|refusal| {
+            EngineError::new("refused", format!("the credential was refused: {refusal}"))
+        })?;
+    let source = policy_source(request.policy.as_deref(), owner)?;
+    let policy = policy::resolve(&client, &source, &limits)
+        .await
+        .map_err(|error| {
+            EngineError::new(
+                "policy",
+                format!("cannot resolve the policy at {}: {error}", source.label()),
+            )
+        })?;
+    let options = AuditOptions {
+        reference: request.reference.clone(),
+        ..options(limits)
+    };
+    let report = audit::run(&client, owner, repo, &policy, &options, Some(&grant))
+        .await
+        .map_err(|error| {
+            EngineError::new("audit", format!("cannot audit {owner}/{repo}: {error}"))
+        })?;
+    let document = if text {
+        render::report_text(&report)
+    } else {
+        serde_json::to_string_pretty(&report)
+            .map_err(|error| EngineError::new("render", error.to_string()))?
+    };
+    Ok(RepositoryAudit {
+        outcome: report.outcome.code(),
+        complete: report.complete,
+        document,
+    })
 }
 
 /// How [`sign_in`] signs in as Airlock Safe.

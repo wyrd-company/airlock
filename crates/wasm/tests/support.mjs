@@ -167,3 +167,70 @@ export function fakeClock(start = 1_800_000_000_000) {
   };
   return clock;
 }
+
+// Repository mode: the run's own token, judged by the job that holds it.
+
+/** The run's own token, a synthetic marker shaped like an installation token. */
+export const RUN_TOKEN = "ghs_SYNTHETICrunTOKEN0123456789abcdef";
+export const WORKFLOW_SHA = "aa31121c5ead759d07c21915004de8c52b7597a7";
+export const WORKFLOW_PATH = ".github/workflows/audit.yml";
+
+/** The variables GitHub Actions sets for a run of `audit` in audit.yml. */
+export function actionsVariables(overrides = {}) {
+  const variables = {
+    GITHUB_ACTIONS: "true",
+    GITHUB_REPOSITORY: "wyrd-company/airlock",
+    GITHUB_WORKFLOW_REF: `wyrd-company/airlock/${WORKFLOW_PATH}@refs/heads/main`,
+    GITHUB_WORKFLOW_SHA: WORKFLOW_SHA,
+    GITHUB_JOB: "audit",
+    ...overrides,
+  };
+  for (const [name, value] of Object.entries(variables)) if (value === undefined) delete variables[name];
+  return variables;
+}
+
+/** A workflow whose `audit` job declares `permissions`, as YAML lines. */
+export function workflowDeclaring(permissions = ["contents: read", "actions: read", "attestations: read"]) {
+  return [
+    "permissions: {}",
+    "jobs:",
+    "  audit:",
+    "    runs-on: ubuntu-latest",
+    "    permissions:",
+    ...permissions.map((line) => `      ${line}`),
+    "    steps: []",
+    "",
+  ].join("\n");
+}
+
+/**
+ * The recording, answered for `bearer`, with the workflow file GitHub ran
+ * served at the run's commit. `override(path)` may answer first.
+ */
+export function repositoryFetch(recording, {
+  base,
+  bearer = RUN_TOKEN,
+  workflow = workflowDeclaring(),
+  override = () => undefined,
+} = {}) {
+  const recorded = replay(recording, { base, bearer });
+  const requests = [];
+  const fetch = async (url, init) => {
+    const parsed = new URL(url);
+    const path = parsed.pathname + parsed.search;
+    const headers = Object.fromEntries(init.headers ?? []);
+    requests.push({ method: init.method, path, headers });
+    const answered = override(path, headers);
+    if (answered) return answered;
+    if (path === `/repos/wyrd-company/airlock/contents/${WORKFLOW_PATH}?ref=${WORKFLOW_SHA}`) {
+      if (headers.authorization !== `Bearer ${bearer}`) return json(401, { message: "Bad credentials" });
+      return json(200, {
+        type: "file",
+        encoding: "base64",
+        content: Buffer.from(workflow).toString("base64"),
+      });
+    }
+    return recorded.answer({ method: init.method, url: parsed, headers });
+  };
+  return { fetch, requests, unexpected: recorded.unexpected };
+}
