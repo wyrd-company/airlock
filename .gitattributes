@@ -23,3 +23,4 @@ crates/wasm/tests/fixtures/*.json linguist-generated=true
 dist/** linguist-generated=true
 dist/*.wasm binary
 action/pnpm-lock.yaml linguist-generated=true
+.intentional/release-model.json text eol=lf

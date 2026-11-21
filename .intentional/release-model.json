@@ -1,0 +1,49 @@
+{
+  "$schema": "https://intentional.foo/schemas/release-model/1",
+  "paths": {
+    "config": ".intentional/config.yml",
+    "intents": ".intentional/intents",
+    "model": ".intentional/release-model.json"
+  },
+  "release_groups": {
+    "fixed": [],
+    "linked": []
+  },
+  "release_units": {
+    "airlock": {
+      "changelog": "CHANGELOG.md",
+      "depends_on": [],
+      "disposition": "managed",
+      "ecosystems": [],
+      "path": ".",
+      "projections": [
+        {
+          "adapter": "toml",
+          "file": "Cargo.toml",
+          "generic": true,
+          "mode": "committed",
+          "pointer": "/workspace/package/version",
+          "workspace_file": "Cargo.toml"
+        },
+        {
+          "adapter": "toml",
+          "file": "Cargo.toml",
+          "generic": true,
+          "mode": "committed",
+          "pointer": "/workspace/dependencies/airlock-core/version",
+          "workspace_file": "Cargo.toml"
+        }
+      ],
+      "release_record": "required",
+      "sources": [],
+      "tags": {
+        "primary": {
+          "role": "primary",
+          "tag_after": [],
+          "template": "{version}"
+        }
+      }
+    }
+  },
+  "workspace_tags": {}
+}
