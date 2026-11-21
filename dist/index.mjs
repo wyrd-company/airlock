@@ -19879,7 +19879,7 @@ function __wbg_get_imports() {
       const ret = CentralSession.__wrap(arg0);
       return addHeapObject(ret);
     },
-    __wbg_fetch_438bca69f31349d1: function() {
+    __wbg_fetch_9283ba076625fd62: function() {
       return handleError(function(arg0, arg1) {
         const ret = getObject(arg0).fetch(getObject(arg1));
         return addHeapObject(ret);
@@ -19964,7 +19964,7 @@ function __wbg_get_imports() {
         state0.a = 0;
       }
     },
-    __wbg_now_dafbacf0fcd50d57: function() {
+    __wbg_now_0835e087b486cbf9: function() {
       return handleError(function(arg0) {
         const ret = getObject(arg0).now();
         return addHeapObject(ret);
@@ -20001,7 +20001,7 @@ function __wbg_get_imports() {
     __wbg_set_name_3bbc583faefa4193: function(arg0, arg1, arg2) {
       getObject(arg0).name = getStringFromWasm0(arg1, arg2);
     },
-    __wbg_sleep_fd6637ffe4876b75: function() {
+    __wbg_sleep_177fee4980d05839: function() {
       return handleError(function(arg0, arg1) {
         const ret = getObject(arg0).sleep(arg1);
         return addHeapObject(ret);

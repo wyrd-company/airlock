@@ -43,7 +43,7 @@ dependencies = [
 
 [[package]]
 name = "airlock-cli"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "airlock-core",
  "anyhow",
@@ -69,7 +69,7 @@ dependencies = [
 
 [[package]]
 name = "airlock-core"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64",
@@ -96,7 +96,7 @@ dependencies = [
 
 [[package]]
 name = "airlock-wasm"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "airlock-core",
  "js-sys",
