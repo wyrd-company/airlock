@@ -101,6 +101,10 @@ runs:
       env:
         BASH_ENV: ""
         ENV: ""
+        LD_PRELOAD: ""
+        LD_AUDIT: ""
+        LD_LIBRARY_PATH: ""
+        GCONV_PATH: ""
         AIRLOCK_RUNNER_OS: ${{ runner.os }}
         AIRLOCK_ACTION_PATH: ${{ github.action_path }}
       run: '"$AIRLOCK_ACTION_PATH/action/check-runner.sh"'
