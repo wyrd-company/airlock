@@ -146,18 +146,25 @@ test("a clock that steps back does not give the budget back", async () => {
     return response;
   });
   const start = clock.now;
-  // One reading six minutes on, then the clock is back where it started.
+  // One reading 295 s on, then the clock is back where it started. The
+  // budget has five seconds left from that reading on, whatever the clock
+  // says after it.
   const now = () => {
     if (ahead) {
       ahead = false;
-      return start + 360_000;
+      return start + 295_000;
     }
     return start;
   };
-  const hosted = fetchHost({ fetch: fake.fetch, now, sleep: clock.sleep });
-  const { report, error } = await settle(airlock.audit(hosted, request()));
-  const text = error ? error.message : JSON.stringify(report.run_errors);
-  assert.match(text, /audit budget was exhausted/);
+  const recorded = host(fake.fetch, { read: now, sleep: clock.sleep });
+  const { error } = await settle(airlock.audit(recorded, request()));
+  assert.equal(error, undefined);
+  const at = recorded.timeouts.findIndex((entry) => entry.url === `${BASE}${REPOSITORY}`);
+  const after = recorded.timeouts.slice(at + 1);
+  assert.ok(after.length > 0);
+  for (const entry of after) {
+    assert.ok(entry.timeoutMs <= 5_000, `${entry.url} was given ${entry.timeoutMs} ms`);
+  }
 });
 
 test("the settings' observation time is the server's Date header, kept as text", async () => {
@@ -201,5 +208,21 @@ test("a host's timeout is a budget failure, and a refused connection a transport
     const { error } = await settle(airlock.audit(failing, request()));
     assert.ok(error, name);
     assert.match(error.message, pattern);
+  }
+});
+
+test("a token whose grant cannot be enumerated is refused before any request", async () => {
+  for (const token of ["github_pat_unverifiable", "ghs_installation", "not-a-token"]) {
+    const fake = replayed();
+    const { error } = await settle(
+      airlock.audit(
+        fetchHost({ fetch: fake.fetch }),
+        JSON.stringify({ token, ...recording.request, githubApi: BASE }),
+      ),
+    );
+    assert.ok(error, token);
+    assert.equal(error.kind, "refused", token);
+    assert.deepEqual(fake.seen, [], token);
+    assert.ok(!error.message.includes(token), "the refusal repeats the token");
   }
 });

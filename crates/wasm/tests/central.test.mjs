@@ -77,7 +77,7 @@ test("signs in as Airlock Safe with a client secret, in the order of the sign-in
     );
     for (const request of fake.requests) {
       // Every request carries a credential, so none may follow a redirect.
-      assert.equal(request.url.protocol, "https:");
+      assert.equal(request.redirect, "manual", `${request.method} ${request.url}`);
     }
 
     // Entra ID got the client secret as a form, and no assertion.
