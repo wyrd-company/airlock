@@ -55,17 +55,19 @@ blank never ends, so the audit step keeps an allowlist instead:
 
 - The step runs in `sh`, which must be dash. Dash imports no functions from
   the environment, unlike bash with its `BASH_FUNC_*` variables, even as
-  `sh`, and reads `$ENV` only when interactive. `step.sh` refuses any other
-  shell, and any OS but Linux, in its first lines, which use only reserved
+  `sh`, and reads `$ENV` only when interactive. `step.sh` refuses bash, zsh
+  and ksh, and any OS but Linux, in its first lines, which use only reserved
   words, parameter expansion and the special builtin `exit`, so no function
   can shadow them. It exits 70 there without a message; the check-runner
   step before it gives the message.
 - The processes before `env -i` (the runner's `sh`, `step.sh`'s dash and
   `env` itself) hold the credentials, and the dynamic loader acts on them
   before any script line runs. They are covered by a short blank list in the
-  step's own `env`, not by the allowlist: `BASH_ENV`, `ENV`, `LD_PRELOAD`,
-  `LD_AUDIT`, `LD_LIBRARY_PATH`, `LD_BIND_NOW`, `LD_DEBUG`, `LD_PROFILE` and
-  `GCONV_PATH`. glibc ignores an empty value.
+  step's own `env`, not by the allowlist: `BASH_ENV`, `ENV`, `SHELLOPTS`,
+  `PS4`, `LD_PRELOAD`, `LD_AUDIT`, `LD_LIBRARY_PATH`, `LD_BIND_NOW`,
+  `LD_DEBUG`, `LD_PROFILE` and `GCONV_PATH`. glibc ignores an empty value.
+  The check-runner step blanks `BASH_ENV`, `ENV`, `SHELLOPTS`, `PS4` and the
+  loader's `LD_PRELOAD`, `LD_AUDIT`, `LD_LIBRARY_PATH` and `GCONV_PATH`.
 - `action/step.sh` checks the Node that setup-node installed in the runner's
   tool cache (`<tool cache>/node/24.22.3/<x64|arm64>/bin`): its SHA-256 must
   be that of `bin/node` in Node's official v24.22.3 Linux tarball for the
@@ -102,11 +104,14 @@ They were taken on 2026-11-21 from `node-v24.22.3-linux-x64.tar.xz` and
 Each tarball matched `SHASUMS256.txt` there (x64
 `4f2b175a6d53a5c617a80dba2676238a0688cef28c6da4eba35c7d844e66fcfb`, arm64
 `6e51a2ada00f0011cc266f65d98922b403d7ad88f809ca2aa615a5fe1ce6e86c`), and
-`SHASUMS256.txt.asc` is a good signature by release key
+`SHASUMS256.txt.asc`, a signed copy of that checksum file, verifies with
+release key
 `5BE8A3F6C8A5C01D106C0AD820B1A390B168D356`, which the Node.js README lists.
 The proxy leg of the CI job downloads Node through setup-node and checks the
-x64 binary against its pin. A Node whose binary differs, from a tampered tool
-cache or a download through a caller's proxy, is refused.
+x64 binary against its pin. The pin catches a binary replaced before the
+step, in the tool cache or by a download through a caller's proxy. It does
+not catch one swapped between the hash and `exec`, nor a library the binary
+loads.
 
 setup-node and upload-artifact are Node actions, which the runner starts with
 the job's environment, and an action cannot start them any other way. Each
@@ -256,7 +261,8 @@ it as the run's own, by what a caller cannot forge:
   no `NODE_*`, `*_PROXY`, `SSL_CERT_*`, `LD_*` or TLS override. The
   processes before `env -i` are covered by the shell check and the short
   blank list above.
-- **The Node binary.** Its SHA-256 must be the official build's.
+- **The Node binary, as it is before the step.** Its SHA-256 must be the
+  official build's.
 - **The variables setup-node and upload-artifact blank**, listed above.
 
 **Not covered:**
@@ -266,8 +272,9 @@ it as the run's own, by what a caller cannot forge:
   tells two jobs' tokens apart, so the job's declared permissions are recorded
   as its grant.
 - **Code the caller runs in the job.** A job can run code before the action,
-  replace `dist/`, the tool cache's Node, or the staged report, or fake the
-  artifact.
+  replace `dist/` or the staged report, or fake the artifact. The Node pin
+  catches a tool-cache binary replaced before the step, not one swapped
+  between the hash and `exec`, nor a library it loads.
 - **Anything else that needs the caller to control the job's environment or
   its disk.** A job's own audit is not proof against its author, and such a
   route is not pursued further unless it is cheap to close.
