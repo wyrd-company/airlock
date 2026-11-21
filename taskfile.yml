@@ -39,7 +39,7 @@ tasks:
         cargo clippy -p airlock-core -p airlock-wasm --no-default-features
         --target wasm32-unknown-unknown -- -D warnings
       - actionlint .github/workflows/*.yml
-      - shellcheck scripts/*.sh
+      - shellcheck scripts/*.sh action/*.sh
       - >-
         ryl check --config-file .ryl.yml .github/workflows/*.yml
         .github/airlock.yml docs taskfile.yml action.yml
@@ -119,52 +119,16 @@ tasks:
     cmds:
       - pnpm --dir action test
 
-  action:arm-forge:
+  action:forge:
     desc: >-
-      In CI, before the action runs, for the bash-env leg: write a script
-      that rewrites AIRLOCK_RUN_TOKEN and point BASH_ENV at it in GITHUB_ENV
+      In CI's forged-run-token job: arm, assert or show live one forge leg
+      (scripts/ci-forge.sh)
     requires:
       vars:
-        - FORGED
         - LEG
-        - GITHUB_ENV
+        - MARKER
     cmds:
-      - mkdir -p /tmp/airlock-forge
-      - >-
-        printf 'export AIRLOCK_RUN_TOKEN="$FORGED"\n'
-        > /tmp/airlock-forge/rewrite.sh
-      - >-
-        if [ "$LEG" = bash-env ]; then
-        echo "BASH_ENV=/tmp/airlock-forge/rewrite.sh" >> "$GITHUB_ENV"; fi
-
-  action:forge-is-live:
-    desc: >-
-      In CI: fail unless the armed forge rewrites AIRLOCK_RUN_TOKEN for an
-      ordinary bash or node step, so the action's refusal is not vacuous
-    requires:
-      vars:
-        - FORGED
-    cmds:
-      # bash sources BASH_ENV, and node runs NODE_OPTIONS' import, first.
-      - >-
-        bash -c 'test "$AIRLOCK_RUN_TOKEN" = "$FORGED"' ||
-        node -e 'process.exit(process.env.AIRLOCK_RUN_TOKEN === process.env.FORGED ? 0 : 1)'
-      - echo "the forge rewrites AIRLOCK_RUN_TOKEN outside the action"
-
-  action:assert-forged-refused:
-    desc: >-
-      In CI, after the action ran on a forged run token: fail unless it was
-      refused as another installation token and uploaded under a per-job name
-    requires:
-      vars:
-        - OUTCOME
-        - FINDINGS
-        - ARTIFACT
-    cmds:
-      - test "$OUTCOME" = incomplete
-      - grep -q foreign_installation_token "$FINDINGS"
-      - echo "$ARTIFACT" | grep -Eq '^airlock-findings-[0-9]+$'
-      - echo "refused as foreign_installation_token; uploaded as $ARTIFACT"
+      - scripts/ci-forge.sh {{.CLI_ARGS}}
 
   action:
     desc: Everything CI runs for the action
