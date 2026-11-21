@@ -77,7 +77,8 @@ token is refused" does the same on GitHub's runners, with `NODE_OPTIONS`,
 setup-node and upload-artifact are Node actions, which the runner starts with
 the job's environment, and an action cannot start them any other way. Each
 blanks `NODE_OPTIONS`, `NODE_USE_ENV_PROXY`, `HTTPS_PROXY`, `HTTP_PROXY`
-(and the lowercase forms), `NODE_TLS_REJECT_UNAUTHORIZED`,
+(Actions reads `env` names without regard to case, so these stand for the
+lowercase forms too), `NODE_TLS_REJECT_UNAUTHORIZED`,
 `NODE_EXTRA_CA_CERTS`, `LD_PRELOAD` and `LD_LIBRARY_PATH` in its own `env`.
 
 ## Requirements
