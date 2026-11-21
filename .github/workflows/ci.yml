@@ -137,6 +137,8 @@ jobs:
     permissions:
       contents: read
     strategy:
+      # Both legs run to the end, so both artifacts are uploaded.
+      fail-fast: false
       matrix:
         leg: [one, two]
     env:

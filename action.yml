@@ -65,7 +65,8 @@ outputs:
 # A composite, so the run's own token reaches the engine through this step's
 # own env, which nothing the caller sets can override; an input could be set
 # by the caller to any token. The step runs the bundled dist/index.mjs on a
-# pinned Node, and installs no Rust.
+# pinned Node, and installs no Rust. A composite's run step gets no Actions
+# runtime credential, so upload-artifact, an action, uploads the report.
 runs:
   using: composite
   steps:
@@ -96,3 +97,12 @@ runs:
         GITHUB_JOB: ${{ github.job }}
         GITHUB_API_URL: ${{ github.api_url }}
       run: node "$GITHUB_ACTION_PATH/dist/index.mjs"
+    # Even when the audit failed the step, so a refused or nonconformant run
+    # still leaves its report for the Worker.
+    - name: Upload the findings
+      if: always() && steps.audit.outputs.artifact-directory != ''
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: ${{ steps.audit.outputs.artifact }}
+        path: ${{ steps.audit.outputs.artifact-directory }}
+        if-no-files-found: error

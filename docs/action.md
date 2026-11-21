@@ -9,12 +9,18 @@ relationships:
 # The Airlock action
 
 The Airlock action audits the repository that runs it, in repository mode, on
-the run's own `GITHUB_TOKEN`. It is a composite action of two steps. The
-first sets up Node 24.22.3 with `actions/setup-node`, pinned by commit. The
-second runs the committed `dist/index.mjs` on it, which loads the engine from
-`dist/airlock_bg.wasm` (see [the WebAssembly module](wasm.md)). No step
-installs Rust or runs Cargo, and no Rust binary is published for it. The
-pinned Node stays first on the job's `PATH` for the steps after it.
+the run's own `GITHUB_TOKEN`. It is a composite action of three steps:
+
+1. `actions/setup-node`, pinned by commit, sets up Node 24.22.3. The pinned
+   Node stays first on the job's `PATH` for the steps after it.
+2. A `run` step runs the committed `dist/index.mjs` on it. That loads the
+   engine from `dist/airlock_bg.wasm` (see [the WebAssembly module](wasm.md)),
+   audits, and stages the findings document for upload.
+3. `actions/upload-artifact`, pinned by commit, uploads the staged document,
+   even when step 2 failed. A composite's `run` step gets no Actions runtime
+   credential, so only an action can upload.
+
+No step installs Rust or runs Cargo, and no Rust binary is published for it.
 
 The action is a composite, not a `node24` action, for the run's own token.
 The second step sets `AIRLOCK_RUN_TOKEN` to `${{ github.token }}` in its own
@@ -167,19 +173,22 @@ together, and commit the rebuilt `dist/`.
 `task action:test` runs the action's tests. `action/tests/main.test.mjs` runs
 `main.mjs` with a fake engine that echoes the token, which proves the
 action's own redaction apart from the engine's. `action/tests/action.test.mjs`
-starts
-`dist/index.mjs` as the runner does, against a local server. The server
-replays the module's recording as GitHub's API and fakes the Actions artifact
-service. The tests cover these cases:
+starts `dist/index.mjs` as the action's step does, against a local server
+that replays the module's recording as GitHub's API, and reads the staged
+artifact. The upload step runs only on GitHub: the CI job "Action: a forged
+run token is refused" and `audit.yml` run it. The tests cover these cases:
 
-- the template's `with:` block, end to end, with the report artifact;
+- the template's `with:` block, end to end, with the staged artifact;
 - text format;
 - a job with a write permission;
 - a token outside Actions;
 - `central` and every other mode, with and without `fail-on-incomplete`;
 - invalid inputs and a local policy;
 - an installation token other than the run's own;
-- a failed upload;
+- the forged pair: another App's installation token as the credential, with
+  `run-token` set as an input;
+- an artifact name for each job, attempt and matrix leg;
+- a report that cannot be staged;
 - every output free of the token when GitHub echoes it.
 
 ## Release

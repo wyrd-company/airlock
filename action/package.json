@@ -12,7 +12,6 @@
     "test": "node --test --test-timeout=120000 tests/*.test.mjs"
   },
   "dependencies": {
-    "@actions/artifact": "6.3.1",
     "@actions/core": "3.0.1"
   },
   "devDependencies": {
