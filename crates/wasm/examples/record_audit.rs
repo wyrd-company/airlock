@@ -148,7 +148,7 @@ fn carries_token(text: &str) -> bool {
             text.match_indices(prefix).any(|(at, _)| {
                 text[at + prefix.len()..]
                     .chars()
-                    .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                    .take_while(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
                     .count()
                     >= 20
             })

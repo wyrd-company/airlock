@@ -229,8 +229,10 @@ Each credential is matched as sent, form-encoded and JSON-escaped. A server,
 proxy or host that echoes one, in a message, a header, a body or a rejection,
 therefore cannot carry it out, whichever code path let the text through.
 
-A token must be shaped like a GitHub token: 8 to 4096 letters, digits and
-`_`. The caller's token is refused before any request when it is not. Safe's
+A token must be shaped like a GitHub token: 8 to 4096 letters, digits, `_`,
+`-` and `.`. An installation token, the run's `GITHUB_TOKEN` included, is
+`ghs_<app id>_<JSON Web Token>` in GitHub's stateless format, hence the `-`
+and `.`. The caller's token is refused before any request when it is not. Safe's
 minted token is refused at `token-request`, and revoked, when it is not. Every
 encoding of such a value, escaped once or twice, is the value itself, so the
 redactor matches it wherever it is echoed. The length floor means redacting

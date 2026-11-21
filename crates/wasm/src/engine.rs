@@ -207,7 +207,7 @@ impl AuditRequest {
         } else {
             Err(EngineError::new(
                 "inputs",
-                "the token is not a GitHub token: it must be 8 to 4096 letters, digits and `_`",
+                "the token is not a GitHub token: it must be 8 to 4096 letters, digits, `_`, `-` and `.`",
             ))
         }
     }
@@ -462,7 +462,7 @@ async fn repository_audit_unredacted(
     if !auth::has_token_shape(&request.token) {
         return Err(EngineError::new(
             "inputs",
-            "the token is not a GitHub token: it must be 8 to 4096 letters, digits and `_`",
+            "the token is not a GitHub token: it must be 8 to 4096 letters, digits, `_`, `-` and `.`",
         ));
     }
     let Some((owner, repo)) = request
@@ -858,7 +858,8 @@ mod tests {
             "",
             "ghu_SYN\"THE\\TICtoken0123456789",
             "ghu_per%2fcent0123456789",
-            "ghu_dash-token0123456789",
+            "ghu_slash/token0123456789",
+            "ghu_plus+token0123456789",
         ] {
             let request = AuditRequest::parse(
                 &serde_json::json!({ "token": token, "owner": "o", "repo": "r" }).to_string(),
@@ -866,11 +867,17 @@ mod tests {
             .unwrap();
             assert_eq!(request.check_token().unwrap_err().kind, "inputs", "{token}");
         }
-        let request = AuditRequest::parse(
-            &serde_json::json!({ "token": "ghu_SYNTHETICtoken0123456789", "owner": "o", "repo": "r" })
-                .to_string(),
-        )
-        .unwrap();
-        assert!(request.check_token().is_ok());
+        // The legacy form, and an installation token in GitHub's stateless
+        // form, `ghs_<app id>_<JWT>`.
+        for token in [
+            "ghu_SYNTHETICtoken0123456789",
+            "ghs_15368_eyJhbGciOiJSUzI1NiJ9.eyJzeW50aGV0aWMiOnRydWV9.c2ln-bmF0_dXJl",
+        ] {
+            let request = AuditRequest::parse(
+                &serde_json::json!({ "token": token, "owner": "o", "repo": "r" }).to_string(),
+            )
+            .unwrap();
+            assert!(request.check_token().is_ok(), "{token}");
+        }
     }
 }
