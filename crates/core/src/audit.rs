@@ -126,8 +126,18 @@ pub async fn run<G: GitHub>(
     options: &AuditOptions,
     grant: Option<&VerifiedGrant>,
 ) -> Result<Report> {
+    #[cfg(feature = "native")]
     if let Some(root) = options.working_tree.clone() {
         return run_mixed(client, owner, repo, policy, options, grant, &root).await;
+    }
+    // Without local reads, a working tree asked for is refused rather than
+    // quietly replaced by the default branch.
+    #[cfg(not(feature = "native"))]
+    if let Some(root) = &options.working_tree {
+        return Err(crate::Error::WorkingTree(format!(
+            "this build of Airlock reads no working tree, so `{}` cannot be audited",
+            root.display()
+        )));
     }
 
     let mut snapshot = RepoSnapshot::read(
@@ -226,6 +236,7 @@ pub async fn run<G: GitHub>(
 
 /// Run a mixed audit: file-level rules from a working tree, platform rules
 /// from the API.
+#[cfg(feature = "native")]
 async fn run_mixed<G: GitHub>(
     client: &G,
     owner: &str,
@@ -342,6 +353,7 @@ async fn run_mixed<G: GitHub>(
 /// # Errors
 ///
 /// Returns an operational error when the working tree cannot be read.
+#[cfg(feature = "native")]
 pub fn run_local(
     policy: &ResolvedPolicy,
     options: &AuditOptions,
@@ -442,6 +454,7 @@ pub fn run_local(
     )
 }
 
+#[cfg(feature = "native")]
 fn refuse_reference_with_working_tree(options: &AuditOptions) -> Result<()> {
     if options.reference.is_some() {
         return Err(Error::WorkingTree(
@@ -452,6 +465,7 @@ fn refuse_reference_with_working_tree(options: &AuditOptions) -> Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "native")]
 fn working_tree_observation(
     facts: &crate::worktree::WorkingTreeFacts,
     default_branch: &str,
@@ -471,6 +485,7 @@ fn working_tree_observation(
 /// Load the audited paths from the working tree, mirroring the API path
 /// loading: the rule set, workflows, then release-unit paths once the
 /// config has been read.
+#[cfg(feature = "native")]
 fn load_local_files(
     snapshot: &mut RepoSnapshot,
     facts: &crate::worktree::WorkingTreeFacts,
@@ -510,6 +525,7 @@ fn load_local_files(
     workflow_paths
 }
 
+#[cfg(feature = "native")]
 fn not_observed_error(subject: &str) -> ApiError {
     ApiError::local(
         ErrorCause::Unauthenticated,
@@ -572,6 +588,7 @@ fn complete_run(
     // — an uncommitted suppression request suppresses nothing.
     let request_text = match &suppressions {
         SuppressionInput::Snapshot => context.text(".github/airlock.yml").map(ToOwned::to_owned),
+        #[cfg(feature = "native")]
         SuppressionInput::Committed(text) => text.clone(),
     };
     let resolved = policy.for_repository(
@@ -770,6 +787,7 @@ enum SuppressionInput {
     /// The snapshot's own copy — for API sources, always committed content.
     Snapshot,
     /// The committed copy read from the working tree's HEAD.
+    #[cfg(feature = "native")]
     Committed(Option<String>),
 }
 

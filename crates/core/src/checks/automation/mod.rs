@@ -11,6 +11,7 @@ mod hooks;
 mod taskfile;
 mod workflows;
 
+#[cfg(feature = "native")]
 pub(crate) use workflows::{is_remote_airlock_action, CENTRAL_INPUTS};
 
 use delivery::*;
