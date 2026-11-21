@@ -35,7 +35,7 @@ jobs:
           components: clippy, rustfmt
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-      - uses: go-task/setup-task@01a4adf9db2d14c1de7a560f09170b6e0df736aa # v2
+      - uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2
       - name: Install repository linters
         run: task ci:install-linters
       - run: task lint
@@ -53,7 +53,7 @@ jobs:
         with:
           toolchain: stable
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-      - uses: go-task/setup-task@01a4adf9db2d14c1de7a560f09170b6e0df736aa # v2
+      - uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2
       - run: task test
 
   build:
@@ -69,7 +69,7 @@ jobs:
         with:
           toolchain: stable
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-      - uses: go-task/setup-task@01a4adf9db2d14c1de7a560f09170b6e0df736aa # v2
+      - uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2
       - run: task build
 
   # The engine as the WebAssembly module the Worker and the JavaScript
@@ -93,7 +93,7 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
-      - uses: go-task/setup-task@01a4adf9db2d14c1de7a560f09170b6e0df736aa # v2
+      - uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2
       - run: task wasm:install
       - run: task wasm
 
@@ -120,7 +120,7 @@ jobs:
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         with:
           package_json_file: action/package.json
-      - uses: go-task/setup-task@01a4adf9db2d14c1de7a560f09170b6e0df736aa # v2
+      - uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2
       - run: task wasm:install
       - run: task action:install
       - run: task action
@@ -181,7 +181,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - uses: go-task/setup-task@01a4adf9db2d14c1de7a560f09170b6e0df736aa # v2
+      - uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2
       - name: Arm the forge
         run: task action:forge -- arm
       - id: forged
@@ -218,7 +218,7 @@ jobs:
         with:
           toolchain: 1.88.0
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-      - uses: go-task/setup-task@01a4adf9db2d14c1de7a560f09170b6e0df736aa # v2
+      - uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2
       - run: task msrv
 
   # Squash merge means the pull request title becomes the commit on main.
@@ -233,7 +233,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - uses: go-task/setup-task@01a4adf9db2d14c1de7a560f09170b6e0df736aa # v2
+      - uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2
       - env:
           PR_TITLE: ${{ github.event.pull_request.title }}
         run: task lint:commit-msg -- "$PR_TITLE"
@@ -256,7 +256,7 @@ jobs:
         with:
           toolchain: stable
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-      - uses: go-task/setup-task@01a4adf9db2d14c1de7a560f09170b6e0df736aa # v2
+      - uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2
       - name: Run dogfood audit
         env:
           AIRLOCK_RUN_TOKEN: ${{ github.token }}
