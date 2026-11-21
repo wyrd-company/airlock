@@ -4,6 +4,8 @@
 //! endpoint. Every credential it hands out is a distinct marker, so a test can
 //! show that no message carries a token, an assertion or a signature.
 
+use std::sync::Arc;
+
 use airlock_core::audit::AuditOptions;
 use airlock_core::auth::{TokenKind, AIRLOCK_SAFE_APP_ID};
 use airlock_core::central::{
@@ -15,6 +17,7 @@ use airlock_core::github::RestClientConfig;
 use airlock_core::limits::Limits;
 use airlock_core::policy::PolicySource;
 use airlock_core::rules::CredentialCapability;
+use airlock_core::transport::{ReqwestTransport, Transport};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
 use serde_json::{json, Value};
@@ -214,6 +217,12 @@ fn oidc(server: &MockServer) -> OidcRequest {
     .expect("the job can request a token")
 }
 
+fn native() -> Arc<dyn Transport> {
+    Arc::new(
+        ReqwestTransport::new(Limits::default().connect_timeout).expect("the transport builds"),
+    )
+}
+
 fn endpoints(server: &MockServer) -> Endpoints {
     Endpoints {
         github_api: server.uri(),
@@ -227,6 +236,7 @@ async fn refused(server: &MockServer) -> CentralError {
         &oidc(server),
         &endpoints(server),
         Limits::default(),
+        native(),
     )
     .await
     .expect_err("the sign-in is refused");
@@ -252,6 +262,7 @@ async fn central_mode_signs_in_as_airlock_safe_and_mints_a_read_only_token() {
         &oidc(&server),
         &endpoints(&server),
         Limits::default(),
+        native(),
     )
     .await
     .expect("the sign-in succeeds");
@@ -333,6 +344,7 @@ async fn a_user_owner_is_found_on_its_own_route() {
         &oidc(&server),
         &endpoints(&server),
         Limits::default(),
+        native(),
     )
     .await
     .expect("the user installation is found");
@@ -493,6 +505,7 @@ async fn installation_repositories_other_than_the_owner_stop_at_installation_sco
         &oidc(&server),
         &endpoints(&server),
         Limits::default(),
+        native(),
     )
     .await
     .unwrap_err();
@@ -596,6 +609,7 @@ async fn a_listing_cut_short_makes_the_central_run_incomplete() {
         &oidc(&server),
         &endpoints(&server),
         Limits::default(),
+        native(),
     )
     .await
     .expect("the sign-in succeeds");
@@ -831,6 +845,7 @@ async fn a_failed_revocation_repeats_nothing_github_said() {
         &oidc(&server),
         &endpoints(&server),
         Limits::default(),
+        native(),
     )
     .await
     .expect("the sign-in succeeds");
@@ -856,6 +871,7 @@ async fn an_expiry_that_is_not_a_timestamp_is_not_kept() {
         &oidc(&server),
         &endpoints(&server),
         Limits::default(),
+        native(),
     )
     .await
     .expect("the sign-in succeeds");
@@ -870,6 +886,7 @@ async fn the_session_redacts_its_token_from_any_text() {
         &oidc(&server),
         &endpoints(&server),
         Limits::default(),
+        native(),
     )
     .await
     .expect("the sign-in succeeds");

@@ -25,7 +25,8 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::sync::Arc;
+use std::time::Duration;
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
@@ -36,6 +37,7 @@ use zeroize::Zeroizing;
 use crate::auth::{InstallationGrant, TokenKind, VerifiedGrant};
 use crate::auth::{AIRLOCK_SAFE_APP_ID, AIRLOCK_SAFE_APP_SLUG};
 use crate::limits::Limits;
+use crate::transport::{self, FailureKind, Method, Transport};
 
 /// Microsoft Entra ID's sign-in host.
 pub const AZURE_LOGIN_BASE: &str = "https://login.microsoftonline.com";
@@ -332,7 +334,7 @@ fn vault_origin(value: &str) -> Result<String, CentralError> {
             "`vault-url` must be `https://` and a host, with no path.",
         )
     };
-    let url = reqwest::Url::parse(value).map_err(|_| refused())?;
+    let url = url::Url::parse(value).map_err(|_| refused())?;
     let host = url.host_str().ok_or_else(refused)?;
     let loopback = matches!(host, "127.0.0.1" | "localhost" | "[::1]");
     let scheme_allowed = url.scheme() == "https" || (url.scheme() == "http" && loopback);
@@ -418,7 +420,7 @@ pub struct CentralSession {
     pub installation_id: u64,
     /// The token's expiry, as GitHub stated it.
     pub expires_at: Option<String>,
-    http: reqwest::Client,
+    http: Http,
     github_api: String,
 }
 
@@ -453,6 +455,13 @@ impl CentralSession {
         revoke_token(&self.http, &self.github_api, &self.token).await
     }
 
+    /// The transport the session signed in through, for the clients that
+    /// audit with its token.
+    #[must_use]
+    pub fn transport(&self) -> Arc<dyn Transport> {
+        Arc::clone(&self.http.transport)
+    }
+
     /// Replace every occurrence of the session's token in `text`.
     ///
     /// The last guard on everything central mode prints: a report or a
@@ -470,6 +479,9 @@ impl CentralSession {
 
 /// Sign in as Airlock Safe and mint a read-only installation token.
 ///
+/// Every request goes through `transport`, which also supplies the clock the
+/// App's JSON Web Token is dated by.
+///
 /// # Errors
 ///
 /// Returns a [`CentralError`] naming the first step that failed.
@@ -478,20 +490,17 @@ pub async fn sign_in(
     oidc: &OidcRequest,
     endpoints: &Endpoints,
     limits: Limits,
+    transport: Arc<dyn Transport>,
 ) -> Result<CentralSession, CentralError> {
-    let http = reqwest::Client::builder()
-        .user_agent(concat!("airlock/", env!("CARGO_PKG_VERSION")))
-        // Every request here carries a credential, and a redirect is the
-        // server choosing where it goes next.
-        .redirect(reqwest::redirect::Policy::none())
-        .connect_timeout(limits.connect_timeout)
-        .timeout(limits.request_timeout)
-        .build()
-        .map_err(|error| CentralError::new(Step::Inputs, error.to_string()))?;
+    let http = Http {
+        transport,
+        timeout: limits.request_timeout,
+    };
     let budget = limits.max_response_bytes;
 
     let vault_token = azure_sign_in(&http, config, oidc, endpoints, budget).await?;
-    let jwt = sign_app_jwt(&http, config, &vault_token, budget, now_epoch_seconds()).await?;
+    let now = http.transport.unix_time().as_secs();
+    let jwt = sign_app_jwt(&http, config, &vault_token, budget, now).await?;
     drop(vault_token);
 
     check_app(&http, &endpoints.github_api, &jwt, budget).await?;
@@ -531,7 +540,7 @@ pub async fn sign_in(
 // ---------------------------------------------------------------------------
 
 async fn azure_sign_in(
-    http: &reqwest::Client,
+    http: &Http,
     config: &CentralConfig,
     oidc: &OidcRequest,
     endpoints: &Endpoints,
@@ -543,14 +552,17 @@ async fn azure_sign_in(
         oidc.url,
         percent_encoding::utf8_percent_encode(AZURE_AUDIENCE, percent_encoding::NON_ALPHANUMERIC)
     );
-    let response = http
-        .get(url)
-        .bearer_auth(oidc.token.as_str())
-        .header("Accept", "application/json")
-        .send()
-        .await
-        .map_err(|error| transport(Step::AzureSignIn, "the OpenID Connect request", &error))?;
-    let (status, body) = read(response, Step::AzureSignIn, budget).await?;
+    let request = transport::Request::new(Method::Get, url)
+        .bearer(oidc.token.as_str())
+        .header("accept", "application/json");
+    let (status, body) = http
+        .call(
+            request,
+            Step::AzureSignIn,
+            "the OpenID Connect request",
+            budget,
+        )
+        .await?;
     if !(200..300).contains(&status) {
         return Err(answered(
             Step::AzureSignIn,
@@ -592,18 +604,24 @@ async fn azure_sign_in(
             .collect::<Vec<_>>()
             .join("&"),
     );
-    let response = http
-        .post(format!(
+    let request = transport::Request::new(
+        Method::Post,
+        format!(
             "{}/{}/oauth2/v2.0/token",
             endpoints.azure_login, config.azure_tenant_id
-        ))
-        .header("Content-Type", "application/x-www-form-urlencoded")
-        .header("Accept", "application/json")
-        .body(encoded.as_str().to_owned())
-        .send()
-        .await
-        .map_err(|error| transport(Step::AzureSignIn, "the Entra ID token request", &error))?;
-    let (status, body) = read(response, Step::AzureSignIn, budget).await?;
+        ),
+    )
+    .header("content-type", "application/x-www-form-urlencoded")
+    .header("accept", "application/json")
+    .body(encoded.as_bytes());
+    let (status, body) = http
+        .call(
+            request,
+            Step::AzureSignIn,
+            "the Entra ID token request",
+            budget,
+        )
+        .await?;
     if !(200..300).contains(&status) {
         // Entra ID names the failure in `error`, such as `invalid_client`,
         // and in the numbers of `error_codes`, such as AADSTS70021. Only a
@@ -628,7 +646,7 @@ async fn azure_sign_in(
 
 /// The App's JSON Web Token, signed by Key Vault.
 async fn sign_app_jwt(
-    http: &reqwest::Client,
+    http: &Http,
     config: &CentralConfig,
     vault_token: &str,
     budget: usize,
@@ -643,15 +661,19 @@ async fn sign_app_jwt(
         "{}/keys/{}//sign?api-version={KEY_VAULT_API_VERSION}",
         config.vault_url, config.key_name
     );
-    let response = http
-        .post(url)
-        .bearer_auth(vault_token)
-        .header("Accept", "application/json")
-        .json(&serde_json::json!({ "alg": "RS256", "value": digest }))
-        .send()
-        .await
-        .map_err(|error| transport(Step::KeyVaultSign, "the Key Vault sign request", &error))?;
-    let (status, body) = read(response, Step::KeyVaultSign, budget).await?;
+    let request = transport::Request::new(Method::Post, url)
+        .bearer(vault_token)
+        .header("accept", "application/json")
+        .header("content-type", "application/json")
+        .body(serde_json::json!({ "alg": "RS256", "value": digest }).to_string());
+    let (status, body) = http
+        .call(
+            request,
+            Step::KeyVaultSign,
+            "the Key Vault sign request",
+            budget,
+        )
+        .await?;
     if !(200..300).contains(&status) {
         return Err(answered(
             Step::KeyVaultSign,
@@ -706,13 +728,14 @@ pub fn jwt_signing_input(app_id: u64, now: u64) -> String {
 // ---------------------------------------------------------------------------
 
 async fn check_app(
-    http: &reqwest::Client,
+    http: &Http,
     github_api: &str,
     jwt: &str,
     budget: usize,
 ) -> Result<(), CentralError> {
     let (status, body) = github(
-        http.get(format!("{github_api}/app")),
+        http,
+        transport::Request::new(Method::Get, format!("{github_api}/app")),
         jwt,
         Step::AppIdentity,
         budget,
@@ -773,7 +796,7 @@ struct FoundInstallation {
 }
 
 async fn find_installation(
-    http: &reqwest::Client,
+    http: &Http,
     config: &CentralConfig,
     github_api: &str,
     jwt: &str,
@@ -781,7 +804,11 @@ async fn find_installation(
 ) -> Result<FoundInstallation, CentralError> {
     let owner = &config.owner;
     let mut answer = github(
-        http.get(format!("{github_api}/orgs/{owner}/installation")),
+        http,
+        transport::Request::new(
+            Method::Get,
+            format!("{github_api}/orgs/{owner}/installation"),
+        ),
         jwt,
         Step::InstallationLookup,
         budget,
@@ -790,7 +817,11 @@ async fn find_installation(
     if answer.0 == 404 {
         // A user account answers on its own route.
         answer = github(
-            http.get(format!("{github_api}/users/{owner}/installation")),
+            http,
+            transport::Request::new(
+                Method::Get,
+                format!("{github_api}/users/{owner}/installation"),
+            ),
             jwt,
             Step::InstallationLookup,
             budget,
@@ -878,17 +909,20 @@ struct MintedToken {
 }
 
 async fn mint_token(
-    http: &reqwest::Client,
+    http: &Http,
     github_api: &str,
     jwt: &str,
     installation_id: u64,
     budget: usize,
 ) -> Result<MintedToken, CentralError> {
     let (status, body) = github(
-        http.post(format!(
-            "{github_api}/app/installations/{installation_id}/access_tokens"
-        ))
-        .json(&serde_json::json!({})),
+        http,
+        transport::Request::new(
+            Method::Post,
+            format!("{github_api}/app/installations/{installation_id}/access_tokens"),
+        )
+        .header("content-type", "application/json")
+        .body("{}"),
         jwt,
         Step::TokenRequest,
         budget,
@@ -944,13 +978,10 @@ async fn mint_token(
     })
 }
 
-async fn revoke_token(
-    http: &reqwest::Client,
-    github_api: &str,
-    token: &str,
-) -> Result<(), CentralError> {
+async fn revoke_token(http: &Http, github_api: &str, token: &str) -> Result<(), CentralError> {
     let (status, body) = github(
-        http.delete(format!("{github_api}/installation/token")),
+        http,
+        transport::Request::new(Method::Delete, format!("{github_api}/installation/token")),
         token,
         Step::TokenRevoke,
         4096,
@@ -972,61 +1003,66 @@ async fn revoke_token(
 // Transport
 // ---------------------------------------------------------------------------
 
+/// The transport, and how long one request may take.
+#[derive(Clone)]
+struct Http {
+    transport: Arc<dyn Transport>,
+    timeout: Duration,
+}
+
+impl Http {
+    /// Send one request and read its answer under the byte budget. A body
+    /// that is not JSON reads as null, so a refusal still reports its status.
+    ///
+    /// Every request here carries a credential, and a redirect is the server
+    /// choosing where it goes next, so none is followed.
+    async fn call(
+        &self,
+        mut request: transport::Request,
+        step: Step,
+        what: &str,
+        budget: usize,
+    ) -> Result<(u16, Value), CentralError> {
+        request.follow_redirects = false;
+        request.timeout = self.timeout;
+        request.max_response_bytes = budget;
+        let request = request.header("user-agent", concat!("airlock/", env!("CARGO_PKG_VERSION")));
+        let response = self.transport.send(request).await.map_err(|error| {
+            // The transport's message names the URL. The URLs here carry no
+            // credential, but the text is not needed, so only the kind is
+            // kept.
+            let kind = match error.kind {
+                FailureKind::TooLarge => {
+                    return CentralError::new(
+                        step,
+                        format!("the answer exceeded the {budget} byte limit and was abandoned"),
+                    )
+                }
+                FailureKind::Timeout => "timed out",
+                FailureKind::Connect => "could not connect",
+                FailureKind::Other => "failed",
+            };
+            CentralError::new(step, format!("{what} {kind}"))
+        })?;
+        Ok((
+            response.status,
+            serde_json::from_slice(&response.body).unwrap_or(Value::Null),
+        ))
+    }
+}
+
 async fn github(
-    request: reqwest::RequestBuilder,
+    http: &Http,
+    request: transport::Request,
     bearer: &str,
     step: Step,
     budget: usize,
 ) -> Result<(u16, Value), CentralError> {
-    let response = request
-        .bearer_auth(bearer)
-        .header("Accept", "application/vnd.github+json")
-        .header("X-GitHub-Api-Version", "2022-11-28")
-        .send()
-        .await
-        .map_err(|error| transport(step, "the GitHub request", &error))?;
-    read(response, step, budget).await
-}
-
-/// Read a response under the byte budget. A body that is not JSON reads as
-/// null, so a refusal still reports its status.
-async fn read(
-    mut response: reqwest::Response,
-    step: Step,
-    budget: usize,
-) -> Result<(u16, Value), CentralError> {
-    let status = response.status().as_u16();
-    let mut bytes = Zeroizing::new(Vec::new());
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .map_err(|error| transport(step, "reading the answer", &error))?
-    {
-        if bytes.len() + chunk.len() > budget {
-            return Err(CentralError::new(
-                step,
-                format!("the answer exceeded the {budget} byte limit and was abandoned"),
-            ));
-        }
-        bytes.extend_from_slice(&chunk);
-    }
-    Ok((
-        status,
-        serde_json::from_slice(&bytes).unwrap_or(Value::Null),
-    ))
-}
-
-fn transport(step: Step, what: &str, error: &reqwest::Error) -> CentralError {
-    // reqwest's message names the URL. The URLs here carry no credential,
-    // but the text is not needed, so only the kind is kept.
-    let kind = if error.is_timeout() {
-        "timed out"
-    } else if error.is_connect() {
-        "could not connect"
-    } else {
-        "failed"
-    };
-    CentralError::new(step, format!("{what} {kind}"))
+    let request = request
+        .bearer(bearer)
+        .header("accept", "application/vnd.github+json")
+        .header("x-github-api-version", "2022-11-28");
+    http.call(request, step, "the GitHub request", budget).await
 }
 
 fn answered(
@@ -1138,13 +1174,6 @@ fn non_reads(permissions: &BTreeMap<String, String>) -> Vec<String> {
         .filter(|(_, level)| level.as_str() != "read")
         .map(|(name, level)| format!("{name}={level}"))
         .collect()
-}
-
-fn now_epoch_seconds() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or(Duration::ZERO)
-        .as_secs()
 }
 
 #[cfg(test)]
