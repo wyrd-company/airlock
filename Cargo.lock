@@ -100,6 +100,7 @@ version = "0.0.0"
 dependencies = [
  "airlock-core",
  "js-sys",
+ "percent-encoding",
  "serde",
  "serde_json",
  "tokio",

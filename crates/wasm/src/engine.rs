@@ -19,7 +19,7 @@ use airlock_core::limits::Limits;
 use airlock_core::policy::{self, PolicySource};
 use airlock_core::transport::Transport;
 use serde::{Deserialize, Serialize};
-use zeroize::Zeroize as _;
+use zeroize::{Zeroize as _, Zeroizing};
 
 /// The Airlock version the module reports.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -61,6 +61,106 @@ impl EngineError {
     }
 }
 
+/// The shortest value the module accepts as a credential, so that redacting
+/// one never rewrites ordinary text.
+const MIN_SECRET_LENGTH: usize = 8;
+
+/// What `application/x-www-form-urlencoded` leaves unescaped, beside letters
+/// and digits, as central sign-in encodes its form.
+const FORM_VALUE: &percent_encoding::AsciiSet = &percent_encoding::NON_ALPHANUMERIC
+    .remove(b'-')
+    .remove(b'.')
+    .remove(b'_')
+    .remove(b'*');
+
+/// The boundary every string leaving the module passes.
+///
+/// An entry point holds the credentials it was given or minted, and every
+/// report, error message and error code it returns is redacted against them.
+/// A server, proxy or host that echoes a credential (in a message, a header,
+/// a body or a rejection) therefore cannot carry it out, whichever call site
+/// let the text through. Each credential is matched as sent, form-encoded and
+/// JSON-escaped.
+#[derive(Default)]
+pub struct Redactor {
+    forms: Vec<Zeroizing<String>>,
+}
+
+impl Redactor {
+    /// A redactor for `secrets`.
+    #[must_use]
+    pub fn of<'a>(secrets: impl IntoIterator<Item = &'a str>) -> Self {
+        let mut redactor = Self::default();
+        for secret in secrets {
+            redactor.add(secret);
+        }
+        redactor
+    }
+
+    /// Redact `secret` too.
+    pub fn add(&mut self, secret: &str) {
+        let secret = secret.trim();
+        if secret.len() < MIN_SECRET_LENGTH {
+            return;
+        }
+        let encoded = percent_encoding::utf8_percent_encode(secret, FORM_VALUE).to_string();
+        let escaped = serde_json::to_string(secret).unwrap_or_default();
+        let escaped = escaped.trim_matches('"').to_owned();
+        for form in [secret.to_owned(), encoded, escaped] {
+            if !self.forms.iter().any(|known| known.as_str() == form) {
+                self.forms.push(Zeroizing::new(form));
+            }
+        }
+        // The longest first, so a secret containing another is replaced whole.
+        self.forms.sort_by_key(|form| std::cmp::Reverse(form.len()));
+    }
+
+    /// `text`, with every known credential replaced by `[redacted]`.
+    #[must_use]
+    pub fn redact(&self, text: &str) -> String {
+        let mut text = text.to_owned();
+        for form in &self.forms {
+            if text.contains(form.as_str()) {
+                text = text.replace(form.as_str(), "[redacted]");
+            }
+        }
+        text
+    }
+
+    /// An entry point's result, redacted.
+    fn result<T: Redactable>(&self, result: Result<T, EngineError>) -> Result<T, EngineError> {
+        match result {
+            Ok(value) => Ok(value.redacted(self)),
+            Err(error) => Err(error.redacted(self)),
+        }
+    }
+}
+
+/// What an entry point returns, as the redactor sees it.
+trait Redactable {
+    fn redacted(self, redactor: &Redactor) -> Self;
+}
+
+impl Redactable for String {
+    fn redacted(self, redactor: &Redactor) -> Self {
+        redactor.redact(&self)
+    }
+}
+
+impl Redactable for () {
+    fn redacted(self, _: &Redactor) -> Self {}
+}
+
+impl Redactable for EngineError {
+    fn redacted(self, redactor: &Redactor) -> Self {
+        Self {
+            message: redactor.redact(&self.message),
+            code: self.code.map(|code| redactor.redact(&code)),
+            ..self
+        }
+    }
+}
+
 impl fmt::Display for EngineError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(&self.message)
@@ -94,6 +194,21 @@ impl Drop for AuditRequest {
 }
 
 impl AuditRequest {
+    /// Refuse a token too short to redact, or that is not one printable
+    /// word, before it is sent anywhere.
+    fn check_token(&self) -> Result<(), EngineError> {
+        let token = self.token.as_str();
+        let printable = token.chars().all(|c| c.is_ascii_graphic());
+        if token.len() < MIN_SECRET_LENGTH || token.len() > 4096 || !printable {
+            return Err(EngineError::new(
+                "inputs",
+                "the token is not a credential: it must be 8 to 4096 printable characters \
+                 with no space",
+            ));
+        }
+        Ok(())
+    }
+
     /// Parse a request from its JSON text.
     ///
     /// # Errors
@@ -156,6 +271,15 @@ pub async fn audit(
     transport: Arc<dyn Transport>,
     request: &AuditRequest,
 ) -> Result<String, EngineError> {
+    let redactor = Redactor::of([request.token.as_str()]);
+    redactor.result(audit_unredacted(transport, request).await)
+}
+
+async fn audit_unredacted(
+    transport: Arc<dyn Transport>,
+    request: &AuditRequest,
+) -> Result<String, EngineError> {
+    request.check_token()?;
     let limits = Limits::default();
     let client = RestClient::with_transport(
         request.token.as_str(),
@@ -265,6 +389,8 @@ impl CentralRequest {
 /// dropped. Every output passes through the session's redaction.
 pub struct Session {
     inner: central::CentralSession,
+    /// Safe's installation token, as every output is redacted against it.
+    redactor: Redactor,
     owner: String,
     client_config: RestClientConfig,
 }
@@ -296,6 +422,23 @@ pub async fn sign_in(
     transport: Arc<dyn Transport>,
     request: &CentralRequest,
 ) -> Result<Session, EngineError> {
+    let redactor = Redactor::of([request.credential.value.as_str()]);
+    match sign_in_unredacted(transport, request).await {
+        Ok(session) => Ok(session),
+        Err(error) => Err(error.redacted(&redactor)),
+    }
+}
+
+async fn sign_in_unredacted(
+    transport: Arc<dyn Transport>,
+    request: &CentralRequest,
+) -> Result<Session, EngineError> {
+    if request.credential.value.trim().len() < MIN_SECRET_LENGTH {
+        return Err(EngineError::new(
+            "inputs",
+            "the Entra ID credential is too short to be one",
+        ));
+    }
     let config = CentralConfig::parse(
         &request.owner,
         &CentralInputs {
@@ -341,8 +484,10 @@ pub async fn sign_in(
     let inner = central::sign_in(&config, &credential, &endpoints, limits, transport)
         .await
         .map_err(|error| EngineError::central(&error))?;
+    let redactor = Redactor::of([inner.token()]);
     Ok(Session {
         inner,
+        redactor,
         owner: config.owner,
         client_config: client_config(limits, Some(&endpoints.github_api)),
     })
@@ -367,14 +512,10 @@ impl Session {
         }
     }
 
-    fn redacted(&self, result: Result<String, EngineError>) -> Result<String, EngineError> {
-        match result {
-            Ok(text) => Ok(self.inner.redact(&text)),
-            Err(mut error) => {
-                error.message = self.inner.redact(&error.message);
-                Err(error)
-            }
-        }
+    fn redacted<T: Redactable>(&self, result: Result<T, EngineError>) -> Result<T, EngineError> {
+        // The module's boundary is the one guard here: it holds the same
+        // token the core's own session redacts.
+        self.redactor.result(result)
     }
 
     /// Audit one repository the installation reaches, with Safe's grant.
@@ -464,10 +605,57 @@ impl Session {
     ///
     /// Returns a `central` [`EngineError`] when GitHub does not confirm it.
     pub async fn revoke(&self) -> Result<(), EngineError> {
-        self.inner.revoke().await.map_err(|error| {
-            let mut error = EngineError::central(&error);
-            error.message = self.inner.redact(&error.message);
-            error
-        })
+        let result = self
+            .inner
+            .revoke()
+            .await
+            .map_err(|error| EngineError::central(&error));
+        self.redacted(result)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_credential_is_redacted_as_sent_form_encoded_and_json_escaped() {
+        let secret = "s3cr~et.value\"with/quote";
+        let redactor = Redactor::of([secret]);
+        let encoded = percent_encoding::utf8_percent_encode(secret, FORM_VALUE).to_string();
+        let escaped = serde_json::to_string(secret).unwrap();
+        let text = format!("raw {secret} form {encoded} json {escaped}");
+        let redacted = redactor.redact(&text);
+        assert!(!redacted.contains(secret), "{redacted}");
+        assert!(!redacted.contains(&encoded), "{redacted}");
+        assert!(!redacted.contains(escaped.trim_matches('"')), "{redacted}");
+        assert_eq!(redacted.matches("[redacted]").count(), 3, "{redacted}");
+    }
+
+    #[test]
+    fn a_value_too_short_to_be_a_credential_rewrites_nothing() {
+        let redactor = Redactor::of(["abc", "", "       "]);
+        assert_eq!(redactor.redact("abc abc"), "abc abc");
+    }
+
+    #[test]
+    fn an_error_is_redacted_in_its_message_and_its_code() {
+        let token = "ghu_SYNTHETICtoken0123456789abcdef";
+        let mut error = EngineError::new("audit", format!("echoed {token}"));
+        error.code = Some(token.to_owned());
+        let error = error.redacted(&Redactor::of([token]));
+        assert!(!error.message.contains(token));
+        assert_eq!(error.code.as_deref(), Some("[redacted]"));
+    }
+
+    #[test]
+    fn a_token_too_short_to_redact_is_refused_before_any_request() {
+        for token in ["ghu_x", "ghu_has space", ""] {
+            let request = AuditRequest::parse(
+                &serde_json::json!({ "token": token, "owner": "o", "repo": "r" }).to_string(),
+            )
+            .unwrap();
+            assert_eq!(request.check_token().unwrap_err().kind, "inputs", "{token}");
+        }
     }
 }
