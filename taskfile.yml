@@ -35,6 +35,10 @@ tasks:
     cmds:
       - cargo fmt --all -- --check
       - cargo clippy --workspace --all-targets -- -D warnings
+      # The core and the module as the WebAssembly build compiles them.
+      - >-
+        cargo clippy -p airlock-core -p airlock-wasm --no-default-features
+        --target wasm32-unknown-unknown -- -D warnings
       - actionlint .github/workflows/*.yml
       - shellcheck scripts/*.sh
       - >-
@@ -57,6 +61,40 @@ tasks:
       # airlock, and dev-dependencies (wiremock needs 1.88) are not part of it.
       # The full suite runs on stable in the test job.
       - cargo build --workspace --locked
+
+  wasm:install:
+    desc: >-
+      Install the wasm32 target and the wasm-bindgen command line that
+      Cargo.lock locks
+    cmds:
+      - rustup target add wasm32-unknown-unknown
+      - >-
+        cargo install --locked wasm-bindgen-cli --version
+        "$(sed -n '/^name = "wasm-bindgen"$/{n;s/^version = "\(.*\)"$/\1/p;}' Cargo.lock)"
+
+  wasm:build:
+    desc: Build the WebAssembly module and its bindings into target/wasm-pkg
+    cmds:
+      - scripts/build-wasm.sh
+
+  wasm:size:
+    desc: Fail when the module is over the size budget docs/wasm.md states
+    cmds:
+      - scripts/check-wasm-size.sh
+
+  wasm:test:
+    desc: >-
+      Run the module's tests under Node: central sign-in against fakes, the
+      host's clock, and parity with the native build
+    cmds:
+      - scripts/test-wasm.sh
+
+  wasm:
+    desc: Everything CI runs for the WebAssembly module
+    cmds:
+      - task: wasm:build
+      - task: wasm:size
+      - task: wasm:test
 
   ci:install-linters:
     desc: Install the repository linters used by CI
@@ -123,3 +161,4 @@ tasks:
       - task: test
       - task: build
       - task: msrv
+      - task: wasm

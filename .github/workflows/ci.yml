@@ -33,6 +33,7 @@ jobs:
         with:
           toolchain: stable
           components: clippy, rustfmt
+          targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - uses: go-task/setup-task@01a4adf9db2d14c1de7a560f09170b6e0df736aa # v2
       - name: Install repository linters
@@ -70,6 +71,31 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - uses: go-task/setup-task@01a4adf9db2d14c1de7a560f09170b6e0df736aa # v2
       - run: task build
+
+  # The engine as the WebAssembly module the Worker and the JavaScript
+  # action load: built at the size-optimised profile, held to the budget
+  # docs/wasm.md states, and tested under Node, including parity with the
+  # native build on recorded responses.
+  wasm:
+    name: WebAssembly
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: stable
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - uses: go-task/setup-task@01a4adf9db2d14c1de7a560f09170b6e0df736aa # v2
+      - run: task wasm:install
+      - run: task wasm
 
   # rust-version in Cargo.toml is a promise. This job is what keeps it true:
   # the toolchain is pinned to the declared minimum and the lockfile is not
