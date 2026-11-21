@@ -74,6 +74,8 @@ runs:
       uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
       with:
         node-version: 24.22.3
+        # The caller's package.json is not the action's: never cache for it.
+        package-manager-cache: false
     - name: Audit repository
       id: audit
       shell: bash
@@ -96,6 +98,18 @@ runs:
         GITHUB_WORKFLOW_SHA: ${{ github.workflow_sha }}
         GITHUB_JOB: ${{ github.job }}
         GITHUB_API_URL: ${{ github.api_url }}
+        # Defence in depth: a caller can set these in the job env, the step
+        # env or $GITHUB_ENV to run its own code in this step, before the
+        # engine, and so rewrite AIRLOCK_RUN_TOKEN. Blanked here. This is not
+        # the boundary: the engine's own check on the token is (see
+        # docs/action.md, "What the action proves").
+        BASH_ENV: ""
+        ENV: ""
+        NODE_OPTIONS: ""
+        NODE_PATH: ""
+        NODE_EXTRA_CA_CERTS: ""
+        LD_PRELOAD: ""
+        LD_LIBRARY_PATH: ""
       run: node "$GITHUB_ACTION_PATH/dist/index.mjs"
     # Even when the audit failed the step, so a refused or nonconformant run
     # still leaves its report for the Worker.

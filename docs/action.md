@@ -11,8 +11,11 @@ relationships:
 The Airlock action audits the repository that runs it, in repository mode, on
 the run's own `GITHUB_TOKEN`. It is a composite action of three steps:
 
-1. `actions/setup-node`, pinned by commit, sets up Node 24.22.3. The pinned
-   Node stays first on the job's `PATH` for the steps after it.
+1. `actions/setup-node`, pinned by commit, sets up Node 24.22.3, with its
+   package-manager cache off: the caller's `package.json` is not the
+   action's. **The action's Node stays first on the job's `PATH` for the
+   caller's later steps.** A later step that needs another Node sets it up
+   itself.
 2. A `run` step runs the committed `dist/index.mjs` on it. That loads the
    engine from `dist/airlock_bg.wasm` (see [the WebAssembly module](wasm.md)),
    audits, and stages the findings document for upload.
@@ -31,7 +34,11 @@ credential and the run's token, and the job's read permissions would be
 recorded as its grant. The CI job "Action: a forged run token is refused"
 runs exactly that attempt on GitHub's runners, and the action refuses it.
 The same step takes the run's repository, workflow, commit, job and API
-address from the `github` context, not from the caller's environment.
+address from the `github` context, not from the caller's environment. It
+also blanks `BASH_ENV`, `ENV`, `NODE_OPTIONS`, `NODE_PATH`,
+`NODE_EXTRA_CA_CERTS`, `LD_PRELOAD` and `LD_LIBRARY_PATH`, through which a
+caller could run its own code in the step before the engine. That list is
+defence in depth, not the boundary.
 
 Repository mode is the only mode. The central audit of every repository of an
 owner is the Airlock Worker's scheduled audit, not the action's.
