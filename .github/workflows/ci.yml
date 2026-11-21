@@ -133,8 +133,12 @@ jobs:
   #                 and leaves a marker file, in every Node step it reaches;
   #   bash-env:     BASH_ENV, written to $GITHUB_ENV, sources a script that
   #                 rewrites it;
+  #   ld-preload:   LD_PRELOAD and LD_AUDIT, written to $GITHUB_ENV, load a
+  #                 library an earlier step built, into every process;
   #   proxy:        NODE_USE_ENV_PROXY, HTTPS_PROXY to a dead address and
-  #                 NODE_TLS_REJECT_UNAUTHORIZED=0, with the run's real token.
+  #                 NODE_TLS_REJECT_UNAUTHORIZED=0, with the run's real token
+  #                 and no pinned Node in the tool cache, so setup-node must
+  #                 download it past the proxy and step.sh checks its SHA-256.
   # The action must refuse the forged token before any request, or, for the
   # proxy leg, reach GitHub directly; no step of it may run the caller's
   # NODE_OPTIONS. Then each forge is shown to work on an ordinary step.
@@ -159,6 +163,9 @@ jobs:
             node-options: >-
               --import=data:text/javascript,import{writeFileSync}from'node:fs';writeFileSync('/tmp/airlock-forge-marker','');process.env.AIRLOCK_RUN_TOKEN=process.env.FORGED
           - leg: bash-env
+            run-token: ""
+            node-options: ""
+          - leg: ld-preload
             run-token: ""
             node-options: ""
           - leg: proxy
