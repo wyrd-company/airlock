@@ -241,3 +241,27 @@ test("no central output carries the secret, the assertion or Safe's token when t
     session.free();
   }
 });
+
+test("a token with characters whose escaped forms evade redaction is refused before any request", async () => {
+  // Round 2's reproduction: echoed inside a JSON string that is itself
+  // escaped, `"` and `\` become `\\\"` and `\\\\`, which match no form the
+  // redactor holds. Such a token never reaches a request.
+  const token = 'ghu_SYN"THE\\TICtoken0123456789';
+  const doubled = JSON.stringify(JSON.stringify(`{"message":"${token}"}`));
+  const seen = [];
+  const host = fetchHost({
+    fetch: async (url) => {
+      seen.push(url);
+      return new Response(`{"installations":[{"id":${doubled}}]}`, { status: 200 });
+    },
+  });
+  for (const candidate of [token, "ghu_per%2fcent0123456789", "ghu_per%2Fcent0123456789"]) {
+    const result = await outcome(
+      airlock.audit(host, JSON.stringify({ token: candidate, ...recording.request, githubApi: BASE })),
+    );
+    assert.ok(result.failed, candidate);
+    assert.equal(result.error.kind, "inputs", candidate);
+    assertClean(result.text, [candidate, JSON.stringify(candidate).slice(1, -1), doubled]);
+  }
+  assert.deepEqual(seen, []);
+});

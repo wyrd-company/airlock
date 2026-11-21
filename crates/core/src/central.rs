@@ -1066,6 +1066,24 @@ async fn mint_token(
     let token = string_field(&body, "token")
         .map(|token| Zeroizing::new(token.to_owned()))
         .ok_or_else(|| CentralError::new(Step::TokenRequest, "GitHub's answer carried no token"))?;
+    // Every output is redacted against this token, which only works for a
+    // value shaped like a GitHub token: a short one would redact nothing, and
+    // one with `"` or `%` has escaped forms a redactor misses. So a token of
+    // another shape is never used.
+    if !crate::auth::has_token_shape(&token) {
+        let revoked = revoke_token(http, github_api, &token).await;
+        return Err(CentralError::new(
+            Step::TokenRequest,
+            format!(
+                "the minted token is not shaped like a GitHub token (8 to 4096 letters, digits \
+                 and `_`), so central mode will not use it{}",
+                match revoked {
+                    Ok(()) => ", and it was revoked".to_owned(),
+                    Err(error) => format!(", and revoking it failed: {}", error.step.code()),
+                }
+            ),
+        ));
+    }
     let permissions = permission_map(&body);
     let writes = permissions.as_ref().map(non_reads).unwrap_or_default();
     let listed = match &permissions {

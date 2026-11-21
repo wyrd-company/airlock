@@ -676,6 +676,36 @@ async fn a_minted_token_with_a_write_permission_is_refused_and_revoked() {
 }
 
 #[tokio::test]
+async fn a_minted_token_not_shaped_like_a_github_token_is_refused_and_revoked() {
+    for token in [
+        "ghs_s",
+        "ghs_quote\"d_0123456789",
+        "ghs_per%2fcent_0123456789",
+        "",
+    ] {
+        let server = fake().await;
+        let mut body = minted(&[("metadata", "read")]);
+        body["token"] = json!(token);
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/app/installations/{INSTALLATION}/access_tokens"
+            )))
+            .respond_with(ResponseTemplate::new(201).set_body_json(body))
+            .mount(&server)
+            .await;
+        let error = refused(&server).await;
+        assert_eq!(error.step, Step::TokenRequest, "{token}");
+        assert!(
+            error.detail.contains("not shaped like a GitHub token"),
+            "{error}"
+        );
+        if !token.is_empty() {
+            assert!(!error.to_string().contains(token), "{error}");
+        }
+    }
+}
+
+#[tokio::test]
 async fn a_minted_token_listing_no_permissions_is_refused() {
     let server = fake().await;
     Mock::given(method("POST"))

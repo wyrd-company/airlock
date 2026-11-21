@@ -81,6 +81,18 @@ pub enum TokenKind {
     Unknown,
 }
 
+/// Whether `token` has the shape of a GitHub token: 8 to 4096 characters,
+/// each a letter, a digit or `_`.
+///
+/// Every GitHub token has this alphabet. Any encoding of such a value (JSON,
+/// a URL, a form, either escaped twice) is the value itself, so a redactor
+/// that matches it as written matches it wherever it is echoed.
+#[must_use]
+pub fn has_token_shape(token: &str) -> bool {
+    (8..=4096).contains(&token.len())
+        && token.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
 impl TokenKind {
     /// Classify a token by its documented prefix.
     #[must_use]
