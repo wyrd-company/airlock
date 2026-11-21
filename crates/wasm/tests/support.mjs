@@ -28,7 +28,6 @@ export const SECRETS = {
   vaultToken: "vault-access-token-MARKER2",
   signature: Buffer.from("rs256-signature-bytes-MARKER3").toString("base64url"),
   minted: "ghs_mintedMARKER4",
-  assertion: "eyJob3N0.eyJhc3NlcnRpb24.c2lnbmVkMARKER5",
 };
 
 /** Fail when `text` carries any secret marker. */

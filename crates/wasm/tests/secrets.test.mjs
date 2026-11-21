@@ -179,7 +179,7 @@ test("a completed report carries no token even when a server echoes it", async (
   assert.ok(JSON.parse(result.text).findings.length > 0);
 });
 
-test("no central output carries the secret, the assertion or Safe's token when the services echo them", async () => {
+test("no central output carries the client secret or Safe's token when the services echo them", async () => {
   const everySecret = Object.values(SECRETS);
   const echoAll = (status) => echo(status, everySecret.join(" "));
   for (const route of [

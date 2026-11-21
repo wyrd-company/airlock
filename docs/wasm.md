@@ -166,10 +166,11 @@ check of that mode holds:
 ```
 
 The module has no GitHub Actions job to request an OpenID Connect token from.
-The host proves itself to Entra ID with its own credential. `kind` is
-`client-secret`, or `client-assertion` for a certificate credential: the host
-signs the assertion and keeps the certificate's key. `githubApi` and
-`azureLogin` override the service roots for tests.
+The host proves itself to Entra ID with its own credential. `kind` must be
+`client-secret`: the Worker's Entra credential is a client secret
+([wyrd-company/.github#26](https://github.com/wyrd-company/.github/issues/26)),
+and the module takes no other kind. `githubApi` and `azureLogin` override the
+service roots for tests.
 
 The session holds Safe's installation token inside the module. No method
 returns it, and every output passes through the session's redaction. A
