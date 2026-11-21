@@ -18,7 +18,13 @@ if [ "$locked" != "$installed" ]; then
   exit 1
 fi
 
-cargo build --locked -p airlock-wasm --target wasm32-unknown-unknown --profile wasm-release
+# The module keeps the source path of each panic location. Mapping the
+# Cargo home and the checkout to fixed names makes the module the same bytes
+# on every machine with the same toolchain, which the action's committed
+# dist/ relies on (docs/action.md).
+cargo_home=$(cd "${CARGO_HOME:-$HOME/.cargo}" && pwd -P)
+RUSTFLAGS="--remap-path-prefix=$cargo_home=/cargo --remap-path-prefix=$(pwd -P)=/airlock" \
+  cargo build --locked -p airlock-wasm --target wasm32-unknown-unknown --profile wasm-release
 
 target_dir=$(cargo metadata --format-version 1 --no-deps |
   sed 's/.*"target_directory":"\([^"]*\)".*/\1/')
