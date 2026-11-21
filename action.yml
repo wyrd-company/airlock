@@ -83,12 +83,27 @@ runs:
         HTTP_PROXY: ""
         NODE_TLS_REJECT_UNAUTHORIZED: ""
         NODE_EXTRA_CA_CERTS: ""
+        NODE_USE_SYSTEM_CA: ""
+        SSL_CERT_FILE: ""
+        SSL_CERT_DIR: ""
         LD_PRELOAD: ""
+        LD_AUDIT: ""
         LD_LIBRARY_PATH: ""
+        GCONV_PATH: ""
       with:
         node-version: 24.22.3
         # The caller's package.json is not the action's: never cache for it.
         package-manager-cache: false
+    # Refuse, with a message, a runner whose /bin/sh is not dash on Linux:
+    # the audit step's safety rests on it (action/check-runner.sh).
+    - name: Check the runner
+      shell: sh
+      env:
+        BASH_ENV: ""
+        ENV: ""
+        AIRLOCK_RUNNER_OS: ${{ runner.os }}
+        AIRLOCK_ACTION_PATH: ${{ github.action_path }}
+      run: '"$AIRLOCK_ACTION_PATH/action/check-runner.sh"'
     - name: Audit repository
       id: audit
       # dash: it imports no functions from the environment and reads $ENV
@@ -97,6 +112,17 @@ runs:
       env:
         BASH_ENV: ""
         ENV: ""
+        # The dynamic loader acts on this shell, step.sh and env before
+        # env -i, and they hold the credentials. glibc ignores an empty value.
+        LD_PRELOAD: ""
+        LD_AUDIT: ""
+        LD_LIBRARY_PATH: ""
+        LD_BIND_NOW: ""
+        LD_DEBUG: ""
+        LD_PROFILE: ""
+        GCONV_PATH: ""
+        AIRLOCK_RUNNER_OS: ${{ runner.os }}
+        AIRLOCK_NODE_ARCH: ${{ runner.arch == 'ARM64' && 'arm64' || 'x64' }}
         INPUT_MODE: ${{ inputs.mode }}
         INPUT_TOKEN: ${{ inputs.token }}
         INPUT_REPOSITORY: ${{ inputs.repository }}
@@ -140,8 +166,13 @@ runs:
         HTTP_PROXY: ""
         NODE_TLS_REJECT_UNAUTHORIZED: ""
         NODE_EXTRA_CA_CERTS: ""
+        NODE_USE_SYSTEM_CA: ""
+        SSL_CERT_FILE: ""
+        SSL_CERT_DIR: ""
         LD_PRELOAD: ""
+        LD_AUDIT: ""
         LD_LIBRARY_PATH: ""
+        GCONV_PATH: ""
       with:
         name: ${{ steps.audit.outputs.artifact }}
         path: ${{ steps.audit.outputs.artifact-directory }}
