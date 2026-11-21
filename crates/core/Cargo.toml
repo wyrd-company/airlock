@@ -12,7 +12,7 @@ repository.workspace = true
 default = ["native"]
 # The native transport (reqwest and tokio's timer), local Git and working-tree
 # reads. A WebAssembly build turns it off and supplies its own transport.
-native = []
+native = ["dep:gix", "dep:ignore", "dep:reqwest", "dep:tokio"]
 
 [dependencies]
 globset.workspace = true
@@ -20,16 +20,16 @@ base64.workspace = true
 hex.workspace = true
 jsonschema.workspace = true
 percent-encoding.workspace = true
-reqwest.workspace = true
+reqwest = { workspace = true, optional = true }
 semver.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 serde_norway.workspace = true
 sha2.workspace = true
-gix.workspace = true
-ignore.workspace = true
+gix = { workspace = true, optional = true }
+ignore = { workspace = true, optional = true }
 thiserror.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, optional = true }
 toml.workspace = true
 url.workspace = true
 zeroize.workspace = true
@@ -37,4 +37,5 @@ zeroize.workspace = true
 [dev-dependencies]
 anyhow.workspace = true
 tempfile.workspace = true
+tokio.workspace = true
 wiremock.workspace = true

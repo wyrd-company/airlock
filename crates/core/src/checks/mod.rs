@@ -20,6 +20,8 @@ macro_rules! try_verdict {
 
 mod automation;
 
+// Align-files, a native-only working-tree mode, repairs with these.
+#[cfg(feature = "native")]
 pub(crate) use automation::{is_remote_airlock_action, CENTRAL_INPUTS};
 mod classification;
 mod files;

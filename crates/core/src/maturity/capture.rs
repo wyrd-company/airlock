@@ -70,6 +70,7 @@ pub(crate) fn captured(
 }
 
 /// Read local Git objects with the same observer as an API audit.
+#[cfg(feature = "native")]
 pub fn read_local(
     root: &std::path::Path,
     max_commits: usize,
@@ -83,6 +84,7 @@ pub fn read_local(
     read_local_at(root, &head.to_string(), max_commits)
 }
 
+#[cfg(feature = "native")]
 pub(crate) fn read_local_at(
     root: &std::path::Path,
     commit: &str,

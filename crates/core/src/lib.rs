@@ -22,6 +22,7 @@ mod document;
 mod release_records;
 mod template_identity;
 
+#[cfg(feature = "native")]
 pub mod alignment;
 pub mod audit;
 pub mod auth;
@@ -38,11 +39,13 @@ pub mod maturity;
 pub mod policy;
 pub mod render;
 pub mod rules;
+#[cfg(feature = "native")]
 pub mod skill;
 pub mod snapshot;
 pub mod transport;
 pub mod workflow_token;
 pub mod worklist;
+#[cfg(feature = "native")]
 pub mod worktree;
 pub mod yaml;
 

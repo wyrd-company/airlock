@@ -11,8 +11,11 @@ use crate::rules::Lifecycle;
 
 mod capture;
 mod forecast;
+#[cfg(feature = "native")]
 pub use capture::read_local;
-pub(crate) use capture::{captured, gather_tags, read_local_at};
+#[cfg(feature = "native")]
+pub(crate) use capture::read_local_at;
+pub(crate) use capture::{captured, gather_tags};
 pub(crate) use forecast::report;
 pub use forecast::{MaturityReport, Transition, TransitionRule};
 
